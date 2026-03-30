@@ -40,3 +40,14 @@ services:
       LOG_LEVEL: "DEBUG"
       IDLE_TIMEOUT_SECONDS: "600"
     entrypoint: ["uvicorn", "code_executor.api:app", "--host", "0.0.0.0", "--port", "8888", "--reload", "--reload-dir", "code_executor"]
+
+  data-replay:
+    build:
+      context: ./data-replay
+      dockerfile: Dockerfile
+    image: smart-living-copilot/data-replay:dev
+    volumes:
+      - ./data-replay/replay_server.py:/app/replay_server.py:cached
+      - ./data-replay/td_generator.py:/app/td_generator.py:cached
+      - ./data-replay:/app/data:ro
+    entrypoint: ["uvicorn", "replay_server:app", "--host", "0.0.0.0", "--port", "9000", "--reload"]

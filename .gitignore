@@ -9,3 +9,6 @@ dist/
 .ruff_cache/
 .pytest_cache/
 thing_descriptions
+data-replay/sources.yaml
+data-replay/data/
+data-replay/fixtures.db

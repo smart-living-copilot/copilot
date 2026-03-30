@@ -62,7 +62,7 @@ services:
       resources:
         limits:
           cpus: '0.50'
-          memory: 512M
+          memory: 1024M
           pids: 64
     networks:
       - backend-isolated
@@ -153,6 +153,22 @@ services:
       WOT_RUNTIME_API_TOKEN: ${WOT_RUNTIME_API_TOKEN}
       WOT_RUNTIME_STREAM: ${WOT_RUNTIME_STREAM:-wot_runtime_events}
       WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS: ${WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS:-0}
+
+  data-replay:
+    image: ghcr.io/smart-living-copilot/data-replay:latest
+    volumes:
+      - ./data-replay:/app/data:ro
+    environment:
+      DB_PATH: /app/data/fixtures.db
+      REPLAY_BASE_URL: http://data-replay:9000
+      WOT_REGISTRY_URL: http://wot-registry:8000
+      WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
+    depends_on:
+      wot-registry:
+        condition: service_healthy
+    networks:
+      - backend-isolated
+    restart: unless-stopped
 
 volumes:
   chat-ui-data:
