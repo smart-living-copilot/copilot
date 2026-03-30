@@ -40,11 +40,3 @@ services:
       LOG_LEVEL: "DEBUG"
       IDLE_TIMEOUT_SECONDS: "600"
     entrypoint: ["uvicorn", "code_executor.api:app", "--host", "0.0.0.0", "--port", "8888", "--reload", "--reload-dir", "code_executor"]
-
-  # wot-registry:
-  #   ports:
-  #     - "8000:8000"
-
-  # wot-runtime:
-  #   ports:
-  #     - "3003:3003"
