@@ -1,0 +1,54 @@
+{
+  "name": "chat-ui",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "tsx --test src/lib/chat-snapshots.test.ts src/lib/chat-deletion.test.ts",
+    "typecheck": "next typegen && tsc --noEmit",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check"
+  },
+  "dependencies": {
+    "@copilotkit/react-core": "^1.54.1",
+    "@copilotkit/react-ui": "^1.54.1",
+    "@copilotkit/runtime": "^1.54.1",
+    "better-sqlite3": "^12.8.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "drizzle-orm": "^0.45.1",
+    "embla-carousel-react": "^8.6.0",
+    "lucide-react": "^0.577.0",
+    "motion": "^12.38.0",
+    "next": "16.2.1",
+    "next-themes": "^0.4.6",
+    "radix-ui": "^1.4.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0"
+  },
+  "overrides": {
+    "prismjs": "^1.30.0",
+    "refractor": {
+      "prismjs": "^1.30.0"
+    }
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.1",
+    "prettier": "^3.8.1",
+    "tailwindcss": "^4",
+    "tsx": "^4.20.6",
+    "typescript": "^5"
+  }
+}

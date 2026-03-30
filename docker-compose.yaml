@@ -1,0 +1,167 @@
+services:
+  copilot:
+    image: ghcr.io/smart-living-copilot/copilot:latest
+    env_file: .env
+    volumes:
+      - copilot-data:/data
+    environment:
+      WOT_REGISTRY_URL: "${WOT_REGISTRY_URL:-http://wot-registry:8000/mcp}"
+      WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
+      CODE_EXECUTOR_URL: "http://code-executor:8888"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
+      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
+      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
+      LANGFUSE_HOST: "${LANGFUSE_HOST:-https://cloud.langfuse.com}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      OPENAI_MODEL: "${OPENAI_MODEL}"
+      OPENAI_BASE_URL: "${OPENAI_API_BASE_URL}"
+      AGENT_STATE_DB_PATH: "/data/agent_state.db"
+    depends_on:
+      wot-registry:
+        condition: service_healthy
+    networks:
+      - frontend-internal
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+
+  chat-ui:
+    image: ghcr.io/smart-living-copilot/chat-ui:latest
+    env_file: .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - chat-ui-data:/app/data
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:8123"
+      COPILOT_URL: "http://copilot:8123"
+      CODE_EXECUTOR_URL: "http://code-executor:8888"
+      WOT_API_URL: "http://wot-registry:8000/api"
+      WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
+      HOSTNAME: "0.0.0.0"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
+    depends_on:
+      copilot:
+        condition: service_started
+    networks:
+      - frontend-internal
+      - backend-isolated
+    restart: unless-stopped
+
+  code-executor:
+    image: ghcr.io/smart-living-copilot/code-executor:latest
+    env_file: .env
+    read_only: true
+    tmpfs:
+      - /tmp:size=100M
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+          pids: 64
+    networks:
+      - backend-isolated
+    environment:
+      IDLE_TIMEOUT_SECONDS: "1800"
+      MAX_SESSIONS: "50"
+      LOG_LEVEL: "INFO"
+      WOT_REGISTRY_URL: "http://wot-registry:8000"
+      WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - backend-isolated
+    restart: unless-stopped
+
+  wot-registry:
+    image: ghcr.io/smart-living-copilot/wot-registry:latest
+    depends_on:
+      valkey:
+        condition: service_healthy
+    networks:
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    environment:
+      REDIS_URL: redis://valkey:6379
+      REGISTRY_DATABASE_URL: ${REGISTRY_DATABASE_URL:-sqlite:////data/registry/wot_registry.db}
+      REGISTRY_PUBLIC_URL: ${REGISTRY_PUBLIC_URL:-http://wot-registry:8000}
+      INIT_ADMIN_TOKEN: ${INIT_ADMIN_TOKEN}
+      WOT_RUNTIME_REGISTRY_TOKEN: ${WOT_RUNTIME_REGISTRY_TOKEN}
+      WOT_RUNTIME_API_TOKEN: ${WOT_RUNTIME_API_TOKEN}
+      WOT_RUNTIME_URL: http://wot-runtime:3003
+      SEARCH_VECTOR_COLLECTION_NAME: ${SEARCH_VECTOR_COLLECTION_NAME:-thing_search}
+      SEARCH_VECTOR_STORE_DIR: /data/registry/search-index
+      SEARCH_INDEXER_EVENTS_GROUP: ${SEARCH_INDEXER_EVENTS_GROUP:-thing_search_indexer}
+      SEARCH_INDEXER_RETRY_SECONDS: ${SEARCH_INDEXER_RETRY_SECONDS:-5}
+      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      EMBEDDING_API_BASE_URL: ${EMBEDDING_API_BASE_URL:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-mxbai-embed-large}
+      WOT_RUNTIME_TIMEOUT_SECONDS: ${WOT_RUNTIME_TIMEOUT_SECONDS:-15}
+      WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS: ${WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS:-5}
+      WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS: ${WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS:-0}
+    volumes:
+      - wot-registry-data:/data/registry
+
+  wot-runtime:
+    image: ghcr.io/smart-living-copilot/wot-runtime:latest
+    depends_on:
+      valkey:
+        condition: service_healthy
+      wot-registry:
+        condition: service_healthy
+    networks:
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3003"
+      REDIS_URL: redis://valkey:6379
+      REGISTRY_URL: http://wot-registry:8000
+      WOT_RUNTIME_REGISTRY_TOKEN: ${WOT_RUNTIME_REGISTRY_TOKEN}
+      WOT_RUNTIME_API_TOKEN: ${WOT_RUNTIME_API_TOKEN}
+      WOT_RUNTIME_STREAM: ${WOT_RUNTIME_STREAM:-wot_runtime_events}
+      WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS: ${WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS:-0}
+
+volumes:
+  chat-ui-data:
+  copilot-data:
+  valkey-data:
+  wot-registry-data:
+
+networks:
+  frontend-internal:
+  backend-isolated:
+    internal: true
+  egress-api:

@@ -1,0 +1,314 @@
+@import 'tailwindcss';
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  --radius: 0.5rem;
+  --background: oklch(0.982 0.007 95.5);
+  --foreground: oklch(0.257 0.028 243.27);
+  --card: oklch(0.994 0.004 95.5);
+  --card-foreground: oklch(0.257 0.028 243.27);
+  --popover: oklch(0.994 0.004 95.5);
+  --popover-foreground: oklch(0.257 0.028 243.27);
+  --primary: oklch(0.59 0.116 233.14);
+  --primary-foreground: oklch(0.985 0.002 247.84);
+  --secondary: oklch(0.948 0.013 228.5);
+  --secondary-foreground: oklch(0.257 0.028 243.27);
+  --muted: oklch(0.958 0.008 240.6);
+  --muted-foreground: oklch(0.478 0.028 244.05);
+  --accent: oklch(0.95 0.025 88.15);
+  --accent-foreground: oklch(0.257 0.028 243.27);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.577 0.245 27.325);
+  --border: oklch(0.9 0.009 245.4);
+  --input: oklch(0.9 0.009 245.4);
+  --ring: oklch(0.676 0.08 232.86);
+  --sidebar: oklch(0.97 0.005 240);
+  --sidebar-foreground: oklch(0.32 0.028 243.27);
+  --sidebar-primary: oklch(0.59 0.116 233.14);
+  --sidebar-primary-foreground: oklch(0.985 0.002 247.84);
+  --sidebar-accent: oklch(0.935 0.012 230);
+  --sidebar-accent-foreground: oklch(0.257 0.028 243.27);
+  --sidebar-border: oklch(0.9 0.009 245.4);
+  --sidebar-ring: oklch(0.676 0.08 232.86);
+}
+
+.dark {
+  --background: oklch(0.145 0.008 240);
+  --foreground: oklch(0.93 0.005 240);
+  --card: oklch(0.18 0.008 240);
+  --card-foreground: oklch(0.93 0.005 240);
+  --popover: oklch(0.18 0.008 240);
+  --popover-foreground: oklch(0.93 0.005 240);
+  --primary: oklch(0.68 0.1 233.14);
+  --primary-foreground: oklch(0.145 0.008 240);
+  --secondary: oklch(0.24 0.012 240);
+  --secondary-foreground: oklch(0.93 0.005 240);
+  --muted: oklch(0.24 0.012 240);
+  --muted-foreground: oklch(0.65 0.015 240);
+  --accent: oklch(0.24 0.012 240);
+  --accent-foreground: oklch(0.93 0.005 240);
+  --destructive: oklch(0.5 0.2 27);
+  --destructive-foreground: oklch(0.93 0.005 240);
+  --border: oklch(0.28 0.01 240);
+  --input: oklch(0.28 0.01 240);
+  --ring: oklch(0.55 0.08 233.14);
+  --sidebar: oklch(0.17 0.008 240);
+  --sidebar-foreground: oklch(0.85 0.01 240);
+  --sidebar-primary: oklch(0.68 0.1 233.14);
+  --sidebar-primary-foreground: oklch(0.145 0.008 240);
+  --sidebar-accent: oklch(0.24 0.012 240);
+  --sidebar-accent-foreground: oklch(0.93 0.005 240);
+  --sidebar-border: oklch(0.28 0.01 240);
+  --sidebar-ring: oklch(0.55 0.08 233.14);
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(
+      circle at top left,
+      oklch(0.91 0.05 230 / 0.48),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at bottom right,
+      oklch(0.95 0.04 87 / 0.36),
+      transparent 22%
+    ),
+    linear-gradient(180deg, oklch(0.996 0.003 95.5), var(--background));
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.dark body {
+  background:
+    radial-gradient(
+      circle at top left,
+      oklch(0.25 0.04 230 / 0.5),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at bottom right,
+      oklch(0.22 0.03 87 / 0.3),
+      transparent 22%
+    ),
+    linear-gradient(180deg, oklch(0.16 0.008 240), var(--background));
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.81 0.02 238.33) transparent;
+}
+
+.dark * {
+  scrollbar-color: oklch(0.35 0.02 240) transparent;
+}
+
+::selection {
+  background: oklch(0.86 0.047 227.87);
+  color: var(--foreground);
+}
+
+.dark ::selection {
+  background: oklch(0.4 0.06 230);
+  color: oklch(0.93 0.005 240);
+}
+
+.smart-living-copilot-chat {
+  --copilot-kit-primary-color: var(--primary);
+  --copilot-kit-contrast-color: var(--primary-foreground);
+  --copilot-kit-background-color: color-mix(
+    in oklab,
+    var(--card) 88%,
+    var(--background)
+  );
+  --copilot-kit-input-background-color: color-mix(
+    in oklab,
+    var(--card) 74%,
+    var(--background)
+  );
+  --copilot-kit-secondary-color: color-mix(
+    in oklab,
+    var(--secondary) 72%,
+    var(--card)
+  );
+  --copilot-kit-secondary-contrast-color: var(--foreground);
+  --copilot-kit-separator-color: color-mix(
+    in oklab,
+    var(--border) 84%,
+    transparent
+  );
+  --copilot-kit-muted-color: var(--muted-foreground);
+  --copilot-kit-error-background: color-mix(
+    in oklab,
+    var(--destructive) 10%,
+    var(--background)
+  );
+  --copilot-kit-error-border: color-mix(
+    in oklab,
+    var(--destructive) 28%,
+    var(--border)
+  );
+  --copilot-kit-error-text: var(--destructive);
+  --copilot-kit-shadow-sm: 0 12px 24px oklch(0.28 0.02 240 / 0.06);
+  --copilot-kit-shadow-md: 0 24px 50px oklch(0.28 0.02 240 / 0.1);
+  border: 1px solid color-mix(in oklab, var(--border) 84%, transparent);
+  border-radius: calc(var(--radius) + 0.8rem);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--card) 88%, white),
+    color-mix(in oklab, var(--background) 72%, var(--card))
+  );
+  box-shadow:
+    0 24px 60px oklch(0.26 0.02 240 / 0.08),
+    inset 0 1px 0 oklch(1 0 0 / 0.7);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.dark .smart-living-copilot-chat {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--card) 92%, white 8%),
+    color-mix(in oklab, var(--background) 88%, var(--card))
+  );
+  box-shadow:
+    0 28px 64px oklch(0.05 0.01 240 / 0.45),
+    inset 0 1px 0 oklch(1 0 0 / 0.08);
+}
+
+.smart-living-copilot-chat.copilotKitChat {
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.smart-living-copilot-chat .copilotKitHeader {
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  background: color-mix(in oklab, var(--card) 86%, white);
+  color: var(--foreground);
+  backdrop-filter: blur(18px);
+}
+
+.dark .smart-living-copilot-chat .copilotKitHeader {
+  background: color-mix(in oklab, var(--card) 90%, black 10%);
+}
+
+.smart-living-copilot-chat .copilotKitMessages {
+  background: transparent;
+}
+
+.smart-living-copilot-chat .copilotKitMessagesContainer {
+  gap: 0.4rem;
+  padding: 1.25rem clamp(1rem, 2vw, 1.5rem);
+}
+
+.smart-living-copilot-chat .copilotKitMessagesFooter {
+  width: 100%;
+  padding: 0.75rem 0 0;
+}
+
+.smart-living-copilot-chat .copilotKitMessage {
+  font-size: 0.95rem;
+}
+
+.smart-living-copilot-chat .copilotKitMessage.copilotKitUserMessage {
+  max-width: min(80%, 48rem);
+  border-radius: 1.3rem 1.3rem 0.45rem 1.3rem;
+  padding: 0.78rem 0.98rem;
+  box-shadow: 0 12px 30px color-mix(in oklab, var(--primary) 20%, transparent);
+}
+
+.smart-living-copilot-chat .copilotKitMessage.copilotKitAssistantMessage {
+  max-width: min(100%, 52rem);
+  margin-bottom: 0.75rem;
+  color: var(--foreground);
+}
+
+.smart-living-copilot-chat .copilotKitAssistantMessage p,
+.smart-living-copilot-chat .copilotKitAssistantMessage li {
+  line-height: 1.75;
+}
+
+.smart-living-copilot-chat .copilotKitMessageControlButton {
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+}
+
+.smart-living-copilot-chat .copilotKitMessageControlButton:hover {
+  color: var(--primary);
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+}
+
+.smart-living-copilot-chat .copilotKitInputContainer {
+  background: transparent;
+  padding: 0 1rem 1rem;
+}
+
+.smart-living-copilot-chat .copilotKitInput {
+  width: 100%;
+  min-height: 88px;
+  border-radius: 1.35rem;
+  border-color: color-mix(in oklab, var(--border) 78%, transparent);
+  background: color-mix(in oklab, var(--card) 80%, var(--background));
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.45);
+}
+
+.smart-living-copilot-chat .copilotKitInput:focus-within {
+  border-color: color-mix(in oklab, var(--primary) 44%, var(--border));
+  box-shadow:
+    0 0 0 4px color-mix(in oklab, var(--primary) 12%, transparent),
+    inset 0 1px 0 oklch(1 0 0 / 0.5);
+}
+
+.smart-living-copilot-chat .copilotKitInput > textarea::placeholder {
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+}
+
+.smart-living-copilot-chat .copilotKitInputControlButton:not([disabled]) {
+  color: var(--primary);
+}
+
+.smart-living-copilot-chat .copilotKitInputControlButton:not([disabled]):hover {
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+  color: var(--primary);
+}
+
+.poweredByContainer > div:last-child,
+.copilotKitInputContainer .poweredBy,
+.poweredBy {
+  display: none !important;
+}

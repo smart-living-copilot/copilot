@@ -1,0 +1,50 @@
+services:
+  copilot:
+    build:
+      context: ./copilot
+      dockerfile: Dockerfile
+    image: smart-living-copilot/copilot:dev
+    volumes:
+      - ./copilot/copilot:/app/copilot:cached
+      - ./copilot/tests:/app/tests:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+    entrypoint: ["uvicorn", "copilot.server:app", "--host", "0.0.0.0", "--port", "8123", "--reload", "--reload-dir", "copilot"]
+
+  chat-ui:
+    build:
+      context: ./chat-ui
+      dockerfile: Dockerfile
+      target: dev
+    image: smart-living-copilot/chat-ui:dev
+    volumes:
+      - ./chat-ui/src:/app/src:cached
+      - ./chat-ui/public:/app/public:cached
+    environment:
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_POLL_INTERVAL_MS: "1000"
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "1"
+
+  code-executor:
+    build:
+      context: ./code-executor
+      dockerfile: Dockerfile
+      target: builder
+    image: smart-living-copilot/code-executor:dev
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./code-executor/code_executor:/app/code_executor:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+      IDLE_TIMEOUT_SECONDS: "600"
+    entrypoint: ["uvicorn", "code_executor.api:app", "--host", "0.0.0.0", "--port", "8888", "--reload", "--reload-dir", "code_executor"]
+
+  # wot-registry:
+  #   ports:
+  #     - "8000:8000"
+
+  # wot-runtime:
+  #   ports:
+  #     - "3003:3003"
