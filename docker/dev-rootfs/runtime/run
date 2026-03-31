@@ -1,5 +1,0 @@
-#!/command/with-contenv sh
-export REGISTRY_URL=http://localhost:8000
-export REDIS_URL=redis://127.0.0.1:6379
-export WOT_RUNTIME_STREAM=wot_runtime_events
-cd /app/wot_runtime && exec npx tsx watch src/index.ts

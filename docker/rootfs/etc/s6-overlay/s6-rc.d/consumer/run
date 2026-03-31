@@ -1,4 +1,0 @@
-#!/command/with-contenv sh
-export REDIS_URL=redis://127.0.0.1:6379
-export PYTHONPATH=/app/backend/src
-exec python3 /app/backend/src/wot_registry/search_indexer/main.py

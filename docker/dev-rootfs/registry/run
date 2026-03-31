@@ -1,4 +1,0 @@
-#!/command/with-contenv sh
-export REGISTRY_DATABASE_URL=sqlite:////data/registry/wot_registry.db
-export REDIS_URL=redis://127.0.0.1:6379
-exec uvicorn wot_registry.app:app --app-dir /app/backend/src --host 0.0.0.0 --port 8000 --reload
