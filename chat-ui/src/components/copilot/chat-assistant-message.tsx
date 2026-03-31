@@ -15,13 +15,11 @@ import {
 import { cn } from '@/lib/utils';
 
 function MessageActionButton({
-  active = false,
   children,
   disabled = false,
   label,
   onClick,
 }: {
-  active?: boolean;
   children: ReactNode;
   disabled?: boolean;
   label: string;
@@ -30,16 +28,12 @@ function MessageActionButton({
   const button = (
     <Button
       aria-label={label}
-      className={cn(
-        !active && 'text-muted-foreground hover:text-primary',
-        active &&
-          'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground',
-      )}
+      className="text-muted-foreground hover:text-primary"
       disabled={disabled}
       onClick={onClick}
       size="icon-sm"
       type="button"
-      variant={active ? 'default' : 'ghost'}
+      variant="ghost"
     >
       {children}
     </Button>
@@ -60,15 +54,12 @@ function MessageActionButton({
 export function ChatAssistantMessage(props: AssistantMessageProps) {
   const { icons, labels } = useChatContext();
   const {
-    feedback,
     isCurrentMessage,
     isLoading,
     markdownTagRenderers,
     message,
     onCopy,
     onRegenerate,
-    onThumbsDown,
-    onThumbsUp,
   } = props;
   const [copied, setCopied] = useState(false);
 
@@ -92,18 +83,6 @@ export function ChatAssistantMessage(props: AssistantMessageProps) {
 
   const handleRegenerate = () => {
     onRegenerate?.();
-  };
-
-  const handleThumbsUp = () => {
-    if (message) {
-      onThumbsUp?.(message);
-    }
-  };
-
-  const handleThumbsDown = () => {
-    if (message) {
-      onThumbsDown?.(message);
-    }
   };
 
   return (
@@ -143,26 +122,6 @@ export function ChatAssistantMessage(props: AssistantMessageProps) {
                   icons.copyIcon
                 )}
               </MessageActionButton>
-
-              {onThumbsUp ? (
-                <MessageActionButton
-                  active={feedback === 'thumbsUp'}
-                  label={labels.thumbsUp}
-                  onClick={handleThumbsUp}
-                >
-                  {icons.thumbsUpIcon}
-                </MessageActionButton>
-              ) : null}
-
-              {onThumbsDown ? (
-                <MessageActionButton
-                  active={feedback === 'thumbsDown'}
-                  label={labels.thumbsDown}
-                  onClick={handleThumbsDown}
-                >
-                  {icons.thumbsDownIcon}
-                </MessageActionButton>
-              ) : null}
             </div>
           ) : null}
         </div>
