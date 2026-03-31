@@ -19,6 +19,7 @@ export default function ChatPage({
 }: {
   params: Promise<{ chatId: string }>;
 }) {
+  const isProductionBuild = process.env.NODE_ENV === 'production';
   const { chatId } = use(params);
   const router = useRouter();
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -120,6 +121,7 @@ export default function ChatPage({
       runtimeUrl="/api/copilotkit"
       agent="copilot"
       threadId={chatId}
+      enableInspector={!isProductionBuild}
     >
       <ChatToolCallRenderer />
 
