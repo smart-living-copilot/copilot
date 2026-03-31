@@ -3,7 +3,6 @@ services:
     build:
       context: ./copilot
       dockerfile: Dockerfile
-    image: smart-living-copilot/copilot:dev
     volumes:
       - ./copilot/copilot:/app/copilot:cached
       - ./copilot/tests:/app/tests:cached
@@ -16,7 +15,6 @@ services:
       context: ./chat-ui
       dockerfile: Dockerfile
       target: dev
-    image: smart-living-copilot/chat-ui:dev
     volumes:
       - ./chat-ui/src:/app/src:cached
       - ./chat-ui/public:/app/public:cached
@@ -31,7 +29,6 @@ services:
       context: ./code-executor
       dockerfile: Dockerfile
       target: builder
-    image: smart-living-copilot/code-executor:dev
     ports:
       - "8888:8888"
     volumes:
@@ -45,7 +42,6 @@ services:
     build:
       context: ./data-replay
       dockerfile: Dockerfile
-    image: smart-living-copilot/data-replay:dev
     volumes:
       - ./data-replay/replay_server.py:/app/replay_server.py:cached
       - ./data-replay/td_generator.py:/app/td_generator.py:cached
