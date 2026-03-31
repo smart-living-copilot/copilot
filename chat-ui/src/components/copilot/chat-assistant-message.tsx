@@ -59,7 +59,6 @@ export function ChatAssistantMessage(props: AssistantMessageProps) {
     markdownTagRenderers,
     message,
     onCopy,
-    onRegenerate,
   } = props;
   const [copied, setCopied] = useState(false);
 
@@ -81,10 +80,6 @@ export function ChatAssistantMessage(props: AssistantMessageProps) {
     window.setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleRegenerate = () => {
-    onRegenerate?.();
-  };
-
   return (
     <>
       {renderBefore ? <div className="mb-2">{subComponent}</div> : null}
@@ -102,15 +97,6 @@ export function ChatAssistantMessage(props: AssistantMessageProps) {
                 isCurrentMessage && 'opacity-100',
               )}
             >
-              {onRegenerate ? (
-                <MessageActionButton
-                  label={labels.regenerateResponse}
-                  onClick={handleRegenerate}
-                >
-                  {icons.regenerateIcon}
-                </MessageActionButton>
-              ) : null}
-
               <MessageActionButton
                 disabled={!hasContent}
                 label={copied ? 'Copied' : labels.copyToClipboard}
