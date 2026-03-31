@@ -104,13 +104,7 @@ function ToolCardHeader({
   title: string;
 }) {
   return (
-    <div
-      className={cn(
-        'flex flex-wrap items-center justify-between gap-2 px-1 py-1',
-        !isCompleted &&
-          'rounded-lg border border-border/45 bg-background/45 px-2.5 py-1.5',
-      )}
-    >
+    <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-1">
       <div className="flex min-w-0 items-center gap-2.5">
         <ToolStatusIcon hasError={hasError} status={status} />
 
@@ -300,7 +294,7 @@ export function RunCodeCard({
       </CollapsibleContent>
 
       {status === 'executing' ? (
-        <div className="rounded-lg border border-dashed border-border/60 bg-background/45 px-2.5 py-2 text-[0.7rem] text-muted-foreground">
+        <div className="px-0.5 text-[0.72rem] text-muted-foreground">
           Executing code…
         </div>
       ) : null}
@@ -368,16 +362,13 @@ export function GenericToolCallCard({
 
       <CollapsibleContent className="data-closed:hidden">
         <div
-          className={cn(
-            'space-y-2 rounded-lg border border-border/45 bg-background/35 p-2.5',
-            !isCompleted && 'mt-2',
-          )}
+          className="space-y-2 rounded-lg border border-border/45 bg-background/35 p-2.5"
         >
           <ToolPayloadSection title="Inputs" value={args} />
           {hasResult ? (
             <ToolPayloadSection title="Result" value={result} />
           ) : status !== 'complete' ? (
-            <div className="rounded-lg border border-dashed border-border/70 bg-background/60 px-3 py-2 text-[0.72rem] text-muted-foreground">
+            <div className="px-0.5 text-[0.72rem] text-muted-foreground">
               Waiting for the tool result to stream back.
             </div>
           ) : null}
