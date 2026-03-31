@@ -5,8 +5,57 @@ import {
   type AssistantMessageProps,
   useChatContext,
 } from '@copilotkit/react-ui';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+
+function MessageActionButton({
+  active = false,
+  children,
+  disabled = false,
+  label,
+  onClick,
+}: {
+  active?: boolean;
+  children: ReactNode;
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  const button = (
+    <Button
+      aria-label={label}
+      className={cn(
+        !active && 'text-muted-foreground hover:text-primary',
+        active &&
+          'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground',
+      )}
+      disabled={disabled}
+      onClick={onClick}
+      size="icon-sm"
+      type="button"
+      variant={active ? 'default' : 'ghost'}
+    >
+      {children}
+    </Button>
+  );
+
+  if (disabled) {
+    return button;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="top">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function ChatAssistantMessage(props: AssistantMessageProps) {
   const { icons, labels } = useChatContext();
@@ -75,61 +124,44 @@ export function ChatAssistantMessage(props: AssistantMessageProps) {
               )}
             >
               {onRegenerate ? (
-                <button
-                  className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-primary"
-                  aria-label={labels.regenerateResponse}
+                <MessageActionButton
+                  label={labels.regenerateResponse}
                   onClick={handleRegenerate}
-                  title={labels.regenerateResponse}
-                  type="button"
                 >
                   {icons.regenerateIcon}
-                </button>
+                </MessageActionButton>
               ) : null}
 
-              <button
-                className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-primary"
-                aria-label={labels.copyToClipboard}
+              <MessageActionButton
+                disabled={!hasContent}
+                label={copied ? 'Copied' : labels.copyToClipboard}
                 onClick={handleCopy}
-                title={labels.copyToClipboard}
-                type="button"
               >
                 {copied ? (
                   <span className="text-[10px] font-bold">✓</span>
                 ) : (
                   icons.copyIcon
                 )}
-              </button>
+              </MessageActionButton>
 
               {onThumbsUp ? (
-                <button
-                  className={cn(
-                    'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-primary',
-                    feedback === 'thumbsUp' &&
-                      'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground',
-                  )}
-                  aria-label={labels.thumbsUp}
+                <MessageActionButton
+                  active={feedback === 'thumbsUp'}
+                  label={labels.thumbsUp}
                   onClick={handleThumbsUp}
-                  title={labels.thumbsUp}
-                  type="button"
                 >
                   {icons.thumbsUpIcon}
-                </button>
+                </MessageActionButton>
               ) : null}
 
               {onThumbsDown ? (
-                <button
-                  className={cn(
-                    'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-primary',
-                    feedback === 'thumbsDown' &&
-                      'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground',
-                  )}
-                  aria-label={labels.thumbsDown}
+                <MessageActionButton
+                  active={feedback === 'thumbsDown'}
+                  label={labels.thumbsDown}
                   onClick={handleThumbsDown}
-                  title={labels.thumbsDown}
-                  type="button"
                 >
                   {icons.thumbsDownIcon}
-                </button>
+                </MessageActionButton>
               ) : null}
             </div>
           ) : null}
