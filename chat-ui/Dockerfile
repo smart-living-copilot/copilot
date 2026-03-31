@@ -1,5 +1,7 @@
 FROM node:25-slim AS dev
 
+ARG APP_VERSION=""
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -8,6 +10,8 @@ RUN npm install
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV APP_VERSION=$APP_VERSION
+ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
 
 RUN mkdir -p /app/data
 
@@ -18,6 +22,8 @@ FROM dev AS build
 RUN npm run build
 
 FROM node:25-slim AS runtime
+
+ARG APP_VERSION=""
 
 WORKDIR /app
 
@@ -30,6 +36,8 @@ COPY --from=build /app/next.config.ts ./next.config.ts
 COPY --from=build /app/scripts ./scripts
 
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV APP_VERSION=$APP_VERSION
+ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
 
 RUN mkdir -p /app/data
 

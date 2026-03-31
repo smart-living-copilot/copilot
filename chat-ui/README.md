@@ -62,6 +62,15 @@ This table exists to make the sidebar nice to use. It is not the source of truth
 
 ## Development Notes
 
+### Version Label
+
+The sidebar version label is no longer hard-coded in the UI.
+
+- `chat-ui` reads `NEXT_PUBLIC_APP_VERSION` at build time when available.
+- The publish workflow injects the git tag for tagged releases and the short commit SHA for branch builds.
+- If no build metadata is provided, the UI shows `unknown`.
+- For local Docker dev, you can rebuild with `APP_VERSION="$(git describe --tags --always --dirty)" docker compose up -d --build chat-ui`.
+
 ### With Docker Compose
 
 ```bash

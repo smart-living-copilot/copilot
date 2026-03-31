@@ -43,6 +43,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@/components/ui/sidebar';
+import { APP_VERSION } from '@/lib/app-version';
 import { Spinner } from '@/components/ui/spinner';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
@@ -353,7 +354,12 @@ export function AppSidebar({
                   <span className="truncate text-base font-semibold">
                     Smart Living Copilot
                   </span>
-                  <span className="truncate text-xs">v0.0.1</span>
+                  <span
+                    className="truncate text-xs"
+                    title={`Build ${APP_VERSION}`}
+                  >
+                    {APP_VERSION}
+                  </span>
                 </div>
               </Link>
             </SidebarMenuButton>
