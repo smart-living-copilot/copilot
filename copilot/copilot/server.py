@@ -43,18 +43,6 @@ async def lifespan(app: FastAPI):
 
     llm = _make_llm(settings)
 
-    # Attach Langfuse tracing if configured
-    if settings.langfuse_public_key and settings.langfuse_secret_key:
-        from langfuse.callback import CallbackHandler
-
-        langfuse_handler = CallbackHandler(
-            public_key=settings.langfuse_public_key,
-            secret_key=settings.langfuse_secret_key,
-            host=settings.langfuse_host,
-        )
-        llm = llm.with_config(callbacks=[langfuse_handler])
-        logger.info("Langfuse tracing enabled")
-
     _mcp_client = _make_mcp_client(settings)
     mcp_tools = await _load_mcp_tools(_mcp_client)
 

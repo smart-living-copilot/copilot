@@ -24,11 +24,6 @@ class Settings(BaseSettings):
     # Security
     internal_api_key: str = ""
 
-    # Langfuse Tracing
-    langfuse_public_key: str = ""
-    langfuse_secret_key: str = ""
-    langfuse_host: str = "https://cloud.langfuse.com"
-
     # Code Executor
     code_executor_url: str = "http://localhost:8888"
     code_executor_timeout_seconds: int = 330
