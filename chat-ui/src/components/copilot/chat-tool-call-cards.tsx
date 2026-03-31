@@ -1,7 +1,13 @@
 'use client';
 
 import { type ReactNode, useState } from 'react';
-import { CircleAlert, CheckCircle2, ChevronDown, Loader2 } from 'lucide-react';
+import {
+  CircleAlert,
+  CheckCircle2,
+  ChevronDown,
+  Expand,
+  Loader2,
+} from 'lucide-react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +18,18 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 import {
@@ -56,14 +74,57 @@ function ToolPayloadSection({
   );
 }
 
-function PlotlyChart({ filename, title }: { filename: string; title: string }) {
+function PlotlyChart({
+  className,
+  filename,
+  title,
+}: {
+  className?: string;
+  filename: string;
+  title: string;
+}) {
   return (
     <iframe
-      className="h-[24rem] w-full rounded-lg border border-border/55 bg-background"
+      className={cn(
+        'w-full rounded-lg border border-border/55 bg-background',
+        className ?? 'h-[24rem]',
+      )}
       loading="lazy"
       sandbox="allow-scripts allow-same-origin"
       src={`/api/artifacts/${encodeURIComponent(filename)}`}
       title={title}
+    />
+  );
+}
+
+function ArtifactPreview({
+  artifact,
+  fullscreen = false,
+}: {
+  artifact: RunCodeArtifact;
+  fullscreen?: boolean;
+}) {
+  if (artifact.kind === 'image') {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- generated code artifacts are proxied files and do not benefit from Next image optimization
+      <img
+        alt={artifact.ref}
+        className={cn(
+          'max-w-full rounded-lg border border-border/55',
+          fullscreen
+            ? 'mx-auto max-h-[78vh] w-auto rounded-xl object-contain'
+            : 'w-full',
+        )}
+        src={`/api/artifacts/${encodeURIComponent(artifact.filename)}`}
+      />
+    );
+  }
+
+  return (
+    <PlotlyChart
+      className={fullscreen ? 'h-[78vh] rounded-xl' : 'h-[24rem]'}
+      filename={artifact.filename}
+      title={`Chart ${artifact.ref}`}
     />
   );
 }
@@ -132,33 +193,78 @@ function ToolCardHeader({
 }
 
 function RunCodeArtifactCard({ artifact }: { artifact: RunCodeArtifact }) {
-  return (
-    <Card className="gap-0 border border-border/55 bg-background/45 py-0 shadow-none ring-0">
-      <CardContent className="space-y-1.5 py-2">
-        <div className="flex items-center gap-2 px-0.5">
-          <Badge className="h-5 font-mono text-[0.66rem]" variant="outline">
-            {artifact.ref}
-          </Badge>
-          <span className="text-[0.7rem] text-muted-foreground">
-            {artifact.kind === 'plotly' ? 'Interactive chart' : 'Image'}
-          </span>
-        </div>
+  const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
+  const artifactType =
+    artifact.kind === 'plotly' ? 'Interactive chart' : 'Generated image';
 
-        {artifact.kind === 'image' ? (
-          // eslint-disable-next-line @next/next/no-img-element -- generated code artifacts are proxied files and do not benefit from Next image optimization
-          <img
-            alt={artifact.ref}
-            className="max-w-full rounded-lg border border-border/55"
-            src={`/api/artifacts/${encodeURIComponent(artifact.filename)}`}
-          />
-        ) : (
-          <PlotlyChart
-            filename={artifact.filename}
-            title={`Chart ${artifact.ref}`}
-          />
-        )}
-      </CardContent>
-    </Card>
+  return (
+    <Dialog open={isFullscreenOpen} onOpenChange={setIsFullscreenOpen}>
+      <Collapsible open={showPreview} onOpenChange={setShowPreview}>
+        <Card className="gap-0 border border-border/55 bg-background/45 py-0 shadow-none ring-0">
+          <CardContent className="space-y-2 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2 px-0.5">
+                <Badge
+                  className="h-5 font-mono text-[0.66rem]"
+                  variant="outline"
+                >
+                  {artifact.ref}
+                </Badge>
+                <span className="truncate text-[0.7rem] text-muted-foreground">
+                  {artifactType}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <DetailsToggle expanded={showPreview} />
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      aria-label="Open fullscreen preview"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setIsFullscreenOpen(true)}
+                      size="icon-xs"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Expand className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Open fullscreen</TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
+
+            <CollapsibleContent className="data-closed:hidden">
+              <ArtifactPreview artifact={artifact} />
+            </CollapsibleContent>
+          </CardContent>
+        </Card>
+
+        <DialogContent
+          className="max-w-[min(96vw,90rem)] gap-0 p-0 sm:max-w-[min(96vw,90rem)]"
+          showCloseButton
+        >
+          <DialogHeader className="border-b border-border/55 px-4 py-3 pr-12">
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <Badge className="h-5 font-mono text-[0.66rem]" variant="outline">
+                {artifact.ref}
+              </Badge>
+              <span>{artifactType}</span>
+            </DialogTitle>
+            <DialogDescription className="text-[0.72rem]">
+              Fullscreen preview for {artifact.filename}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="overflow-auto p-4">
+            <ArtifactPreview artifact={artifact} fullscreen />
+          </div>
+        </DialogContent>
+      </Collapsible>
+    </Dialog>
   );
 }
 
@@ -361,9 +467,7 @@ export function GenericToolCallCard({
       />
 
       <CollapsibleContent className="data-closed:hidden">
-        <div
-          className="space-y-2 rounded-lg border border-border/45 bg-background/35 p-2.5"
-        >
+        <div className="space-y-2 rounded-lg border border-border/45 bg-background/35 p-2.5">
           <ToolPayloadSection title="Inputs" value={args} />
           {hasResult ? (
             <ToolPayloadSection title="Result" value={result} />
