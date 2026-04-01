@@ -18,7 +18,6 @@ from langgraph.graph import END
 from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field
 
-from copilot.few_shots import ANALYSIS_FEW_SHOTS, CONTROL_FEW_SHOTS
 from copilot.prompts import (
     ANALYSIS_PROMPT,
     CONTROL_PROMPT,
@@ -77,24 +76,51 @@ def _trim_conversation(messages: list[AnyMessage], max_tokens: int) -> list[AnyM
 
 
 def _sanitize_message_sequence(messages: list[AnyMessage]) -> list[AnyMessage]:
-    """Drop orphaned tool turns so provider adapters see valid message order."""
+    """Ensure every AI tool_call has a matching ToolMessage and vice-versa."""
     sanitized: list[AnyMessage] = []
     index = 0
 
     while index < len(messages):
         message = messages[index]
 
+        # AI message with tool calls: collect all following ToolMessages that match.
         if isinstance(message, AIMessage) and message.tool_calls:
+            tool_messages: list[ToolMessage] = []
             next_index = index + 1
-            if next_index < len(messages) and isinstance(messages[next_index], ToolMessage):
-                sanitized.append(message)
-                sanitized.append(messages[next_index])
-                index += 2
+            while next_index < len(messages) and isinstance(messages[next_index], ToolMessage):
+                tool_messages.append(messages[next_index])
+                next_index += 1
+
+            if not tool_messages:
+                # No tool results at all — drop the AI tool-call message.
+                index += 1
                 continue
 
-            index += 1
+            # Keep only tool_calls that have a matching ToolMessage.
+            matched_ids = {tm.tool_call_id for tm in tool_messages}
+            matched_calls = [tc for tc in message.tool_calls if tc["id"] in matched_ids]
+
+            if not matched_calls:
+                index = next_index
+                continue
+
+            # Patch the AI message to only reference matched calls.
+            if len(matched_calls) != len(message.tool_calls):
+                message.tool_calls = matched_calls
+                if message.additional_kwargs.get("tool_calls"):
+                    message.additional_kwargs["tool_calls"] = [
+                        tc
+                        for tc in message.additional_kwargs["tool_calls"]
+                        if tc.get("id") in matched_ids
+                    ]
+
+            matched_tool_messages = [tm for tm in tool_messages if tm.tool_call_id in matched_ids]
+            sanitized.append(message)
+            sanitized.extend(matched_tool_messages)
+            index = next_index
             continue
 
+        # Orphaned ToolMessage without preceding AI tool call — drop it.
         if isinstance(message, ToolMessage):
             index += 1
             continue
@@ -145,12 +171,12 @@ def _current_time_block() -> str:
     )
 
 
-def _make_node_prompt(system_text: str, few_shots: list[AnyMessage], max_tokens: int):
+def _make_node_prompt(system_text: str, max_tokens: int):
     system_message = SystemMessage(content=system_text)
 
     def prompt(state: CopilotState) -> list[AnyMessage]:
         trimmed = _trim_conversation(state["messages"], max_tokens)
-        return [system_message, *few_shots, *trimmed]
+        return [system_message, *trimmed]
 
     return prompt
 
@@ -174,11 +200,13 @@ def _make_llm_node(
     *,
     tools: list[Any],
     system_text: str,
-    few_shots: list[AnyMessage],
     max_tokens: int,
+    parallel_tool_calls: bool = True,
 ):
-    prompt = _make_node_prompt(system_text, few_shots, max_tokens)
-    llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False) if tools else llm
+    prompt = _make_node_prompt(system_text, max_tokens)
+    llm_with_tools = (
+        llm.bind_tools(tools, parallel_tool_calls=parallel_tool_calls) if tools else llm
+    )
 
     async def node(state: CopilotState):
         response = await llm_with_tools.ainvoke(prompt(state))
@@ -187,33 +215,51 @@ def _make_llm_node(
     return node
 
 
-def make_respond_node(llm: ChatOpenAI, tools: list[Any], max_tokens: int):
+def make_respond_node(
+    llm: ChatOpenAI,
+    tools: list[Any],
+    max_tokens: int,
+    *,
+    parallel_tool_calls: bool = True,
+):
     return _make_llm_node(
         llm,
         tools=tools,
         system_text=RESPOND_PROMPT,
-        few_shots=[],
         max_tokens=max_tokens,
+        parallel_tool_calls=parallel_tool_calls,
     )
 
 
-def make_control_node(llm: ChatOpenAI, tools: list[Any], max_tokens: int):
+def make_control_node(
+    llm: ChatOpenAI,
+    tools: list[Any],
+    max_tokens: int,
+    *,
+    parallel_tool_calls: bool = True,
+):
     return _make_llm_node(
         llm,
         tools=tools,
         system_text=CONTROL_PROMPT,
-        few_shots=CONTROL_FEW_SHOTS,
         max_tokens=max_tokens,
+        parallel_tool_calls=parallel_tool_calls,
     )
 
 
-def make_analysis_node(llm: ChatOpenAI, tools: list[Any], max_tokens: int):
-    llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
+def make_analysis_node(
+    llm: ChatOpenAI,
+    tools: list[Any],
+    max_tokens: int,
+    *,
+    parallel_tool_calls: bool = True,
+):
+    llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=parallel_tool_calls)
 
     async def node(state: CopilotState):
         system_message = SystemMessage(content=ANALYSIS_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
-        messages = [system_message, *ANALYSIS_FEW_SHOTS, *trimmed]
+        messages = [system_message, *trimmed]
         response = await llm_with_tools.ainvoke(messages)
         return {"messages": [response]}
 

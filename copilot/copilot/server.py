@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI):
             local_tools=AVAILABLE_TOOLS,
             max_tokens=settings.max_context_tokens,
             checkpointer=checkpointer,
+            parallel_tool_calls=settings.parallel_tool_calls,
         )
 
         logger.info(

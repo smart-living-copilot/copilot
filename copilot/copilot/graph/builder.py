@@ -24,6 +24,7 @@ def build_graph(
     local_tools: list[Any],
     max_tokens: int,
     checkpointer=None,
+    parallel_tool_calls: bool = True,
 ):
     """Build and compile the copilot StateGraph."""
     mcp_tool_groups = partition_mcp_tools(mcp_tools)
@@ -34,11 +35,17 @@ def build_graph(
     graph.add_node("router", make_router_node(llm, max_tokens))
 
     respond_tools = [local_tool_groups.get_current_time]
-    graph.add_node("respond", make_respond_node(llm, respond_tools, max_tokens))
+    graph.add_node(
+        "respond",
+        make_respond_node(llm, respond_tools, max_tokens, parallel_tool_calls=parallel_tool_calls),
+    )
     graph.add_node("respond_tools", ToolNode(respond_tools))
 
     control_tools = mcp_tool_groups.discovery_and_inspect + mcp_tool_groups.runtime
-    graph.add_node("control_llm", make_control_node(llm, control_tools, max_tokens))
+    graph.add_node(
+        "control_llm",
+        make_control_node(llm, control_tools, max_tokens, parallel_tool_calls=parallel_tool_calls),
+    )
     graph.add_node("control_tools", TruncatingToolNode(control_tools))
 
     analysis_tools = (
@@ -48,7 +55,9 @@ def build_graph(
     )
     graph.add_node(
         "analysis_llm",
-        make_analysis_node(llm, analysis_tools, max_tokens),
+        make_analysis_node(
+            llm, analysis_tools, max_tokens, parallel_tool_calls=parallel_tool_calls
+        ),
     )
     graph.add_node("analysis_tools", TruncatingToolNode(analysis_tools))
 
