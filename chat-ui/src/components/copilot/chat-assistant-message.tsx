@@ -53,13 +53,8 @@ function MessageActionButton({
 
 export function ChatAssistantMessage(props: AssistantMessageProps) {
   const { icons, labels } = useChatContext();
-  const {
-    isCurrentMessage,
-    isLoading,
-    markdownTagRenderers,
-    message,
-    onCopy,
-  } = props;
+  const { isCurrentMessage, isLoading, markdownTagRenderers, message, onCopy } =
+    props;
   const [copied, setCopied] = useState(false);
 
   const content = message?.content?.trim() ?? '';
