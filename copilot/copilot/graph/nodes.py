@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from copilotkit import CopilotKitState
 from langchain_core.messages import (
+    AIMessage,
     AnyMessage,
     HumanMessage,
     SystemMessage,
@@ -72,7 +73,63 @@ def _trim_conversation(messages: list[AnyMessage], max_tokens: int) -> list[AnyM
     )
     if trimmed and isinstance(trimmed[0], SystemMessage):
         trimmed.pop(0)
-    return trimmed
+    return _sanitize_message_sequence(trimmed)
+
+
+def _sanitize_message_sequence(messages: list[AnyMessage]) -> list[AnyMessage]:
+    """Drop orphaned tool turns so provider adapters see valid message order."""
+    sanitized: list[AnyMessage] = []
+    index = 0
+
+    while index < len(messages):
+        message = messages[index]
+
+        if isinstance(message, AIMessage) and message.tool_calls:
+            next_index = index + 1
+            if next_index < len(messages) and isinstance(messages[next_index], ToolMessage):
+                sanitized.append(message)
+                sanitized.append(messages[next_index])
+                index += 2
+                continue
+
+            index += 1
+            continue
+
+        if isinstance(message, ToolMessage):
+            index += 1
+            continue
+
+        sanitized.append(message)
+        index += 1
+
+    return sanitized
+
+
+def _make_router_messages(messages: list[AnyMessage], max_tokens: int) -> list[AnyMessage]:
+    trimmed = trim_messages(
+        messages,
+        max_tokens=max_tokens,
+        token_counter="approximate",
+        strategy="last",
+        include_system=False,
+        allow_partial=False,
+    )
+    sanitized = _sanitize_message_sequence(trimmed)
+    conversational = [
+        message
+        for message in sanitized
+        if not isinstance(message, ToolMessage)
+        and not (isinstance(message, AIMessage) and message.tool_calls)
+    ]
+    tail = conversational[-3:]
+
+    if not any(isinstance(message, HumanMessage) for message in tail):
+        summary = "\n".join(
+            f"{message.type}: {message.content}" for message in tail if message.content
+        )
+        tail = [HumanMessage(content=summary or "Classify the latest request.")]
+
+    return tail
 
 
 def _current_time_block() -> str:
@@ -104,20 +161,7 @@ def make_router_node(llm: ChatOpenAI, max_tokens: int):
     system_message = SystemMessage(content=ROUTER_PROMPT)
 
     async def router(state: CopilotState):
-        trimmed = trim_messages(
-            state["messages"],
-            max_tokens=max_tokens,
-            token_counter="approximate",
-            strategy="last",
-            include_system=False,
-            allow_partial=False,
-        )
-        tail = trimmed[-3:]
-        if not any(isinstance(message, HumanMessage) for message in tail):
-            summary = "\n".join(
-                f"{message.type}: {message.content}" for message in tail if message.content
-            )
-            tail = [HumanMessage(content=summary)]
+        tail = _make_router_messages(state["messages"], max_tokens)
         result = await structured_llm.ainvoke([system_message, *tail])
         logger.info("Router classified intent as: %s", result.intent)
         return {"intent": result.intent}
