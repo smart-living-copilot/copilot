@@ -203,11 +203,7 @@ body {
 }
 
 .dark .smart-living-copilot-chat {
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklab, var(--card) 92%, white 8%),
-    color-mix(in oklab, var(--background) 88%, var(--card))
-  );
+  background: color-mix(in oklab, var(--background) 84%, var(--card));
   box-shadow:
     0 28px 64px oklch(0.05 0.01 240 / 0.45),
     inset 0 1px 0 oklch(1 0 0 / 0.08);
@@ -243,18 +239,21 @@ body {
 }
 
 .smart-living-copilot-chat .copilotKitMessage {
+  width: 100%;
+  max-width: none;
   font-size: 0.95rem;
 }
 
 .smart-living-copilot-chat .copilotKitMessage.copilotKitUserMessage {
-  max-width: min(80%, 48rem);
-  border-radius: 1.3rem 1.3rem 0.45rem 1.3rem;
-  padding: 0.78rem 0.98rem;
-  box-shadow: 0 12px 30px color-mix(in oklab, var(--primary) 20%, transparent);
+  max-width: none;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
 .smart-living-copilot-chat .copilotKitMessage.copilotKitAssistantMessage {
-  max-width: min(100%, 52rem);
+  max-width: none;
   margin-bottom: 0.75rem;
   color: var(--foreground);
 }

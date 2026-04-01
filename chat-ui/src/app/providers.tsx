@@ -1,6 +1,6 @@
 'use client';
 
-import '@copilotkit/react-ui/styles.css';
+import '@copilotkit/react-core/v2/styles.css';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from 'sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';

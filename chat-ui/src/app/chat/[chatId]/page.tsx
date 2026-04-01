@@ -1,38 +1,137 @@
 'use client';
 
-import { CopilotKit } from '@copilotkit/react-core';
-import { CopilotChat, type MessagesProps } from '@copilotkit/react-ui';
+import {
+  CopilotChat,
+  CopilotKit,
+  useAgent,
+  UseAgentUpdate,
+} from '@copilotkit/react-core/v2';
 import type { Message } from '@copilotkit/shared';
-import { MessageSquarePlus } from 'lucide-react';
-import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  MessageSquarePlus,
+  Lightbulb,
+  Thermometer,
+  Zap,
+  Lock,
+} from 'lucide-react';
+import type { MutableRefObject, ReactNode } from 'react';
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppSidebar } from '@/components/chat-sidebar';
-import { ChatAssistantMessage } from '@/components/copilot/chat-assistant-message';
-import { ChatMessages } from '@/components/copilot/chat-messages';
-import { ChatToolCallRenderer } from '@/components/copilot/chat-tool-call-renderer';
+import { chatToolCallRenderers } from '@/components/copilot/chat-tool-call-renderer';
+import { WelcomeScreen } from '@/components/copilot/welcome-screen';
 import { SiteHeader } from '@/components/site-header';
 import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import {
+  normalizeSnapshotMessages,
+  serializeSnapshotMessages,
+} from '@/lib/chat-snapshots';
 
-export default function ChatPage({
-  params,
+function dedupeMessages(messages: Message[]): Message[] {
+  const latestById = new Map<string, Message>();
+  for (const message of messages) {
+    latestById.set(message.id, message);
+  }
+
+  const deduped: Message[] = [];
+  const seen = new Set<string>();
+  for (const message of messages) {
+    const latest = latestById.get(message.id);
+    if (!latest || seen.has(latest.id)) {
+      continue;
+    }
+    seen.add(latest.id);
+    deduped.push(latest);
+  }
+
+  return deduped;
+}
+
+function flattenUserMessageContent(content: Message['content']) {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  return content
+    .filter(
+      (
+        item,
+      ): item is Extract<
+        (typeof content)[number],
+        { type: 'text'; text: string }
+      > => item.type === 'text' && typeof item.text === 'string',
+    )
+    .map((item) => item.text)
+    .join(' ')
+    .trim();
+}
+
+function persistMessages(
+  chatId: string,
+  messages: Message[],
+  payload: string,
+  lastSavedPayloadRef: MutableRefObject<string | null>,
+) {
+  void fetch(`/api/chats/${chatId}/messages`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messages,
+    }),
+  })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to persist chat snapshot (${response.status})`);
+      }
+      lastSavedPayloadRef.current = payload;
+    })
+    .catch((error) => {
+      console.error('Failed to persist chat snapshot', error);
+    });
+}
+
+function ChatExperience({
+  breadcrumbs,
+  chatId,
+  examplePrompts,
+  handleNewChat,
 }: {
-  params: Promise<{ chatId: string }>;
+  breadcrumbs: { label: string; href: string }[];
+  chatId: string;
+  examplePrompts: {
+    label: string;
+    prompt: string;
+    icon: ReactNode;
+  }[];
+  handleNewChat: () => Promise<void>;
 }) {
-  const isProductionBuild = process.env.NODE_ENV === 'production';
-  const { chatId } = use(params);
-  const router = useRouter();
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [persistedMessages, setPersistedMessages] = useState<Message[]>([]);
+  const { agent } = useAgent({
+    agentId: 'copilot',
+    updates: [
+      UseAgentUpdate.OnMessagesChanged,
+      UseAgentUpdate.OnRunStatusChanged,
+    ],
+  });
+  const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
   const [sidebarRefreshToken, setSidebarRefreshToken] = useState(0);
-
-  const breadcrumbs = useMemo(() => [{ label: 'Chat', href: '/chat' }], []);
+  const persistTimeoutRef = useRef<number | null>(null);
+  const lastSavedPayloadRef = useRef<string | null>(null);
+  const lastTitledUserMessageRef = useRef<string | null>(null);
+  const historyLoaded = loadedChatId === chatId;
 
   useEffect(() => {
     const abortController = new AbortController();
 
-    setHistoryLoaded(false);
-    setPersistedMessages([]);
+    lastSavedPayloadRef.current = null;
+    lastTitledUserMessageRef.current = null;
+    agent.setMessages([]);
 
     void fetch(`/api/chats/${chatId}/messages`, {
       signal: abortController.signal,
@@ -43,10 +142,18 @@ export default function ChatPage({
         }
 
         const payload = (await response.json()) as { messages?: Message[] };
-        setPersistedMessages(
-          Array.isArray(payload.messages) ? payload.messages : [],
+        const initialMessages = dedupeMessages(
+          normalizeSnapshotMessages(payload.messages),
         );
-        setHistoryLoaded(true);
+
+        agent.setMessages(initialMessages);
+        lastSavedPayloadRef.current =
+          serializeSnapshotMessages(initialMessages).json;
+        lastTitledUserMessageRef.current =
+          [...initialMessages]
+            .reverse()
+            .find((message) => message.role === 'user')?.id ?? null;
+        setLoadedChatId(chatId);
       })
       .catch((error) => {
         if (abortController.signal.aborted) {
@@ -54,11 +161,163 @@ export default function ChatPage({
         }
 
         console.error('Failed to load chat messages', error);
-        setHistoryLoaded(true);
+        setLoadedChatId(chatId);
       });
 
     return () => abortController.abort();
-  }, [chatId]);
+  }, [agent, chatId]);
+
+  const messages = dedupeMessages([...(agent.messages as Message[])]);
+
+  useEffect(() => {
+    if (!historyLoaded) {
+      return;
+    }
+
+    const { json: payload, messages: normalizedMessages } =
+      serializeSnapshotMessages(messages);
+    if (payload === lastSavedPayloadRef.current) {
+      return;
+    }
+
+    if (persistTimeoutRef.current) {
+      window.clearTimeout(persistTimeoutRef.current);
+    }
+
+    persistTimeoutRef.current = window.setTimeout(() => {
+      persistMessages(chatId, normalizedMessages, payload, lastSavedPayloadRef);
+    }, 400);
+
+    return () => {
+      if (persistTimeoutRef.current) {
+        window.clearTimeout(persistTimeoutRef.current);
+      }
+    };
+  }, [chatId, historyLoaded, messages]);
+
+  useEffect(() => {
+    if (!historyLoaded) {
+      return;
+    }
+
+    const latestUserMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user');
+    if (
+      !latestUserMessage ||
+      latestUserMessage.id === lastTitledUserMessageRef.current
+    ) {
+      return;
+    }
+
+    const content = flattenUserMessageContent(latestUserMessage.content);
+    const title = content.slice(0, 50);
+    if (!title) {
+      return;
+    }
+
+    lastTitledUserMessageRef.current = latestUserMessage.id;
+    void fetch(`/api/chats/${chatId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title }),
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Failed to update chat title');
+        }
+        setSidebarRefreshToken((current) => current + 1);
+      })
+      .catch((error) => {
+        console.error('Failed to update chat title', error);
+      });
+  }, [chatId, historyLoaded, messages]);
+
+  return (
+    <SidebarProvider className="relative h-dvh overflow-hidden text-foreground">
+      <AppSidebar
+        activeChatId={chatId}
+        onNewChat={handleNewChat}
+        refreshToken={sidebarRefreshToken}
+      />
+
+      <SidebarInset>
+        <SiteHeader breadcrumbs={breadcrumbs}>
+          <Button
+            className="md:hidden"
+            onClick={() => void handleNewChat()}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <MessageSquarePlus className="size-4" />
+            <span>New chat</span>
+          </Button>
+        </SiteHeader>
+
+        <div className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
+          <CopilotChat
+            agentId="copilot"
+            threadId={chatId}
+            className="smart-living-copilot-chat flex-1"
+            labels={{
+              chatInputPlaceholder: 'Ask me anything...',
+            }}
+            messageView={{
+              className: 'flex-1 pt-2',
+            }}
+            welcomeScreen={(props) => (
+              <WelcomeScreen
+                {...props}
+                examplePrompts={examplePrompts}
+                historyLoaded={historyLoaded}
+              />
+            )}
+          />
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
+  );
+}
+
+export default function ChatPage({
+  params,
+}: {
+  params: Promise<{ chatId: string }>;
+}) {
+  const isProductionBuild = process.env.NODE_ENV === 'production';
+  const { chatId } = use(params);
+  const router = useRouter();
+
+  const breadcrumbs = useMemo(() => [{ label: 'Chat', href: '/chat' }], []);
+
+  const examplePrompts = useMemo(
+    () => [
+      {
+        label: 'Check status',
+        prompt: 'Check the status of my living room lights',
+        icon: <Lightbulb className="size-4" />,
+      },
+      {
+        label: 'Set temperature',
+        prompt: 'Set the temperature to 22 degrees',
+        icon: <Thermometer className="size-4" />,
+      },
+      {
+        label: 'Energy usage',
+        prompt: "What's the energy consumption today?",
+        icon: <Zap className="size-4" />,
+      },
+      {
+        label: 'Check locks',
+        prompt: 'Is the front door locked?',
+        icon: <Lock className="size-4" />,
+      },
+    ],
+    [],
+  );
 
   const handleNewChat = useCallback(async () => {
     try {
@@ -73,48 +332,6 @@ export default function ChatPage({
     }
   }, [router]);
 
-  const handleSubmitMessage = useCallback(
-    async (message: string) => {
-      const title = message.trim().slice(0, 50);
-      if (!title) {
-        return;
-      }
-
-      try {
-        const response = await fetch(`/api/chats/${chatId}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ title }),
-        });
-        if (!response.ok) {
-          throw new Error('Failed to update chat title');
-        }
-        setSidebarRefreshToken((current) => current + 1);
-      } catch (error) {
-        console.error('Failed to update chat title', error);
-      }
-    },
-    [chatId],
-  );
-
-  const MessagesComponent = useMemo(() => {
-    function CopilotChatMessages(props: MessagesProps) {
-      return (
-        <ChatMessages
-          {...props}
-          chatId={chatId}
-          historyLoaded={historyLoaded}
-          persistedMessages={persistedMessages}
-        />
-      );
-    }
-
-    CopilotChatMessages.displayName = 'CopilotChatMessages';
-    return CopilotChatMessages;
-  }, [chatId, historyLoaded, persistedMessages]);
-
   return (
     <CopilotKit
       key={chatId}
@@ -122,45 +339,14 @@ export default function ChatPage({
       agent="copilot"
       threadId={chatId}
       enableInspector={!isProductionBuild}
+      renderToolCalls={chatToolCallRenderers}
     >
-      <ChatToolCallRenderer />
-
-      <SidebarProvider className="relative h-dvh overflow-hidden text-foreground">
-        <AppSidebar
-          activeChatId={chatId}
-          onNewChat={handleNewChat}
-          refreshToken={sidebarRefreshToken}
-        />
-
-        <SidebarInset>
-          <SiteHeader breadcrumbs={breadcrumbs}>
-            <Button
-              className="md:hidden"
-              onClick={() => void handleNewChat()}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <MessageSquarePlus className="size-4" />
-              <span>New chat</span>
-            </Button>
-          </SiteHeader>
-
-          <div className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
-            <CopilotChat
-              AssistantMessage={ChatAssistantMessage}
-              Messages={MessagesComponent}
-              className="smart-living-copilot-chat flex-1"
-              labels={{
-                title: 'Smart Living Copilot',
-                initial: 'How can I help you with your smart home?',
-                placeholder: 'Ask me anything...',
-              }}
-              onSubmitMessage={handleSubmitMessage}
-            />
-          </div>
-        </SidebarInset>
-      </SidebarProvider>
+      <ChatExperience
+        breadcrumbs={breadcrumbs}
+        chatId={chatId}
+        examplePrompts={examplePrompts}
+        handleNewChat={handleNewChat}
+      />
     </CopilotKit>
   );
 }

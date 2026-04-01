@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@copilotkit/react-core": "^1.54.1",
-    "@copilotkit/react-ui": "^1.54.1",
     "@copilotkit/runtime": "^1.54.1",
     "better-sqlite3": "^12.8.0",
     "class-variance-authority": "^0.7.1",
