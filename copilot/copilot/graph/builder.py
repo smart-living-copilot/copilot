@@ -37,7 +37,11 @@ def build_graph(
     graph.add_node("respond", make_respond_node(llm, respond_tools, max_tokens))
     graph.add_node("respond_tools", ToolNode(respond_tools))
 
-    control_tools = mcp_tool_groups.discovery_and_inspect + mcp_tool_groups.runtime
+    control_tools = (
+        mcp_tool_groups.discovery_and_inspect
+        + mcp_tool_groups.runtime
+        + local_tool_groups.job_tools
+    )
     graph.add_node("control_llm", make_control_node(llm, control_tools, max_tokens))
     graph.add_node("control_tools", TruncatingToolNode(control_tools))
 
@@ -45,6 +49,7 @@ def build_graph(
         mcp_tool_groups.discovery_and_inspect
         + mcp_tool_groups.runtime_read
         + [local_tool_groups.run_code]
+        + local_tool_groups.job_tools
     )
     graph.add_node(
         "analysis_llm",

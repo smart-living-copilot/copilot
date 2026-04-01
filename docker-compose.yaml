@@ -8,6 +8,7 @@ services:
       WOT_REGISTRY_URL: "${WOT_REGISTRY_URL:-http://wot-registry:8000/mcp}"
       WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
       CODE_EXECUTOR_URL: "http://code-executor:8888"
+      JOB_RUNNER_URL: "http://job-runner:8890"
       INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
       LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
       LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
@@ -73,6 +74,35 @@ services:
       WOT_REGISTRY_URL: "http://wot-registry:8000"
       WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
       INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
+    restart: unless-stopped
+
+  job-runner:
+    image: ghcr.io/smart-living-copilot/job-runner:latest
+    env_file: .env
+    ports:
+      - "8890:8890"
+    volumes:
+      - job-runner-data:/data
+    environment:
+      REDIS_URL: redis://valkey:6379
+      WOT_RUNTIME_URL: http://wot-runtime:3003
+      WOT_RUNTIME_API_TOKEN: ${WOT_RUNTIME_API_TOKEN}
+      WOT_RUNTIME_STREAM: ${WOT_RUNTIME_STREAM:-wot_runtime_events}
+      JOBS_EVENTS_GROUP: ${JOBS_EVENTS_GROUP:-job_runner}
+      JOBS_EVENTS_CONSUMER: ${JOBS_EVENTS_CONSUMER:-job_runner_1}
+      COPILOT_URL: http://copilot:8123
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      JOBS_DB_PATH: /data/jobs.db
+    depends_on:
+      valkey:
+        condition: service_healthy
+      wot-runtime:
+        condition: service_started
+      copilot:
+        condition: service_started
+    networks:
+      - frontend-internal
+      - backend-isolated
     restart: unless-stopped
 
   valkey:
@@ -173,6 +203,7 @@ services:
 volumes:
   chat-ui-data:
   copilot-data:
+  job-runner-data:
   valkey-data:
   wot-registry-data:
 

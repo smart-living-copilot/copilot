@@ -42,6 +42,7 @@ class McpToolGroups:
 class LocalToolGroups:
     get_current_time: Any
     run_code: Any
+    job_tools: list[Any]
 
 
 def partition_mcp_tools(mcp_tools: list[Any]) -> McpToolGroups:
@@ -86,4 +87,9 @@ def group_local_tools(local_tools: list[Any]) -> LocalToolGroups:
     return LocalToolGroups(
         get_current_time=tools_by_name["get_current_time"],
         run_code=tools_by_name["run_code"],
+        job_tools=[
+            tool
+            for tool in local_tools
+            if tool.name in {"create_job", "list_jobs", "delete_job"}
+        ],
     )

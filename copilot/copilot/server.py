@@ -2,12 +2,15 @@
 
 import logging
 from contextlib import asynccontextmanager
+from typing import Any
 
 import aiosqlite
 from ag_ui_langgraph import add_langgraph_fastapi_endpoint
 from copilotkit import LangGraphAGUIAgent
 from fastapi import FastAPI, HTTPException, Request
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from pydantic import BaseModel, Field
 
 from copilot.agent import _load_mcp_tools, _make_llm, _make_mcp_client
 from copilot.graph import build_graph
@@ -20,6 +23,13 @@ logger = logging.getLogger(__name__)
 _mcp_client = None
 _agent: LangGraphAGUIAgent | None = None
 _settings: Settings | None = None
+_graph: Any | None = None
+
+
+class JobDispatchRequest(BaseModel):
+    thread_id: str
+    prompt: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class _AGUIAgentProxy:
@@ -35,7 +45,7 @@ class _AGUIAgentProxy:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mcp_client, _agent, _settings
+    global _mcp_client, _agent, _settings, _graph
 
     settings = Settings()
     _settings = settings
@@ -78,6 +88,7 @@ async def lifespan(app: FastAPI):
             description="Smart Living Copilot",
             graph=graph,
         )
+        _graph = graph
 
         yield
 
@@ -99,6 +110,33 @@ def _verify_internal_api_key(request: Request) -> None:
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/internal/jobs/dispatch")
+async def dispatch_job_prompt(payload: JobDispatchRequest, request: Request):
+    _verify_internal_api_key(request)
+
+    if _graph is None:
+        raise HTTPException(status_code=503, detail="Graph is not ready")
+
+    result = await _graph.ainvoke(
+        {"messages": [HumanMessage(content=payload.prompt)]},
+        config={"configurable": {"thread_id": payload.thread_id}},
+    )
+
+    assistant_text = ""
+    for message in reversed(result.get("messages", [])):
+        if isinstance(message, AIMessage):
+            content = message.content
+            assistant_text = content if isinstance(content, str) else str(content)
+            break
+
+    return {
+        "ok": True,
+        "thread_id": payload.thread_id,
+        "assistant": assistant_text,
+        "metadata": payload.metadata,
+    }
 
 
 @app.delete("/threads/{thread_id}")

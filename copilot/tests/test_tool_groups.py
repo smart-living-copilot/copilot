@@ -39,10 +39,21 @@ class ToolGroupsTestCase(unittest.TestCase):
         )
 
     def test_group_local_tools_requires_expected_tools(self) -> None:
-        grouped = group_local_tools([_tool("run_code"), _tool("get_current_time")])
+        grouped = group_local_tools(
+            [
+                _tool("run_code"),
+                _tool("get_current_time"),
+                _tool("create_job"),
+                _tool("list_jobs"),
+            ]
+        )
 
         self.assertEqual(grouped.run_code.name, "run_code")
         self.assertEqual(grouped.get_current_time.name, "get_current_time")
+        self.assertEqual(
+            [tool.name for tool in grouped.job_tools],
+            ["create_job", "list_jobs"],
+        )
 
     def test_group_local_tools_raises_when_required_tool_is_missing(self) -> None:
         with self.assertRaisesRegex(ValueError, "get_current_time"):

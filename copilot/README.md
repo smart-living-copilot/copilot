@@ -8,8 +8,9 @@
 - `copilot` owns agent orchestration, prompts, tool use, and LangGraph checkpoint state.
 - `code-executor` runs stateful Python for the `run_code` tool.
 - `wot-registry` provides discovery, schema inspection, and runtime WoT actions through MCP and HTTP APIs.
+- `job-runner` schedules time/event automations and dispatches prompts into existing copilot threads.
 
-At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `copilot`, and `copilot` talks to MCP tools and `code-executor`.
+At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `copilot`, and `copilot` talks to MCP tools, `code-executor`, and `job-runner`.
 
 ## Request Lifecycle
 
@@ -53,6 +54,14 @@ Deletes LangGraph checkpoint rows for one thread.
 - Deletes from both `writes` and `checkpoints`
 - Used by: thread deletion flow in `chat-ui`
 
+### `POST /internal/jobs/dispatch`
+
+Internal endpoint used by `job-runner` to execute a prompt in an existing thread.
+
+- Auth: `Authorization: Bearer <INTERNAL_API_KEY>` when configured
+- Input: `{ "thread_id": "...", "prompt": "...", "metadata": {...} }`
+- Behavior: invokes the same LangGraph/checkpointer pipeline as normal chat turns
+
 ## Graph Architecture
 
 The graph is assembled in [`copilot/graph/builder.py`](./copilot/graph/builder.py).
@@ -95,6 +104,7 @@ Local tools are grouped separately:
 
 - [`get_current_time`](./copilot/tools/get_current_time.py)
 - [`run_code`](./copilot/tools/run_code.py)
+- [`create_job`, `list_jobs`, `delete_job`](./copilot/tools/job_scheduler.py)
 
 ## Prompts And Few-Shots
 
@@ -179,6 +189,7 @@ Defined in [`copilot/models/settings.py`](./copilot/models/settings.py):
 - `WOT_REGISTRY_URL`, `WOT_REGISTRY_TOKEN`
 - `WOT_REGISTRY_TIMEOUT_SECONDS`, `WOT_REGISTRY_SSE_READ_TIMEOUT_SECONDS`
 - `CODE_EXECUTOR_URL`, `CODE_EXECUTOR_TIMEOUT_SECONDS`
+- `JOB_RUNNER_URL`, `JOB_RUNNER_TIMEOUT_SECONDS`
 - `INTERNAL_API_KEY`
 - `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`
 - `AGENT_STATE_DB_PATH`
@@ -200,6 +211,7 @@ Also defined today but not currently wired into the graph execution path:
 - [`copilot/prompts`](./copilot/prompts): system prompts by branch
 - [`copilot/few_shots`](./copilot/few_shots): branch-specific examples
 - [`copilot/tools/run_code.py`](./copilot/tools/run_code.py): bridge to `code-executor`
+- [`copilot/tools/job_scheduler.py`](./copilot/tools/job_scheduler.py): bridge to `job-runner`
 
 ## Contributor Notes
 

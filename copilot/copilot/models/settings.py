@@ -33,5 +33,9 @@ class Settings(BaseSettings):
     code_executor_url: str = "http://localhost:8888"
     code_executor_timeout_seconds: int = 330
 
+    # Job Runner
+    job_runner_url: str = "http://job-runner:8890"
+    job_runner_timeout_seconds: int = 30
+
     # Logging
     log_level: str = "INFO"
