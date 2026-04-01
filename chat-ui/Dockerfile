@@ -1,11 +1,12 @@
 FROM node:25-slim AS dev
 
 ARG APP_VERSION=""
+ARG TARGETARCH
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm install
+RUN npm install --cpu=$TARGETARCH
 
 COPY . .
 
@@ -24,11 +25,12 @@ RUN npm run build
 FROM node:25-slim AS runtime
 
 ARG APP_VERSION=""
+ARG TARGETARCH
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --cpu=$TARGETARCH
 
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
