@@ -10,7 +10,6 @@ import {
   MessageSquarePlus,
   MoreHorizontal,
   Pencil,
-  Search,
   Settings,
   Trash2,
   X,
@@ -150,17 +149,12 @@ export function AppSidebar({
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
-  const [historyQuery, setHistoryQuery] = useState('');
   const [savingChatId, setSavingChatId] = useState<string | null>(null);
   const { isMobile, setOpenMobile } = useSidebar();
 
-  const normalizedHistoryQuery = historyQuery.trim().toLowerCase();
-  const filteredChats = chatList.filter((chat) =>
-    (chat.title || 'New Chat').toLowerCase().includes(normalizedHistoryQuery),
-  );
   const groupedChats: Array<{ label: string; chats: Chat[] }> = [];
 
-  for (const chat of filteredChats) {
+  for (const chat of chatList) {
     const label = getHistoryGroupLabel(chat.updatedAt);
     const existingGroup = groupedChats.find((group) => group.label === label);
 
@@ -430,71 +424,8 @@ export function AppSidebar({
                   </div>
                 </SidebarMenuSubButton>
               </SidebarMenuSubItem>
-            ) : filteredChats.length === 0 ? (
-              <>
-                <SidebarMenuSubItem className="pb-1">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      aria-label="Search chats"
-                      className="bg-sidebar-accent/40 pl-8 pr-8 text-sm"
-                      onChange={(event) => setHistoryQuery(event.target.value)}
-                      placeholder="Search threads"
-                      value={historyQuery}
-                    />
-                    {historyQuery ? (
-                      <Button
-                        className="absolute top-1/2 right-1 -translate-y-1/2"
-                        onClick={() => setHistoryQuery('')}
-                        size="icon-xs"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <X className="size-3.5" />
-                        <span className="sr-only">Clear search</span>
-                      </Button>
-                    ) : null}
-                  </div>
-                </SidebarMenuSubItem>
-                <SidebarMenuSubItem>
-                  <SidebarMenuSubButton aria-disabled className="h-auto py-2">
-                    <div className="grid min-w-0 gap-0.5">
-                      <span className="truncate font-medium">
-                        No matching threads
-                      </span>
-                      <span className="truncate text-[11px] text-muted-foreground">
-                        Try a different title or clear your search.
-                      </span>
-                    </div>
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
-              </>
             ) : (
               <>
-                <SidebarMenuSubItem className="pb-1">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      aria-label="Search chats"
-                      className="bg-sidebar-accent/40 pl-8 pr-8 text-sm"
-                      onChange={(event) => setHistoryQuery(event.target.value)}
-                      placeholder="Search threads"
-                      value={historyQuery}
-                    />
-                    {historyQuery ? (
-                      <Button
-                        className="absolute top-1/2 right-1 -translate-y-1/2"
-                        onClick={() => setHistoryQuery('')}
-                        size="icon-xs"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <X className="size-3.5" />
-                        <span className="sr-only">Clear search</span>
-                      </Button>
-                    ) : null}
-                  </div>
-                </SidebarMenuSubItem>
                 {groupedChats.map((group, index) => (
                   <Fragment key={group.label}>
                     <SidebarMenuSubItem

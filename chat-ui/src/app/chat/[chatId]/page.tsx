@@ -9,10 +9,10 @@ import {
 import type { Message } from '@copilotkit/shared';
 import {
   MessageSquarePlus,
-  Lightbulb,
+  Activity,
+  Cloud,
+  TrendingUp,
   Thermometer,
-  Zap,
-  Lock,
 } from 'lucide-react';
 import type { MutableRefObject, ReactNode } from 'react';
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -296,24 +296,27 @@ export default function ChatPage({
   const examplePrompts = useMemo(
     () => [
       {
-        label: 'Check status',
-        prompt: 'Check the status of my living room lights',
-        icon: <Lightbulb className="size-4" />,
-      },
-      {
-        label: 'Set temperature',
-        prompt: 'Set the temperature to 22 degrees',
+        label: 'Kitchen temperature',
+        prompt: 'Show me the current temperature in the kitchen',
         icon: <Thermometer className="size-4" />,
       },
       {
-        label: 'Energy usage',
-        prompt: "What's the energy consumption today?",
-        icon: <Zap className="size-4" />,
+        label: 'Motion heatmap',
+        prompt:
+          'Create an hourly heatmap per room for the motion data of the last 24 hours',
+        icon: <Activity className="size-4" />,
       },
       {
-        label: 'Check locks',
-        prompt: 'Is the front door locked?',
-        icon: <Lock className="size-4" />,
+        label: 'Energy comparison',
+        prompt:
+          'Show the energy consumption of all households for the last 12 hours and compare them',
+        icon: <TrendingUp className="size-4" />,
+      },
+      {
+        label: 'CO2 forecast',
+        prompt:
+          'Create a forecast for the CO2 sensors for tomorrow for all rooms',
+        icon: <Cloud className="size-4" />,
       },
     ],
     [],
