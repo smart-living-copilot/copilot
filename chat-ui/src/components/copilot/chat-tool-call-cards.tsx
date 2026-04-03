@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useState } from 'react';
+import { memo, type ReactNode, useMemo, useState } from 'react';
 import {
   CircleAlert,
   CheckCircle2,
@@ -74,7 +74,7 @@ function ToolPayloadSection({
   );
 }
 
-function PlotlyChart({
+const PlotlyChart = memo(function PlotlyChart({
   className,
   filename,
   title,
@@ -95,7 +95,7 @@ function PlotlyChart({
       title={title}
     />
   );
-}
+});
 
 function ArtifactPreview({
   artifact,
@@ -192,7 +192,11 @@ function ToolCardHeader({
   );
 }
 
-function RunCodeArtifactCard({ artifact }: { artifact: RunCodeArtifact }) {
+const RunCodeArtifactCard = memo(function RunCodeArtifactCard({
+  artifact,
+}: {
+  artifact: RunCodeArtifact;
+}) {
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
   const artifactType =
@@ -266,7 +270,7 @@ function RunCodeArtifactCard({ artifact }: { artifact: RunCodeArtifact }) {
       </Collapsible>
     </Dialog>
   );
-}
+});
 
 function RunCodeOutput({ result }: { result: RunCodeResult }) {
   if (!(result.artifacts?.length ?? 0)) {
@@ -346,15 +350,17 @@ function DetailsToggle({
   );
 }
 
-export function RunCodeCard({
+export const RunCodeCard = memo(function RunCodeCard({
   args,
   result,
   status,
 }: CatchAllToolCallRenderProps) {
   const [showDetails, setShowDetails] = useState(false);
   const code = (args as { code?: string } | undefined)?.code ?? '';
-  const parsedResult =
-    status === 'complete' ? normalizeRunCodeResult(result) : {};
+  const parsedResult = useMemo(
+    () => (status === 'complete' ? normalizeRunCodeResult(result) : {}),
+    [status, result],
+  );
   const hasArtifacts = (parsedResult.artifacts?.length ?? 0) > 0;
   const hasStdout = !!parsedResult.stdout?.trim();
   const hasError = !!parsedResult.error;
@@ -416,9 +422,9 @@ export function RunCodeCard({
       ) : null}
     </Collapsible>
   );
-}
+});
 
-export function GenericToolCallCard({
+export const GenericToolCallCard = memo(function GenericToolCallCard({
   args,
   name,
   result,
@@ -480,4 +486,4 @@ export function GenericToolCallCard({
       </CollapsibleContent>
     </Collapsible>
   );
-}
+});

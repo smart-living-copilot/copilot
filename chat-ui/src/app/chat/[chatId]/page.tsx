@@ -167,7 +167,10 @@ function ChatExperience({
     return () => abortController.abort();
   }, [agent, chatId]);
 
-  const messages = dedupeMessages([...(agent.messages as Message[])]);
+  const messages = useMemo(
+    () => dedupeMessages([...(agent.messages as Message[])]),
+    [agent.messages],
+  );
 
   useEffect(() => {
     if (!historyLoaded) {
@@ -235,6 +238,22 @@ function ChatExperience({
       });
   }, [chatId, historyLoaded, messages]);
 
+  const chatLabels = useMemo(
+    () => ({ chatInputPlaceholder: 'Ask me anything...' }),
+    [],
+  );
+  const chatMessageView = useMemo(() => ({ className: 'flex-1 pt-2' }), []);
+  const renderWelcomeScreen = useCallback(
+    (props: Record<string, unknown>) => (
+      <WelcomeScreen
+        {...props}
+        examplePrompts={examplePrompts}
+        historyLoaded={historyLoaded}
+      />
+    ),
+    [examplePrompts, historyLoaded],
+  );
+
   return (
     <SidebarProvider className="relative h-dvh overflow-hidden text-foreground">
       <AppSidebar
@@ -262,19 +281,9 @@ function ChatExperience({
             agentId="copilot"
             threadId={chatId}
             className="smart-living-copilot-chat flex-1"
-            labels={{
-              chatInputPlaceholder: 'Ask me anything...',
-            }}
-            messageView={{
-              className: 'flex-1 pt-2',
-            }}
-            welcomeScreen={(props) => (
-              <WelcomeScreen
-                {...props}
-                examplePrompts={examplePrompts}
-                historyLoaded={historyLoaded}
-              />
-            )}
+            labels={chatLabels}
+            messageView={chatMessageView}
+            welcomeScreen={renderWelcomeScreen}
           />
         </div>
       </SidebarInset>
