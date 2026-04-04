@@ -173,13 +173,7 @@ function ChatExperience({
   );
 
   useEffect(() => {
-    if (!historyLoaded) {
-      return;
-    }
-
-    const { json: payload, messages: normalizedMessages } =
-      serializeSnapshotMessages(messages);
-    if (payload === lastSavedPayloadRef.current) {
+    if (!historyLoaded || agent.isRunning) {
       return;
     }
 
@@ -188,7 +182,16 @@ function ChatExperience({
     }
 
     persistTimeoutRef.current = window.setTimeout(() => {
-      persistMessages(chatId, normalizedMessages, payload, lastSavedPayloadRef);
+      const { json: payload, messages: normalizedMessages } =
+        serializeSnapshotMessages(messages);
+      if (payload !== lastSavedPayloadRef.current) {
+        persistMessages(
+          chatId,
+          normalizedMessages,
+          payload,
+          lastSavedPayloadRef,
+        );
+      }
     }, 400);
 
     return () => {
@@ -196,10 +199,10 @@ function ChatExperience({
         window.clearTimeout(persistTimeoutRef.current);
       }
     };
-  }, [chatId, historyLoaded, messages]);
+  }, [agent.isRunning, chatId, historyLoaded, messages]);
 
   useEffect(() => {
-    if (!historyLoaded) {
+    if (!historyLoaded || agent.isRunning) {
       return;
     }
 
@@ -236,7 +239,7 @@ function ChatExperience({
       .catch((error) => {
         console.error('Failed to update chat title', error);
       });
-  }, [chatId, historyLoaded, messages]);
+  }, [agent.isRunning, chatId, historyLoaded, messages]);
 
   const chatLabels = useMemo(
     () => ({ chatInputPlaceholder: 'Ask me anything...' }),
