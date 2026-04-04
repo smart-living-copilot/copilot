@@ -25,6 +25,9 @@ _settings: Settings | None = None
 class _AGUIAgentProxy:
     name = "copilot"
 
+    def clone(self):
+        return _AGUIAgentProxy()
+
     async def run(self, input_data):
         if _agent is None:
             raise RuntimeError("AG-UI agent is not ready")
