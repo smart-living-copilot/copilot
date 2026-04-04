@@ -4,9 +4,11 @@ version = "0.1.0"
 description = "A LangChain-powered smart home copilot with WoT registry integration via MCP"
 requires-python = ">=3.12"
 dependencies = [
+    "langchain>=0.3",
     "langchain-openai>=1.1",
     "langchain-mcp-adapters>=0.2",
-    "langgraph>=1.1",
+    "langgraph>=0.4",
+    "langgraph-prebuilt<1.0.8",
     "langgraph-checkpoint-sqlite>=2.0",
     "copilotkit>=0.1.31",
     "fastapi>=0.115",
