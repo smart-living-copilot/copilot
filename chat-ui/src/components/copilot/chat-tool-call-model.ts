@@ -1,3 +1,8 @@
+import {
+  parseWotInteractionList,
+  type WotInteraction,
+} from '@/lib/wot-interactions';
+
 export type ToolCallStatus = 'inProgress' | 'executing' | 'complete';
 
 export type CatchAllToolCallRenderProps = {
@@ -17,6 +22,7 @@ export type RunCodeResult = {
   artifacts?: RunCodeArtifact[];
   stdout?: string;
   error?: string;
+  wotInteractions?: WotInteraction[];
 };
 
 export const TOOL_STATUS_DESCRIPTION: Record<ToolCallStatus, string> = {
@@ -138,6 +144,11 @@ export function formatArtifactSummary(artifacts: RunCodeArtifact[]) {
   return parts.join(' • ');
 }
 
+export function formatWotInteractionSummary(interactions: WotInteraction[]) {
+  const count = interactions.length;
+  return `${count} device interaction${count === 1 ? '' : 's'}`;
+}
+
 export function normalizeRunCodeResult(value: unknown): RunCodeResult {
   let rawResult = value;
 
@@ -210,5 +221,6 @@ export function normalizeRunCodeResult(value: unknown): RunCodeResult {
     artifacts,
     error: typeof raw.error === 'string' ? raw.error : undefined,
     stdout: typeof raw.stdout === 'string' ? raw.stdout : undefined,
+    wotInteractions: parseWotInteractionList(raw.wot_calls),
   };
 }

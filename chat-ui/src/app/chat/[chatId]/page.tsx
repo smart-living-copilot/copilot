@@ -19,6 +19,7 @@ import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppSidebar } from '@/components/chat-sidebar';
 import { chatToolCallRenderers } from '@/components/copilot/chat-tool-call-renderer';
+import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
 import { WelcomeScreen } from '@/components/copilot/welcome-screen';
 import { SiteHeader } from '@/components/site-header';
 import { Button } from '@/components/ui/button';
@@ -245,7 +246,6 @@ function ChatExperience({
     () => ({ chatInputPlaceholder: 'Ask me anything...' }),
     [],
   );
-  const chatMessageView = useMemo(() => ({ className: 'flex-1 pt-2' }), []);
   const renderWelcomeScreen = useCallback(
     (props: Record<string, unknown>) => (
       <WelcomeScreen
@@ -285,7 +285,7 @@ function ChatExperience({
             threadId={chatId}
             className="smart-living-copilot-chat flex-1"
             labels={chatLabels}
-            messageView={chatMessageView}
+            messageView={MessageViewWithWotSummary}
             welcomeScreen={renderWelcomeScreen}
           />
         </div>

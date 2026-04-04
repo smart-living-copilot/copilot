@@ -36,6 +36,7 @@ import {
   formatArtifactSummary,
   formatToolData,
   formatToolName,
+  formatWotInteractionSummary,
   hasErrorResult,
   hasInspectableData,
   normalizeRunCodeResult,
@@ -367,12 +368,18 @@ export const RunCodeCard = memo(function RunCodeCard({
   const artifactSummary = parsedResult.artifacts?.length
     ? formatArtifactSummary(parsedResult.artifacts)
     : '';
+  const wotInteractionSummary = parsedResult.wotInteractions?.length
+    ? formatWotInteractionSummary(parsedResult.wotInteractions)
+    : '';
+  const completedSummary = [wotInteractionSummary, artifactSummary]
+    .filter(Boolean)
+    .join(' • ');
   const summary =
     status === 'executing'
       ? 'Executing analysis'
       : hasError
         ? 'Execution failed'
-        : artifactSummary ||
+        : completedSummary ||
           (hasStdout ? 'Generated text output' : 'No visible output');
   const isCompleted = status === 'complete';
   const canShowDetails = code || hasStdout || hasError;
