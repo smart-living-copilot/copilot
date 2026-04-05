@@ -8,7 +8,6 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from copilot.graph.nodes import (
     CopilotState,
-    TruncatingToolNode,
     make_analysis_node,
     make_control_node,
     make_respond_node,
@@ -46,7 +45,7 @@ def build_graph(
         "control_llm",
         make_control_node(llm, control_tools, max_tokens, parallel_tool_calls=parallel_tool_calls),
     )
-    graph.add_node("control_tools", TruncatingToolNode(control_tools))
+    graph.add_node("control_tools", ToolNode(control_tools))
 
     analysis_tools = (
         mcp_tool_groups.discovery_and_inspect
@@ -59,7 +58,7 @@ def build_graph(
             llm, analysis_tools, max_tokens, parallel_tool_calls=parallel_tool_calls
         ),
     )
-    graph.add_node("analysis_tools", TruncatingToolNode(analysis_tools))
+    graph.add_node("analysis_tools", ToolNode(analysis_tools))
 
     graph.add_edge(START, "router")
 

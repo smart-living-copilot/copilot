@@ -1,5 +1,6 @@
 """Node helpers for the Smart Living Copilot LangGraph."""
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -15,7 +16,6 @@ from langchain_core.messages import (
 )
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END
-from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field
 
 from copilot.prompts import (
@@ -27,8 +27,6 @@ from copilot.prompts import (
 
 logger = logging.getLogger(__name__)
 
-_MAX_TOOL_CONTENT_CHARS = 4000
-
 
 class CopilotState(CopilotKitState):
     intent: str = ""
@@ -38,27 +36,27 @@ class IntentClassification(BaseModel):
     intent: Literal["chat", "control", "analysis"] = Field(description="The classified intent")
 
 
-class TruncatingToolNode(ToolNode):
-    """ToolNode that truncates oversized tool responses."""
+def _strip_wot_calls(message: AnyMessage) -> AnyMessage:
+    """Remove ``wot_calls`` from ToolMessage content before sending to the LLM.
 
-    async def ainvoke(self, input, config=None, **kwargs):
-        result = await super().ainvoke(input, config=config, **kwargs)
-        if isinstance(result, dict) and "messages" in result:
-            result["messages"] = [self._truncate(message) for message in result["messages"]]
-        return result
-
-    @staticmethod
-    def _truncate(message):
-        if not isinstance(message, ToolMessage):
-            return message
-        content = message.content
-        if isinstance(content, str) and len(content) > _MAX_TOOL_CONTENT_CHARS:
-            message.content = (
-                content[:_MAX_TOOL_CONTENT_CHARS]
-                + "\n\n… truncated. Use wot_get_action or wot_get_property"
-                " to inspect specific affordances."
-            )
+    ``wot_calls`` are only needed by the UI to render device-interaction
+    summaries.  They stay in the persisted graph state (so the frontend still
+    receives them) but are stripped from the prompt to avoid blowing up the
+    context with raw sensor data.
+    """
+    if not isinstance(message, ToolMessage):
         return message
+    content = message.content
+    if not isinstance(content, str):
+        return message
+    try:
+        parsed = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        return message
+    if not isinstance(parsed, dict) or "wot_calls" not in parsed:
+        return message
+    stripped = {k: v for k, v in parsed.items() if k != "wot_calls"}
+    return message.model_copy(update={"content": json.dumps(stripped)})
 
 
 def _trim_conversation(messages: list[AnyMessage], max_tokens: int) -> list[AnyMessage]:
@@ -72,7 +70,8 @@ def _trim_conversation(messages: list[AnyMessage], max_tokens: int) -> list[AnyM
     )
     if trimmed and isinstance(trimmed[0], SystemMessage):
         trimmed.pop(0)
-    return _sanitize_message_sequence(trimmed)
+    sanitized = _sanitize_message_sequence(trimmed)
+    return [_strip_wot_calls(m) for m in sanitized]
 
 
 def _sanitize_message_sequence(messages: list[AnyMessage]) -> list[AnyMessage]:

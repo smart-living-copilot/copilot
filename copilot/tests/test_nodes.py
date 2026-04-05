@@ -2,7 +2,7 @@ import unittest
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from copilot.graph.nodes import _make_router_messages, _sanitize_message_sequence
+from copilot.graph.nodes import _make_router_messages, _sanitize_message_sequence, _strip_wot_calls
 
 
 class NodeMessageSanitizationTestCase(unittest.TestCase):
@@ -114,6 +114,52 @@ class NodeMessageSanitizationTestCase(unittest.TestCase):
 
         self.assertEqual(len(sanitized), 5)
         self.assertEqual(len(sanitized[1].tool_calls), 2)
+
+
+class StripWotCallsTestCase(unittest.TestCase):
+    def test_removes_wot_calls_from_json_tool_message(self) -> None:
+        import json
+
+        original = json.dumps(
+            {
+                "stdout": "hello",
+                "artifacts": [{"ref": "chart_1", "kind": "plotly", "filename": "abc.json"}],
+                "wot_calls": [{"type": "invoke_action", "thing_id": "urn:1", "name": "get_power"}],
+            }
+        )
+        msg = ToolMessage(content=original, tool_call_id="call_1")
+        result = _strip_wot_calls(msg)
+
+        parsed = json.loads(result.content)
+        self.assertIn("stdout", parsed)
+        self.assertIn("artifacts", parsed)
+        self.assertNotIn("wot_calls", parsed)
+
+    def test_preserves_non_json_content(self) -> None:
+        msg = ToolMessage(content="plain text result", tool_call_id="call_1")
+        result = _strip_wot_calls(msg)
+        self.assertEqual(result.content, "plain text result")
+
+    def test_preserves_json_without_wot_calls(self) -> None:
+        import json
+
+        original = json.dumps({"stdout": "ok", "artifacts": []})
+        msg = ToolMessage(content=original, tool_call_id="call_1")
+        result = _strip_wot_calls(msg)
+        self.assertEqual(result.content, original)
+
+    def test_passes_through_non_tool_messages(self) -> None:
+        msg = HumanMessage(content="hello")
+        result = _strip_wot_calls(msg)
+        self.assertIs(result, msg)
+
+    def test_does_not_mutate_original_message(self) -> None:
+        import json
+
+        original = json.dumps({"stdout": "x", "wot_calls": [{"type": "read"}]})
+        msg = ToolMessage(content=original, tool_call_id="call_1")
+        _strip_wot_calls(msg)
+        self.assertIn("wot_calls", msg.content)
 
 
 if __name__ == "__main__":
