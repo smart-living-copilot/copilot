@@ -18,10 +18,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import {
-  formatToolData,
-  hasInspectableData,
-} from './chat-tool-call-model';
+import { formatToolData, hasInspectableData } from './chat-tool-call-model';
 
 const TYPE_LABELS: Record<string, { label: string; icon: typeof CirclePlay }> =
   {
@@ -82,7 +79,7 @@ function hasInteractionDetails(interaction: WotInteraction) {
 
   return Boolean(
     (primaryDetail && hasInspectableData(primaryDetail.value)) ||
-      hasInspectableData(interaction.uriVariables),
+    hasInspectableData(interaction.uriVariables),
   );
 }
 
@@ -139,7 +136,10 @@ const WotInteractionRow = memo(function WotInteractionRow({
               >
                 <span>{open ? 'Hide inputs' : 'Inputs'}</span>
                 <ChevronDown
-                  className={cn('size-3 transition-transform', open && 'rotate-180')}
+                  className={cn(
+                    'size-3 transition-transform',
+                    open && 'rotate-180',
+                  )}
                 />
               </Button>
             </CollapsibleTrigger>

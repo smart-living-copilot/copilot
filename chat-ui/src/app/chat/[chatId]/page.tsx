@@ -98,20 +98,16 @@ function persistMessages(
     });
 }
 
-function ChatExperience({
-  breadcrumbs,
+// Keep agent-driven persistence in a non-visual child so tool-call streaming
+// does not force the surrounding layout to rerender on every update.
+function ChatAgentSync({
   chatId,
-  examplePrompts,
-  handleNewChat,
+  onHistoryLoaded,
+  onSidebarRefresh,
 }: {
-  breadcrumbs: { label: string; href: string }[];
   chatId: string;
-  examplePrompts: {
-    label: string;
-    prompt: string;
-    icon: ReactNode;
-  }[];
-  handleNewChat: () => Promise<void>;
+  onHistoryLoaded: (chatId: string) => void;
+  onSidebarRefresh: () => void;
 }) {
   const { agent } = useAgent({
     agentId: 'copilot',
@@ -121,7 +117,6 @@ function ChatExperience({
     ],
   });
   const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
-  const [sidebarRefreshToken, setSidebarRefreshToken] = useState(0);
   const persistTimeoutRef = useRef<number | null>(null);
   const lastSavedPayloadRef = useRef<string | null>(null);
   const lastTitledUserMessageRef = useRef<string | null>(null);
@@ -155,6 +150,7 @@ function ChatExperience({
             .reverse()
             .find((message) => message.role === 'user')?.id ?? null;
         setLoadedChatId(chatId);
+        onHistoryLoaded(chatId);
       })
       .catch((error) => {
         if (abortController.signal.aborted) {
@@ -163,10 +159,11 @@ function ChatExperience({
 
         console.error('Failed to load chat messages', error);
         setLoadedChatId(chatId);
+        onHistoryLoaded(chatId);
       });
 
     return () => abortController.abort();
-  }, [agent, chatId]);
+  }, [agent, chatId, onHistoryLoaded]);
 
   const messages = useMemo(
     () => dedupeMessages([...(agent.messages as Message[])]),
@@ -235,12 +232,37 @@ function ChatExperience({
         if (!response.ok) {
           throw new Error('Failed to update chat title');
         }
-        setSidebarRefreshToken((current) => current + 1);
+        onSidebarRefresh();
       })
       .catch((error) => {
         console.error('Failed to update chat title', error);
       });
-  }, [agent.isRunning, chatId, historyLoaded, messages]);
+  }, [agent.isRunning, chatId, historyLoaded, messages, onSidebarRefresh]);
+
+  return null;
+}
+
+function ChatExperience({
+  breadcrumbs,
+  chatId,
+  examplePrompts,
+  handleNewChat,
+}: {
+  breadcrumbs: { label: string; href: string }[];
+  chatId: string;
+  examplePrompts: {
+    label: string;
+    prompt: string;
+    icon: ReactNode;
+  }[];
+  handleNewChat: () => Promise<void>;
+}) {
+  const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
+  const [sidebarRefreshToken, setSidebarRefreshToken] = useState(0);
+  const handleSidebarRefresh = useCallback(() => {
+    setSidebarRefreshToken((current) => current + 1);
+  }, []);
+  const historyLoaded = loadedChatId === chatId;
 
   const chatLabels = useMemo(
     () => ({ chatInputPlaceholder: 'Ask me anything...' }),
@@ -259,6 +281,12 @@ function ChatExperience({
 
   return (
     <SidebarProvider className="relative h-dvh overflow-hidden text-foreground">
+      <ChatAgentSync
+        chatId={chatId}
+        onHistoryLoaded={setLoadedChatId}
+        onSidebarRefresh={handleSidebarRefresh}
+      />
+
       <AppSidebar
         activeChatId={chatId}
         onNewChat={handleNewChat}
