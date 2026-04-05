@@ -58,11 +58,13 @@ async def lifespan(app: FastAPI):
             checkpointer=checkpointer,
             parallel_tool_calls=settings.parallel_tool_calls,
         )
+        graph = graph.with_config(recursion_limit=settings.recursion_limit)
 
         logger.info(
-            "Graph created with %d MCP tools, model=%s",
+            "Graph created with %d MCP tools, model=%s, recursion_limit=%d",
             len(mcp_tools),
             settings.openai_model,
+            settings.recursion_limit,
         )
 
         _agent = LangGraphAGUIAgent(
