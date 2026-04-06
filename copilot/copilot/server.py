@@ -11,6 +11,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from copilot.agent import _load_mcp_tools, _make_llm, _make_mcp_client
 from copilot.graph import build_graph
+from copilot.graph.checkpointer import CachingCheckpointSaver
 from copilot.models import Settings
 from copilot.tools import AVAILABLE_TOOLS
 
@@ -49,7 +50,8 @@ async def lifespan(app: FastAPI):
     _mcp_client = _make_mcp_client(settings)
     mcp_tools = await _load_mcp_tools(_mcp_client)
 
-    async with AsyncSqliteSaver.from_conn_string(settings.agent_state_db_path) as checkpointer:
+    async with AsyncSqliteSaver.from_conn_string(settings.agent_state_db_path) as sqlite_saver:
+        checkpointer = CachingCheckpointSaver(sqlite_saver)
         graph = build_graph(
             llm=llm,
             mcp_tools=mcp_tools,
