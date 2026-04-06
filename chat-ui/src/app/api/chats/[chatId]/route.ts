@@ -1,7 +1,13 @@
-import { db } from '@/db';
-import { chats } from '@/db/schema';
+import { proxyCopilotJson } from '@/lib/copilot-backend';
 import { cleanupChatResources } from '@/lib/chat-deletion';
-import { eq } from 'drizzle-orm';
+
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ chatId: string }> },
+) {
+  const { chatId } = await params;
+  return proxyCopilotJson(`/threads/${encodeURIComponent(chatId)}`);
+}
 
 export async function DELETE(
   _req: Request,
@@ -25,8 +31,6 @@ export async function DELETE(
     );
   }
 
-  db.delete(chats).where(eq(chats.id, chatId)).run();
-
   return Response.json({ ok: true });
 }
 
@@ -35,47 +39,11 @@ export async function PATCH(
   { params }: { params: Promise<{ chatId: string }> },
 ) {
   const { chatId } = await params;
-  const body = (await req.json()) as {
-    force?: boolean;
-    title?: string;
-  };
-  const title = body.title?.trim().slice(0, 50);
-
-  if (!title) {
-    return Response.json({ detail: 'Title is required' }, { status: 400 });
-  }
-
-  const now = new Date();
-  const existingChat = db
-    .select()
-    .from(chats)
-    .where(eq(chats.id, chatId))
-    .get();
-
-  if (!existingChat) {
-    db.insert(chats)
-      .values({
-        id: chatId,
-        title,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-
-    return Response.json({ ok: true, title });
-  }
-
-  const nextTitle =
-    body.force || existingChat.title === 'New Chat'
-      ? title
-      : existingChat.title;
-
-  if (nextTitle !== existingChat.title) {
-    db.update(chats)
-      .set({ title: nextTitle, updatedAt: now })
-      .where(eq(chats.id, chatId))
-      .run();
-  }
-
-  return Response.json({ ok: true, title: nextTitle });
+  return proxyCopilotJson(`/threads/${encodeURIComponent(chatId)}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': req.headers.get('content-type') || 'application/json',
+    },
+    body: await req.text(),
+  });
 }

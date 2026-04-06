@@ -27,8 +27,6 @@ services:
     env_file: .env
     ports:
       - "3000:3000"
-    volumes:
-      - chat-ui-data:/app/data
     environment:
       NEXT_PUBLIC_API_URL: "http://localhost:8123"
       COPILOT_URL: "http://copilot:8123"
@@ -168,7 +166,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  chat-ui-data:
   copilot-data:
   valkey-data:
   wot-registry-data:

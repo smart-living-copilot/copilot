@@ -32,6 +32,10 @@ import { WelcomeScreen } from '@/components/copilot/welcome-screen';
 import { SiteHeader } from '@/components/site-header';
 import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import {
+  type ChatSummary,
+  upsertCachedChat,
+} from '@/lib/chat-list-cache';
 
 function dedupeMessages(messages: Message[]): Message[] {
   const latestById = new Map<string, Message>();
@@ -53,29 +57,6 @@ function dedupeMessages(messages: Message[]): Message[] {
   return deduped;
 }
 
-function flattenUserMessageContent(content: Message['content']) {
-  if (typeof content === 'string') {
-    return content;
-  }
-
-  if (!Array.isArray(content)) {
-    return '';
-  }
-
-  return content
-    .filter(
-      (
-        item,
-      ): item is Extract<
-        (typeof content)[number],
-        { type: 'text'; text: string }
-      > => item.type === 'text' && typeof item.text === 'string',
-    )
-    .map((item) => item.text)
-    .join(' ')
-    .trim();
-}
-
 // Keep agent-driven side-effects in a non-visual child so tool-call streaming
 // does not force the surrounding layout to rerender on every update.
 function ChatAgentSync({
@@ -94,33 +75,39 @@ function ChatAgentSync({
       UseAgentUpdate.OnRunStatusChanged,
     ],
   });
-  const lastTitledUserMessageRef = useRef<string | null>(null);
+  const lastSidebarSyncedMessageRef = useRef<string | null>(null);
   const historyLoadedRef = useRef(false);
 
   // Load persisted messages from the backend checkpoint on mount.
   useEffect(() => {
     historyLoadedRef.current = false;
-    lastTitledUserMessageRef.current = null;
 
     const abortController = new AbortController();
-    void fetch(`/api/chats/${chatId}/messages`, {
+    void fetch(`/api/chats/${chatId}`, {
       signal: abortController.signal,
     })
       .then(async (response) => {
         if (!response.ok) {
-          throw new Error('Failed to load messages');
+          throw new Error('Failed to load chat');
         }
-        const data = (await response.json()) as { messages?: Message[] };
+        const data = (await response.json()) as ChatSummary & {
+          messages?: Message[];
+        };
+        upsertCachedChat({
+          id: data.id,
+          title: data.title,
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt,
+        });
         const loaded = dedupeMessages(data.messages ?? []);
         if (loaded.length > 0) {
           agent.setMessages(loaded);
         }
-        lastTitledUserMessageRef.current =
-          [...loaded].reverse().find((m) => m.role === 'user')?.id ?? null;
+        lastSidebarSyncedMessageRef.current = loaded.at(-1)?.id ?? null;
       })
       .catch((error) => {
         if (!abortController.signal.aborted) {
-          console.error('Failed to load messages', error);
+          console.error('Failed to load chat', error);
         }
       })
       .finally(() => {
@@ -139,46 +126,20 @@ function ChatAgentSync({
     [rawMessages],
   );
 
-  // Auto-title the chat from the latest user message.
+  // Refresh the sidebar once a completed run has persisted new thread metadata.
   useEffect(() => {
-    if (agent.isRunning) {
+    if (agent.isRunning || !historyLoadedRef.current) {
       return;
     }
 
-    const latestUserMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === 'user');
-    if (
-      !latestUserMessage ||
-      latestUserMessage.id === lastTitledUserMessageRef.current
-    ) {
+    const latestMessageId = messages.at(-1)?.id ?? null;
+    if (!latestMessageId || latestMessageId === lastSidebarSyncedMessageRef.current) {
       return;
     }
 
-    const content = flattenUserMessageContent(latestUserMessage.content);
-    const title = content.slice(0, 50);
-    if (!title) {
-      return;
-    }
-
-    lastTitledUserMessageRef.current = latestUserMessage.id;
-    void fetch(`/api/chats/${chatId}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ title }),
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error('Failed to update chat title');
-        }
-        onSidebarRefresh();
-      })
-      .catch((error) => {
-        console.error('Failed to update chat title', error);
-      });
-  }, [agent.isRunning, chatId, messages, onSidebarRefresh]);
+    lastSidebarSyncedMessageRef.current = latestMessageId;
+    onSidebarRefresh();
+  }, [agent.isRunning, messages, onSidebarRefresh]);
 
   return null;
 }
@@ -196,7 +157,7 @@ function ChatExperience({
     prompt: string;
     icon: ReactNode;
   }[];
-  handleNewChat: () => Promise<void>;
+  handleNewChat: () => Promise<ChatSummary | null>;
 }) {
   const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
   const [sidebarRefreshToken, setSidebarRefreshToken] = useState(0);
@@ -309,10 +270,13 @@ export default function ChatPage({
       if (!response.ok) {
         throw new Error('Failed to create chat');
       }
-      const chat: { id: string } = await response.json();
+      const chat = (await response.json()) as ChatSummary;
+      upsertCachedChat(chat);
       router.push(`/chat/${chat.id}`);
+      return chat;
     } catch (error) {
       console.error('Failed to create chat', error);
+      return null;
     }
   }, [router]);
 

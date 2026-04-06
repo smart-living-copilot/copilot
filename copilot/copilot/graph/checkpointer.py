@@ -1,4 +1,4 @@
-"""Write-through caching wrapper for LangGraph checkpoint savers.
+"""Caching wrapper for LangGraph checkpoint savers.
 
 The CopilotKit streaming layer calls ``aget_state()`` on every SSE event
 (hundreds per LLM response).  Each call deserialises the full checkpoint
@@ -12,8 +12,10 @@ This avoids blocking graph execution with SQLite I/O on every node.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -26,6 +28,16 @@ from langgraph.checkpoint.base import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+type PendingPut = tuple[RunnableConfig, Checkpoint, CheckpointMetadata, ChannelVersions]
+type PendingWrite = tuple[RunnableConfig, Sequence[tuple[str, Any]], str, str]
+
+
+@dataclass(slots=True)
+class _PendingThreadOperations:
+    puts: list[PendingPut] = field(default_factory=list)
+    writes: list[PendingWrite] = field(default_factory=list)
 
 
 def _thread_id(config: RunnableConfig) -> str | None:
@@ -44,11 +56,11 @@ class CachingCheckpointSaver(BaseCheckpointSaver):
         self._underlying = underlying
         # thread_id → most-recent CheckpointTuple
         self._cache: dict[str, CheckpointTuple] = {}
-        # Pending writes to flush
-        self._pending_puts: list[
-            tuple[RunnableConfig, Checkpoint, CheckpointMetadata, ChannelVersions]
-        ] = []
-        self._pending_writes: list[tuple[RunnableConfig, Sequence[tuple[str, Any]], str, str]] = []
+        # Thread-local pending writes to flush.
+        self._pending_by_thread: dict[str | None, _PendingThreadOperations] = {}
+        # Deleted threads are tombstoned so in-flight runs cannot resurrect them.
+        self._deleted_threads: set[str] = set()
+        self._state_lock = asyncio.Lock()
 
     # -- config specs (delegate) -------------------------------------------
 
@@ -62,14 +74,22 @@ class CachingCheckpointSaver(BaseCheckpointSaver):
         tid = _thread_id(config)
         checkpoint_id = (config.get("configurable") or {}).get("checkpoint_id")
 
-        # Only serve from cache when asking for the *latest* checkpoint
-        # (no specific checkpoint_id requested).
-        if tid and not checkpoint_id and tid in self._cache:
-            return self._cache[tid]
+        async with self._state_lock:
+            if tid and tid in self._deleted_threads:
+                return None
+
+            # Only serve from cache when asking for the *latest* checkpoint
+            # (no specific checkpoint_id requested).
+            if tid and not checkpoint_id and tid in self._cache:
+                return self._cache[tid]
 
         result = await self._underlying.aget_tuple(config)
         if result and tid and not checkpoint_id:
-            self._cache[tid] = result
+            async with self._state_lock:
+                if tid not in self._deleted_threads:
+                    self._cache[tid] = result
+                else:
+                    return None
         return result
 
     async def alist(
@@ -103,16 +123,22 @@ class CachingCheckpointSaver(BaseCheckpointSaver):
             }
         }
 
-        # Update cache so subsequent reads see the latest state.
-        if tid:
-            self._cache[tid] = CheckpointTuple(
-                config=result,
-                checkpoint=checkpoint,
-                metadata=metadata,
-                parent_config=config,
-            )
+        async with self._state_lock:
+            if tid and tid in self._deleted_threads:
+                logger.info("Dropping checkpoint write for deleted thread %s", tid)
+                return result
 
-        self._pending_puts.append((config, checkpoint, metadata, new_versions))
+            # Update cache so subsequent reads see the latest state.
+            if tid:
+                self._cache[tid] = CheckpointTuple(
+                    config=result,
+                    checkpoint=checkpoint,
+                    metadata=metadata,
+                    parent_config=config,
+                )
+
+            pending = self._pending_by_thread.setdefault(tid, _PendingThreadOperations())
+            pending.puts.append((config, checkpoint, metadata, new_versions))
         return result
 
     async def aput_writes(
@@ -122,28 +148,63 @@ class CachingCheckpointSaver(BaseCheckpointSaver):
         task_id: str,
         task_path: str = "",
     ) -> None:
-        self._pending_writes.append((config, writes, task_id, task_path))
+        tid = _thread_id(config)
+        async with self._state_lock:
+            if tid and tid in self._deleted_threads:
+                logger.info("Dropping pending tool writes for deleted thread %s", tid)
+                return
+
+            pending = self._pending_by_thread.setdefault(tid, _PendingThreadOperations())
+            pending.writes.append((config, writes, task_id, task_path))
 
     # -- flush -------------------------------------------------------------
 
-    async def flush(self) -> None:
-        """Write all pending operations to the underlying store."""
-        if not self._pending_writes and not self._pending_puts:
-            return
+    async def flush(self, thread_id: str | None = None) -> None:
+        """Write pending operations to the underlying store.
 
-        for config, writes, task_id, task_path in self._pending_writes:
-            await self._underlying.aput_writes(config, writes, task_id, task_path)
-        self._pending_writes.clear()
+        When ``thread_id`` is provided, only that thread's deferred writes are
+        flushed. Otherwise all pending threads are flushed.
+        """
+        async with self._state_lock:
+            if thread_id is None:
+                pending_batches = list(self._pending_by_thread.values())
+                self._pending_by_thread = {}
+            else:
+                pending = self._pending_by_thread.pop(thread_id, None)
+                pending_batches = [pending] if pending else []
 
-        for config, checkpoint, metadata, new_versions in self._pending_puts:
-            await self._underlying.aput(config, checkpoint, metadata, new_versions)
-        self._pending_puts.clear()
+        for pending in pending_batches:
+            if pending is None:
+                continue
+
+            for config, writes, task_id, task_path in pending.writes:
+                await self._underlying.aput_writes(config, writes, task_id, task_path)
+
+            for config, checkpoint, metadata, new_versions in pending.puts:
+                await self._underlying.aput(config, checkpoint, metadata, new_versions)
 
     # -- deletes -----------------------------------------------------------
 
     async def adelete_thread(self, thread_id: str) -> None:
-        await self._underlying.adelete_thread(thread_id)
-        self._cache.pop(thread_id, None)
+        async with self._state_lock:
+            self._deleted_threads.add(thread_id)
+            cached = self._cache.pop(thread_id, None)
+            pending = self._pending_by_thread.pop(thread_id, None)
+
+        try:
+            await self._underlying.adelete_thread(thread_id)
+        except Exception:
+            async with self._state_lock:
+                self._deleted_threads.discard(thread_id)
+                if cached is not None:
+                    self._cache[thread_id] = cached
+                if pending is not None and (pending.puts or pending.writes):
+                    self._pending_by_thread[thread_id] = pending
+            raise
+
+    async def is_deleted_thread(self, thread_id: str) -> bool:
+        async with self._state_lock:
+            return thread_id in self._deleted_threads
 
     # -- version -----------------------------------------------------------
 

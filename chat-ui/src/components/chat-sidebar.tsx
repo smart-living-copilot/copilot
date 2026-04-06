@@ -43,6 +43,14 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { APP_VERSION } from '@/lib/app-version';
+import {
+  fetchChatList,
+  getCachedChatList,
+  removeCachedChat,
+  replaceCachedChatList,
+  type ChatSummary,
+  upsertCachedChat,
+} from '@/lib/chat-list-cache';
 import { Spinner } from '@/components/ui/spinner';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
@@ -91,12 +99,7 @@ function formatUpdatedAt(updatedAt: string): string {
   return `Updated ${shortDateFormatter.format(date)}`;
 }
 
-interface Chat {
-  id: string;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-}
+type Chat = ChatSummary;
 
 function getHistoryGroupLabel(updatedAt: string): string {
   const date = new Date(updatedAt);
@@ -131,7 +134,7 @@ function getHistoryGroupLabel(updatedAt: string): string {
 
 interface AppSidebarProps {
   activeChatId?: string;
-  onNewChat?: () => void | Promise<void>;
+  onNewChat?: () => ChatSummary | null | void | Promise<ChatSummary | null | void>;
   refreshToken?: number;
 }
 
@@ -143,8 +146,8 @@ export function AppSidebar({
   const pathname = usePathname();
   const router = useRouter();
   const isOnChat = pathname.startsWith('/chat');
-  const [chatList, setChatList] = useState<Chat[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [chatList, setChatList] = useState<Chat[]>(() => getCachedChatList() ?? []);
+  const [isLoading, setIsLoading] = useState(() => getCachedChatList() === null);
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
@@ -165,16 +168,13 @@ export function AppSidebar({
     }
   }
 
-  const fetchChats = useCallback(async () => {
-    setIsLoading(true);
+  const fetchChats = useCallback(async (options: { force?: boolean } = {}) => {
+    if (options.force || getCachedChatList() === null) {
+      setIsLoading(true);
+    }
 
     try {
-      const response = await fetch('/api/chats');
-      if (response.ok) {
-        setChatList(await response.json());
-      } else {
-        throw new Error('Failed to fetch chats');
-      }
+      setChatList(await fetchChatList(options));
     } catch (error) {
       console.error('Failed to fetch chats', error);
       toast.error('Could not load chat history.');
@@ -184,8 +184,15 @@ export function AppSidebar({
   }, []);
 
   useEffect(() => {
-    void fetchChats();
-  }, [activeChatId, fetchChats, refreshToken]);
+    void fetchChats({ force: refreshToken > 0 });
+  }, [fetchChats, refreshToken]);
+
+  useEffect(() => {
+    const cachedChats = getCachedChatList();
+    if (cachedChats) {
+      setChatList(cachedChats);
+    }
+  }, [activeChatId]);
 
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
@@ -199,7 +206,7 @@ export function AppSidebar({
 
     setDeletingChatId(chatId);
     setEditingChatId((current) => (current === chatId ? null : current));
-    setChatList((current) => current.filter((chat) => chat.id !== chatId));
+    setChatList(removeCachedChat(chatId));
 
     try {
       const response = await fetch(`/api/chats/${chatId}`, {
@@ -210,6 +217,7 @@ export function AppSidebar({
       }
     } catch (error) {
       console.error('Failed to delete chat', error);
+      replaceCachedChatList(previousChatList);
       setChatList(previousChatList);
       toast.error('Could not delete chat.');
       setDeletingChatId((current) => (current === chatId ? null : current));
@@ -219,7 +227,10 @@ export function AppSidebar({
     if (deletingActiveChat) {
       try {
         if (onNewChat) {
-          await onNewChat();
+          const replacementChat = await onNewChat();
+          if (!replacementChat) {
+            throw new Error('Failed to create replacement chat');
+          }
         } else {
           router.push('/chat');
         }
@@ -249,7 +260,11 @@ export function AppSidebar({
 
     if (onNewChat) {
       try {
-        await onNewChat();
+        const chat = await onNewChat();
+        if (!chat) {
+          throw new Error('Failed to create chat');
+        }
+        setChatList(upsertCachedChat(chat));
         closeMobileSidebar();
       } catch (error) {
         console.error('Failed to create chat', error);
@@ -262,7 +277,8 @@ export function AppSidebar({
       try {
         const response = await fetch('/api/chats', { method: 'POST' });
         if (!response.ok) throw new Error('Failed to create chat');
-        const chat: { id: string } = await response.json();
+        const chat = (await response.json()) as Chat;
+        setChatList(upsertCachedChat(chat));
         router.push(`/chat/${chat.id}`);
         closeMobileSidebar();
       } catch (error) {
@@ -306,22 +322,8 @@ export function AppSidebar({
           throw new Error('Failed to rename chat');
         }
 
-        const updatedAt = new Date().toISOString();
-        setChatList((current) => {
-          const updatedChat = current.find((chat) => chat.id === chatId);
-          if (!updatedChat) {
-            return current;
-          }
-
-          return [
-            {
-              ...updatedChat,
-              title,
-              updatedAt,
-            },
-            ...current.filter((chat) => chat.id !== chatId),
-          ];
-        });
+        const updatedChat = (await response.json()) as Chat;
+        setChatList(upsertCachedChat(updatedChat));
         setEditingChatId(null);
         setEditingTitle('');
       } catch (error) {
