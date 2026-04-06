@@ -4,6 +4,10 @@ The CopilotKit streaming layer calls ``aget_state()`` on every SSE event
 (hundreds per LLM response).  Each call deserialises the full checkpoint
 from the underlying store.  This wrapper keeps the most-recent checkpoint
 per thread in memory so repeated reads are effectively free.
+
+Writes are deferred to a pending queue and only flushed to the underlying
+store when ``flush()`` is called (typically once per completed request).
+This avoids blocking graph execution with SQLite I/O on every node.
 """
 
 from __future__ import annotations
@@ -29,13 +33,20 @@ def _thread_id(config: RunnableConfig) -> str | None:
 
 
 class CachingCheckpointSaver(BaseCheckpointSaver):
-    """Thin write-through cache in front of any async checkpoint saver."""
+    """Thin write-behind cache in front of any async checkpoint saver.
+
+    Reads are served from an in-memory cache.  Writes are buffered and
+    flushed to the underlying saver explicitly via ``flush()``.
+    """
 
     def __init__(self, underlying: BaseCheckpointSaver) -> None:
         super().__init__(serde=underlying.serde)
         self._underlying = underlying
         # thread_id → most-recent CheckpointTuple
         self._cache: dict[str, CheckpointTuple] = {}
+        # Pending writes to flush
+        self._pending_puts: list[tuple[RunnableConfig, Checkpoint, CheckpointMetadata, ChannelVersions]] = []
+        self._pending_writes: list[tuple[RunnableConfig, Sequence[tuple[str, Any]], str, str]] = []
 
     # -- config specs (delegate) -------------------------------------------
 
@@ -70,7 +81,7 @@ class CachingCheckpointSaver(BaseCheckpointSaver):
         async for item in self._underlying.alist(config, filter=filter, before=before, limit=limit):
             yield item
 
-    # -- writes ------------------------------------------------------------
+    # -- writes (deferred) -------------------------------------------------
 
     async def aput(
         self,
@@ -79,10 +90,18 @@ class CachingCheckpointSaver(BaseCheckpointSaver):
         metadata: CheckpointMetadata,
         new_versions: ChannelVersions,
     ) -> RunnableConfig:
-        result = await self._underlying.aput(config, checkpoint, metadata, new_versions)
-
-        # Update cache with the freshly written checkpoint.
         tid = _thread_id(config)
+        checkpoint_ns = (config.get("configurable") or {}).get("checkpoint_ns", "")
+
+        result: RunnableConfig = {
+            "configurable": {
+                "thread_id": tid,
+                "checkpoint_ns": checkpoint_ns,
+                "checkpoint_id": checkpoint["id"],
+            }
+        }
+
+        # Update cache so subsequent reads see the latest state.
         if tid:
             self._cache[tid] = CheckpointTuple(
                 config=result,
@@ -90,6 +109,8 @@ class CachingCheckpointSaver(BaseCheckpointSaver):
                 metadata=metadata,
                 parent_config=config,
             )
+
+        self._pending_puts.append((config, checkpoint, metadata, new_versions))
         return result
 
     async def aput_writes(
@@ -99,11 +120,22 @@ class CachingCheckpointSaver(BaseCheckpointSaver):
         task_id: str,
         task_path: str = "",
     ) -> None:
-        await self._underlying.aput_writes(config, writes, task_id, task_path)
-        # Invalidate cache — pending writes change what aget_tuple returns.
-        tid = _thread_id(config)
-        if tid:
-            self._cache.pop(tid, None)
+        self._pending_writes.append((config, writes, task_id, task_path))
+
+    # -- flush -------------------------------------------------------------
+
+    async def flush(self) -> None:
+        """Write all pending operations to the underlying store."""
+        if not self._pending_writes and not self._pending_puts:
+            return
+
+        for config, writes, task_id, task_path in self._pending_writes:
+            await self._underlying.aput_writes(config, writes, task_id, task_path)
+        self._pending_writes.clear()
+
+        for config, checkpoint, metadata, new_versions in self._pending_puts:
+            await self._underlying.aput(config, checkpoint, metadata, new_versions)
+        self._pending_puts.clear()
 
     # -- deletes -----------------------------------------------------------
 

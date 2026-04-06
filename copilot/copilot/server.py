@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Module-level references kept alive for the process lifetime.
 _mcp_client = None
 _agent: LangGraphAGUIAgent | None = None
+_checkpointer: CachingCheckpointSaver | None = None
 _settings: Settings | None = None
 
 
@@ -33,17 +34,22 @@ class _AGUIAgentProxy:
         if _agent is None:
             raise RuntimeError("AG-UI agent is not ready")
 
-        async for event in _agent.run(input_data):
-            yield event
+        try:
+            async for event in _agent.run(input_data):
+                yield event
+        finally:
+            if _checkpointer is not None:
+                await _checkpointer.flush()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mcp_client, _agent, _settings
+    global _mcp_client, _agent, _checkpointer, _settings
 
     settings = Settings()
     _settings = settings
     logging.basicConfig(level=settings.log_level)
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 
     llm = _make_llm(settings)
 
@@ -51,7 +57,8 @@ async def lifespan(app: FastAPI):
     mcp_tools = await _load_mcp_tools(_mcp_client)
 
     async with AsyncSqliteSaver.from_conn_string(settings.agent_state_db_path) as sqlite_saver:
-        checkpointer = CachingCheckpointSaver(sqlite_saver)
+        _checkpointer = CachingCheckpointSaver(sqlite_saver)
+        checkpointer = _checkpointer
         graph = build_graph(
             llm=llm,
             mcp_tools=mcp_tools,
