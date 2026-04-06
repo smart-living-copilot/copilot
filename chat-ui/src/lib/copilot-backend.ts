@@ -9,10 +9,7 @@ function buildHeaders(headers?: HeadersInit) {
   return merged;
 }
 
-export async function fetchCopilot(
-  path: string,
-  init: RequestInit = {},
-) {
+export async function fetchCopilot(path: string, init: RequestInit = {}) {
   return fetch(`${copilotUrl}${path}`, {
     ...init,
     cache: init.cache ?? 'no-store',
@@ -20,10 +17,7 @@ export async function fetchCopilot(
   });
 }
 
-export async function proxyCopilotJson(
-  path: string,
-  init: RequestInit = {},
-) {
+export async function proxyCopilotJson(path: string, init: RequestInit = {}) {
   const response = await fetchCopilot(path, init);
   const body = await response.text();
   return new Response(body, {

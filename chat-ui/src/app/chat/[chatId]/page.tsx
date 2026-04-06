@@ -32,10 +32,7 @@ import { WelcomeScreen } from '@/components/copilot/welcome-screen';
 import { SiteHeader } from '@/components/site-header';
 import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
-import {
-  type ChatSummary,
-  upsertCachedChat,
-} from '@/lib/chat-list-cache';
+import { type ChatSummary, upsertCachedChat } from '@/lib/chat-list-cache';
 
 function dedupeMessages(messages: Message[]): Message[] {
   const latestById = new Map<string, Message>();
@@ -133,7 +130,10 @@ function ChatAgentSync({
     }
 
     const latestMessageId = messages.at(-1)?.id ?? null;
-    if (!latestMessageId || latestMessageId === lastSidebarSyncedMessageRef.current) {
+    if (
+      !latestMessageId ||
+      latestMessageId === lastSidebarSyncedMessageRef.current
+    ) {
       return;
     }
 
@@ -229,7 +229,8 @@ export default function ChatPage({
 }: {
   params: Promise<{ chatId: string }>;
 }) {
-  const isProductionBuild = process.env.NODE_ENV === 'production';
+  const enableInspector =
+    process.env.NEXT_PUBLIC_ENABLE_COPILOT_INSPECTOR === 'true';
   const { chatId } = use(params);
   const router = useRouter();
 
@@ -286,7 +287,7 @@ export default function ChatPage({
       runtimeUrl="/api/copilotkit"
       agent="copilot"
       threadId={chatId}
-      enableInspector={!isProductionBuild}
+      enableInspector={enableInspector}
       renderToolCalls={chatToolCallRenderers}
     >
       <ChatExperience

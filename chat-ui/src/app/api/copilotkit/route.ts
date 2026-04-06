@@ -5,6 +5,8 @@ import {
 } from '@copilotkit/runtime';
 import { LangGraphHttpAgent } from '@copilotkit/runtime/langgraph';
 
+import { filterCopilotEventStream } from '@/lib/copilot-stream';
+
 const copilotUrl = process.env.COPILOT_URL || 'http://copilot:8123';
 
 const runtime = new CopilotRuntime({
@@ -21,5 +23,20 @@ const { handleRequest } = copilotRuntimeNextJSAppRouterEndpoint({
   endpoint: '/api/copilotkit',
 });
 
-export const POST = handleRequest;
-export const GET = handleRequest;
+async function handleFilteredRequest(request: Request): Promise<Response> {
+  const response = await handleRequest(request);
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (!contentType.includes('text/event-stream') || !response.body) {
+    return response;
+  }
+
+  return new Response(filterCopilotEventStream(response.body), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+export const POST = handleFilteredRequest;
+export const GET = handleFilteredRequest;

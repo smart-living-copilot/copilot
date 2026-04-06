@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test src/lib/chat-deletion.test.ts src/lib/wot-interactions.test.ts",
+    "test": "tsx --test src/lib/chat-deletion.test.ts src/lib/copilot-stream.test.ts src/lib/wot-interactions.test.ts",
     "typecheck": "next typegen && tsc --noEmit",
     "format": "prettier . --write",
     "format:check": "prettier . --check"

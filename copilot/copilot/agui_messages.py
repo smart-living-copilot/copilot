@@ -14,11 +14,7 @@ def strip_none_fields(value: Any) -> Any:
     we normalize them before returning chat history to the frontend.
     """
     if isinstance(value, dict):
-        return {
-            key: strip_none_fields(item)
-            for key, item in value.items()
-            if item is not None
-        }
+        return {key: strip_none_fields(item) for key, item in value.items() if item is not None}
 
     if isinstance(value, list):
         return [strip_none_fields(item) for item in value]

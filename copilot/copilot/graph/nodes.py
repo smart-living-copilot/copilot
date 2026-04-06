@@ -37,6 +37,68 @@ class IntentClassification(BaseModel):
     intent: Literal["chat", "control", "analysis"] = Field(description="The classified intent")
 
 
+def _text_content(message: AnyMessage) -> str:
+    content = getattr(message, "content", "")
+    return content if isinstance(content, str) else ""
+
+
+def _is_empty_assistant_message(message: AnyMessage) -> bool:
+    return (
+        isinstance(message, AIMessage)
+        and not message.tool_calls
+        and not _text_content(message).strip()
+    )
+
+
+def _is_internal_intent_message(message: AnyMessage) -> bool:
+    if not isinstance(message, AIMessage) or message.tool_calls:
+        return False
+
+    content = _text_content(message).strip()
+    if not content:
+        return False
+
+    try:
+        parsed = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+    return (
+        isinstance(parsed, dict)
+        and set(parsed) == {"intent"}
+        and parsed["intent"] in {"chat", "control", "analysis"}
+    )
+
+
+def _prune_prompt_history(messages: list[AnyMessage]) -> list[AnyMessage]:
+    """Drop stale tool chatter and internal assistant artifacts from prompts.
+
+    The persisted checkpoint keeps the full graph history, but for the next
+    LLM prompt we only need tool outputs from the current user turn. Older
+    tool-call scaffolding is expensive and rarely improves answer quality.
+    """
+
+    last_human_index = max(
+        (index for index, message in enumerate(messages) if isinstance(message, HumanMessage)),
+        default=-1,
+    )
+
+    pruned: list[AnyMessage] = []
+    for index, message in enumerate(messages):
+        if _is_empty_assistant_message(message) or _is_internal_intent_message(message):
+            continue
+
+        if index < last_human_index:
+            if isinstance(message, ToolMessage):
+                continue
+            if isinstance(message, AIMessage) and message.tool_calls:
+                continue
+
+        pruned.append(message)
+
+    return pruned
+
+
 def _strip_wot_calls(message: AnyMessage) -> AnyMessage:
     """Remove ``wot_calls`` from ToolMessage content before sending to the LLM.
 
@@ -72,7 +134,8 @@ def _trim_conversation(messages: list[AnyMessage], max_tokens: int) -> list[AnyM
     if trimmed and isinstance(trimmed[0], SystemMessage):
         trimmed.pop(0)
     sanitized = _sanitize_message_sequence(trimmed)
-    return [_strip_wot_calls(m) for m in sanitized]
+    prompt_ready = _prune_prompt_history(sanitized)
+    return [_strip_wot_calls(m) for m in prompt_ready]
 
 
 def _sanitize_message_sequence(messages: list[AnyMessage]) -> list[AnyMessage]:
@@ -143,7 +206,7 @@ def _make_router_messages(messages: list[AnyMessage], max_tokens: int) -> list[A
     sanitized = _sanitize_message_sequence(trimmed)
     conversational = [
         message
-        for message in sanitized
+        for message in _prune_prompt_history(sanitized)
         if not isinstance(message, ToolMessage)
         and not (isinstance(message, AIMessage) and message.tool_calls)
     ]

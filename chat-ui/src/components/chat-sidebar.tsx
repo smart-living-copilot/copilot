@@ -134,7 +134,11 @@ function getHistoryGroupLabel(updatedAt: string): string {
 
 interface AppSidebarProps {
   activeChatId?: string;
-  onNewChat?: () => ChatSummary | null | void | Promise<ChatSummary | null | void>;
+  onNewChat?: () =>
+    | ChatSummary
+    | null
+    | void
+    | Promise<ChatSummary | null | void>;
   refreshToken?: number;
 }
 
@@ -146,8 +150,12 @@ export function AppSidebar({
   const pathname = usePathname();
   const router = useRouter();
   const isOnChat = pathname.startsWith('/chat');
-  const [chatList, setChatList] = useState<Chat[]>(() => getCachedChatList() ?? []);
-  const [isLoading, setIsLoading] = useState(() => getCachedChatList() === null);
+  const [chatList, setChatList] = useState<Chat[]>(
+    () => getCachedChatList() ?? [],
+  );
+  const [isLoading, setIsLoading] = useState(
+    () => getCachedChatList() === null,
+  );
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
