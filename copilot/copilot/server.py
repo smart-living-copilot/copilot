@@ -105,6 +105,26 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/threads/{thread_id}/messages")
+async def get_thread_messages(thread_id: str, request: Request):
+    """Return checkpoint messages for a thread as AG-UI compatible JSON."""
+    _verify_internal_api_key(request)
+
+    if _checkpointer is None:
+        raise HTTPException(status_code=503, detail="Checkpointer not ready")
+
+    config = {"configurable": {"thread_id": thread_id}}
+    state = await _checkpointer.aget_tuple(config)
+    if state is None or state.checkpoint is None:
+        return {"messages": []}
+
+    from ag_ui_langgraph.utils import langchain_messages_to_agui
+
+    channel_values = state.checkpoint.get("channel_values", {})
+    messages = channel_values.get("messages", [])
+    return {"messages": langchain_messages_to_agui(messages)}
+
+
 @app.delete("/threads/{thread_id}")
 async def delete_thread(thread_id: str, request: Request):
     _verify_internal_api_key(request)

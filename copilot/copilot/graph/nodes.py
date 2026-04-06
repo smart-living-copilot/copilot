@@ -288,9 +288,7 @@ def make_prune_node(max_checkpoint_tokens: int):
         )
         kept = _sanitize_message_sequence(kept)
         kept_ids = {m.id for m in kept}
-        removals = [
-            RemoveMessage(id=m.id) for m in messages if m.id not in kept_ids
-        ]
+        removals = [RemoveMessage(id=m.id) for m in messages if m.id not in kept_ids]
         if removals:
             logger.info(
                 "Pruning %d messages from checkpoint (%d kept)",

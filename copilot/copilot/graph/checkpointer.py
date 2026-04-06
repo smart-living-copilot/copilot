@@ -45,7 +45,9 @@ class CachingCheckpointSaver(BaseCheckpointSaver):
         # thread_id → most-recent CheckpointTuple
         self._cache: dict[str, CheckpointTuple] = {}
         # Pending writes to flush
-        self._pending_puts: list[tuple[RunnableConfig, Checkpoint, CheckpointMetadata, ChannelVersions]] = []
+        self._pending_puts: list[
+            tuple[RunnableConfig, Checkpoint, CheckpointMetadata, ChannelVersions]
+        ] = []
         self._pending_writes: list[tuple[RunnableConfig, Sequence[tuple[str, Any]], str, str]] = []
 
     # -- config specs (delegate) -------------------------------------------

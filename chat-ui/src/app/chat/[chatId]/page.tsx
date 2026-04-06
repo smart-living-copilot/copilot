@@ -97,21 +97,41 @@ function ChatAgentSync({
   const lastTitledUserMessageRef = useRef<string | null>(null);
   const historyLoadedRef = useRef(false);
 
-  // Signal history loaded once CopilotKit has connected and delivered messages.
+  // Load persisted messages from the backend checkpoint on mount.
   useEffect(() => {
     historyLoadedRef.current = false;
     lastTitledUserMessageRef.current = null;
-  }, [chatId]);
 
-  useEffect(() => {
-    if (historyLoadedRef.current) {
-      return;
-    }
-    if (!agent.isRunning) {
-      historyLoadedRef.current = true;
-      onHistoryLoaded(chatId);
-    }
-  }, [agent.isRunning, agent.messages, chatId, onHistoryLoaded]);
+    const abortController = new AbortController();
+    void fetch(`/api/chats/${chatId}/messages`, {
+      signal: abortController.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error('Failed to load messages');
+        }
+        const data = (await response.json()) as { messages?: Message[] };
+        const loaded = dedupeMessages(data.messages ?? []);
+        if (loaded.length > 0) {
+          agent.setMessages(loaded);
+        }
+        lastTitledUserMessageRef.current =
+          [...loaded].reverse().find((m) => m.role === 'user')?.id ?? null;
+      })
+      .catch((error) => {
+        if (!abortController.signal.aborted) {
+          console.error('Failed to load messages', error);
+        }
+      })
+      .finally(() => {
+        if (!abortController.signal.aborted) {
+          historyLoadedRef.current = true;
+          onHistoryLoaded(chatId);
+        }
+      });
+
+    return () => abortController.abort();
+  }, [agent, chatId, onHistoryLoaded]);
 
   const rawMessages = useDeferredValue(agent.messages as Message[]);
   const messages = useMemo(
