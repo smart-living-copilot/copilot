@@ -14,8 +14,16 @@ import {
   TrendingUp,
   Thermometer,
 } from 'lucide-react';
-import type { MutableRefObject, ReactNode } from 'react';
-import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import {
+  use,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import { AppSidebar } from '@/components/chat-sidebar';
 import { chatToolCallRenderers } from '@/components/copilot/chat-tool-call-renderer';
@@ -24,10 +32,6 @@ import { WelcomeScreen } from '@/components/copilot/welcome-screen';
 import { SiteHeader } from '@/components/site-header';
 import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
-import {
-  normalizeSnapshotMessages,
-  serializeSnapshotMessages,
-} from '@/lib/chat-snapshots';
 
 function dedupeMessages(messages: Message[]): Message[] {
   const latestById = new Map<string, Message>();
@@ -72,33 +76,7 @@ function flattenUserMessageContent(content: Message['content']) {
     .trim();
 }
 
-function persistMessages(
-  chatId: string,
-  messages: Message[],
-  payload: string,
-  lastSavedPayloadRef: MutableRefObject<string | null>,
-) {
-  void fetch(`/api/chats/${chatId}/messages`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      messages,
-    }),
-  })
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`Failed to persist chat snapshot (${response.status})`);
-      }
-      lastSavedPayloadRef.current = payload;
-    })
-    .catch((error) => {
-      console.error('Failed to persist chat snapshot', error);
-    });
-}
-
-// Keep agent-driven persistence in a non-visual child so tool-call streaming
+// Keep agent-driven side-effects in a non-visual child so tool-call streaming
 // does not force the surrounding layout to rerender on every update.
 function ChatAgentSync({
   chatId,
@@ -116,91 +94,34 @@ function ChatAgentSync({
       UseAgentUpdate.OnRunStatusChanged,
     ],
   });
-  const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
-  const persistTimeoutRef = useRef<number | null>(null);
-  const lastSavedPayloadRef = useRef<string | null>(null);
   const lastTitledUserMessageRef = useRef<string | null>(null);
-  const historyLoaded = loadedChatId === chatId;
+  const historyLoadedRef = useRef(false);
 
+  // Signal history loaded once CopilotKit has connected and delivered messages.
   useEffect(() => {
-    const abortController = new AbortController();
-
-    lastSavedPayloadRef.current = null;
+    historyLoadedRef.current = false;
     lastTitledUserMessageRef.current = null;
-    agent.setMessages([]);
-
-    void fetch(`/api/chats/${chatId}/messages`, {
-      signal: abortController.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error('Failed to load chat messages');
-        }
-
-        const payload = (await response.json()) as { messages?: Message[] };
-        const initialMessages = dedupeMessages(
-          normalizeSnapshotMessages(payload.messages),
-        );
-
-        agent.setMessages(initialMessages);
-        lastSavedPayloadRef.current =
-          serializeSnapshotMessages(initialMessages).json;
-        lastTitledUserMessageRef.current =
-          [...initialMessages]
-            .reverse()
-            .find((message) => message.role === 'user')?.id ?? null;
-        setLoadedChatId(chatId);
-        onHistoryLoaded(chatId);
-      })
-      .catch((error) => {
-        if (abortController.signal.aborted) {
-          return;
-        }
-
-        console.error('Failed to load chat messages', error);
-        setLoadedChatId(chatId);
-        onHistoryLoaded(chatId);
-      });
-
-    return () => abortController.abort();
-  }, [agent, chatId, onHistoryLoaded]);
-
-  const messages = useMemo(
-    () => dedupeMessages([...(agent.messages as Message[])]),
-    [agent.messages],
-  );
+  }, [chatId]);
 
   useEffect(() => {
-    if (!historyLoaded || agent.isRunning) {
+    if (historyLoadedRef.current) {
       return;
     }
-
-    if (persistTimeoutRef.current) {
-      window.clearTimeout(persistTimeoutRef.current);
+    if (!agent.isRunning) {
+      historyLoadedRef.current = true;
+      onHistoryLoaded(chatId);
     }
+  }, [agent.isRunning, agent.messages, chatId, onHistoryLoaded]);
 
-    persistTimeoutRef.current = window.setTimeout(() => {
-      const { json: payload, messages: normalizedMessages } =
-        serializeSnapshotMessages(messages);
-      if (payload !== lastSavedPayloadRef.current) {
-        persistMessages(
-          chatId,
-          normalizedMessages,
-          payload,
-          lastSavedPayloadRef,
-        );
-      }
-    }, 400);
+  const rawMessages = useDeferredValue(agent.messages as Message[]);
+  const messages = useMemo(
+    () => dedupeMessages([...rawMessages]),
+    [rawMessages],
+  );
 
-    return () => {
-      if (persistTimeoutRef.current) {
-        window.clearTimeout(persistTimeoutRef.current);
-      }
-    };
-  }, [agent.isRunning, chatId, historyLoaded, messages]);
-
+  // Auto-title the chat from the latest user message.
   useEffect(() => {
-    if (!historyLoaded || agent.isRunning) {
+    if (agent.isRunning) {
       return;
     }
 
@@ -237,7 +158,7 @@ function ChatAgentSync({
       .catch((error) => {
         console.error('Failed to update chat title', error);
       });
-  }, [agent.isRunning, chatId, historyLoaded, messages, onSidebarRefresh]);
+  }, [agent.isRunning, chatId, messages, onSidebarRefresh]);
 
   return null;
 }

@@ -6,9 +6,3 @@ export const chats = sqliteTable('chats', {
   createdAt: integer('createdAt', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updatedAt', { mode: 'timestamp' }).notNull(),
 });
-
-export const chatSnapshots = sqliteTable('chat_snapshots', {
-  chatId: text('chatId').primaryKey(),
-  messagesJson: text('messagesJson').notNull().default('[]'),
-  updatedAt: integer('updatedAt', { mode: 'timestamp' }).notNull(),
-});

@@ -1,5 +1,5 @@
 import { db } from '@/db';
-import { chatSnapshots, chats } from '@/db/schema';
+import { chats } from '@/db/schema';
 import { cleanupChatResources } from '@/lib/chat-deletion';
 import { eq } from 'drizzle-orm';
 
@@ -25,7 +25,6 @@ export async function DELETE(
     );
   }
 
-  db.delete(chatSnapshots).where(eq(chatSnapshots.chatId, chatId)).run();
   db.delete(chats).where(eq(chats.id, chatId)).run();
 
   return Response.json({ ok: true });

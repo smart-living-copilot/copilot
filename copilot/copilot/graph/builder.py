@@ -10,6 +10,7 @@ from copilot.graph.nodes import (
     CopilotState,
     make_analysis_node,
     make_control_node,
+    make_prune_node,
     make_respond_node,
     make_router_node,
     respond_should_continue,
@@ -24,6 +25,7 @@ def build_graph(
     max_tokens: int,
     checkpointer=None,
     parallel_tool_calls: bool = True,
+    max_checkpoint_tokens: int = 240_000,
 ):
     """Build and compile the copilot StateGraph."""
     mcp_tool_groups = partition_mcp_tools(mcp_tools)
@@ -60,6 +62,8 @@ def build_graph(
     )
     graph.add_node("analysis_tools", ToolNode(analysis_tools))
 
+    graph.add_node("prune_checkpoint", make_prune_node(max_checkpoint_tokens))
+
     graph.add_edge(START, "router")
 
     graph.add_conditional_edges(
@@ -77,7 +81,7 @@ def build_graph(
         respond_should_continue,
         {
             "tools": "respond_tools",
-            END: END,
+            END: "prune_checkpoint",
         },
     )
     graph.add_edge("respond_tools", "respond")
@@ -87,7 +91,7 @@ def build_graph(
         tools_condition,
         {
             "tools": "control_tools",
-            END: END,
+            END: "prune_checkpoint",
         },
     )
     graph.add_edge("control_tools", "control_llm")
@@ -97,9 +101,11 @@ def build_graph(
         tools_condition,
         {
             "tools": "analysis_tools",
-            END: END,
+            END: "prune_checkpoint",
         },
     )
     graph.add_edge("analysis_tools", "analysis_llm")
+
+    graph.add_edge("prune_checkpoint", END)
 
     return graph.compile(checkpointer=checkpointer)
