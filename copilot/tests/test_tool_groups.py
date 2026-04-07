@@ -44,7 +44,9 @@ class ToolGroupsTestCase(unittest.TestCase):
                 _tool("run_code"),
                 _tool("get_current_time"),
                 _tool("create_job"),
+                _tool("create_analysis_job"),
                 _tool("list_jobs"),
+                _tool("run_job_now"),
             ]
         )
 
@@ -52,7 +54,7 @@ class ToolGroupsTestCase(unittest.TestCase):
         self.assertEqual(grouped.get_current_time.name, "get_current_time")
         self.assertEqual(
             [tool.name for tool in grouped.job_tools],
-            ["create_job", "list_jobs"],
+            ["create_job", "create_analysis_job", "list_jobs", "run_job_now"],
         )
 
     def test_group_local_tools_raises_when_required_tool_is_missing(self) -> None:

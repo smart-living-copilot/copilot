@@ -120,7 +120,7 @@ Local tools are grouped separately:
 
 - [`get_current_time`](./copilot/tools/get_current_time.py)
 - [`run_code`](./copilot/tools/run_code.py)
-- [`create_job`, `list_jobs`, `delete_job`](./copilot/tools/job_scheduler.py)
+- [`create_job`, `create_analysis_job`, `list_jobs`, `run_job_now`, `delete_job`](./copilot/tools/job_scheduler.py)
 
 ## Prompts And Few-Shots
 

@@ -7,6 +7,7 @@ from datetime import timedelta
 
 import redis.asyncio as redis
 
+from job_runner.code_executor_client import CodeExecutorClient
 from job_runner.copilot_client import CopilotClient
 from job_runner.models import CreateJobRequest, Job
 from job_runner.runtime_client import WotRuntimeClient
@@ -23,6 +24,7 @@ class JobService:
         self._repo = JobRepository(settings.jobs_db_path)
         self._runtime_client = WotRuntimeClient(settings)
         self._copilot_client = CopilotClient(settings)
+        self._code_executor_client = CodeExecutorClient(settings)
         self._stop_event = asyncio.Event()
         self._time_task: asyncio.Task[None] | None = None
         self._stream_task: asyncio.Task[None] | None = None
@@ -88,10 +90,20 @@ class JobService:
             success=bool(result.get("ok")),
             error=result.get("error"),
             response_text=result.get("assistant"),
+            last_fetch_value=result.get("last_fetch_value"),
         )
         return result
 
     def _validate_request(self, request: CreateJobRequest) -> None:
+        if request.job_type == "analysis":
+            if not request.analysis_code or not request.analysis_code.strip():
+                raise ValueError("analysis jobs require analysis_code")
+            if request.trigger_type != "time":
+                raise ValueError("analysis jobs currently support only time triggers")
+        else:
+            if not request.prompt or not request.prompt.strip():
+                raise ValueError("prompt jobs require prompt")
+
         if request.trigger_type == "time":
             if request.run_at is None and request.interval_seconds is None:
                 raise ValueError("time jobs require run_at or interval_seconds")
@@ -132,6 +144,7 @@ class JobService:
                     success=bool(result.get("ok")),
                     error=result.get("error"),
                     response_text=result.get("assistant"),
+                    last_fetch_value=result.get("last_fetch_value"),
                 )
             await asyncio.sleep(self._settings.scheduler_poll_seconds)
 
@@ -237,13 +250,19 @@ class JobService:
                 success=bool(result.get("ok")),
                 error=result.get("error"),
                 response_text=result.get("assistant"),
+                last_fetch_value=result.get("last_fetch_value"),
             )
 
     async def _dispatch_job(self, job: Job, *, trigger: dict) -> dict:
+        if job.job_type == "analysis":
+            return await self._run_analysis_job(job, trigger=trigger)
+        return await self._run_prompt_job(job, trigger=trigger)
+
+    async def _run_prompt_job(self, job: Job, *, trigger: dict) -> dict:
         try:
             response = await self._copilot_client.dispatch_prompt(
                 thread_id=job.thread_id,
-                prompt=job.prompt,
+                prompt=job.prompt or "",
                 metadata={"job_id": job.id, "trigger": trigger},
             )
             assistant = response.get("assistant") if isinstance(response, dict) else None
@@ -256,3 +275,61 @@ class JobService:
         except Exception as exc:
             logger.error("Failed dispatch for job %s: %s", job.id, exc)
             return {"ok": False, "error": str(exc)}
+
+    async def _run_analysis_job(self, job: Job, *, trigger: dict) -> dict:
+        try:
+            response = await self._code_executor_client.execute(
+                session_id=f"job-analysis:{job.id}",
+                code=job.analysis_code or "",
+            )
+            stdout = str(response.get("stdout", "")).strip()
+            images = response.get("images", [])
+            plotly = response.get("plotly", [])
+            last_fetch_value = self._extract_last_fetch_value(response)
+
+            parts: list[str] = []
+            if stdout:
+                parts.append(stdout)
+            if images:
+                parts.append(f"images={len(images)}")
+            if plotly:
+                parts.append(f"plotly={len(plotly)}")
+            if not parts:
+                parts.append("(no output)")
+
+            return {
+                "ok": True,
+                "response": response,
+                "assistant": "\n".join(parts)[:4000],
+                "last_fetch_value": last_fetch_value,
+                "metadata": {"trigger": trigger},
+            }
+        except Exception as exc:
+            logger.error("Failed analysis job %s: %s", job.id, exc)
+            return {"ok": False, "error": str(exc)}
+
+    def _extract_last_fetch_value(self, response: dict) -> str | None:
+        """Best-effort extraction of a meaningful latest value from analysis output."""
+        stdout = str(response.get("stdout", "") or "").strip()
+        if not stdout:
+            return None
+
+        lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+        if not lines:
+            return None
+
+        last_line = lines[-1]
+        marker = "WOT_LAST_VALUE="
+        if last_line.startswith(marker):
+            return last_line[len(marker) :][:500]
+
+        try:
+            payload = json.loads(last_line)
+            if isinstance(payload, dict):
+                for key in ("last_fetch_value", "last_value", "value", "wot_value"):
+                    if key in payload:
+                        return str(payload[key])[:500]
+        except Exception:
+            pass
+
+        return last_line[:500]

@@ -20,5 +20,9 @@ class Settings(BaseSettings):
     wot_runtime_api_token: str = ""
 
     copilot_url: str = "http://copilot:8123"
+    code_executor_url: str = "http://code-executor:8888"
+    code_executor_timeout_seconds: int = 330
+    code_executor_retry_attempts: int = 3
+    code_executor_retry_backoff_seconds: float = 1.0
     internal_api_key: str = ""
     copilot_timeout_seconds: int = 120

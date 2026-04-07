@@ -31,7 +31,9 @@ def row_to_job(row: aiosqlite.Row) -> Job:
         id=row["id"],
         name=row["name"],
         thread_id=row["thread_id"],
+        job_type=row["job_type"],
         prompt=row["prompt"],
+        analysis_code=row["analysis_code"],
         enabled=bool(row["enabled"]),
         trigger_type=row["trigger_type"],
         run_at=iso_to_dt(row["run_at"]),
@@ -48,6 +50,8 @@ def row_to_job(row: aiosqlite.Row) -> Job:
         last_run_at=iso_to_dt(row["last_run_at"]),
         last_error=row["last_error"],
         last_response=row["last_response"],
+        run_count=int(row["run_count"] or 0),
+        last_fetch_value=row["last_fetch_value"],
     )
 
 
@@ -63,7 +67,9 @@ class JobRepository:
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     thread_id TEXT NOT NULL,
-                    prompt TEXT NOT NULL,
+                    job_type TEXT NOT NULL DEFAULT 'prompt',
+                    prompt TEXT,
+                    analysis_code TEXT,
                     enabled INTEGER NOT NULL,
                     trigger_type TEXT NOT NULL,
                     run_at TEXT,
@@ -77,15 +83,27 @@ class JobRepository:
                     updated_at TEXT NOT NULL,
                     last_run_at TEXT,
                     last_error TEXT,
-                    last_response TEXT
+                    last_response TEXT,
+                    run_count INTEGER NOT NULL DEFAULT 0,
+                    last_fetch_value TEXT
                 )
                 """
             )
             # Lightweight migration for older local DBs created before last_response existed.
             cursor = await db.execute("PRAGMA table_info(jobs)")
             columns = [row[1] for row in await cursor.fetchall()]
+            if "job_type" not in columns:
+                await db.execute(
+                    "ALTER TABLE jobs ADD COLUMN job_type TEXT NOT NULL DEFAULT 'prompt'"
+                )
+            if "analysis_code" not in columns:
+                await db.execute("ALTER TABLE jobs ADD COLUMN analysis_code TEXT")
             if "last_response" not in columns:
                 await db.execute("ALTER TABLE jobs ADD COLUMN last_response TEXT")
+            if "run_count" not in columns:
+                await db.execute("ALTER TABLE jobs ADD COLUMN run_count INTEGER NOT NULL DEFAULT 0")
+            if "last_fetch_value" not in columns:
+                await db.execute("ALTER TABLE jobs ADD COLUMN last_fetch_value TEXT")
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_jobs_due ON jobs(trigger_type, enabled, next_run_at)"
             )
@@ -107,17 +125,20 @@ class JobRepository:
             await db.execute(
                 """
                 INSERT INTO jobs (
-                    id, name, thread_id, prompt, enabled, trigger_type,
+                    id, name, thread_id, job_type, prompt, analysis_code, enabled, trigger_type,
                     run_at, interval_seconds, next_run_at,
                     thing_id, event_name, subscription_id, subscription_input_json,
-                    created_at, updated_at, last_run_at, last_error, last_response
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, updated_at, last_run_at, last_error, last_response,
+                    run_count, last_fetch_value
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     job_id,
                     request.name,
                     request.thread_id,
-                    request.prompt,
+                    request.job_type,
+                    request.prompt or "",
+                    request.analysis_code,
                     1,
                     request.trigger_type,
                     dt_to_iso(request.run_at),
@@ -133,6 +154,8 @@ class JobRepository:
                     dt_to_iso(now),
                     None,
                     None,
+                    None,
+                    0,
                     None,
                 ),
             )
@@ -225,6 +248,7 @@ class JobRepository:
         success: bool,
         error: str | None,
         response_text: str | None,
+        last_fetch_value: str | None = None,
     ) -> None:
         next_run_at: datetime | None
         enabled = job.enabled
@@ -244,6 +268,8 @@ class JobRepository:
                     last_run_at = ?,
                     last_error = ?,
                     last_response = ?,
+                    run_count = run_count + 1,
+                    last_fetch_value = CASE WHEN ? IS NULL THEN last_fetch_value ELSE ? END,
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -253,6 +279,8 @@ class JobRepository:
                     dt_to_iso(now),
                     None if success else error,
                     response_text if success else None,
+                    last_fetch_value,
+                    last_fetch_value,
                     dt_to_iso(now),
                     job.id,
                 ),
@@ -267,26 +295,16 @@ class JobRepository:
         success: bool,
         error: str | None,
         response_text: str | None,
+        last_fetch_value: str | None = None,
     ) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
-            await db.execute(
-                """
-                UPDATE jobs
-                SET last_run_at = ?,
-                    last_error = ?,
-                    last_response = ?,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    dt_to_iso(now),
-                    None if success else error,
-                    response_text if success else None,
-                    dt_to_iso(now),
-                    job_id,
-                ),
-            )
-            await db.commit()
+        await self._mark_job_result(
+            job_id=job_id,
+            now=now,
+            success=success,
+            error=error,
+            response_text=response_text,
+            last_fetch_value=last_fetch_value,
+        )
 
     async def mark_manual_job_result(
         self,
@@ -296,6 +314,26 @@ class JobRepository:
         success: bool,
         error: str | None,
         response_text: str | None,
+        last_fetch_value: str | None = None,
+    ) -> None:
+        await self._mark_job_result(
+            job_id=job_id,
+            now=now,
+            success=success,
+            error=error,
+            response_text=response_text,
+            last_fetch_value=last_fetch_value,
+        )
+
+    async def _mark_job_result(
+        self,
+        *,
+        job_id: str,
+        now: datetime,
+        success: bool,
+        error: str | None,
+        response_text: str | None,
+        last_fetch_value: str | None,
     ) -> None:
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
@@ -304,6 +342,8 @@ class JobRepository:
                 SET last_run_at = ?,
                     last_error = ?,
                     last_response = ?,
+                    run_count = run_count + 1,
+                    last_fetch_value = CASE WHEN ? IS NULL THEN last_fetch_value ELSE ? END,
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -311,6 +351,8 @@ class JobRepository:
                     dt_to_iso(now),
                     None if success else error,
                     response_text if success else None,
+                    last_fetch_value,
+                    last_fetch_value,
                     dt_to_iso(now),
                     job_id,
                 ),

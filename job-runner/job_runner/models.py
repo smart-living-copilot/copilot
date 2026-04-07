@@ -10,7 +10,9 @@ class Job(BaseModel):
     id: str
     name: str
     thread_id: str
-    prompt: str
+    job_type: Literal["prompt", "analysis"] = "prompt"
+    prompt: str | None = None
+    analysis_code: str | None = None
     enabled: bool
     trigger_type: Literal["time", "event"]
     run_at: datetime | None = None
@@ -25,12 +27,16 @@ class Job(BaseModel):
     last_run_at: datetime | None = None
     last_error: str | None = None
     last_response: str | None = None
+    run_count: int = 0
+    last_fetch_value: str | None = None
 
 
 class CreateJobRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     thread_id: str = Field(min_length=1, max_length=120)
-    prompt: str = Field(min_length=1)
+    job_type: Literal["prompt", "analysis"] = "prompt"
+    prompt: str | None = None
+    analysis_code: str | None = None
     trigger_type: Literal["time", "event"]
 
     run_at: datetime | None = None
@@ -39,9 +45,3 @@ class CreateJobRequest(BaseModel):
     thing_id: str | None = None
     event_name: str | None = None
     subscription_input: Any | None = None
-
-
-class DispatchPayload(BaseModel):
-    thread_id: str
-    prompt: str
-    metadata: dict[str, Any] = Field(default_factory=dict)

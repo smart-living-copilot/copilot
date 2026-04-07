@@ -46,6 +46,7 @@ services:
 
   code-executor:
     image: ghcr.io/smart-living-copilot/code-executor:latest
+    init: true
     env_file: .env
     read_only: true
     tmpfs:
@@ -86,6 +87,7 @@ services:
       JOBS_EVENTS_GROUP: ${JOBS_EVENTS_GROUP:-job_runner}
       JOBS_EVENTS_CONSUMER: ${JOBS_EVENTS_CONSUMER:-job_runner_1}
       COPILOT_URL: http://copilot:8123
+      CODE_EXECUTOR_URL: http://code-executor:8888
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       JOBS_DB_PATH: /data/jobs.db
     depends_on:
@@ -194,6 +196,21 @@ services:
     networks:
       - backend-isolated
     restart: unless-stopped
+  
+  virtual-living-room:
+    image: registry.dataspace.plaiful.org/demo_fsn/virtual-living-room:latest
+    container_name: virtual-living-room
+    ports:
+      - "8085:8085"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/api/devices"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - frontend-internal
+      - backend-isolated
 
 volumes:
   copilot-data:

@@ -5,6 +5,7 @@
 It supports:
 - Time-triggered jobs (`run_at` and optional `interval_seconds`)
 - WoT event-triggered jobs (subscribed through `wot-runtime`)
+- Periodic analysis jobs (`job_type: "analysis"`) executed in `code-executor`
 
 When a trigger fires, `job-runner` sends the job prompt into the copilot thread through:
 - `POST /internal/jobs/dispatch` on `copilot`
@@ -27,6 +28,19 @@ Example payload:
 }
 ```
 
+Periodic analysis job example:
+
+```json
+{
+  "name": "Check average temperature",
+  "thread_id": "analysis-thread",
+  "job_type": "analysis",
+  "trigger_type": "time",
+  "interval_seconds": 300,
+  "analysis_code": "data = wot.read_property('thermostat', 'temperature'); print(data)"
+}
+```
+
 ### `GET /jobs`
 List jobs, optionally filtered by `thread_id`.
 
@@ -41,6 +55,7 @@ Minimal dashboard for queue visibility.
 
 - Shows queued, scheduled, and waiting-event counts
 - Shows each job's latest `Last Answer` from the agent
+- Shows each job's latest result output, including analysis job stdout summaries
 - Auto-refreshes every 5 seconds
 
 ## Environment
@@ -53,4 +68,5 @@ Minimal dashboard for queue visibility.
 - `WOT_RUNTIME_URL` default `http://wot-runtime:3003`
 - `WOT_RUNTIME_API_TOKEN` runtime bearer token
 - `COPILOT_URL` default `http://copilot:8123`
+- `CODE_EXECUTOR_URL` default `http://code-executor:8888`
 - `INTERNAL_API_KEY` shared key for internal calls

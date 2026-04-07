@@ -90,6 +90,7 @@ def group_local_tools(local_tools: list[Any]) -> LocalToolGroups:
         job_tools=[
             tool
             for tool in local_tools
-            if tool.name in {"create_job", "list_jobs", "delete_job"}
+            if tool.name
+            in {"create_job", "create_analysis_job", "list_jobs", "run_job_now", "delete_job"}
         ],
     )

@@ -71,13 +71,60 @@ async def create_job(
 
 
 @tool
+async def create_analysis_job(
+    name: str,
+    analysis_code: str,
+    config: RunnableConfig,
+    thread_id: str | None = None,
+    run_at: str | None = None,
+    interval_seconds: int | None = None,
+) -> dict[str, Any]:
+    """Create a periodic analysis job.
+
+    Analysis jobs run Python in the code-executor sandbox on a schedule.
+    They currently support only time-based triggers, so provide either:
+    - run_at: one-time ISO datetime, or
+    - interval_seconds: recurring cadence in seconds.
+    """
+    payload = {
+        "name": name,
+        "thread_id": thread_id
+        or config.get("configurable", {}).get("thread_id", "default"),
+        "job_type": "analysis",
+        "trigger_type": "time",
+        "analysis_code": analysis_code,
+        "run_at": run_at,
+        "interval_seconds": interval_seconds,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=float(_settings.job_runner_timeout_seconds)) as client:
+            response = await client.post(
+                f"{_settings.job_runner_url}/jobs",
+                json=payload,
+                headers=_headers(),
+            )
+            response.raise_for_status()
+            return response.json()
+    except httpx.ConnectError:
+        return {"error": "Job runner service is unavailable."}
+    except httpx.HTTPStatusError as exc:
+        detail = None
+        try:
+            detail = exc.response.json().get("detail")
+        except Exception:
+            detail = None
+        return {
+            "error": detail or f"Analysis job creation failed with status {exc.response.status_code}."
+        }
+
+
+@tool
 async def list_jobs(config: RunnableConfig, thread_id: str | None = None) -> dict[str, Any]:
     """List automation jobs, optionally filtered by thread_id.
 
-    If thread_id is omitted, uses the current conversation thread id.
+    If thread_id is omitted, returns all jobs.
     """
-    scoped_thread_id = thread_id or config.get("configurable", {}).get("thread_id")
-    params = {"thread_id": scoped_thread_id} if scoped_thread_id else None
+    params = {"thread_id": thread_id} if thread_id else None
     try:
         async with httpx.AsyncClient(timeout=float(_settings.job_runner_timeout_seconds)) as client:
             response = await client.get(
@@ -108,3 +155,27 @@ async def delete_job(job_id: str) -> dict[str, Any]:
         return {"error": "Job runner service is unavailable."}
     except httpx.HTTPStatusError as exc:
         return {"error": f"Deleting job failed with status {exc.response.status_code}."}
+
+
+@tool
+async def run_job_now(job_id: str) -> dict[str, Any]:
+    """Trigger an automation job immediately and return the execution result."""
+    try:
+        async with httpx.AsyncClient(timeout=float(_settings.job_runner_timeout_seconds)) as client:
+            response = await client.post(
+                f"{_settings.job_runner_url}/jobs/{job_id}/run",
+                headers=_headers(),
+            )
+            response.raise_for_status()
+            return response.json()
+    except httpx.ConnectError:
+        return {"error": "Job runner service is unavailable."}
+    except httpx.HTTPStatusError as exc:
+        detail = None
+        try:
+            detail = exc.response.json().get("detail")
+        except Exception:
+            detail = None
+        return {
+            "error": detail or f"Running job failed with status {exc.response.status_code}."
+        }

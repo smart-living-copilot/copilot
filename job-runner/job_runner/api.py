@@ -49,6 +49,46 @@ def _fmt(value) -> str:
     return escape(str(value))
 
 
+def _job_fetch_cadence(job) -> str:
+    if job.job_type != "analysis":
+        return "-"
+    if job.trigger_type == "event":
+        return "on subscribed WoT event"
+    if job.interval_seconds:
+        return f"every {job.interval_seconds}s"
+    if job.run_at is not None:
+        return f"once at {job.run_at.isoformat()}"
+    return "-"
+
+
+def _job_purpose_html(job) -> str:
+    if job.job_type == "analysis":
+        content = (job.analysis_code or "").strip() or "(empty analysis code)"
+        label = "analysis code"
+    else:
+        content = (job.prompt or "").strip() or "(empty prompt)"
+        label = "prompt"
+
+    short = _fmt(content[:120] + ("..." if len(content) > 120 else ""))
+    full = _fmt(content)
+    return (
+        f"<details><summary>{label}: {short}</summary>"
+        f"<pre class='purpose'>{full}</pre></details>"
+    )
+
+
+def _analysis_interval(job) -> str:
+    if job.job_type != "analysis":
+        return "-"
+    if job.interval_seconds:
+        return f"{job.interval_seconds}s"
+    if job.run_at is not None:
+        return f"once at {job.run_at.isoformat()}"
+    if job.trigger_type == "event":
+        return "event-based"
+    return "-"
+
+
 def _render_jobs_table_rows(jobs: list, now: datetime) -> str:
     rows: list[str] = []
     for job in jobs:
@@ -58,47 +98,32 @@ def _render_jobs_table_rows(jobs: list, now: datetime) -> str:
             "<tr>"
             f"<td>{_fmt(job.name)}</td>"
             f"<td><code>{_fmt(job.id)}</code></td>"
+            f"<td>{_fmt(job.job_type)}</td>"
             f"<td>{_fmt(status)}</td>"
             f"<td>{_fmt(job.trigger_type)}</td>"
+            f"<td>{_fmt(_analysis_interval(job))}</td>"
+            f"<td>{_fmt(_job_fetch_cadence(job))}</td>"
+            f"<td>{_fmt(job.run_count)}</td>"
+            f"<td>{_fmt(job.last_fetch_value)}</td>"
             f"<td>{_fmt(job.next_run_at)}</td>"
             f"<td>{_fmt(job.last_run_at)}</td>"
             f"<td>{_fmt(job.last_error)}</td>"
+            f"<td>{_job_purpose_html(job)}</td>"
             f"<td class='answer'>{answer}</td>"
             "</tr>"
         )
     if not rows:
-        return "<tr><td colspan='8'>No jobs yet.</td></tr>"
+        return "<tr><td colspan='14'>No jobs yet.</td></tr>"
     return "".join(rows)
 
 
-def _verify_internal_api_key(request: Request) -> None:
-    settings: Settings = app.state.settings
-    if not settings.internal_api_key:
-        return
+def _render_ui_html(*, jobs: list, now: datetime) -> str:
+    queued = sum(1 for j in jobs if _job_status(j, now) == "queued")
+    scheduled = sum(1 for j in jobs if _job_status(j, now) == "scheduled")
+    waiting_event = sum(1 for j in jobs if _job_status(j, now) == "waiting-event")
+    rows_html = _render_jobs_table_rows(jobs, now)
 
-    expected = f"Bearer {settings.internal_api_key}"
-    if request.headers.get("authorization", "") != expected:
-        raise HTTPException(status_code=401, detail="Invalid internal API key")
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-@app.get("/ui", response_class=HTMLResponse)
-async def ui(request: Request):
-        service: JobService = app.state.service
-        jobs = await service.list_jobs()
-        now = datetime.now(timezone.utc)
-
-        queued = sum(1 for j in jobs if _job_status(j, now) == "queued")
-        scheduled = sum(1 for j in jobs if _job_status(j, now) == "scheduled")
-        waiting_event = sum(1 for j in jobs if _job_status(j, now) == "waiting-event")
-
-        rows_html = _render_jobs_table_rows(jobs, now)
-
-        html = f"""
+    return f"""
 <!doctype html>
 <html>
 <head>
@@ -118,11 +143,12 @@ async def ui(request: Request):
         th {{ background: #f7f7f7; position: sticky; top: 0; }}
         code {{ font-size: 12px; }}
         .answer {{ white-space: pre-wrap; max-width: 560px; }}
+        .purpose {{ white-space: pre-wrap; max-width: 640px; margin: 8px 0 0; }}
     </style>
 </head>
 <body>
     <h1>Job Runner</h1>
-    <div class=\"muted\">Queue and schedule overview with latest agent answers. Auto-refreshes every 5s.</div>
+    <div class=\"muted\">Queue and schedule overview with analysis-focused details: fetch cadence, last fetched value, trigger count, and job purpose. Auto-refreshes every 5s.</div>
 
     <div class=\"stats\">
         <div class=\"card\"><div class=\"label\">Total</div><div class=\"value\">{len(jobs)}</div></div>
@@ -136,12 +162,18 @@ async def ui(request: Request):
             <tr>
                 <th>Name</th>
                 <th>ID</th>
+                <th>Type</th>
                 <th>Status</th>
                 <th>Trigger</th>
+                <th>Interval</th>
+                <th>WoT Fetch Cadence</th>
+                <th>Triggered Count</th>
+                <th>Last Fetched Value</th>
                 <th>Next Run</th>
                 <th>Last Run</th>
                 <th>Last Error</th>
-                <th>Last Answer</th>
+                <th>What It Does</th>
+                <th>Last Result</th>
             </tr>
         </thead>
         <tbody>{rows_html}</tbody>
@@ -151,7 +183,29 @@ async def ui(request: Request):
 </body>
 </html>
 """
-        return HTMLResponse(content=html)
+
+
+def _verify_internal_api_key(request: Request) -> None:
+    settings: Settings = app.state.settings
+    if not settings.internal_api_key:
+        return
+
+    expected = f"Bearer {settings.internal_api_key}"
+    if request.headers.get("authorization", "") != expected:
+        raise HTTPException(status_code=401, detail="Invalid internal API key")
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.get("/ui", response_class=HTMLResponse)
+async def ui() -> HTMLResponse:
+    service: JobService = app.state.service
+    jobs = await service.list_jobs()
+    now = datetime.now(timezone.utc)
+    return HTMLResponse(content=_render_ui_html(jobs=jobs, now=now))
 
 
 @app.post("/jobs")
