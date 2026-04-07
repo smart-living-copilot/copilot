@@ -93,12 +93,23 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
 
+      - name: Determine chat-ui app version
+        id: app-version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push chat-ui image
         uses: docker/build-push-action@v6
         with:
           context: ./chat-ui
           file: ./chat-ui/Dockerfile
           target: runtime
+          build-args: |
+            APP_VERSION=${{ steps.app-version.outputs.value }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

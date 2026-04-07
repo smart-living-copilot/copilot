@@ -152,8 +152,6 @@ Current protections:
   - `INTERNAL_API_KEY`
   - `WOT_REGISTRY_TOKEN`
   - `OPENAI_API_KEY`
-  - `LANGFUSE_PUBLIC_KEY`
-  - `LANGFUSE_SECRET_KEY`
 - production Docker runs the container as a non-root user
 - the production Compose service uses:
   - read-only filesystem

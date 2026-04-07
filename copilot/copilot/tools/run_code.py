@@ -36,12 +36,15 @@ def _build_artifacts(images: list[str], plotly: list[str]) -> list[dict[str, str
 def _format_run_code_result(data: dict) -> dict:
     stdout = data.get("stdout", "").rstrip()
     artifacts = _build_artifacts(data.get("images", []), data.get("plotly", []))
+    wot_calls = data.get("wot_calls", [])
 
     result: dict[str, object] = {}
     if stdout:
         result["stdout"] = stdout
     if artifacts:
         result["artifacts"] = artifacts
+    if wot_calls:
+        result["wot_calls"] = wot_calls
     if not result:
         result["stdout"] = "(no output)"
 

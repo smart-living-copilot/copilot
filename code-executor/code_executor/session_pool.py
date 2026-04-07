@@ -25,8 +25,6 @@ _SENSITIVE_ENV_VARS = [
     "INTERNAL_API_KEY",
     "WOT_REGISTRY_TOKEN",
     "OPENAI_API_KEY",
-    "LANGFUSE_PUBLIC_KEY",
-    "LANGFUSE_SECRET_KEY",
 ]
 
 
@@ -89,6 +87,7 @@ def _worker_loop(
 
     _captured_images = []
     _captured_plotly = []
+    _captured_wot_calls = []
 
     def _mock_show():
         filename = f"{uuid.uuid4()}.png"
@@ -172,30 +171,126 @@ def _worker_loop(
                 return payload
             return result
 
+        @staticmethod
+        def _is_failure_result(result):
+            if isinstance(result, str):
+                return result.strip().lower().startswith("error")
+            if not isinstance(result, dict):
+                return False
+            error = result.get("error")
+            return isinstance(error, str) and bool(error.strip())
+
+        @staticmethod
+        def _normalize_summary_value(value):
+            if value is None:
+                return None
+
+            import json as _json
+
+            try:
+                return _json.loads(_json.dumps(value, default=str))
+            except Exception:
+                return str(value)
+
+        def _record(
+            self,
+            call_type,
+            thing_id,
+            name,
+            ok,
+            *,
+            input_value=None,
+            uri_variables=None,
+            value=None,
+        ):
+            entry = {
+                "type": call_type,
+                "thing_id": thing_id,
+                "name": name,
+                "ok": ok,
+            }
+            normalized_input = self._normalize_summary_value(input_value)
+            normalized_value = self._normalize_summary_value(value)
+            normalized_uri_variables = self._normalize_summary_value(uri_variables)
+
+            if normalized_input is not None:
+                entry["input"] = normalized_input
+            if normalized_value is not None:
+                entry["value"] = normalized_value
+            if isinstance(normalized_uri_variables, dict) and normalized_uri_variables:
+                entry["uri_variables"] = normalized_uri_variables
+
+            _captured_wot_calls.append(entry)
+
+        def _execute(
+            self,
+            *,
+            path,
+            body,
+            call_type,
+            thing_id,
+            name,
+            input_value=None,
+            uri_variables=None,
+            value=None,
+        ):
+            try:
+                raw = self._post(path, body)
+                payload = self._extract_payload(raw)
+            except Exception:
+                self._record(
+                    call_type,
+                    thing_id,
+                    name,
+                    False,
+                    input_value=input_value,
+                    uri_variables=uri_variables,
+                    value=value,
+                )
+                raise
+
+            self._record(
+                call_type,
+                thing_id,
+                name,
+                not self._is_failure_result(payload),
+                input_value=input_value,
+                uri_variables=uri_variables,
+                value=value,
+            )
+            return payload
+
         def read_property(self, thing_id, property_name, uri_variables=None):
             """Read a property value from a thing."""
-            raw = self._post(
-                "/api/wot/read-property",
-                {
+            return self._execute(
+                path="/api/wot/read-property",
+                body={
                     "thing_id": thing_id,
                     "property_name": property_name,
                     "uri_variables": uri_variables or {},
                 },
+                call_type="read_property",
+                thing_id=thing_id,
+                name=property_name,
+                uri_variables=uri_variables or {},
             )
-            return self._extract_payload(raw)
 
         def write_property(self, thing_id, property_name, value, uri_variables=None):
             """Write a property value to a thing."""
-            raw = self._post(
-                "/api/wot/write-property",
-                {
+            return self._execute(
+                path="/api/wot/write-property",
+                body={
                     "thing_id": thing_id,
                     "property_name": property_name,
                     "value": value,
                     "uri_variables": uri_variables or {},
                 },
+                call_type="write_property",
+                thing_id=thing_id,
+                name=property_name,
+                uri_variables=uri_variables or {},
+                value=value,
             )
-            return self._extract_payload(raw)
 
         def invoke_action(self, thing_id, action_name, input=None, uri_variables=None):
             """Invoke an action on a thing."""
@@ -210,16 +305,20 @@ def _worker_loop(
                     except _json.JSONDecodeError:
                         pass
 
-            raw = self._post(
-                "/api/wot/invoke-action",
-                {
+            return self._execute(
+                path="/api/wot/invoke-action",
+                body={
                     "thing_id": thing_id,
                     "action_name": action_name,
                     "input": input_payload,
                     "uri_variables": uri_variables or {},
                 },
+                call_type="invoke_action",
+                thing_id=thing_id,
+                input_value=input_payload,
+                name=action_name,
+                uri_variables=uri_variables or {},
             )
-            return self._extract_payload(raw)
 
     _wot = _WotClient(registry_url, registry_token)
 
@@ -256,6 +355,7 @@ def _worker_loop(
     def _execute_code(code: str) -> dict:
         _captured_images.clear()
         _captured_plotly.clear()
+        _captured_wot_calls.clear()
         stdout_buffer = io.StringIO()
 
         original_plt_show = plt.show
@@ -295,6 +395,7 @@ def _worker_loop(
 
         images = _captured_images.copy()
         plotly = _captured_plotly.copy()
+        wot_calls = _captured_wot_calls.copy()
         if not success:
             _delete_artifacts(images + plotly)
             images = []
@@ -313,6 +414,7 @@ def _worker_loop(
             "stdout": stdout,
             "images": images,
             "plotly": plotly,
+            "wot_calls": wot_calls,
         }
 
     # Main execution loop
@@ -330,6 +432,7 @@ def _worker_loop(
                         "stdout": result["stdout"],
                         "images": result["images"],
                         "plotly": result["plotly"],
+                        "wot_calls": result["wot_calls"],
                     }
                 )
                 continue
@@ -395,6 +498,7 @@ def _worker_loop(
                                 "stdout": child_result["stdout"],
                                 "images": child_result["images"],
                                 "plotly": child_result["plotly"],
+                                "wot_calls": child_result.get("wot_calls", []),
                                 "worker_pid": child_pid,
                             }
                             promoted_child = True

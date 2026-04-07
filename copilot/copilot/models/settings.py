@@ -19,15 +19,12 @@ class Settings(BaseSettings):
     max_iterations: int = 20
     recursion_limit: int = 50
     max_context_tokens: int = 120000
+    max_checkpoint_tokens: int = 240000
+    parallel_tool_calls: bool = False
     agent_state_db_path: str = "/data/agent_state.db"
 
     # Security
     internal_api_key: str = ""
-
-    # Langfuse Tracing
-    langfuse_public_key: str = ""
-    langfuse_secret_key: str = ""
-    langfuse_host: str = "https://cloud.langfuse.com"
 
     # Code Executor
     code_executor_url: str = "http://localhost:8888"

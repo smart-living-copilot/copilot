@@ -1,11 +1,11 @@
 # Copilot
 
-`copilot` is the Python agent service behind Smart Living Copilot. It is an internal FastAPI service that builds a LangGraph-based assistant on startup, serves the AG-UI protocol to CopilotKit, and persists LangGraph thread state in SQLite.
+`copilot` is the Python agent service behind Smart Living Copilot. It is an internal FastAPI service that builds a LangGraph-based assistant on startup, serves the AG-UI protocol to CopilotKit, and persists both LangGraph thread state and sidebar thread metadata in SQLite.
 
 ## Current Role In The Stack
 
-- `chat-ui` owns the browser experience, sidebar thread index, and the authenticated edge.
-- `copilot` owns agent orchestration, prompts, tool use, and LangGraph checkpoint state.
+- `chat-ui` owns the browser experience and the authenticated edge.
+- `copilot` owns agent orchestration, prompts, tool use, LangGraph checkpoint state, and thread metadata.
 - `code-executor` runs stateful Python for the `run_code` tool.
 - `wot-registry` provides discovery, schema inspection, and runtime WoT actions through MCP and HTTP APIs.
 - `job-runner` schedules time/event automations and dispatches prompts into existing copilot threads.
@@ -46,9 +46,25 @@ Health endpoint added by the AG-UI FastAPI helper.
 
 Basic service health check.
 
+### `GET /threads`
+
+Lists thread metadata for the sidebar.
+
+### `POST /threads`
+
+Creates a new thread metadata row and returns the generated thread id.
+
+### `PATCH /threads/{thread_id}`
+
+Updates thread metadata such as the title.
+
+### `GET /threads/{thread_id}`
+
+Returns one thread record together with its persisted messages.
+
 ### `DELETE /threads/{thread_id}`
 
-Deletes LangGraph checkpoint rows for one thread.
+Deletes LangGraph checkpoint rows and thread metadata for one thread.
 
 - Auth: `Authorization: Bearer <INTERNAL_API_KEY>` when configured
 - Deletes from both `writes` and `checkpoints`
@@ -191,7 +207,6 @@ Defined in [`copilot/models/settings.py`](./copilot/models/settings.py):
 - `CODE_EXECUTOR_URL`, `CODE_EXECUTOR_TIMEOUT_SECONDS`
 - `JOB_RUNNER_URL`, `JOB_RUNNER_TIMEOUT_SECONDS`
 - `INTERNAL_API_KEY`
-- `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`
 - `AGENT_STATE_DB_PATH`
 - `MAX_CONTEXT_TOKENS`
 - `LOG_LEVEL`
