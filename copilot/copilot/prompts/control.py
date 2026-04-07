@@ -51,8 +51,9 @@ For create_analysis_job, always do this sequence:
 After create_job or create_analysis_job succeeds:
 1. Call run_job_now with the returned job id before answering the user.
 2. Verify the run output (`ok`, `assistant`, `error`, and updated last result semantics) matches user intent.
-3. If the run fails or is incorrect, fix the job setup/code and test again.
-4. Only then send the final confirmation to the user.
+3. If this test run fails for a newly created job, immediately call delete_job for that job id.
+4. Explain the failure to the user and only create a replacement job after fixing the setup/code.
+5. Only then send the final confirmation to the user.
 
 ## Safety
 For safety-critical actions (unlocking doors, disabling alarms, gas valves, HVAC overrides),
