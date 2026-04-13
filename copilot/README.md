@@ -6,10 +6,12 @@
 
 - `chat-ui` owns the browser experience and the authenticated edge.
 - `copilot` owns agent orchestration, prompts, tool use, LangGraph checkpoint state, and thread metadata.
+- `specialist-agent` is a separate service that discovers TD-defined specialist agent profiles and executes delegated tasks.
 - `code-executor` runs stateful Python for the `run_code` tool.
 - `wot-registry` provides discovery, schema inspection, and runtime WoT actions through MCP and HTTP APIs.
 
 At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `copilot`, and `copilot` talks to MCP tools and `code-executor`.
+For specialist delegation, `copilot` can also call `specialist-agent`.
 
 ## Request Lifecycle
 
@@ -111,6 +113,7 @@ Local tools are grouped separately:
 
 - [`get_current_time`](./copilot/tools/get_current_time.py)
 - [`run_code`](./copilot/tools/run_code.py)
+- [`delegate_specialist_agent`](./copilot/tools/delegate_specialist_agent.py)
 
 ## Prompts And Few-Shots
 

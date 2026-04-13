@@ -49,3 +49,17 @@ services:
       - ./data-replay/td_generator.py:/app/td_generator.py:cached
       - ./data-replay:/app/data:ro
     entrypoint: ["uvicorn", "replay_server:app", "--host", "0.0.0.0", "--port", "9000", "--reload"]
+
+  specialist-agent:
+    build:
+      context: ./specialist-agent
+      dockerfile: Dockerfile
+    volumes:
+      - ./specialist-agent/specialist_agent:/app/specialist_agent:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+    entrypoint: ["uvicorn", "specialist_agent.app:app", "--host", "0.0.0.0", "--port", "8140", "--reload", "--reload-dir", "specialist_agent"]
+
+  docker-mcp-gateway:
+    ports:
+      - "8811:8811"

@@ -30,5 +30,9 @@ class Settings(BaseSettings):
     code_executor_url: str = "http://localhost:8888"
     code_executor_timeout_seconds: int = 330
 
+    # Specialist Agent Runtime
+    specialist_agent_url: str = "http://localhost:8140"
+    specialist_agent_timeout_seconds: int = 60
+
     # Logging
     log_level: str = "INFO"

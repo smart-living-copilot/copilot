@@ -8,6 +8,7 @@ Smart Living Copilot is a multi-service smart home assistant stack. This reposit
 browser
   -> chat-ui
   -> copilot
+  -> specialist-agent
   -> code-executor
   -> wot-registry / wot-runtime
 
@@ -17,6 +18,7 @@ optional local fixture source:
 
 - [`chat-ui`](./chat-ui/README.md): Next.js frontend, chat UX, sidebar thread index, and internal API proxying.
 - [`copilot`](./copilot/README.md): FastAPI + LangGraph agent service behind the chat experience.
+- [`specialist-agent`](./specialist-agent/README.md): standalone runtime for TD-defined specialist agents.
 - [`code-executor`](./code-executor/README.md): internal Python execution service used by `run_code`.
 - [`data-replay`](./data-replay/README.md): local replay server for offline device history fixtures.
 - [`thing_descriptions`](./thing_descriptions): local Thing Description assets used for integration and replay scenarios.

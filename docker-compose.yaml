@@ -8,6 +8,7 @@ services:
       WOT_REGISTRY_URL: "${WOT_REGISTRY_URL:-http://wot-registry:8000/mcp}"
       WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
       CODE_EXECUTOR_URL: "http://code-executor:8888"
+      SPECIALIST_AGENT_URL: "http://specialist-agent:8140"
       INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       OPENAI_MODEL: "${OPENAI_MODEL}"
@@ -68,6 +69,40 @@ services:
       WOT_REGISTRY_URL: "http://wot-registry:8000"
       WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
       INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
+    restart: unless-stopped
+
+  specialist-agent:
+    image: ghcr.io/smart-living-copilot/specialist-agent:latest
+    env_file: .env
+    depends_on:
+      wot-registry:
+        condition: service_healthy
+      docker-mcp-gateway:
+        condition: service_started
+    networks:
+      - backend-isolated
+      - egress-api
+    environment:
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      OPENAI_MODEL: "${OPENAI_MODEL}"
+      OPENAI_BASE_URL: "${OPENAI_API_BASE_URL}"
+      WOT_REGISTRY_API_URL: "http://wot-registry:8000/api"
+      WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
+    restart: unless-stopped
+
+  docker-mcp-gateway:
+    image: docker/mcp-gateway:latest
+    command:
+      - --transport=streaming
+      - --port=8811
+      - --verbose
+      - --log-calls
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - backend-isolated
+      - egress-api
     restart: unless-stopped
 
   valkey:

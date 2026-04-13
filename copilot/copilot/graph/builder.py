@@ -35,7 +35,11 @@ def build_graph(
 
     graph.add_node("router", make_router_node(llm, max_tokens))
 
-    respond_tools = [local_tool_groups.get_current_time]
+    respond_tools = [
+        local_tool_groups.get_current_time,
+        local_tool_groups.list_specialist_agents,
+        local_tool_groups.ask_specialist_agent,
+    ]
     graph.add_node(
         "respond",
         make_respond_node(llm, respond_tools, max_tokens, parallel_tool_calls=parallel_tool_calls),
@@ -52,7 +56,11 @@ def build_graph(
     analysis_tools = (
         mcp_tool_groups.discovery_and_inspect
         + mcp_tool_groups.runtime_read
-        + [local_tool_groups.run_code]
+        + [
+            local_tool_groups.run_code,
+            local_tool_groups.list_specialist_agents,
+            local_tool_groups.ask_specialist_agent,
+        ]
     )
     graph.add_node(
         "analysis_llm",

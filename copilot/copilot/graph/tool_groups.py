@@ -42,6 +42,8 @@ class McpToolGroups:
 class LocalToolGroups:
     get_current_time: Any
     run_code: Any
+    list_specialist_agents: Any
+    ask_specialist_agent: Any
 
 
 def partition_mcp_tools(mcp_tools: list[Any]) -> McpToolGroups:
@@ -76,7 +78,12 @@ def group_local_tools(local_tools: list[Any]) -> LocalToolGroups:
     tools_by_name = {tool.name: tool for tool in local_tools}
     missing = [
         tool_name
-        for tool_name in ("get_current_time", "run_code")
+        for tool_name in (
+            "get_current_time",
+            "run_code",
+            "list_specialist_agents",
+            "ask_specialist_agent",
+        )
         if tool_name not in tools_by_name
     ]
     if missing:
@@ -86,4 +93,6 @@ def group_local_tools(local_tools: list[Any]) -> LocalToolGroups:
     return LocalToolGroups(
         get_current_time=tools_by_name["get_current_time"],
         run_code=tools_by_name["run_code"],
+        list_specialist_agents=tools_by_name["list_specialist_agents"],
+        ask_specialist_agent=tools_by_name["ask_specialist_agent"],
     )
