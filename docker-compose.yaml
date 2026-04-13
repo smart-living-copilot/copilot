@@ -165,6 +165,42 @@ services:
       - backend-isolated
     restart: unless-stopped
 
+  presentation:
+    build:
+      context: ./presentation
+      dockerfile: Dockerfile
+    container_name: presentation
+    ports:
+      - "8080:80"
+    networks:
+      - frontend-internal
+      - backend-isolated
+    restart: unless-stopped
+
+  virtual-living-room:
+    image: registry.dataspace.plaiful.org/demo_fsn/virtual-living-room:latest
+    container_name: virtual-living-room
+    ports:
+      - "8085:8085"
+    networks:
+      - frontend-internal
+      - backend-isolated
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/api/devices"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  bim-server:
+    image: registry.dataspace.plaiful.org/demo_fsn/bim-server:latest
+    container_name: bim-server
+    ports:
+      - "8001:8000"
+    networks:
+      - frontend-internal
+      - backend-isolated
+    restart: unless-stopped
 volumes:
   copilot-data:
   valkey-data:
