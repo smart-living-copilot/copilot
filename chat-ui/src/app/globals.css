@@ -304,6 +304,26 @@ body {
 .smart-living-copilot-chat .copilotKitInputControlButton:not([disabled]):hover {
   background: color-mix(in oklab, var(--primary) 10%, transparent);
   color: var(--primary);
+
+.assistant-shell {
+  background: transparent;
+}
+
+.assistant-minimal-chat {
+  border-radius: calc(var(--radius) + 0.5rem);
+}
+
+.assistant-minimal-chat .copilotKitHeader {
+  display: none;
+}
+
+.assistant-minimal-chat .copilotKitMessagesContainer {
+  padding-top: 1rem;
+}
+
+.assistant-minimal-chat .copilotKitInputContainer {
+  padding-bottom: 0.25rem;
+}
 }
 
 .poweredByContainer > div:last-child,
