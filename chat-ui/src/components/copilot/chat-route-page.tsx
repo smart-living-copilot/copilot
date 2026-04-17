@@ -23,7 +23,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { AppSidebar } from '@/components/chat-sidebar';
 import { SiteHeader } from '@/components/site-header';
 import { Button } from '@/components/ui/button';
@@ -84,14 +84,6 @@ function useDefaultExamplePrompts(): ExamplePrompt[] {
     ],
     [],
   );
-}
-
-function areEmbedExamplesEnabled(examplesFlag: string | null): boolean {
-  if (examplesFlag === null) {
-    return true;
-  }
-
-  return !['0', 'false', 'no', 'off'].includes(examplesFlag.toLowerCase());
 }
 
 function toQuerySuffix(queryString: string): string {
@@ -258,16 +250,18 @@ function FullChatExperience({
   );
 }
 
-function EmbedChatExperience({ chatId }: { chatId: string }) {
-  const searchParams = useSearchParams();
+function EmbedChatExperience({
+  chatId,
+  showExamplePrompts,
+}: {
+  chatId: string;
+  showExamplePrompts: boolean;
+}) {
   const handleHistoryLoaded = useCallback(() => {
     // Embedded chats do not show thread chrome, but they still need
     // to hydrate the persisted message history into CopilotKit.
   }, []);
   const examplePrompts = useDefaultExamplePrompts();
-  const showExamplePrompts = areEmbedExamplesEnabled(
-    searchParams.get('examples'),
-  );
 
   const chatLabels = useMemo(
     () => ({
@@ -310,15 +304,18 @@ function EmbedChatExperience({ chatId }: { chatId: string }) {
 export function ChatRoutePage({
   chatId,
   mode,
+  embedQueryString = '',
+  showEmbedExamplePrompts = true,
 }: {
   chatId: string;
   mode: ChatRouteMode;
+  embedQueryString?: string;
+  showEmbedExamplePrompts?: boolean;
 }) {
   const enableInspector =
     process.env.NEXT_PUBLIC_ENABLE_COPILOT_INSPECTOR === 'true';
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const querySuffix = toQuerySuffix(searchParams.toString());
+  const querySuffix = toQuerySuffix(embedQueryString);
 
   const handleNewChat = useCallback(async () => {
     try {
@@ -348,7 +345,10 @@ export function ChatRoutePage({
       renderToolCalls={chatToolCallRenderers}
     >
       {mode === 'embed' ? (
-        <EmbedChatExperience chatId={chatId} />
+        <EmbedChatExperience
+          chatId={chatId}
+          showExamplePrompts={showEmbedExamplePrompts}
+        />
       ) : (
         <FullChatExperience chatId={chatId} handleNewChat={handleNewChat} />
       )}
@@ -358,13 +358,14 @@ export function ChatRoutePage({
 
 export function CreateChatRedirectPage({
   destinationBasePath,
+  queryString = '',
 }: {
   destinationBasePath: string;
+  queryString?: string;
 }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
-  const querySuffix = toQuerySuffix(searchParams.toString());
+  const querySuffix = toQuerySuffix(queryString);
 
   useEffect(() => {
     let cancelled = false;
