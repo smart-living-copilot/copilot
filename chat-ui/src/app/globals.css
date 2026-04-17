@@ -306,23 +306,23 @@ body {
   color: var(--primary);
 }
 
-.assistant-shell {
+.embed-chat-shell {
   background: transparent;
 }
 
-.assistant-minimal-chat {
+.embed-chat-frame {
   border-radius: calc(var(--radius) + 0.5rem);
 }
 
-.assistant-minimal-chat .copilotKitHeader {
+.embed-chat-frame .copilotKitHeader {
   display: none;
 }
 
-.assistant-minimal-chat .copilotKitMessagesContainer {
+.embed-chat-frame .copilotKitMessagesContainer {
   padding-top: 1rem;
 }
 
-.assistant-minimal-chat .copilotKitInputContainer {
+.embed-chat-frame .copilotKitInputContainer {
   padding-bottom: 0.25rem;
 }
 
