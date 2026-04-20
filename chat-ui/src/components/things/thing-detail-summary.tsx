@@ -261,11 +261,6 @@ export function ThingSemanticSection({
 
         <div className="grid gap-6 xl:grid-cols-2">
           <SemanticBadgeList
-            label="Location candidates"
-            items={indexStatus?.location_candidates}
-            emptyText="No locations inferred."
-          />
-          <SemanticBadgeList
             label="Indexed properties"
             items={indexStatus?.property_names}
             emptyText="No properties indexed."

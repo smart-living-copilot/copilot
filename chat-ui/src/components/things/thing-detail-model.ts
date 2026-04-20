@@ -8,7 +8,6 @@ export interface ThingIndexStatus {
   prompt_version?: string;
   td_hash_match?: boolean;
   summary?: string | null;
-  location_candidates?: string[];
   property_names?: string[];
   action_names?: string[];
   event_names?: string[];
