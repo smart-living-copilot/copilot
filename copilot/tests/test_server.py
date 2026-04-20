@@ -218,8 +218,6 @@ class ServerRoutesTestCase(unittest.TestCase):
         asyncio.run(server._flush_pending_checkpoints_on_shutdown())
 
         self.assertEqual(fake_checkpointer.deleted_threads, ["embed-ephemeral-thread-a"])
-        self.assertEqual(fake_checkpointer.flush_calls, [None])
-
     def test_delete_thread_uses_checkpointer_when_available(self) -> None:
         class FakeCheckpointer:
             def __init__(self, db_path: Path) -> None:

@@ -29,6 +29,38 @@ const TYPE_LABELS: Record<string, { label: string; icon: typeof CirclePlay }> =
     subscribe_event: { label: 'Subscribe', icon: CirclePlay },
   };
 
+function isIntentPayloadMessage(message: { content?: unknown }) {
+  const content = message.content;
+  const normalized =
+    typeof content === 'string'
+      ? content.trim()
+      : Array.isArray(content) &&
+          content.length === 1 &&
+          typeof content[0] === 'string'
+        ? content[0].trim()
+        : null;
+
+  if (!normalized) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    return (
+      !!parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      Object.keys(parsed).length === 1 &&
+      (parsed as Record<string, unknown>).intent !== undefined &&
+      ['analysis', 'chat', 'control'].includes(
+        String((parsed as Record<string, unknown>).intent),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
 function lastThingSegment(thingId: string) {
   const parts = thingId.split(/[/:]/);
   return parts[parts.length - 1] || thingId;
@@ -250,20 +282,25 @@ function MessageViewWithWotSummaryImpl({
   messages = [],
   ...props
 }: ComponentProps<typeof CopilotChatMessageView>) {
+  const displayMessages = useMemo(
+    () => messages.filter((message) => !isIntentPayloadMessage(message)),
+    [messages],
+  );
+
   const interactions = useMemo(() => {
     if (isRunning) {
       return [];
     }
 
-    return getLastTurnWotInteractions(messages);
-  }, [isRunning, messages]);
+    return getLastTurnWotInteractions(displayMessages);
+  }, [displayMessages, isRunning]);
 
   return (
     <div className={cn('flex flex-1 flex-col gap-3 pt-2', className)}>
       <CopilotChatMessageView
         {...props}
         isRunning={isRunning}
-        messages={messages}
+        messages={displayMessages}
       />
       {interactions.length ? (
         <WotInteractionSummaryCard interactions={interactions} />
