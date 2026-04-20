@@ -203,6 +203,54 @@ export function extractWotInteractions(messages: Message[]) {
   return interactions;
 }
 
+export function getAssistantTurnWotInteractions(
+  messages: Message[],
+  assistantMessageId: string,
+) {
+  const assistantIndex = messages.findIndex(
+    (message) =>
+      message.id === assistantMessageId && message.role === 'assistant',
+  );
+
+  if (assistantIndex < 0) {
+    return [];
+  }
+
+  let turnStartIndex = -1;
+  for (let index = assistantIndex; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'user') {
+      turnStartIndex = index;
+      break;
+    }
+  }
+
+  if (turnStartIndex < 0) {
+    return [];
+  }
+
+  let turnEndIndex = messages.length;
+  for (let index = assistantIndex + 1; index < messages.length; index += 1) {
+    if (messages[index]?.role === 'user') {
+      turnEndIndex = index;
+      break;
+    }
+  }
+
+  let summaryAnchorIndex = -1;
+  for (let index = turnEndIndex - 1; index > turnStartIndex; index -= 1) {
+    if (messages[index]?.role === 'assistant') {
+      summaryAnchorIndex = index;
+      break;
+    }
+  }
+
+  if (assistantIndex !== summaryAnchorIndex) {
+    return [];
+  }
+
+  return extractWotInteractions(messages.slice(turnStartIndex, turnEndIndex));
+}
+
 export function getLastTurnWotInteractions(messages: Message[]) {
   let lastUserIndex = -1;
 

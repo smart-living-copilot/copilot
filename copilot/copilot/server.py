@@ -41,9 +41,7 @@ _settings: Settings | None = None
 
 
 def _is_embed_ephemeral_thread(thread_id: str | None) -> bool:
-    return isinstance(thread_id, str) and thread_id.startswith(
-        EMBED_EPHEMERAL_THREAD_PREFIX
-    )
+    return isinstance(thread_id, str) and thread_id.startswith(EMBED_EPHEMERAL_THREAD_PREFIX)
 
 
 def _log_background_task_exception(

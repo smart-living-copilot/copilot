@@ -2,7 +2,10 @@
 
 import { memo, useMemo, useState, type ComponentProps } from 'react';
 import Link from 'next/link';
-import { CopilotChatMessageView } from '@copilotkit/react-core/v2';
+import {
+  CopilotChatAssistantMessage,
+  CopilotChatMessageView,
+} from '@copilotkit/react-core/v2';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -10,7 +13,7 @@ import {
   CirclePlay,
 } from 'lucide-react';
 import type { WotInteraction } from '@/lib/wot-interactions';
-import { getLastTurnWotInteractions } from '@/lib/wot-interactions';
+import { getAssistantTurnWotInteractions } from '@/lib/wot-interactions';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -60,6 +63,42 @@ function isIntentPayloadMessage(message: { content?: unknown }) {
     return false;
   }
 }
+
+const AssistantMessageWithWotSummaryImpl = memo(
+  function AssistantMessageWithWotSummary({
+    className,
+    isRunning = false,
+    message,
+    messages = [],
+    ...props
+  }: ComponentProps<typeof CopilotChatAssistantMessage>) {
+    const interactions = useMemo(
+      () => getAssistantTurnWotInteractions(messages, message.id),
+      [message.id, messages],
+    );
+    const showSummary = interactions.length > 0;
+
+    return (
+      <div className="space-y-3">
+        <CopilotChatAssistantMessage
+          {...props}
+          className={className}
+          isRunning={isRunning}
+          message={message}
+          messages={messages}
+        />
+        {showSummary ? (
+          <WotInteractionSummaryCard interactions={interactions} />
+        ) : null}
+      </div>
+    );
+  },
+);
+
+const AssistantMessageWithWotSummary = Object.assign(
+  AssistantMessageWithWotSummaryImpl,
+  CopilotChatAssistantMessage,
+);
 
 function lastThingSegment(thingId: string) {
   const parts = thingId.split(/[/:]/);
@@ -287,24 +326,14 @@ function MessageViewWithWotSummaryImpl({
     [messages],
   );
 
-  const interactions = useMemo(() => {
-    if (isRunning) {
-      return [];
-    }
-
-    return getLastTurnWotInteractions(displayMessages);
-  }, [displayMessages, isRunning]);
-
   return (
     <div className={cn('flex flex-1 flex-col gap-3 pt-2', className)}>
       <CopilotChatMessageView
         {...props}
+        assistantMessage={AssistantMessageWithWotSummary}
         isRunning={isRunning}
         messages={displayMessages}
       />
-      {interactions.length ? (
-        <WotInteractionSummaryCard interactions={interactions} />
-      ) : null}
     </div>
   );
 }

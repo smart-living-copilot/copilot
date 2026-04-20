@@ -4,6 +4,7 @@ import test from 'node:test';
 import type { Message } from '@ag-ui/core';
 
 import {
+  getAssistantTurnWotInteractions,
   getLastTurnWotInteractions,
   parseWotInteractionList,
 } from './wot-interactions';
@@ -175,6 +176,145 @@ test('getLastTurnWotInteractions returns only the latest turn interactions', () 
       type: 'write_property',
       uriVariables: { channel: 1 },
       value: 40,
+    },
+  ]);
+});
+
+test('getAssistantTurnWotInteractions returns interactions for the matching assistant turn', () => {
+  const messages: Message[] = [
+    {
+      id: 'user-1',
+      role: 'user',
+      content: 'Turn on the hallway light',
+    },
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Done',
+      toolCalls: [
+        {
+          id: 'tool-1',
+          type: 'function',
+          function: {
+            name: 'wot_invoke_action',
+            arguments: JSON.stringify({
+              thing_id: 'urn:smart-living:thing:hallway-light',
+              action_name: 'toggle',
+            }),
+          },
+        },
+      ],
+    },
+    {
+      id: 'tool-result-1',
+      role: 'tool',
+      toolCallId: 'tool-1',
+      content: '{"ok":true}',
+    },
+    {
+      id: 'user-2',
+      role: 'user',
+      content: 'What data did you use?',
+    },
+    {
+      id: 'assistant-2',
+      role: 'assistant',
+      content: 'I used the current temperature',
+      toolCalls: [
+        {
+          id: 'tool-2',
+          type: 'function',
+          function: {
+            name: 'run_code',
+            arguments: JSON.stringify({ code: 'print("ok")' }),
+          },
+        },
+      ],
+    },
+    {
+      id: 'tool-result-2',
+      role: 'tool',
+      toolCallId: 'tool-2',
+      content: JSON.stringify({
+        stdout: 'ok',
+        wot_calls: [
+          {
+            type: 'read_property',
+            thing_id: 'urn:smart-living:thing:kitchen-thermometer',
+            name: 'temperature',
+            ok: true,
+          },
+        ],
+      }),
+    },
+  ];
+
+  assert.deepEqual(getAssistantTurnWotInteractions(messages, 'assistant-1'), [
+    {
+      affordanceName: 'toggle',
+      ok: true,
+      thingId: 'urn:smart-living:thing:hallway-light',
+      type: 'invoke_action',
+    },
+  ]);
+  assert.deepEqual(getAssistantTurnWotInteractions(messages, 'assistant-2'), [
+    {
+      affordanceName: 'temperature',
+      ok: true,
+      thingId: 'urn:smart-living:thing:kitchen-thermometer',
+      type: 'read_property',
+    },
+  ]);
+});
+
+test('getAssistantTurnWotInteractions only renders for the last assistant in a turn', () => {
+  const messages: Message[] = [
+    {
+      id: 'user-1',
+      role: 'user',
+      content: 'Check something',
+    },
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '',
+      toolCalls: [
+        {
+          id: 'tool-1',
+          type: 'function',
+          function: {
+            name: 'wot_read_property',
+            arguments: JSON.stringify({
+              thing_id: 'urn:smart-living:thing:kitchen-thermometer',
+              property_name: 'temperature',
+            }),
+          },
+        },
+      ],
+    },
+    {
+      id: 'tool-result-1',
+      role: 'tool',
+      toolCallId: 'tool-1',
+      content: '{"ok":true}',
+    },
+    {
+      id: 'assistant-2',
+      role: 'assistant',
+      content: 'It is 22 C',
+    },
+  ];
+
+  assert.deepEqual(
+    getAssistantTurnWotInteractions(messages, 'assistant-1'),
+    [],
+  );
+  assert.deepEqual(getAssistantTurnWotInteractions(messages, 'assistant-2'), [
+    {
+      affordanceName: 'temperature',
+      ok: true,
+      thingId: 'urn:smart-living:thing:kitchen-thermometer',
+      type: 'read_property',
     },
   ]);
 });

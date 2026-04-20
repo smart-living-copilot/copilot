@@ -154,12 +154,7 @@ class ServerRoutesTestCase(unittest.TestCase):
 
         async def collect_events():
             proxy = server._AGUIAgentProxy()
-            return [
-                event
-                async for event in proxy.run(
-                    {"threadId": "embed-ephemeral-thread-a"}
-                )
-            ]
+            return [event async for event in proxy.run({"threadId": "embed-ephemeral-thread-a"})]
 
         events = asyncio.run(collect_events())
 
@@ -218,6 +213,7 @@ class ServerRoutesTestCase(unittest.TestCase):
         asyncio.run(server._flush_pending_checkpoints_on_shutdown())
 
         self.assertEqual(fake_checkpointer.deleted_threads, ["embed-ephemeral-thread-a"])
+
     def test_delete_thread_uses_checkpointer_when_available(self) -> None:
         class FakeCheckpointer:
             def __init__(self, db_path: Path) -> None:
