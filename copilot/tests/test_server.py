@@ -117,6 +117,9 @@ class ServerRoutesTestCase(unittest.TestCase):
             async def flush(self, thread_id: str | None = None) -> None:
                 self.flush_calls.append(thread_id)
 
+            async def pending_thread_ids(self) -> list[str | None]:
+                return []
+
         fake_checkpointer = FakeCheckpointer()
         server._agent = FakeAgent()
         server._checkpointer = fake_checkpointer
@@ -129,6 +132,39 @@ class ServerRoutesTestCase(unittest.TestCase):
 
         self.assertEqual(events, [{"event": "done"}])
         self.assertEqual(fake_checkpointer.flush_calls, ["thread-a"])
+
+    def test_ag_ui_proxy_skips_persistence_for_embed_ephemeral_threads(self) -> None:
+        class FakeAgent:
+            async def run(self, _input_data):
+                yield {"event": "done"}
+
+        class FakeCheckpointer:
+            def __init__(self) -> None:
+                self.flush_calls: list[str | None] = []
+
+            async def flush(self, thread_id: str | None = None) -> None:
+                self.flush_calls.append(thread_id)
+
+            async def pending_thread_ids(self) -> list[str | None]:
+                return []
+
+        fake_checkpointer = FakeCheckpointer()
+        server._agent = FakeAgent()
+        server._checkpointer = fake_checkpointer
+
+        async def collect_events():
+            proxy = server._AGUIAgentProxy()
+            return [
+                event
+                async for event in proxy.run(
+                    {"threadId": "embed-ephemeral-thread-a"}
+                )
+            ]
+
+        events = asyncio.run(collect_events())
+
+        self.assertEqual(events, [{"event": "done"}])
+        self.assertEqual(fake_checkpointer.flush_calls, [])
 
     def test_persistence_operation_survives_cancellation(self) -> None:
         class OperationProbe:
@@ -165,15 +201,23 @@ class ServerRoutesTestCase(unittest.TestCase):
         class FakeCheckpointer:
             def __init__(self) -> None:
                 self.flush_calls: list[str | None] = []
+                self.deleted_threads: list[str] = []
 
             async def flush(self, thread_id: str | None = None) -> None:
                 self.flush_calls.append(thread_id)
+
+            async def pending_thread_ids(self) -> list[str | None]:
+                return ["embed-ephemeral-thread-a", "thread-b"]
+
+            async def adelete_thread(self, thread_id: str) -> None:
+                self.deleted_threads.append(thread_id)
 
         fake_checkpointer = FakeCheckpointer()
         server._checkpointer = fake_checkpointer
 
         asyncio.run(server._flush_pending_checkpoints_on_shutdown())
 
+        self.assertEqual(fake_checkpointer.deleted_threads, ["embed-ephemeral-thread-a"])
         self.assertEqual(fake_checkpointer.flush_calls, [None])
 
     def test_delete_thread_uses_checkpointer_when_available(self) -> None:

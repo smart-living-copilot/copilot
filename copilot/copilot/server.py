@@ -31,12 +31,19 @@ from copilot.thread_titles import suggest_thread_title
 from copilot.tools import AVAILABLE_TOOLS
 
 logger = logging.getLogger(__name__)
+EMBED_EPHEMERAL_THREAD_PREFIX = "embed-ephemeral-"
 
 # Module-level references kept alive for the process lifetime.
 _mcp_client = None
 _agent: LangGraphAGUIAgent | None = None
 _checkpointer: CachingCheckpointSaver | None = None
 _settings: Settings | None = None
+
+
+def _is_embed_ephemeral_thread(thread_id: str | None) -> bool:
+    return isinstance(thread_id, str) and thread_id.startswith(
+        EMBED_EPHEMERAL_THREAD_PREFIX
+    )
 
 
 def _log_background_task_exception(
@@ -81,6 +88,9 @@ async def _run_persistence_operation(
 
 
 async def _finalize_thread_run(thread_id: str | None) -> None:
+    if _is_embed_ephemeral_thread(thread_id):
+        return
+
     cancelled = False
 
     if _checkpointer is not None:
@@ -107,6 +117,10 @@ async def _finalize_thread_run(thread_id: str | None) -> None:
 async def _flush_pending_checkpoints_on_shutdown() -> None:
     if _checkpointer is None:
         return
+
+    for thread_id in await _checkpointer.pending_thread_ids():
+        if _is_embed_ephemeral_thread(thread_id):
+            await _checkpointer.adelete_thread(thread_id)
 
     cancelled = await _run_persistence_operation(
         _checkpointer.flush(),

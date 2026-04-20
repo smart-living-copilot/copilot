@@ -183,6 +183,10 @@ class CachingCheckpointSaver(BaseCheckpointSaver):
             for config, checkpoint, metadata, new_versions in pending.puts:
                 await self._underlying.aput(config, checkpoint, metadata, new_versions)
 
+    async def pending_thread_ids(self) -> list[str | None]:
+        async with self._state_lock:
+            return list(self._pending_by_thread.keys())
+
     # -- deletes -----------------------------------------------------------
 
     async def adelete_thread(self, thread_id: str) -> None:

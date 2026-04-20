@@ -29,6 +29,7 @@ import { SiteHeader } from '@/components/site-header';
 import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { type ChatSummary, upsertCachedChat } from '@/lib/chat-list-cache';
+import { createEmbedEphemeralChatId } from '@/lib/embed-chat';
 import { chatToolCallRenderers } from './chat-tool-call-renderer';
 import { type ExamplePrompt, WelcomeScreen } from './welcome-screen';
 import { MessageViewWithWotSummary } from './wot-interaction-summary';
@@ -257,10 +258,7 @@ function EmbedChatExperience({
   chatId: string;
   showExamplePrompts: boolean;
 }) {
-  const handleHistoryLoaded = useCallback(() => {
-    // Embedded chats do not show thread chrome, but they still need
-    // to hydrate the persisted message history into CopilotKit.
-  }, []);
+  const cleanupRequestedRef = useRef(false);
   const examplePrompts = useDefaultExamplePrompts();
 
   const chatLabels = useMemo(
@@ -281,23 +279,43 @@ function EmbedChatExperience({
     [examplePrompts, showExamplePrompts],
   );
 
-  return (
-    <>
-      <ChatAgentSync chatId={chatId} onHistoryLoaded={handleHistoryLoaded} />
+  useEffect(() => {
+    const cleanupSession = () => {
+      if (cleanupRequestedRef.current) {
+        return;
+      }
 
-      <main className="embed-chat-shell flex h-dvh flex-col px-3 py-3 md:px-6 md:py-6">
-        <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col">
-          <CopilotChat
-            agentId="copilot"
-            threadId={chatId}
-            className="smart-living-copilot-chat embed-chat-frame flex-1"
-            labels={chatLabels}
-            messageView={MessageViewWithWotSummary}
-            welcomeScreen={renderWelcomeScreen}
-          />
-        </div>
-      </main>
-    </>
+      cleanupRequestedRef.current = true;
+      void fetch(`/api/chats/${encodeURIComponent(chatId)}`, {
+        method: 'DELETE',
+        keepalive: true,
+      }).catch(() => {
+        // Ephemeral embed cleanup is best-effort only.
+      });
+    };
+
+    window.addEventListener('pagehide', cleanupSession);
+    window.addEventListener('beforeunload', cleanupSession);
+
+    return () => {
+      window.removeEventListener('pagehide', cleanupSession);
+      window.removeEventListener('beforeunload', cleanupSession);
+    };
+  }, [chatId]);
+
+  return (
+    <main className="embed-chat-shell flex h-dvh flex-col px-3 py-3 md:px-6 md:py-6">
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col">
+        <CopilotChat
+          agentId="copilot"
+          threadId={chatId}
+          className="smart-living-copilot-chat embed-chat-frame flex-1"
+          labels={chatLabels}
+          messageView={MessageViewWithWotSummary}
+          welcomeScreen={renderWelcomeScreen}
+        />
+      </div>
+    </main>
   );
 }
 
@@ -443,59 +461,21 @@ export function ChatIndexPage() {
   );
 }
 
-export function CreateChatRedirectPage({
-  destinationBasePath,
-  queryString = '',
+export function EmbedChatPage({
+  embedQueryString = '',
+  showEmbedExamplePrompts = true,
 }: {
-  destinationBasePath: string;
-  queryString?: string;
+  embedQueryString?: string;
+  showEmbedExamplePrompts?: boolean;
 }) {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const querySuffix = toQuerySuffix(queryString);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const createChat = async () => {
-      try {
-        setError(null);
-
-        const response = await fetch('/api/chats', { method: 'POST' });
-        if (!response.ok) {
-          throw new Error('Failed to create chat');
-        }
-
-        const data = (await response.json()) as { id: string };
-        if (!cancelled) {
-          router.replace(`${destinationBasePath}/${data.id}${querySuffix}`);
-        }
-      } catch (createError) {
-        console.error('Failed to create embedded chat', createError);
-        if (!cancelled) {
-          setError('Could not create a new chat. Please try again.');
-        }
-      }
-    };
-
-    void createChat();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [destinationBasePath, querySuffix, router]);
-
-  if (error) {
-    return (
-      <div className="flex h-dvh items-center justify-center px-4">
-        <div className="text-sm text-destructive">{error}</div>
-      </div>
-    );
-  }
+  const [chatId] = useState(() => createEmbedEphemeralChatId());
 
   return (
-    <div className="flex h-dvh items-center justify-center text-muted-foreground">
-      <LoaderCircle className="size-6 animate-spin" />
-    </div>
+    <ChatRoutePage
+      chatId={chatId}
+      mode="embed"
+      embedQueryString={embedQueryString}
+      showEmbedExamplePrompts={showEmbedExamplePrompts}
+    />
   );
 }

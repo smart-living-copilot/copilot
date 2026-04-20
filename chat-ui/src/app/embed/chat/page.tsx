@@ -1,10 +1,11 @@
-import { CreateChatRedirectPage } from '@/components/copilot/chat-route-page';
+import { EmbedChatPage as EmbedChatExperiencePage } from '@/components/copilot/chat-route-page';
 import {
+  areEmbedExamplesEnabledFromSearchParams,
   type AppPageSearchParams,
   toSearchParamsString,
 } from '@/lib/embed-chat-search-params';
 
-export default async function EmbedChatPage({
+export default async function EmbedChatIndexPage({
   searchParams,
 }: {
   searchParams: Promise<AppPageSearchParams>;
@@ -12,9 +13,11 @@ export default async function EmbedChatPage({
   const resolvedSearchParams = await searchParams;
 
   return (
-    <CreateChatRedirectPage
-      destinationBasePath="/embed/chat"
-      queryString={toSearchParamsString(resolvedSearchParams)}
+    <EmbedChatExperiencePage
+      embedQueryString={toSearchParamsString(resolvedSearchParams)}
+      showEmbedExamplePrompts={areEmbedExamplesEnabledFromSearchParams(
+        resolvedSearchParams,
+      )}
     />
   );
 }
