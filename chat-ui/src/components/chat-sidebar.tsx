@@ -211,10 +211,11 @@ export function AppSidebar({
   const handleDelete = async (chatId: string) => {
     const previousChatList = chatList;
     const deletingActiveChat = chatId === activeChatId;
+    const remainingChats = removeCachedChat(chatId);
 
     setDeletingChatId(chatId);
     setEditingChatId((current) => (current === chatId ? null : current));
-    setChatList(removeCachedChat(chatId));
+    setChatList(remainingChats);
 
     try {
       const response = await fetch(`/api/chats/${chatId}`, {
@@ -234,11 +235,10 @@ export function AppSidebar({
 
     if (deletingActiveChat) {
       try {
-        if (onNewChat) {
-          const replacementChat = await onNewChat();
-          if (!replacementChat) {
-            throw new Error('Failed to create replacement chat');
-          }
+        const replacementChatId = remainingChats[0]?.id;
+
+        if (replacementChatId) {
+          router.push(`/chat/${replacementChatId}`);
         } else {
           router.push('/chat');
         }

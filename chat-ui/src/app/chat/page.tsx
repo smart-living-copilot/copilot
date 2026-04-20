@@ -1,3 +1,5 @@
-'use client';
+import { ChatIndexPage } from '@/components/copilot/chat-route-page';
 
-export { default } from '../page';
+export default function ChatPage() {
+  return <ChatIndexPage />;
+}
