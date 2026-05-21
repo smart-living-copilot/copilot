@@ -32,6 +32,7 @@ services:
       NEXT_PUBLIC_API_URL: "http://localhost:8123"
       COPILOT_URL: "http://copilot:8123"
       CODE_EXECUTOR_URL: "http://code-executor:8888"
+      JOB_RUNNER_URL: "http://job-runner:8890"
       WOT_API_URL: "http://wot-registry:8000/api"
       WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
       HOSTNAME: "0.0.0.0"
@@ -197,21 +198,21 @@ services:
       - backend-isolated
     restart: unless-stopped
   
+
   virtual-living-room:
-    image: registry.dataspace.plaiful.org/demo_fsn/virtual-living-room:latest
-    container_name: virtual-living-room
+    build:
+      context: ./virtual_living_room
     ports:
       - "8085:8085"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8085/api/devices"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8085/api/devices', timeout=3)"]
       interval: 30s
       timeout: 10s
       retries: 3
     networks:
-      - frontend-internal
       - backend-isolated
-
+      - frontend-internal
 volumes:
   copilot-data:
   job-runner-data:
