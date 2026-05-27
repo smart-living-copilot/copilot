@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -11,13 +12,22 @@ from ag_ui_langgraph import add_langgraph_fastapi_endpoint
 from copilotkit import LangGraphAGUIAgent
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse, StreamingResponse
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from copilot.agent import _load_mcp_tools, _make_llm, _make_mcp_client
 from copilot.agui_messages import strip_none_fields
 from copilot.graph import build_graph
 from copilot.graph.checkpointer import CachingCheckpointSaver
+from copilot.media import (
+    create_media_stream,
+    media_sessions,
+    parse_rtc_configuration,
+    speech_pipelines,
+)
 from copilot.models import Settings
+from copilot.speech import SemanticTextChunker
 from copilot.thread_store import (
     create_thread,
     delete_thread as delete_thread_metadata,
@@ -32,16 +42,29 @@ from copilot.tools import AVAILABLE_TOOLS
 
 logger = logging.getLogger(__name__)
 EMBED_EPHEMERAL_THREAD_PREFIX = "embed-ephemeral-"
+NOISY_MEDIA_LOGGERS = (
+    "aiortc",
+    "aioice",
+    "fastrtc",
+)
 
 # Module-level references kept alive for the process lifetime.
 _mcp_client = None
 _agent: LangGraphAGUIAgent | None = None
+_graph: Any | None = None
 _checkpointer: CachingCheckpointSaver | None = None
 _settings: Settings | None = None
+_thread_run_locks: dict[str, asyncio.Lock] = {}
+_thread_run_locks_guard = asyncio.Lock()
 
 
 def _is_embed_ephemeral_thread(thread_id: str | None) -> bool:
     return isinstance(thread_id, str) and thread_id.startswith(EMBED_EPHEMERAL_THREAD_PREFIX)
+
+
+def _quiet_noisy_media_loggers() -> None:
+    for logger_name in NOISY_MEDIA_LOGGERS:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
 def _log_background_task_exception(
@@ -112,6 +135,15 @@ async def _finalize_thread_run(thread_id: str | None) -> None:
         raise asyncio.CancelledError
 
 
+async def _thread_run_lock(thread_id: str) -> asyncio.Lock:
+    async with _thread_run_locks_guard:
+        lock = _thread_run_locks.get(thread_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _thread_run_locks[thread_id] = lock
+        return lock
+
+
 async def _flush_pending_checkpoints_on_shutdown() -> None:
     if _checkpointer is None:
         return
@@ -140,6 +172,16 @@ class _AGUIAgentProxy:
             raise RuntimeError("AG-UI agent is not ready")
 
         thread_id = _request_thread_id(input_data)
+        if thread_id:
+            lock = await _thread_run_lock(thread_id)
+            async with lock:
+                try:
+                    async for event in _agent.run(input_data):
+                        yield event
+                finally:
+                    await _finalize_thread_run(thread_id)
+            return
+
         try:
             async for event in _agent.run(input_data):
                 yield event
@@ -147,14 +189,99 @@ class _AGUIAgentProxy:
             await _finalize_thread_run(thread_id)
 
 
+def _assistant_text_from_graph_result(result: Any) -> str:
+    if not isinstance(result, dict):
+        return ""
+    messages = result.get("messages")
+    if not isinstance(messages, list):
+        return ""
+    for message in reversed(messages):
+        if not isinstance(message, AIMessage):
+            continue
+        return _text_from_message_content(message.content).strip()
+    return ""
+
+
+def _text_from_message_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    text_parts = []
+    for item in content:
+        if isinstance(item, str):
+            text_parts.append(item)
+        elif isinstance(item, dict) and isinstance(item.get("text"), str):
+            text_parts.append(item["text"])
+    return "".join(text_parts)
+
+
+def _voice_stream_text_from_event(event: Any) -> str:
+    if not isinstance(event, tuple) or len(event) != 2:
+        return ""
+    message, metadata = event
+    if not isinstance(message, AIMessageChunk) or not isinstance(metadata, dict):
+        return ""
+    if metadata.get("langgraph_node") not in {"respond", "control_llm", "analysis_llm"}:
+        return ""
+    if getattr(message, "tool_call_chunks", None):
+        return ""
+    return _text_from_message_content(message.content)
+
+
+async def _submit_voice_transcript_to_chat(thread_id: str, transcript: str) -> str:
+    if _graph is None:
+        raise RuntimeError("LangGraph is not ready")
+
+    lock = await _thread_run_lock(thread_id)
+    async with lock:
+        try:
+            result = await _graph.ainvoke(
+                {"messages": [HumanMessage(content=transcript)]},
+                config={"configurable": {"thread_id": thread_id}},
+            )
+            return _assistant_text_from_graph_result(result)
+        finally:
+            await _finalize_thread_run(thread_id)
+
+
+async def _stream_voice_transcript_to_chat(
+    thread_id: str,
+    transcript: str,
+) -> AsyncIterator[str]:
+    if _graph is None:
+        raise RuntimeError("LangGraph is not ready")
+
+    chunker = SemanticTextChunker()
+    lock = await _thread_run_lock(thread_id)
+    async with lock:
+        try:
+            async for event in _graph.astream(
+                {"messages": [HumanMessage(content=transcript)]},
+                config={"configurable": {"thread_id": thread_id}},
+                stream_mode="messages",
+            ):
+                text = _voice_stream_text_from_event(event)
+                if not text:
+                    continue
+                for chunk in chunker.accept(text):
+                    yield chunk
+            final_chunk = chunker.flush()
+            if final_chunk:
+                yield final_chunk
+        finally:
+            await _finalize_thread_run(thread_id)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mcp_client, _agent, _checkpointer, _settings
+    global _mcp_client, _agent, _graph, _checkpointer, _settings
 
     settings = Settings()
     _settings = settings
     logging.basicConfig(level=settings.log_level)
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+    _quiet_noisy_media_loggers()
     await asyncio.to_thread(init_thread_store, settings.agent_state_db_path)
 
     llm = _make_llm(settings)
@@ -175,6 +302,12 @@ async def lifespan(app: FastAPI):
             max_checkpoint_tokens=settings.max_checkpoint_tokens,
         )
         graph = graph.with_config(recursion_limit=settings.recursion_limit)
+        _graph = graph
+        speech_pipelines.configure(
+            settings,
+            _submit_voice_transcript_to_chat,
+            _stream_voice_transcript_to_chat,
+        )
 
         logger.info(
             "Graph created with %d MCP tools, model=%s, recursion_limit=%d",
@@ -190,11 +323,13 @@ async def lifespan(app: FastAPI):
         )
 
         yield
+        await speech_pipelines.stop_all()
         await _flush_pending_checkpoints_on_shutdown()
 
 
 app = FastAPI(title="Smart Living Copilot", lifespan=lifespan)
 add_langgraph_fastapi_endpoint(app=app, agent=_AGUIAgentProxy(), path="/ag-ui")
+_media_stream = create_media_stream()
 
 
 def _verify_internal_api_key(request: Request) -> None:
@@ -205,6 +340,16 @@ def _verify_internal_api_key(request: Request) -> None:
     expected = f"Bearer {_settings.internal_api_key}"
     if auth_header != expected:
         raise HTTPException(status_code=401, detail="Invalid internal API key")
+
+
+@app.middleware("http")
+async def _verify_media_http_requests(request: Request, call_next):
+    if request.url.path.startswith("/media/"):
+        try:
+            _verify_internal_api_key(request)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return await call_next(request)
 
 
 def _request_thread_id(input_data: Any) -> str | None:
@@ -341,6 +486,123 @@ async def _get_thread_messages_payload(thread_id: str) -> list[dict[str, Any]]:
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/media/rtc-configuration")
+async def get_media_rtc_configuration(request: Request):
+    _verify_internal_api_key(request)
+
+    try:
+        raw_configuration = _settings.media_rtc_configuration if _settings else ""
+        configuration = parse_rtc_configuration(raw_configuration)
+        configuration["iceGatherTimeoutMs"] = (
+            _settings.media_ice_gather_timeout_ms if _settings else 750
+        )
+        return configuration
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/media/sessions")
+async def get_media_sessions(request: Request):
+    _verify_internal_api_key(request)
+    return {"sessions": media_sessions.snapshots()}
+
+
+@app.get("/media/sessions/{webrtc_id}")
+async def get_media_session(webrtc_id: str, request: Request):
+    _verify_internal_api_key(request)
+    stats = media_sessions.get(webrtc_id)
+    if stats is None:
+        raise HTTPException(status_code=404, detail="Media session not found")
+    return stats
+
+
+@app.get("/media/sessions/{webrtc_id}/stream")
+async def stream_media_session(webrtc_id: str, request: Request):
+    _verify_internal_api_key(request)
+
+    async def event_generator():
+        previous: tuple[str | None, str | None, bool] | None = None
+        idle_ticks = 0
+        missing_ticks = 0
+        while True:
+            if await request.is_disconnected():
+                return
+            current = media_sessions.latest_text_fields(webrtc_id)
+            if current is None:
+                # Tolerate a brief gap (e.g. client connects before the
+                # offer round-trip has registered the session) but give up
+                # once the session looks truly gone.
+                missing_ticks += 1
+                if missing_ticks >= 75:
+                    yield "event: end\ndata: {}\n\n"
+                    return
+                await asyncio.sleep(0.2)
+                continue
+            missing_ticks = 0
+            latest_transcript_text, latest_assistant_text, assistant_response_pending = current
+            if current != previous:
+                previous = current
+                payload = json.dumps(
+                    {
+                        "latest_transcript_text": latest_transcript_text,
+                        "latest_assistant_text": latest_assistant_text,
+                        "assistant_response_pending": assistant_response_pending,
+                    }
+                )
+                yield f"event: snapshot\ndata: {payload}\n\n"
+                idle_ticks = 0
+            else:
+                idle_ticks += 1
+                # Keep proxies and load balancers from closing the connection on idle
+                if idle_ticks >= 75:
+                    yield ": keepalive\n\n"
+                    idle_ticks = 0
+            await asyncio.sleep(0.2)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/media/sessions/{webrtc_id}/metadata")
+async def set_media_session_metadata(webrtc_id: str, request: Request):
+    _verify_internal_api_key(request)
+    body = await _read_optional_json(request)
+    thread_id = body.get("threadId")
+    stats = media_sessions.set_metadata(
+        webrtc_id,
+        thread_id=thread_id if isinstance(thread_id, str) and thread_id else None,
+    )
+    return jsonable_encoder(stats)
+
+
+@app.get("/media/sessions/{webrtc_id}/metadata")
+async def get_media_session_metadata(webrtc_id: str, request: Request):
+    _verify_internal_api_key(request)
+    stats = media_sessions.get(webrtc_id)
+    if stats is None:
+        raise HTTPException(status_code=404, detail="Media session not found")
+    return stats
+
+
+@app.delete("/media/sessions/{webrtc_id}")
+async def delete_media_session(webrtc_id: str, request: Request):
+    _verify_internal_api_key(request)
+    await speech_pipelines.stop(webrtc_id)
+    return {"ok": media_sessions.remove(webrtc_id)}
+
+
+if _media_stream is not None:
+    # Keep explicit /media routes above the mounted FastRTC app; Starlette
+    # matches routes in registration order.
+    _media_stream.mount(app, path="/media", tags=["media"])
 
 
 @app.get("/threads")

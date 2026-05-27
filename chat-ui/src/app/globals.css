@@ -150,6 +150,199 @@ body {
   color: oklch(0.93 0.005 240);
 }
 
+.live-mode-aura {
+  --live-aura-level: 0;
+  --live-aura-scale: 0.9;
+  --live-aura-opacity: 0.6;
+  isolation: isolate;
+}
+
+.live-mode-aura__halo,
+.live-mode-aura__field,
+.live-mode-aura__lobe,
+.live-mode-aura__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  pointer-events: none;
+}
+
+.live-mode-aura__halo {
+  opacity: calc(var(--live-aura-opacity) * 0.5);
+  background:
+    radial-gradient(
+      circle at 52% 48%,
+      color-mix(in oklab, var(--primary) 34%, transparent),
+      transparent 48%
+    ),
+    radial-gradient(
+      circle at 42% 60%,
+      oklch(0.78 0.12 176 / 0.22),
+      transparent 54%
+    );
+  filter: blur(24px);
+  animation: live-aura-halo 2.8s ease-in-out infinite;
+}
+
+.live-mode-aura__field {
+  overflow: hidden;
+  opacity: var(--live-aura-opacity);
+  background:
+    conic-gradient(
+      from 140deg,
+      color-mix(in oklab, var(--primary) 84%, white 8%),
+      oklch(0.78 0.13 176),
+      color-mix(in oklab, var(--accent) 72%, var(--primary)),
+      color-mix(in oklab, var(--primary) 84%, white 8%)
+    ),
+    radial-gradient(circle, oklch(1 0 0 / 0.18), transparent 58%);
+  box-shadow:
+    0 0 calc(28px + var(--live-aura-level) * 40px)
+      color-mix(in oklab, var(--primary) 32%, transparent),
+    inset 0 0 36px oklch(1 0 0 / 0.22);
+  animation: live-aura-drift 7s linear infinite;
+  transition: opacity 120ms ease-out;
+}
+
+.live-mode-aura__field::after {
+  position: absolute;
+  inset: 14%;
+  border-radius: inherit;
+  background: var(--background);
+  content: '';
+  filter: blur(calc(5px + var(--live-aura-level) * 8px));
+}
+
+.live-mode-aura__lobe {
+  inset: 7%;
+  background:
+    radial-gradient(circle at 30% 30%, oklch(1 0 0 / 0.5), transparent 22%),
+    radial-gradient(
+      circle at 72% 62%,
+      color-mix(in oklab, var(--primary) 70%, white 10%),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 45% 78%,
+      oklch(0.78 0.13 176 / 0.55),
+      transparent 30%
+    );
+  filter: blur(calc(12px + var(--live-aura-level) * 10px));
+  mix-blend-mode: screen;
+  opacity: calc(0.34 + var(--live-aura-level) * 0.5);
+}
+
+.live-mode-aura__lobe--one {
+  animation: live-aura-orbit 3.6s ease-in-out infinite;
+}
+
+.live-mode-aura__lobe--two {
+  animation: live-aura-orbit 4.4s ease-in-out infinite reverse;
+  transform: rotate(95deg) scale(0.88);
+}
+
+.live-mode-aura__lobe--three {
+  animation: live-aura-orbit 5.2s ease-in-out infinite;
+  transform: rotate(210deg) scale(0.72);
+}
+
+.live-mode-aura__ring {
+  border: 1px solid color-mix(in oklab, var(--primary) 36%, transparent);
+}
+
+.live-mode-aura__ring--outer {
+  opacity: calc(0.22 + var(--live-aura-level) * 0.38);
+  animation: live-aura-breathe 2.4s ease-in-out infinite;
+}
+
+.live-mode-aura__ring--inner {
+  inset: 18%;
+  opacity: calc(0.34 + var(--live-aura-level) * 0.44);
+  animation: live-aura-breathe 1.8s ease-in-out infinite reverse;
+}
+
+.live-mode-aura__core {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 6.5rem;
+  height: 6.5rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in oklab, var(--primary) 32%, transparent);
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle at 35% 30%, oklch(1 0 0 / 0.26), transparent 34%),
+    color-mix(in oklab, var(--primary) 88%, var(--background));
+  color: var(--primary-foreground);
+  box-shadow:
+    0 20px 46px oklch(0.28 0.03 235 / 0.2),
+    inset 0 1px 0 oklch(1 0 0 / 0.35);
+  transform: scale(calc(0.96 + var(--live-aura-level) * 0.08));
+  transition: transform 120ms ease-out;
+}
+
+.live-mode-aura[data-state='error'] .live-mode-aura__field {
+  background:
+    conic-gradient(
+      from 140deg,
+      color-mix(in oklab, var(--destructive) 75%, white 8%),
+      color-mix(in oklab, var(--destructive) 42%, var(--accent)),
+      color-mix(in oklab, var(--destructive) 68%, var(--primary)),
+      color-mix(in oklab, var(--destructive) 75%, white 8%)
+    ),
+    radial-gradient(circle, oklch(1 0 0 / 0.18), transparent 58%);
+}
+
+.live-mode-aura[data-state='error'] .live-mode-aura__core {
+  background: color-mix(in oklab, var(--destructive) 86%, var(--background));
+}
+
+@keyframes live-aura-drift {
+  from {
+    transform: scale(var(--live-aura-scale)) rotate(0deg);
+  }
+  to {
+    transform: scale(var(--live-aura-scale)) rotate(360deg);
+  }
+}
+
+@keyframes live-aura-halo {
+  0%,
+  100% {
+    transform: scale(calc(var(--live-aura-scale) + 0.12));
+  }
+  50% {
+    transform: scale(calc(var(--live-aura-scale) + 0.28));
+  }
+}
+
+@keyframes live-aura-orbit {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(calc(0.84 + var(--live-aura-level) * 0.18))
+      translate3d(0, 0, 0);
+  }
+  35% {
+    transform: rotate(105deg) scale(calc(0.94 + var(--live-aura-level) * 0.22))
+      translate3d(5%, -4%, 0);
+  }
+  70% {
+    transform: rotate(245deg) scale(calc(0.78 + var(--live-aura-level) * 0.2))
+      translate3d(-4%, 5%, 0);
+  }
+}
+
+@keyframes live-aura-breathe {
+  0%,
+  100% {
+    transform: scale(calc(0.78 + var(--live-aura-level) * 0.22));
+  }
+  50% {
+    transform: scale(calc(0.96 + var(--live-aura-level) * 0.28));
+  }
+}
+
 .smart-living-copilot-chat {
   --copilot-kit-primary-color: var(--primary);
   --copilot-kit-contrast-color: var(--primary-foreground);

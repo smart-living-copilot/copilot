@@ -16,6 +16,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import {
+  type ReactElement,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -28,9 +29,16 @@ import { AppSidebar } from '@/components/chat-sidebar';
 import { SiteHeader } from '@/components/site-header';
 import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
 import { type ChatSummary, upsertCachedChat } from '@/lib/chat-list-cache';
 import { createEmbedEphemeralChatId } from '@/lib/embed-chat';
 import { chatToolCallRenderers } from './chat-tool-call-renderer';
+import {
+  normalizeRunCodeResult,
+  type RunCodeArtifact,
+} from './chat-tool-call-model';
+import { LiveModePanel } from './live-mode-panel';
+import { MediaIngressControl } from './media-ingress-control';
 import { type ExamplePrompt, WelcomeScreen } from './welcome-screen';
 import { MessageViewWithWotSummary } from './wot-interaction-summary';
 
@@ -94,11 +102,15 @@ function toQuerySuffix(queryString: string): string {
 function ChatAgentSync({
   chatId,
   onHistoryLoaded,
+  onMessagesLoaded,
   onThreadUpdated,
+  refreshToken = 0,
 }: {
   chatId: string;
   onHistoryLoaded: (chatId: string) => void;
+  onMessagesLoaded?: (messages: Message[]) => void;
   onThreadUpdated?: () => void;
+  refreshToken?: number;
 }) {
   const { agent } = useAgent({
     agentId: 'copilot',
@@ -134,6 +146,7 @@ function ChatAgentSync({
         if (loaded.length > 0) {
           agent.setMessages(loaded);
         }
+        onMessagesLoaded?.(loaded);
         lastThreadSyncedMessageRef.current = loaded.at(-1)?.id ?? null;
       })
       .catch((error) => {
@@ -149,7 +162,7 @@ function ChatAgentSync({
       });
 
     return () => abortController.abort();
-  }, [agent, chatId, onHistoryLoaded]);
+  }, [agent, chatId, onHistoryLoaded, onMessagesLoaded, refreshToken]);
 
   const rawMessages = useDeferredValue(agent.messages as Message[]);
   const messages = useMemo(
@@ -177,6 +190,49 @@ function ChatAgentSync({
   return null;
 }
 
+function getMessageRole(message: Message) {
+  return typeof message.role === 'string' ? message.role : '';
+}
+
+function getMessageContent(message: Message) {
+  return (message as { content?: unknown }).content;
+}
+
+function getLatestTurnArtifacts(messages: Message[]): RunCodeArtifact[] {
+  let lastUserIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (getMessageRole(messages[index]) === 'user') {
+      lastUserIndex = index;
+      break;
+    }
+  }
+
+  if (lastUserIndex < 0) {
+    return [];
+  }
+
+  const artifacts: RunCodeArtifact[] = [];
+  const seen = new Set<string>();
+
+  for (const message of messages.slice(lastUserIndex + 1)) {
+    if (getMessageRole(message) !== 'tool') {
+      continue;
+    }
+
+    const result = normalizeRunCodeResult(getMessageContent(message));
+    for (const artifact of result.artifacts ?? []) {
+      const key = `${artifact.kind}:${artifact.filename}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      artifacts.push(artifact);
+    }
+  }
+
+  return artifacts;
+}
+
 function FullChatExperience({
   chatId,
   handleNewChat,
@@ -186,6 +242,10 @@ function FullChatExperience({
 }) {
   const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
   const [sidebarRefreshToken, setSidebarRefreshToken] = useState(0);
+  const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
+  const [liveMessages, setLiveMessages] = useState<Message[]>([]);
+  const wasLiveModeRef = useRef(false);
+  const mediaSession = useMediaIngressSession(chatId);
   const handleSidebarRefresh = useCallback(() => {
     setSidebarRefreshToken((current) => current + 1);
   }, []);
@@ -207,13 +267,65 @@ function FullChatExperience({
     ),
     [examplePrompts, historyLoaded],
   );
+  const chatInput = useMemo(
+    () => ({
+      children: ({
+        textArea,
+        sendButton,
+        disclaimer,
+      }: {
+        textArea: ReactElement;
+        sendButton: ReactElement;
+        disclaimer: ReactElement;
+      }) => (
+        <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+          <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
+            <div className="min-h-16">{textArea}</div>
+            <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
+              <MediaIngressControl compact session={mediaSession} />
+              {sendButton}
+            </div>
+          </div>
+          {disclaimer}
+        </div>
+      ),
+    }),
+    [mediaSession],
+  );
+  const showLiveMode = mediaSession.state !== 'idle';
+  const liveArtifacts = useMemo(
+    () => getLatestTurnArtifacts(liveMessages),
+    [liveMessages],
+  );
+
+  useEffect(() => {
+    if (!showLiveMode) {
+      if (wasLiveModeRef.current) {
+        const refreshFrame = window.requestAnimationFrame(() => {
+          setHistoryRefreshToken((current) => current + 1);
+        });
+        wasLiveModeRef.current = false;
+        return () => window.cancelAnimationFrame(refreshFrame);
+      }
+      wasLiveModeRef.current = false;
+      return;
+    }
+
+    wasLiveModeRef.current = true;
+    const interval = window.setInterval(() => {
+      setHistoryRefreshToken((current) => current + 1);
+    }, 2500);
+    return () => window.clearInterval(interval);
+  }, [showLiveMode]);
 
   return (
     <SidebarProvider className="relative h-dvh overflow-hidden text-foreground">
       <ChatAgentSync
         chatId={chatId}
         onHistoryLoaded={setLoadedChatId}
+        onMessagesLoaded={setLiveMessages}
         onThreadUpdated={handleSidebarRefresh}
+        refreshToken={historyRefreshToken}
       />
 
       <AppSidebar
@@ -237,14 +349,19 @@ function FullChatExperience({
         </SiteHeader>
 
         <div className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
-          <CopilotChat
-            agentId="copilot"
-            threadId={chatId}
-            className="smart-living-copilot-chat flex-1"
-            labels={chatLabels}
-            messageView={MessageViewWithWotSummary}
-            welcomeScreen={renderWelcomeScreen}
-          />
+          {showLiveMode ? (
+            <LiveModePanel artifacts={liveArtifacts} session={mediaSession} />
+          ) : (
+            <CopilotChat
+              agentId="copilot"
+              threadId={chatId}
+              className="smart-living-copilot-chat flex-1"
+              input={chatInput}
+              labels={chatLabels}
+              messageView={MessageViewWithWotSummary}
+              welcomeScreen={renderWelcomeScreen}
+            />
+          )}
         </div>
       </SidebarInset>
     </SidebarProvider>

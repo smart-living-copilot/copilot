@@ -12,10 +12,12 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=2.0",
     "copilotkit>=0.1.31",
     "fastapi>=0.115",
+    "fastrtc>=0.0.34",
     "uvicorn[standard]>=0.34",
     "aiosqlite>=0.20",
     "pydantic-settings>=2.7",
     "httpx>=0.27",
+    "silero-vad[onnx-cpu]>=6.2",
 ]
 
 [project.optional-dependencies]

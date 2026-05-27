@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 import copilot.server as server
 from copilot.models import Settings
@@ -29,14 +30,19 @@ class ServerRoutesTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self._original_settings = server._settings
         self._original_agent = server._agent
+        self._original_graph = server._graph
         self._original_checkpointer = server._checkpointer
+        self._original_thread_run_locks = server._thread_run_locks
+        server._thread_run_locks = {}
         self.client = TestClient(server.app)
 
     def tearDown(self) -> None:
         self.client.close()
         server._settings = self._original_settings
         server._agent = self._original_agent
+        server._graph = self._original_graph
         server._checkpointer = self._original_checkpointer
+        server._thread_run_locks = self._original_thread_run_locks
 
     def test_ag_ui_health_route_reports_agent_name(self) -> None:
         response = self.client.get("/ag-ui/health")
@@ -49,6 +55,27 @@ class ServerRoutesTestCase(unittest.TestCase):
                 "agent": {
                     "name": "copilot",
                 },
+            },
+        )
+
+    def test_media_rtc_configuration_includes_ice_gather_timeout(self) -> None:
+        server._settings = Settings(
+            internal_api_key="test-internal-key",
+            media_rtc_configuration='{"iceServers":[]}',
+            media_ice_gather_timeout_ms=500,
+        )
+
+        response = self.client.get(
+            "/media/rtc-configuration",
+            headers={"Authorization": "Bearer test-internal-key"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "iceServers": [],
+                "iceGatherTimeoutMs": 500,
             },
         )
 
@@ -131,6 +158,189 @@ class ServerRoutesTestCase(unittest.TestCase):
         events = asyncio.run(collect_events())
 
         self.assertEqual(events, [{"event": "done"}])
+        self.assertEqual(fake_checkpointer.flush_calls, ["thread-a"])
+
+    def test_voice_transcript_submission_invokes_graph_with_thread_lock(self) -> None:
+        class FakeGraph:
+            def __init__(self) -> None:
+                self.calls: list[tuple[dict, dict]] = []
+
+            async def ainvoke(self, input_data, config):
+                self.calls.append((input_data, config))
+                await asyncio.sleep(0.01)
+                return {
+                    "messages": [AIMessage(content=f"reply to {input_data['messages'][0].content}")]
+                }
+
+        class FakeCheckpointer:
+            def __init__(self) -> None:
+                self.flush_calls: list[str | None] = []
+
+            async def flush(self, thread_id: str | None = None) -> None:
+                self.flush_calls.append(thread_id)
+
+        fake_graph = FakeGraph()
+        fake_checkpointer = FakeCheckpointer()
+        server._graph = fake_graph
+        server._checkpointer = fake_checkpointer
+
+        async def submit_twice():
+            return await asyncio.gather(
+                server._submit_voice_transcript_to_chat("thread-a", "first"),
+                server._submit_voice_transcript_to_chat("thread-a", "second"),
+            )
+
+        results = asyncio.run(submit_twice())
+
+        self.assertEqual(len(fake_graph.calls), 2)
+        self.assertEqual(
+            [call[1] for call in fake_graph.calls],
+            [
+                {"configurable": {"thread_id": "thread-a"}},
+                {"configurable": {"thread_id": "thread-a"}},
+            ],
+        )
+        self.assertEqual(
+            [call[0]["messages"][0].content for call in fake_graph.calls],
+            ["first", "second"],
+        )
+        self.assertEqual(results, ["reply to first", "reply to second"])
+        self.assertEqual(fake_checkpointer.flush_calls, ["thread-a", "thread-a"])
+
+    def test_voice_transcript_submission_cancels_graph_invocation(self) -> None:
+        class FakeGraph:
+            def __init__(self) -> None:
+                self.started = asyncio.Event()
+                self.cancelled = asyncio.Event()
+
+            async def ainvoke(self, _input_data, config):
+                self.started.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    self.cancelled.set()
+                    raise
+
+        class FakeCheckpointer:
+            async def flush(self, thread_id: str | None = None) -> None:
+                return None
+
+        fake_graph = FakeGraph()
+        server._graph = fake_graph
+        server._checkpointer = FakeCheckpointer()
+
+        async def exercise():
+            task = asyncio.create_task(
+                server._submit_voice_transcript_to_chat("thread-a", "cancel me")
+            )
+            await asyncio.wait_for(fake_graph.started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            await asyncio.wait_for(fake_graph.cancelled.wait(), timeout=1)
+
+        asyncio.run(exercise())
+
+    def test_voice_transcript_streaming_yields_semantic_chunks(self) -> None:
+        class FakeGraph:
+            def __init__(self) -> None:
+                self.calls: list[tuple[dict, dict, str]] = []
+
+            async def astream(self, input_data, config, stream_mode):
+                self.calls.append((input_data, config, stream_mode))
+                yield (
+                    AIMessageChunk(content='{"intent":"chat"}'),
+                    {"langgraph_node": "router"},
+                )
+                yield (
+                    AIMessageChunk(content="The living room light is now on. "),
+                    {"langgraph_node": "respond"},
+                )
+                yield (
+                    AIMessageChunk(content="I left the hallway unchanged."),
+                    {"langgraph_node": "respond"},
+                )
+
+        class FakeCheckpointer:
+            def __init__(self) -> None:
+                self.flush_calls: list[str | None] = []
+
+            async def flush(self, thread_id: str | None = None) -> None:
+                self.flush_calls.append(thread_id)
+
+        fake_graph = FakeGraph()
+        fake_checkpointer = FakeCheckpointer()
+        server._graph = fake_graph
+        server._checkpointer = fake_checkpointer
+
+        async def collect_chunks():
+            return [
+                chunk
+                async for chunk in server._stream_voice_transcript_to_chat(
+                    "thread-a",
+                    "turn on the light",
+                )
+            ]
+
+        chunks = asyncio.run(collect_chunks())
+
+        self.assertEqual(
+            chunks,
+            ["The living room light is now on.", "I left the hallway unchanged."],
+        )
+        self.assertEqual(len(fake_graph.calls), 1)
+        self.assertEqual(fake_graph.calls[0][2], "messages")
+        self.assertEqual(fake_checkpointer.flush_calls, ["thread-a"])
+
+    def test_voice_transcript_streaming_cancels_graph_stream(self) -> None:
+        class FakeGraph:
+            def __init__(self) -> None:
+                self.started = asyncio.Event()
+                self.cancelled = asyncio.Event()
+
+            async def astream(self, _input_data, config, stream_mode):
+                self.started.set()
+                try:
+                    await asyncio.Event().wait()
+                    yield (
+                        AIMessageChunk(content="unreachable"),
+                        {"langgraph_node": "respond"},
+                    )
+                except asyncio.CancelledError:
+                    self.cancelled.set()
+                    raise
+
+        class FakeCheckpointer:
+            def __init__(self) -> None:
+                self.flush_calls: list[str | None] = []
+
+            async def flush(self, thread_id: str | None = None) -> None:
+                self.flush_calls.append(thread_id)
+
+        fake_graph = FakeGraph()
+        fake_checkpointer = FakeCheckpointer()
+        server._graph = fake_graph
+        server._checkpointer = fake_checkpointer
+
+        async def exercise():
+            async def collect():
+                return [
+                    chunk
+                    async for chunk in server._stream_voice_transcript_to_chat(
+                        "thread-a",
+                        "cancel me",
+                    )
+                ]
+
+            task = asyncio.create_task(collect())
+            await asyncio.wait_for(fake_graph.started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            await asyncio.wait_for(fake_graph.cancelled.wait(), timeout=1)
+
+        asyncio.run(exercise())
+
         self.assertEqual(fake_checkpointer.flush_calls, ["thread-a"])
 
     def test_ag_ui_proxy_skips_persistence_for_embed_ephemeral_threads(self) -> None:

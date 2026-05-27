@@ -98,12 +98,16 @@ const PlotlyChart = memo(function PlotlyChart({
   );
 });
 
-function ArtifactPreview({
+export function ArtifactPreview({
   artifact,
   fullscreen = false,
+  stage = false,
+  fill = false,
 }: {
   artifact: RunCodeArtifact;
   fullscreen?: boolean;
+  stage?: boolean;
+  fill?: boolean;
 }) {
   if (artifact.kind === 'image') {
     return (
@@ -111,10 +115,14 @@ function ArtifactPreview({
       <img
         alt={artifact.ref}
         className={cn(
-          'max-w-full rounded-lg border border-border/55',
+          'rounded-lg border border-border/55',
           fullscreen
             ? 'mx-auto max-h-[78vh] w-auto rounded-xl object-contain'
-            : 'w-full',
+            : stage
+              ? 'mx-auto max-h-[44vh] w-auto rounded-xl object-contain'
+              : fill
+                ? 'mx-auto max-h-full max-w-full object-contain'
+                : 'w-full max-w-full',
         )}
         src={`/api/artifacts/${encodeURIComponent(artifact.filename)}`}
       />
@@ -123,7 +131,15 @@ function ArtifactPreview({
 
   return (
     <PlotlyChart
-      className={fullscreen ? 'h-[78vh] rounded-xl' : 'h-[24rem]'}
+      className={
+        fullscreen
+          ? 'h-[78vh] rounded-xl'
+          : stage
+            ? 'h-[44vh] rounded-xl'
+            : fill
+              ? 'h-full w-full'
+              : 'h-[24rem]'
+      }
       filename={artifact.filename}
       title={`Chart ${artifact.ref}`}
     />

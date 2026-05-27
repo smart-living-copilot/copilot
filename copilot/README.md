@@ -199,6 +199,32 @@ Defined in [`copilot/models/settings.py`](./copilot/models/settings.py):
 - `AGENT_STATE_DB_PATH`
 - `MAX_CONTEXT_TOKENS`
 - `LOG_LEVEL`
+- `MEDIA_RTC_CONFIGURATION`, `MEDIA_SERVER_RTC_CONFIGURATION`
+- `MEDIA_ICE_GATHER_TIMEOUT_MS`
+- `STT_ENABLED`, `STT_TRANSCRIPTIONS_URL`, `STT_MODEL`, `STT_API_KEY`
+- `STT_LANGUAGE`, `STT_TIMEOUT_SECONDS`, `STT_SUBMIT_TO_CHAT`
+- `VAD_THRESHOLD`, `VAD_MIN_SPEECH_MS`, `VAD_MIN_SILENCE_MS`
+- `VAD_SPEECH_PAD_MS`, `VAD_MAX_UTTERANCE_MS`
+- `TTS_ENABLED`, `TTS_SPEECH_URL`, `TTS_MODEL`, `TTS_VOICE`
+- `TTS_API_KEY`, `TTS_RESPONSE_FORMAT`, `TTS_SPEED`, `TTS_TIMEOUT_SECONDS`
+
+Live media speech-to-text uses backend Silero VAD and an OpenAI-compatible
+`/v1/audio/transcriptions` endpoint configured with `STT_TRANSCRIPTIONS_URL`.
+Assistant speech playback uses an external OpenAI-compatible `/v1/audio/speech`
+endpoint and returns audio over WebRTC.
+For local Kokoro-FastAPI playback, start `docker compose up`, set
+`TTS_ENABLED=true`, and choose a `TTS_VOICE` returned by `GET /v1/audio/voices`.
+
+Live media WebRTC setup is controlled by:
+
+- `MEDIA_RTC_CONFIGURATION`: JSON passed to the browser `RTCPeerConnection`.
+- `MEDIA_SERVER_RTC_CONFIGURATION`: JSON passed to the backend aiortc peer.
+- `MEDIA_ICE_GATHER_TIMEOUT_MS`: browser-side non-trickle ICE gather wait before the offer is sent.
+
+For production, configure explicit STUN/TURN servers in both RTC configuration
+values and make sure UDP/TURN traffic reaches the media backend. For local
+development, keep `MEDIA_ICE_GATHER_TIMEOUT_MS` low, such as `750`, so Docker
+bridge candidate gathering does not add several seconds before the offer is sent.
 
 Also defined today but not currently wired into the graph execution path:
 
