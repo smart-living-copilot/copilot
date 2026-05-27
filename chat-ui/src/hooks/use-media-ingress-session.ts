@@ -11,7 +11,6 @@ export type MediaIngressState =
 
 export interface MediaIngressSession {
   state: MediaIngressState;
-  webrtcId: string | null;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   error: string | null;
@@ -442,7 +441,6 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
   return useMemo(
     () => ({
       state,
-      webrtcId,
       localStream,
       remoteStream,
       error,
@@ -470,7 +468,6 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
       start,
       state,
       stop,
-      webrtcId,
     ],
   );
 }

@@ -583,15 +583,6 @@ async def set_media_session_metadata(webrtc_id: str, request: Request):
     return jsonable_encoder(stats)
 
 
-@app.get("/media/sessions/{webrtc_id}/metadata")
-async def get_media_session_metadata(webrtc_id: str, request: Request):
-    _verify_internal_api_key(request)
-    stats = media_sessions.get(webrtc_id)
-    if stats is None:
-        raise HTTPException(status_code=404, detail="Media session not found")
-    return stats
-
-
 @app.delete("/media/sessions/{webrtc_id}")
 async def delete_media_session(webrtc_id: str, request: Request):
     _verify_internal_api_key(request)

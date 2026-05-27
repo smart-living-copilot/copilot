@@ -190,6 +190,8 @@ services:
 
   kokoro-tts:
     image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    profiles:
+      - tts
     ports:
       - "8880:8880"
     networks:

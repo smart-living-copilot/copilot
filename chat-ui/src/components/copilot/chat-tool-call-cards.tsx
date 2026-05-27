@@ -101,12 +101,10 @@ const PlotlyChart = memo(function PlotlyChart({
 export function ArtifactPreview({
   artifact,
   fullscreen = false,
-  stage = false,
   fill = false,
 }: {
   artifact: RunCodeArtifact;
   fullscreen?: boolean;
-  stage?: boolean;
   fill?: boolean;
 }) {
   if (artifact.kind === 'image') {
@@ -118,11 +116,9 @@ export function ArtifactPreview({
           'rounded-lg border border-border/55',
           fullscreen
             ? 'mx-auto max-h-[78vh] w-auto rounded-xl object-contain'
-            : stage
-              ? 'mx-auto max-h-[44vh] w-auto rounded-xl object-contain'
-              : fill
-                ? 'mx-auto max-h-full max-w-full object-contain'
-                : 'w-full max-w-full',
+            : fill
+              ? 'mx-auto max-h-full max-w-full object-contain'
+              : 'w-full max-w-full',
         )}
         src={`/api/artifacts/${encodeURIComponent(artifact.filename)}`}
       />
@@ -134,11 +130,9 @@ export function ArtifactPreview({
       className={
         fullscreen
           ? 'h-[78vh] rounded-xl'
-          : stage
-            ? 'h-[44vh] rounded-xl'
-            : fill
-              ? 'h-full w-full'
-              : 'h-[24rem]'
+          : fill
+            ? 'h-full w-full'
+            : 'h-[24rem]'
       }
       filename={artifact.filename}
       title={`Chart ${artifact.ref}`}

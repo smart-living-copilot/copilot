@@ -499,7 +499,6 @@ export function LiveModePanel({
     };
 
     audio.addEventListener('ended', scheduleRepeat);
-    audio.currentTime = 0;
     playWaitingAudio();
 
     return () => {

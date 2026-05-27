@@ -212,7 +212,7 @@ Live media speech-to-text uses backend Silero VAD and an OpenAI-compatible
 `/v1/audio/transcriptions` endpoint configured with `STT_TRANSCRIPTIONS_URL`.
 Assistant speech playback uses an external OpenAI-compatible `/v1/audio/speech`
 endpoint and returns audio over WebRTC.
-For local Kokoro-FastAPI playback, start `docker compose up`, set
+For local Kokoro-FastAPI playback, start `docker compose --profile tts up`, set
 `TTS_ENABLED=true`, and choose a `TTS_VOICE` returned by `GET /v1/audio/voices`.
 
 Live media WebRTC setup is controlled by:
