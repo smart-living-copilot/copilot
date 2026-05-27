@@ -62,6 +62,8 @@ type MarkdownBlock =
   | { items: string[]; type: 'ordered-list' | 'unordered-list' }
   | { code: string; type: 'code' };
 
+const WAITING_AUDIO_REPEAT_DELAY_MS = 1200;
+
 function isMarkdownBlockStart(line: string) {
   return (
     /^#{1,3}\s+/.test(line) ||
@@ -385,6 +387,9 @@ export function LiveModePanel({
 }) {
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const readyAudioRef = useRef<HTMLAudioElement | null>(null);
+  const waitingAudioRef = useRef<HTMLAudioElement | null>(null);
+  const wasConnectedRef = useRef(false);
   useAttachMediaStream(previewRef, session.localStream);
   useAttachMediaStream(remoteAudioRef, session.remoteStream);
 
@@ -439,6 +444,74 @@ export function LiveModePanel({
   const { setMicrophoneMuted, setCameraEnabled } = session;
   const isMicrophoneMuted = session.isMicrophoneMuted;
   const isCameraEnabled = session.isCameraEnabled;
+  const showAssistantPending =
+    session.isAssistantResponsePending && !session.latestAssistantText;
+
+  useEffect(() => {
+    const wasConnected = wasConnectedRef.current;
+    wasConnectedRef.current = isConnected;
+    if (!isConnected || wasConnected) {
+      return;
+    }
+
+    const audio = readyAudioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    audio.currentTime = 0;
+    void audio.play().catch(() => {
+      // Browser autoplay policies can still block this despite the start click.
+    });
+  }, [isConnected]);
+
+  useEffect(() => {
+    const audio = waitingAudioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    if (!showAssistantPending) {
+      audio.pause();
+      audio.currentTime = 0;
+      return;
+    }
+
+    let repeatTimer: number | null = null;
+    let stopped = false;
+    const playWaitingAudio = () => {
+      if (stopped) {
+        return;
+      }
+      audio.currentTime = 0;
+      void audio.play().catch(() => {
+        // Browser autoplay policies can still block this despite the start click.
+      });
+    };
+    const scheduleRepeat = () => {
+      if (stopped) {
+        return;
+      }
+      repeatTimer = window.setTimeout(
+        playWaitingAudio,
+        WAITING_AUDIO_REPEAT_DELAY_MS,
+      );
+    };
+
+    audio.addEventListener('ended', scheduleRepeat);
+    audio.currentTime = 0;
+    playWaitingAudio();
+
+    return () => {
+      stopped = true;
+      if (repeatTimer !== null) {
+        window.clearTimeout(repeatTimer);
+      }
+      audio.removeEventListener('ended', scheduleRepeat);
+      audio.pause();
+      audio.currentTime = 0;
+    };
+  }, [showAssistantPending]);
 
   useEffect(() => {
     if (!isConnected && !inViewer) return;
@@ -482,8 +555,6 @@ export function LiveModePanel({
     setMicrophoneMuted,
   ]);
 
-  const showAssistantPending =
-    session.isAssistantResponsePending && !session.latestAssistantText;
   const hasAnyContent =
     !!session.latestAssistantText ||
     !!session.latestUserTranscript ||
@@ -492,6 +563,8 @@ export function LiveModePanel({
   return (
     <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <audio ref={remoteAudioRef} autoPlay />
+      <audio ref={readyAudioRef} preload="auto" src="/audio/open_004.ogg" />
+      <audio ref={waitingAudioRef} preload="auto" src="/audio/switch_007.ogg" />
 
       {inViewer ? (
         <div className="flex min-h-0 flex-1 items-center justify-center px-4 pb-28 pt-14 md:px-8">
