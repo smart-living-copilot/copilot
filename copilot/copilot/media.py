@@ -41,6 +41,54 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+_VISION_MAX_DIMENSION = int(os.getenv("VISION_MAX_IMAGE_DIMENSION", "1024"))
+_VISION_JPEG_QUALITY = int(os.getenv("VISION_JPEG_QUALITY", "85"))
+
+
+def encode_frame_to_jpeg(frame: Any) -> bytes | None:
+    """Encode a fastrtc video frame (HxWx{3,4} numpy array) to JPEG bytes.
+
+    Returns None on failure rather than raising, since this runs on every
+    incoming video frame and must not break the media pipeline.
+    """
+    try:
+        from io import BytesIO
+
+        import numpy as np
+        from PIL import Image
+    except Exception:  # pragma: no cover - PIL/numpy missing at import time
+        logger.warning("Pillow/numpy unavailable; vision frame capture disabled")
+        return None
+
+    try:
+        if not hasattr(frame, "shape") or frame.ndim < 2:
+            return None
+        array = np.asarray(frame)
+        if array.dtype != np.uint8:
+            array = array.astype(np.uint8, copy=False)
+        # fastrtc delivers 3-channel frames in BGR order (OpenCV convention),
+        # but Pillow treats a 3-channel uint8 array as RGB. Swap so the
+        # encoded JPEG actually reflects the real colors.
+        if array.ndim == 3 and array.shape[2] >= 3:
+            array = array[:, :, :3][:, :, ::-1]
+        image = Image.fromarray(array)
+        if image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+        image.thumbnail((_VISION_MAX_DIMENSION, _VISION_MAX_DIMENSION))
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", quality=_VISION_JPEG_QUALITY)
+        return buffer.getvalue()
+    except Exception:
+        logger.debug("Failed to encode video frame to JPEG", exc_info=True)
+        return None
+
+
+def _public_snapshot(stats: "MediaSessionStats") -> dict[str, Any]:
+    data = asdict(stats)
+    data.pop("last_video_frame_jpeg", None)
+    return data
+
+
 @dataclass
 class MediaTranscript:
     id: str
@@ -68,6 +116,8 @@ class MediaSessionStats:
     video_frames: int = 0
     video_width: int | None = None
     video_height: int | None = None
+    last_video_frame_jpeg: bytes | None = field(default=None, repr=False)
+    last_video_frame_at: str | None = None
     transcript_count: int = 0
     latest_transcript_text: str | None = None
     latest_assistant_text: str | None = None
@@ -148,6 +198,31 @@ class MediaSessionRegistry:
             stats.video_width = width
             stats.video_height = height
             stats.updated_at = _utc_now()
+
+    def store_video_frame_jpeg(
+        self,
+        session_id: str,
+        *,
+        webrtc_id: str | None,
+        jpeg_bytes: bytes,
+    ) -> None:
+        stats = self.ensure(session_id, webrtc_id=webrtc_id)
+        with self._lock:
+            stats.last_video_frame_jpeg = jpeg_bytes
+            stats.last_video_frame_at = _utc_now()
+
+    def latest_video_frame_for_thread(
+        self,
+        thread_id: str,
+    ) -> tuple[bytes, str | None] | None:
+        with self._lock:
+            for stats in self._sessions.values():
+                if stats.thread_id != thread_id:
+                    continue
+                if stats.last_video_frame_jpeg is None:
+                    continue
+                return stats.last_video_frame_jpeg, stats.last_video_frame_at
+            return None
 
     def close(self, session_id: str, *, webrtc_id: str | None = None) -> None:
         key = webrtc_id or session_id
@@ -272,11 +347,11 @@ class MediaSessionRegistry:
     def get(self, webrtc_id: str) -> dict[str, Any] | None:
         with self._lock:
             stats = self._sessions.get(webrtc_id)
-            return asdict(stats) if stats is not None else None
+            return _public_snapshot(stats) if stats is not None else None
 
     def snapshots(self) -> list[dict[str, Any]]:
         with self._lock:
-            return [asdict(stats) for stats in self._sessions.values()]
+            return [_public_snapshot(stats) for stats in self._sessions.values()]
 
     def latest_text_fields(
         self,
@@ -676,6 +751,7 @@ def create_media_stream():
             self._last_webrtc_id: str | None = None
             self._video_queue = asyncio.Queue(maxsize=1)
             self._last_log_at = 0.0
+            self._last_jpeg_encode_at = 0.0
 
         def copy(self):
             return MediaIngressHandler()
@@ -708,16 +784,32 @@ def create_media_stream():
 
         async def video_receive(self, frame) -> None:
             height, width = frame.shape[:2]
+            webrtc_id = self._webrtc_id()
             media_sessions.record_video(
                 self.session_id,
-                webrtc_id=self._webrtc_id(),
+                webrtc_id=webrtc_id,
                 width=int(width),
                 height=int(height),
             )
             if self._video_queue.full():
                 self._video_queue.get_nowait()
             self._video_queue.put_nowait(frame)
+            self._maybe_capture_frame_for_vision(frame, webrtc_id)
             self._log_progress()
+
+        def _maybe_capture_frame_for_vision(self, frame, webrtc_id: str | None) -> None:
+            now = time.monotonic()
+            if now - self._last_jpeg_encode_at < 0.33:
+                return
+            self._last_jpeg_encode_at = now
+            jpeg_bytes = encode_frame_to_jpeg(frame)
+            if jpeg_bytes is None:
+                return
+            media_sessions.store_video_frame_jpeg(
+                self.session_id,
+                webrtc_id=webrtc_id,
+                jpeg_bytes=jpeg_bytes,
+            )
 
         async def video_emit(self):
             frame = await wait_for_item(self._video_queue, 0.05)

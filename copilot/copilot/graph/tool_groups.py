@@ -42,6 +42,7 @@ class McpToolGroups:
 class LocalToolGroups:
     get_current_time: Any
     run_code: Any
+    look_at_camera: Any | None
 
 
 def partition_mcp_tools(mcp_tools: list[Any]) -> McpToolGroups:
@@ -71,7 +72,11 @@ def partition_mcp_tools(mcp_tools: list[Any]) -> McpToolGroups:
     )
 
 
-def group_local_tools(local_tools: list[Any]) -> LocalToolGroups:
+def group_local_tools(
+    local_tools: list[Any],
+    *,
+    vision_enabled: bool = False,
+) -> LocalToolGroups:
     """Return the local tools required by the graph by their explicit names."""
     tools_by_name = {tool.name: tool for tool in local_tools}
     missing = [
@@ -86,4 +91,5 @@ def group_local_tools(local_tools: list[Any]) -> LocalToolGroups:
     return LocalToolGroups(
         get_current_time=tools_by_name["get_current_time"],
         run_code=tools_by_name["run_code"],
+        look_at_camera=tools_by_name.get("look_at_camera") if vision_enabled else None,
     )

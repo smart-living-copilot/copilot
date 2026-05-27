@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     vad_speech_pad_ms: int = 200
     vad_max_utterance_ms: int = 20000
 
+    # Vision (look-at-camera)
+    vision_enabled: bool = False
+    vision_api_base_url: str = ""
+    vision_api_key: str = ""
+    vision_model: str = ""
+    vision_timeout_seconds: int = 30
+    vision_max_image_dimension: int = 1024
+    vision_jpeg_quality: int = 85
+
     # Text-to-speech
     tts_enabled: bool = False
     tts_speech_url: str = "http://kokoro-tts:8880/v1/audio/speech"

@@ -26,23 +26,30 @@ def build_graph(
     checkpointer=None,
     parallel_tool_calls: bool = True,
     max_checkpoint_tokens: int = 240_000,
+    vision_enabled: bool = False,
 ):
     """Build and compile the copilot StateGraph."""
     mcp_tool_groups = partition_mcp_tools(mcp_tools)
-    local_tool_groups = group_local_tools(local_tools)
+    local_tool_groups = group_local_tools(local_tools, vision_enabled=vision_enabled)
+
+    vision_tools: list[Any] = (
+        [local_tool_groups.look_at_camera] if local_tool_groups.look_at_camera else []
+    )
 
     graph = StateGraph(CopilotState)
 
     graph.add_node("router", make_router_node(llm, max_tokens))
 
-    respond_tools = [local_tool_groups.get_current_time]
+    respond_tools = [local_tool_groups.get_current_time, *vision_tools]
     graph.add_node(
         "respond",
         make_respond_node(llm, respond_tools, max_tokens, parallel_tool_calls=parallel_tool_calls),
     )
     graph.add_node("respond_tools", ToolNode(respond_tools))
 
-    control_tools = mcp_tool_groups.discovery_and_inspect + mcp_tool_groups.runtime
+    control_tools = (
+        mcp_tool_groups.discovery_and_inspect + mcp_tool_groups.runtime + vision_tools
+    )
     graph.add_node(
         "control_llm",
         make_control_node(llm, control_tools, max_tokens, parallel_tool_calls=parallel_tool_calls),
@@ -53,6 +60,7 @@ def build_graph(
         mcp_tool_groups.discovery_and_inspect
         + mcp_tool_groups.runtime_read
         + [local_tool_groups.run_code]
+        + vision_tools
     )
     graph.add_node(
         "analysis_llm",

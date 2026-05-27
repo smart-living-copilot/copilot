@@ -300,6 +300,7 @@ async def lifespan(app: FastAPI):
             checkpointer=checkpointer,
             parallel_tool_calls=settings.parallel_tool_calls,
             max_checkpoint_tokens=settings.max_checkpoint_tokens,
+            vision_enabled=settings.vision_enabled,
         )
         graph = graph.with_config(recursion_limit=settings.recursion_limit)
         _graph = graph

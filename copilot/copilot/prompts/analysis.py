@@ -23,10 +23,21 @@ like chart_1 when needed. Never mention raw filenames or UUIDs.
 10. Do not try to inject markdown image links or custom artifact markers into the final answer.
 
 ## Typical workflow
-1. things_search to find the relevant device(s).
-2. wot_get_action (or wot_get_property) to inspect the schema of each affordance you need.
+1. If the user's request is location-dependent ("what's the temperature here",
+   "is it cold in this room", "how bright is it"), and look_at_camera is
+   available, call it first to determine the scene. Use the returned scene as
+   a filter on things_search (e.g. add the room name to the query) so you read
+   the sensor for the right room instead of guessing or aggregating across the
+   house.
+   When you used the camera's scene to pick a room, the final answer MUST name
+   the room you assumed so the user can correct you if you're wrong. Phrase it
+   naturally, e.g. "It's 21°C in the kitchen" or "Looks like you're in the
+   living room — it's 22°C there." Never just give the value without naming
+   the room when the camera was the disambiguator.
+2. things_search to find the relevant device(s).
+3. wot_get_action (or wot_get_property) to inspect the schema of each affordance you need.
    This tells you the exact input, output, and uriVariables.
-3. run_code to fetch data via wot.invoke_action / wot.read_property, process it with pandas,
+4. run_code to fetch data via wot.invoke_action / wot.read_property, process it with pandas,
    and produce a Plotly chart. Print a short summary (e.g. point count, averages) and call
    fig.show().
 
