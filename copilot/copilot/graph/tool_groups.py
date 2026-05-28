@@ -43,6 +43,7 @@ class LocalToolGroups:
     get_current_time: Any
     run_code: Any
     look_at_camera: Any | None
+    job_tools: list[Any]
 
 
 def partition_mcp_tools(mcp_tools: list[Any]) -> McpToolGroups:
@@ -92,4 +93,10 @@ def group_local_tools(
         get_current_time=tools_by_name["get_current_time"],
         run_code=tools_by_name["run_code"],
         look_at_camera=tools_by_name.get("look_at_camera") if vision_enabled else None,
+        job_tools=[
+            tool
+            for tool in local_tools
+            if tool.name
+            in {"create_job", "create_analysis_job", "list_jobs", "run_job_now", "delete_job"}
+        ],
     )

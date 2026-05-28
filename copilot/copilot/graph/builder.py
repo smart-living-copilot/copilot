@@ -49,6 +49,7 @@ def build_graph(
 
     control_tools = (
         mcp_tool_groups.discovery_and_inspect + mcp_tool_groups.runtime + vision_tools
+        + local_tool_groups.job_tools
     )
     graph.add_node(
         "control_llm",
@@ -61,6 +62,7 @@ def build_graph(
         + mcp_tool_groups.runtime_read
         + [local_tool_groups.run_code]
         + vision_tools
+        + local_tool_groups.job_tools
     )
     graph.add_node(
         "analysis_llm",
