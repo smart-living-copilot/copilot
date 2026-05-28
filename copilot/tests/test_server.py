@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, AIMessageChunk
@@ -57,6 +58,53 @@ class ServerRoutesTestCase(unittest.TestCase):
                 },
             },
         )
+
+    def test_lifespan_exposes_compiled_graph_to_voice_handlers(self) -> None:
+        class FakeGraph:
+            def __init__(self) -> None:
+                self.configs: list[dict] = []
+
+            def with_config(self, **config):
+                self.configs.append(config)
+                return self
+
+        class FakeSaverContext:
+            async def __aenter__(self):
+                return object()
+
+            async def __aexit__(self, *_args):
+                return False
+
+        fake_graph = FakeGraph()
+        fake_settings = Settings(agent_state_db_path=":memory:")
+
+        async def exercise() -> None:
+            with (
+                patch.object(server, "Settings", return_value=fake_settings),
+                patch.object(server, "init_thread_store"),
+                patch.object(server, "_make_llm", return_value=object()),
+                patch.object(server, "_make_mcp_client", return_value=object()),
+                patch.object(server, "_load_mcp_tools", AsyncMock(return_value=[])),
+                patch.object(
+                    server.AsyncSqliteSaver,
+                    "from_conn_string",
+                    return_value=FakeSaverContext(),
+                ),
+                patch.object(server, "CachingCheckpointSaver", return_value=object()),
+                patch.object(server, "build_graph", return_value=fake_graph),
+                patch.object(server, "LangGraphAGUIAgent", return_value=object()),
+                patch.object(server.speech_pipelines, "configure"),
+                patch.object(server.speech_pipelines, "stop_all", AsyncMock()),
+                patch.object(
+                    server,
+                    "_flush_pending_checkpoints_on_shutdown",
+                    AsyncMock(),
+                ),
+            ):
+                async with server.lifespan(server.app):
+                    self.assertIs(server._graph, fake_graph)
+
+        asyncio.run(exercise())
 
     def test_media_rtc_configuration_includes_ice_gather_timeout(self) -> None:
         server._settings = Settings(

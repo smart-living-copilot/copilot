@@ -41,6 +41,30 @@ class MediaSessionRegistryTestCase(unittest.TestCase):
         self.assertEqual(sessions[0]["video_width"], 640)
         self.assertEqual(sessions[0]["video_height"], 360)
 
+    def test_latest_video_frame_only_returned_while_camera_active(self) -> None:
+        registry = MediaSessionRegistry()
+        registry.set_metadata("webrtc-a", thread_id="thread-a")
+        registry.store_video_frame_jpeg(
+            "handler-a", webrtc_id="webrtc-a", jpeg_bytes=b"fresh-frame"
+        )
+
+        snapshot = registry.latest_video_frame_for_thread("thread-a")
+        self.assertIsNotNone(snapshot)
+        assert snapshot is not None
+        self.assertEqual(snapshot[0], b"fresh-frame")
+
+        # A stale frame (camera turned off a while ago) must be rejected.
+        self.assertIsNone(
+            registry.latest_video_frame_for_thread("thread-a", max_age_seconds=0.0)
+        )
+
+        # A closed session must be rejected even with a recent frame.
+        registry.store_video_frame_jpeg(
+            "handler-a", webrtc_id="webrtc-a", jpeg_bytes=b"fresh-frame"
+        )
+        registry.close("handler-a", webrtc_id="webrtc-a")
+        self.assertIsNone(registry.latest_video_frame_for_thread("thread-a"))
+
     def test_transcripts_are_attached_to_media_session(self) -> None:
         registry = MediaSessionRegistry()
 

@@ -214,12 +214,30 @@ class MediaSessionRegistry:
     def latest_video_frame_for_thread(
         self,
         thread_id: str,
+        *,
+        max_age_seconds: float = 5.0,
     ) -> tuple[bytes, str | None] | None:
+        """Return the latest live camera frame for a thread.
+
+        Only returns a frame when the camera is *currently* active: the
+        session must be open and the frame must be fresher than
+        ``max_age_seconds``. Frames arrive at a few Hz while the camera is on,
+        so a stale frame means the camera has since been turned off.
+        """
+        cutoff = datetime.now(UTC).timestamp() - max_age_seconds
         with self._lock:
             for stats in self._sessions.values():
                 if stats.thread_id != thread_id:
                     continue
-                if stats.last_video_frame_jpeg is None:
+                if stats.status != "active":
+                    continue
+                if stats.last_video_frame_jpeg is None or stats.last_video_frame_at is None:
+                    continue
+                try:
+                    captured_ts = datetime.fromisoformat(stats.last_video_frame_at).timestamp()
+                except ValueError:
+                    continue
+                if captured_ts < cutoff:
                     continue
                 return stats.last_video_frame_jpeg, stats.last_video_frame_at
             return None

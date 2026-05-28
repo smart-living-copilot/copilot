@@ -285,7 +285,7 @@ async def _stream_voice_transcript_to_chat(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mcp_client, _agent, _checkpointer, _settings
+    global _mcp_client, _agent, _graph, _checkpointer, _settings
 
     settings = Settings()
     _settings = settings

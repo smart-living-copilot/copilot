@@ -124,8 +124,9 @@ async def look_at_camera(
     if snapshot is None:
         return {
             "error": (
-                "No live camera frame available for this thread. Ask the user "
-                "to enable the camera and try again."
+                "The camera is not active right now. This tool only works while "
+                "the user has a live camera feed on. Ask them to turn the camera "
+                "on, then try again — and do not guess what they're looking at."
             )
         }
     jpeg_bytes, captured_at = snapshot
