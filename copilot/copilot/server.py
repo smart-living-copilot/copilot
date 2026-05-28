@@ -10,8 +10,11 @@ import aiosqlite
 from ag_ui_langgraph import add_langgraph_fastapi_endpoint
 from copilotkit import LangGraphAGUIAgent
 from fastapi import FastAPI, HTTPException, Request
+from langchain_core.messages import AIMessage, HumanMessage
+from fastapi.encoders import jsonable_encoder
 from fastapi.encoders import jsonable_encoder
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from pydantic import BaseModel, Field
 
 from copilot.agent import _load_mcp_tools, _make_llm, _make_mcp_client
 from copilot.agui_messages import strip_none_fields
@@ -38,6 +41,13 @@ _mcp_client = None
 _agent: LangGraphAGUIAgent | None = None
 _checkpointer: CachingCheckpointSaver | None = None
 _settings: Settings | None = None
+_graph: Any | None = None
+
+
+class JobDispatchRequest(BaseModel):
+    thread_id: str
+    prompt: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def _is_embed_ephemeral_thread(thread_id: str | None) -> bool:
@@ -149,7 +159,7 @@ class _AGUIAgentProxy:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mcp_client, _agent, _checkpointer, _settings
+    global _mcp_client, _agent, _checkpointer, _settings, _graph
 
     settings = Settings()
     _settings = settings
@@ -188,6 +198,7 @@ async def lifespan(app: FastAPI):
             description="Smart Living Copilot",
             graph=graph,
         )
+        _graph = graph
 
         yield
         await _flush_pending_checkpoints_on_shutdown()
@@ -235,6 +246,33 @@ def _request_thread_id(input_data: Any) -> str | None:
                 return value
 
     return None
+
+
+@app.post("/internal/jobs/dispatch")
+async def dispatch_job_prompt(payload: JobDispatchRequest, request: Request):
+    _verify_internal_api_key(request)
+
+    if _graph is None:
+        raise HTTPException(status_code=503, detail="Graph is not ready")
+
+    result = await _graph.ainvoke(
+        {"messages": [HumanMessage(content=payload.prompt)]},
+        config={"configurable": {"thread_id": payload.thread_id}},
+    )
+
+    assistant_text = ""
+    for message in reversed(result.get("messages", [])):
+        if isinstance(message, AIMessage):
+            content = message.content
+            assistant_text = content if isinstance(content, str) else str(content)
+            break
+
+    return {
+        "ok": True,
+        "thread_id": payload.thread_id,
+        "assistant": assistant_text,
+        "metadata": payload.metadata,
+    }
 
 
 async def _read_optional_json(request: Request) -> dict[str, Any]:
