@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from copilot.credentials.store import (
+from copilot.things.credentials.store import (
     delete_credential,
     get_runtime_secrets,
     list_credentials,

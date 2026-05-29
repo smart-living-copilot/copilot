@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from copilot.things.models import ThingConflictError, ThingDocument, ThingRecord
-from copilot.thing_events.outbox import enqueue_thing_event
+from copilot.things.events.outbox import enqueue_thing_event
 from copilot.things.events import build_change_event, build_remove_event
 from copilot.things.presentation import serialize_thing
 from copilot.things.store import (

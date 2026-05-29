@@ -11,7 +11,7 @@ from copilot.bootstrap import BackendBootstrapService
 from copilot.search import ThingSearchService, set_active_search_service
 from copilot.search.indexer.store import SearchVectorStore
 from copilot.stream_runtime import StreamConsumerState
-from copilot.thing_events import (
+from copilot.things.events import (
     ThingEventOutboxPublisherState,
     ThingEventOutboxPublisherWorker,
     ValkeyThingEventStreamPublisher,

@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from copilot.credentials.models import CredentialRow
+from copilot.things.credentials.models import CredentialRow
 
 _SENSITIVE_FIELDS = {"password", "token", "apiKey"}
 

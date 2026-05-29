@@ -10,6 +10,7 @@ from copilot.things.service import (
     ThingCatalogWriteService,
 )
 from copilot.things import serialize_thing, validate_document
+from copilot.things.credentials.router import router as credentials_router
 
 router = APIRouter(prefix="/api", tags=["things"])
 
@@ -155,3 +156,6 @@ def delete_owned_thing(
     decoded_thing_id = decode_thing_id(thing_id)
     ThingCatalogWriteService(session).delete(decoded_thing_id)
     return {"id": decoded_thing_id, "status": "deleted"}
+
+
+router.include_router(credentials_router)

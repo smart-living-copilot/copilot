@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from copilot.thing_events.models import ThingEventOutboxRow
-from copilot.thing_events.publisher import ThingEventPublisher
+from copilot.things.events.models import ThingEventOutboxRow
+from copilot.things.events.publisher import ThingEventPublisher
 
 if TYPE_CHECKING:
-    from copilot.thing_events.worker import ThingEventOutboxPublisherState
+    from copilot.things.events.worker import ThingEventOutboxPublisherState
 
 
 logger = logging.getLogger(__name__)

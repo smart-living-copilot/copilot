@@ -8,13 +8,12 @@ from copilot.database import get_session_factory, init_db
 from copilot.health import router as health_router
 from copilot.lifecycle import shutdown_backend_runtime, start_backend_runtime
 import copilot.api_keys.models  # noqa: F401 — register table before init_db()
-import copilot.credentials.models  # noqa: F401 — register table before init_db()
-import copilot.thing_events.models  # noqa: F401 — register table before init_db()
+import copilot.things.credentials.models  # noqa: F401 — register table before init_db()
+import copilot.things.events.models  # noqa: F401 — register table before init_db()
 import copilot.things.models  # noqa: F401 — register table before init_db()
 
 from copilot.api_keys.router import router as api_keys_router
 from copilot.auth.router import router as me_router
-from copilot.credentials.router import router as credentials_router
 from copilot.runtime.router import router as wot_operations_router
 from copilot.search.router import router as search_router
 from copilot.things.router import router as things_router
@@ -47,7 +46,6 @@ app = FastAPI(
 app.include_router(health_router)
 app.include_router(me_router)
 app.include_router(search_router)
-app.include_router(credentials_router)
 app.include_router(things_router)
 app.include_router(api_keys_router)
 app.include_router(wot_operations_router)

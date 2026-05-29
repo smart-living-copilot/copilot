@@ -1,4 +1,4 @@
-from copilot.credentials.store import (
+from copilot.things.credentials.store import (
     delete_credential,
     get_credential,
     get_runtime_secrets,

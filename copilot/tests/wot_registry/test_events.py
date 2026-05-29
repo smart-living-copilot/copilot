@@ -1,4 +1,4 @@
-from copilot.thing_events import ValkeyThingEventStreamPublisher
+from copilot.things.events import ValkeyThingEventStreamPublisher
 
 
 class FakeRedisClient:
@@ -23,7 +23,7 @@ def test_stream_publisher_writes_structured_event(monkeypatch) -> None:
             return fake_client
 
     monkeypatch.setattr(
-        "copilot.thing_events.publisher.redis.Redis", FakeRedisFactory
+        "copilot.things.events.publisher.redis.Redis", FakeRedisFactory
     )
 
     publisher = ValkeyThingEventStreamPublisher("redis://valkey:6379", "thing_events")

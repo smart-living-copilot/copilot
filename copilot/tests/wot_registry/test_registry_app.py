@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from copilot.registry_app import app
-from copilot.thing_events import publish_pending_thing_events
+from copilot.things.events import publish_pending_thing_events
 
 
 class RecordingPublisher:

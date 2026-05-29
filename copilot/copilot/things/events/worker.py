@@ -5,11 +5,11 @@ from typing import Callable
 
 from sqlalchemy.orm import sessionmaker
 
-from copilot.thing_events.outbox import (
+from copilot.things.events.outbox import (
     OUTBOX_BATCH_SIZE,
     publish_pending_thing_events,
 )
-from copilot.thing_events.publisher import ThingEventPublisher
+from copilot.things.events.publisher import ThingEventPublisher
 
 
 logger = logging.getLogger(__name__)

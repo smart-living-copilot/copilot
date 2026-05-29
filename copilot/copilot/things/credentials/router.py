@@ -6,10 +6,10 @@ from pydantic import BaseModel
 from copilot.auth import User, require_scopes, require_service
 from copilot.api_dependencies import SessionDep
 from copilot.things.ids import decode_thing_id
-from copilot.credentials.service import CredentialService
+from copilot.things.credentials.service import CredentialService
 
 
-router = APIRouter(prefix="/api", tags=["credentials"])
+router = APIRouter(tags=["thing credentials"])
 
 
 class SetCredentialBody(BaseModel):
