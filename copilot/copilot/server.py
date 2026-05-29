@@ -42,6 +42,7 @@ from copilot.thread_store import (
 )
 from copilot.thread_titles import suggest_thread_title
 from copilot.tools import AVAILABLE_TOOLS
+from copilot.jobs import JobService, router as jobs_router
 
 logger = logging.getLogger(__name__)
 EMBED_EPHEMERAL_THREAD_PREFIX = "embed-ephemeral-"
@@ -57,6 +58,7 @@ _agent: LangGraphAGUIAgent | None = None
 _graph: Any | None = None
 _checkpointer: CachingCheckpointSaver | None = None
 _settings: Settings | None = None
+_job_service: JobService | None = None
 _thread_run_locks: dict[str, asyncio.Lock] = {}
 _thread_run_locks_guard = asyncio.Lock()
 _graph: Any | None = None
@@ -283,9 +285,42 @@ async def _stream_voice_transcript_to_chat(
             await _finalize_thread_run(thread_id)
 
 
+async def dispatch_prompt_to_graph(
+    thread_id: str,
+    prompt: str,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run a prompt through the graph for one thread and return the assistant text.
+
+    Shared by the ``/internal/jobs/dispatch`` endpoint and the in-process job
+    runner, so both reach the agent the same way.
+    """
+    if _graph is None:
+        raise RuntimeError("Graph is not ready")
+
+    result = await _graph.ainvoke(
+        {"messages": [HumanMessage(content=prompt)]},
+        config={"configurable": {"thread_id": thread_id}},
+    )
+
+    assistant_text = ""
+    for message in reversed(result.get("messages", [])):
+        if isinstance(message, AIMessage):
+            content = message.content
+            assistant_text = content if isinstance(content, str) else str(content)
+            break
+
+    return {
+        "ok": True,
+        "thread_id": thread_id,
+        "assistant": assistant_text,
+        "metadata": metadata or {},
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mcp_client, _agent, _graph, _checkpointer, _settings
+    global _mcp_client, _agent, _graph, _checkpointer, _settings, _job_service
 
     settings = Settings()
     _settings = settings
@@ -334,13 +369,25 @@ async def lifespan(app: FastAPI):
         )
         _graph = graph
 
+        app.state.settings = settings
+        if settings.jobs_enabled:
+            _job_service = JobService(settings, dispatch_prompt=dispatch_prompt_to_graph)
+            await _job_service.start()
+            app.state.service = _job_service
+            logger.info("Job runner started (in-process)")
+        else:
+            logger.info("Job runner disabled (JOBS_ENABLED=false)")
+
         yield
+        if _job_service is not None:
+            await _job_service.stop()
         await speech_pipelines.stop_all()
         await _flush_pending_checkpoints_on_shutdown()
 
 
 app = FastAPI(title="Smart Living Copilot", lifespan=lifespan)
 add_langgraph_fastapi_endpoint(app=app, agent=_AGUIAgentProxy(), path="/ag-ui")
+app.include_router(jobs_router)
 _media_stream = create_media_stream()
 
 
@@ -397,28 +444,14 @@ def _request_thread_id(input_data: Any) -> str | None:
 @app.post("/internal/jobs/dispatch")
 async def dispatch_job_prompt(payload: JobDispatchRequest, request: Request):
     _verify_internal_api_key(request)
-
-    if _graph is None:
-        raise HTTPException(status_code=503, detail="Graph is not ready")
-
-    result = await _graph.ainvoke(
-        {"messages": [HumanMessage(content=payload.prompt)]},
-        config={"configurable": {"thread_id": payload.thread_id}},
-    )
-
-    assistant_text = ""
-    for message in reversed(result.get("messages", [])):
-        if isinstance(message, AIMessage):
-            content = message.content
-            assistant_text = content if isinstance(content, str) else str(content)
-            break
-
-    return {
-        "ok": True,
-        "thread_id": payload.thread_id,
-        "assistant": assistant_text,
-        "metadata": payload.metadata,
-    }
+    try:
+        return await dispatch_prompt_to_graph(
+            payload.thread_id,
+            payload.prompt,
+            payload.metadata,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 async def _read_optional_json(request: Request) -> dict[str, Any]:

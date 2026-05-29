@@ -76,7 +76,7 @@ class ServerRoutesTestCase(unittest.TestCase):
                 return False
 
         fake_graph = FakeGraph()
-        fake_settings = Settings(agent_state_db_path=":memory:")
+        fake_settings = Settings(agent_state_db_path=":memory:", jobs_enabled=False)
 
         async def exercise() -> None:
             with (

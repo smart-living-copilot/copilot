@@ -8,9 +8,9 @@
 - `copilot` owns agent orchestration, prompts, tool use, LangGraph checkpoint state, and thread metadata.
 - `code-executor` runs stateful Python for the `run_code` tool.
 - `wot-registry` provides discovery, schema inspection, and runtime WoT actions through MCP and HTTP APIs.
-- `job-runner` schedules time/event automations and dispatches prompts into existing copilot threads.
+- the in-process job runner (`copilot/jobs`) schedules time/event automations and dispatches prompts into existing copilot threads.
 
-At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `copilot`, and `copilot` talks to MCP tools, `code-executor`, and `job-runner`.
+At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `copilot`, and `copilot` talks to MCP tools and `code-executor`. Automation jobs run inside `copilot` itself.
 
 ## Request Lifecycle
 
@@ -72,7 +72,9 @@ Deletes LangGraph checkpoint rows and thread metadata for one thread.
 
 ### `POST /internal/jobs/dispatch`
 
-Internal endpoint used by `job-runner` to execute a prompt in an existing thread.
+Internal endpoint to execute a prompt in an existing thread. Shares its
+implementation (`dispatch_prompt_to_graph`) with the in-process job runner;
+retained for external callers.
 
 - Auth: `Authorization: Bearer <INTERNAL_API_KEY>` when configured
 - Input: `{ "thread_id": "...", "prompt": "...", "metadata": {...} }`
@@ -205,7 +207,10 @@ Defined in [`copilot/models/settings.py`](./copilot/models/settings.py):
 - `WOT_REGISTRY_URL`, `WOT_REGISTRY_TOKEN`
 - `WOT_REGISTRY_TIMEOUT_SECONDS`, `WOT_REGISTRY_SSE_READ_TIMEOUT_SECONDS`
 - `CODE_EXECUTOR_URL`, `CODE_EXECUTOR_TIMEOUT_SECONDS`
-- `JOB_RUNNER_URL`, `JOB_RUNNER_TIMEOUT_SECONDS`
+- `JOB_RUNNER_URL`, `JOB_RUNNER_TIMEOUT_SECONDS` (the job tools call copilot's own `/jobs` API)
+- `JOBS_ENABLED`, `JOBS_DB_PATH`, `SCHEDULER_POLL_SECONDS`
+- `REDIS_URL`, `WOT_RUNTIME_URL`, `WOT_RUNTIME_API_TOKEN`, `WOT_RUNTIME_STREAM`
+- `JOBS_EVENTS_GROUP`, `JOBS_EVENTS_CONSUMER`, `JOBS_STREAM_BATCH_SIZE`, `JOBS_STREAM_POLL_BLOCK_MS`, `JOBS_STREAM_CLAIM_IDLE_MS`
 - `INTERNAL_API_KEY`
 - `AGENT_STATE_DB_PATH`
 - `MAX_CONTEXT_TOKENS`
@@ -252,7 +257,8 @@ Also defined today but not currently wired into the graph execution path:
 - [`copilot/prompts`](./copilot/prompts): system prompts by branch
 - [`copilot/few_shots`](./copilot/few_shots): branch-specific examples
 - [`copilot/tools/run_code.py`](./copilot/tools/run_code.py): bridge to `code-executor`
-- [`copilot/tools/job_scheduler.py`](./copilot/tools/job_scheduler.py): bridge to `job-runner`
+- [`copilot/tools/job_scheduler.py`](./copilot/tools/job_scheduler.py): agent tools for the job API
+- [`copilot/jobs`](./copilot/jobs): in-process automation engine (scheduler, event consumer, job CRUD routes)
 
 ## Contributor Notes
 

@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import aiosqlite
 
-from job_runner.models import CreateJobRequest, Job
+from copilot.jobs.models import CreateJobRequest, Job
 
 
 def utc_now() -> datetime:

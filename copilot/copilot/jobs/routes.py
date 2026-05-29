@@ -1,34 +1,32 @@
 from __future__ import annotations
 
-import logging
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from html import escape
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
-from job_runner.models import CreateJobRequest
-from job_runner.service import JobService
-from job_runner.settings import Settings
+from copilot.jobs.models import CreateJobRequest
+from copilot.jobs.service import JobService
+
+router = APIRouter()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    settings = Settings()
-    logging.basicConfig(level=settings.log_level)
-
-    service = JobService(settings)
-    app.state.settings = settings
-    app.state.service = service
-    await service.start()
-    try:
-        yield
-    finally:
-        await service.stop()
+def _service(request: Request) -> JobService:
+    service = getattr(request.app.state, "service", None)
+    if service is None:
+        raise HTTPException(status_code=503, detail="Job runner is not enabled")
+    return service
 
 
-app = FastAPI(title="Job Runner", lifespan=lifespan)
+def _verify_internal_api_key(request: Request) -> None:
+    settings = getattr(request.app.state, "settings", None)
+    if settings is None or not settings.internal_api_key:
+        return
+
+    expected = f"Bearer {settings.internal_api_key}"
+    if request.headers.get("authorization", "") != expected:
+        raise HTTPException(status_code=401, detail="Invalid internal API key")
 
 
 def _job_status(job, now: datetime) -> str:
@@ -185,33 +183,18 @@ def _render_ui_html(*, jobs: list, now: datetime) -> str:
 """
 
 
-def _verify_internal_api_key(request: Request) -> None:
-    settings: Settings = app.state.settings
-    if not settings.internal_api_key:
-        return
-
-    expected = f"Bearer {settings.internal_api_key}"
-    if request.headers.get("authorization", "") != expected:
-        raise HTTPException(status_code=401, detail="Invalid internal API key")
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-@app.get("/ui", response_class=HTMLResponse)
-async def ui() -> HTMLResponse:
-    service: JobService = app.state.service
+@router.get("/jobs/ui", response_class=HTMLResponse)
+async def jobs_ui(request: Request) -> HTMLResponse:
+    service = _service(request)
     jobs = await service.list_jobs()
     now = datetime.now(timezone.utc)
     return HTMLResponse(content=_render_ui_html(jobs=jobs, now=now))
 
 
-@app.post("/jobs")
+@router.post("/jobs")
 async def create_job(payload: CreateJobRequest, request: Request):
     _verify_internal_api_key(request)
-    service: JobService = app.state.service
+    service = _service(request)
     try:
         job = await service.create_job(payload)
     except ValueError as exc:
@@ -221,18 +204,18 @@ async def create_job(payload: CreateJobRequest, request: Request):
     return job.model_dump()
 
 
-@app.get("/jobs")
+@router.get("/jobs")
 async def list_jobs(request: Request, thread_id: str | None = Query(default=None)):
     _verify_internal_api_key(request)
-    service: JobService = app.state.service
+    service = _service(request)
     jobs = await service.list_jobs(thread_id=thread_id)
     return {"jobs": [job.model_dump() for job in jobs]}
 
 
-@app.delete("/jobs/{job_id}")
+@router.delete("/jobs/{job_id}")
 async def delete_job(job_id: str, request: Request):
     _verify_internal_api_key(request)
-    service: JobService = app.state.service
+    service = _service(request)
     try:
         job = await service.delete_job(job_id)
     except KeyError:
@@ -240,10 +223,10 @@ async def delete_job(job_id: str, request: Request):
     return {"ok": True, "job": job.model_dump()}
 
 
-@app.post("/jobs/{job_id}/run")
+@router.post("/jobs/{job_id}/run")
 async def run_job(job_id: str, request: Request):
     _verify_internal_api_key(request)
-    service: JobService = app.state.service
+    service = _service(request)
     try:
         result = await service.run_job_now(job_id)
     except KeyError:

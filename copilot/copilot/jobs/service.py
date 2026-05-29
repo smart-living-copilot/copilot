@@ -3,27 +3,31 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
+from typing import Any
 
 import redis.asyncio as redis
 
-from job_runner.code_executor_client import CodeExecutorClient
-from job_runner.copilot_client import CopilotClient
-from job_runner.models import CreateJobRequest, Job
-from job_runner.runtime_client import WotRuntimeClient
-from job_runner.settings import Settings
-from job_runner.storage import JobRepository, utc_now
-from job_runner.stream import StreamConfig, ensure_stream_group, parse_runtime_stream_fields
+from copilot.jobs.code_executor_client import CodeExecutorClient
+from copilot.jobs.models import CreateJobRequest, Job
+from copilot.jobs.runtime_client import WotRuntimeClient
+from copilot.jobs.storage import JobRepository, utc_now
+from copilot.jobs.stream import StreamConfig, ensure_stream_group, parse_runtime_stream_fields
+from copilot.models import Settings
 
 logger = logging.getLogger(__name__)
 
+# (thread_id, prompt, metadata) -> dispatch result dict (expects an "assistant" key).
+DispatchPrompt = Callable[[str, str, dict[str, Any]], Awaitable[dict[str, Any]]]
+
 
 class JobService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, dispatch_prompt: DispatchPrompt) -> None:
         self._settings = settings
         self._repo = JobRepository(settings.jobs_db_path)
         self._runtime_client = WotRuntimeClient(settings)
-        self._copilot_client = CopilotClient(settings)
+        self._dispatch_prompt = dispatch_prompt
         self._code_executor_client = CodeExecutorClient(settings)
         self._stop_event = asyncio.Event()
         self._time_task: asyncio.Task[None] | None = None
@@ -161,7 +165,14 @@ class JobService:
         while not self._stop_event.is_set():
             redis_client = None
             try:
-                redis_client = redis.from_url(self._settings.redis_url, decode_responses=True)
+                redis_client = redis.from_url(
+                    self._settings.redis_url,
+                    decode_responses=True,
+                    # XREADGROUP blocks poll_block_ms server-side; the socket read must
+                    # outlast that window or the client raises a spurious TimeoutError.
+                    socket_timeout=cfg.poll_block_ms / 1000 + 5,
+                    socket_keepalive=True,
+                )
                 await ensure_stream_group(redis_client, stream=cfg.stream, group=cfg.group)
 
                 while not self._stop_event.is_set():
@@ -260,10 +271,10 @@ class JobService:
 
     async def _run_prompt_job(self, job: Job, *, trigger: dict) -> dict:
         try:
-            response = await self._copilot_client.dispatch_prompt(
-                thread_id=job.thread_id,
-                prompt=job.prompt or "",
-                metadata={"job_id": job.id, "trigger": trigger},
+            response = await self._dispatch_prompt(
+                job.thread_id,
+                job.prompt or "",
+                {"job_id": job.id, "trigger": trigger},
             )
             assistant = response.get("assistant") if isinstance(response, dict) else None
             if not assistant:

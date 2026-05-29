@@ -1,4 +1,4 @@
-"""LangChain tools for managing automation jobs in the standalone job-runner service."""
+"""LangChain tools for managing automation jobs via copilot's in-process job API."""
 
 from __future__ import annotations
 
