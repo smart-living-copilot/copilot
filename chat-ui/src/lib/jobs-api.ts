@@ -64,6 +64,10 @@ export async function createJob(payload: CreateJobPayload): Promise<JobRecord> {
   });
 }
 
+export async function fetchJob(jobId: string): Promise<JobRecord> {
+  return httpJson<JobRecord>(`/jobs/${encodeURIComponent(jobId)}`);
+}
+
 export async function deleteJob(jobId: string): Promise<void> {
   await httpClient(`/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
 }

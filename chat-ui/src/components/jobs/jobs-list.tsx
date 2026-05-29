@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { useJobDetail } from '@/components/jobs/job-detail-context';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,13 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
 import {
   Table,
   TableBody,
@@ -196,7 +190,7 @@ function toCreatePayload(form: CreateJobFormState): CreateJobPayload {
     name: form.name.trim(),
     thread_id: form.threadId.trim(),
     job_type: form.jobType,
-    trigger_type: form.jobType === 'analysis' ? 'time' : form.triggerType,
+    trigger_type: form.triggerType,
   };
 
   if (form.jobType === 'analysis') {
@@ -224,6 +218,8 @@ function toCreatePayload(form: CreateJobFormState): CreateJobPayload {
 }
 
 export function JobsList() {
+  const { openJobDetail } = useJobDetail();
+  const [isHydrated, setIsHydrated] = useState(false);
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
   const [threadFilter, setThreadFilter] = useState('');
@@ -232,7 +228,6 @@ export function JobsList() {
   const [isPending, setIsPending] = useState(true);
   const [runningJobId, setRunningJobId] = useState<string | null>(null);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
-  const [selectedJob, setSelectedJob] = useState<JobRecord | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [isCreatingJob, setIsCreatingJob] = useState(false);
   const [createForm, setCreateForm] = useState<CreateJobFormState>(
@@ -257,13 +252,34 @@ export function JobsList() {
   }, [loadJobs]);
 
   useEffect(() => {
-    setSelectedJob((current) => {
-      if (!current) {
-        return current;
+    setIsHydrated(true);
+  }, []);
+
+  const now = isHydrated ? new Date() : new Date(0);
+
+  const renderDateTime = useCallback(
+    (value: string | null) => (isHydrated ? formatDateTime(value) : (value ?? 'Not available')),
+    [isHydrated],
+  );
+
+  const renderScheduleLabel = useCallback(
+    (job: JobRecord) => {
+      if (!isHydrated) {
+        if (job.trigger_type === 'event') {
+          return job.event_name ? `On event: ${job.event_name}` : 'On subscribed event';
+        }
+        if (job.interval_seconds) {
+          return `Every ${job.interval_seconds}s`;
+        }
+        if (job.run_at) {
+          return `Once at ${job.run_at}`;
+        }
+        return 'Manual or pending schedule';
       }
-      return jobs.find((job) => job.id === current.id) ?? null;
-    });
-  }, [jobs]);
+      return getScheduleLabel(job);
+    },
+    [isHydrated],
+  );
 
   const visibleJobs = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase();
@@ -275,7 +291,6 @@ export function JobsList() {
   }, [deferredSearch, jobs]);
 
   const stats = useMemo(() => {
-    const now = new Date();
     return visibleJobs.reduce(
       (acc, job) => {
         const status = getJobStatus(job, now);
@@ -288,7 +303,7 @@ export function JobsList() {
       },
       { total: 0, queued: 0, scheduled: 0, waitingEvent: 0, disabled: 0 },
     );
-  }, [visibleJobs]);
+  }, [now, visibleJobs]);
 
   const handleRun = useCallback(
     async (jobId: string) => {
@@ -348,8 +363,6 @@ export function JobsList() {
     }
   }, [createForm, loadJobs]);
 
-  const purposeLabel = selectedJob ? getPurposePreview(selectedJob) : null;
-
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -371,7 +384,11 @@ export function JobsList() {
             <Plus className="h-4 w-4" />
             Create job
           </Button>
-          <Button variant="outline" onClick={() => void loadJobs()} disabled={isPending}>
+          <Button
+            variant="outline"
+            onClick={() => void loadJobs()}
+            disabled={isHydrated ? isPending : false}
+          >
             <RefreshCw className={isPending ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
             Refresh
           </Button>
@@ -475,7 +492,7 @@ export function JobsList() {
                 </TableHeader>
                 <TableBody>
                   {visibleJobs.map((job) => {
-                    const status = getJobStatus(job, new Date());
+                    const status = getJobStatus(job, now);
                     const purpose = getPurposePreview(job);
 
                     return (
@@ -523,8 +540,8 @@ export function JobsList() {
                             <div className="flex items-start gap-2">
                               <CalendarClock className="mt-0.5 h-4 w-4 text-primary" />
                               <div>
-                                <div>{getScheduleLabel(job)}</div>
-                                <div className="text-xs">Next: {formatDateTime(job.next_run_at)}</div>
+                                <div>{renderScheduleLabel(job)}</div>
+                                <div className="text-xs">Next: {renderDateTime(job.next_run_at)}</div>
                               </div>
                             </div>
                           </div>
@@ -545,7 +562,7 @@ export function JobsList() {
                               <Activity className="h-4 w-4 text-primary" />
                               <span>{job.run_count} runs</span>
                             </div>
-                            <div className="text-xs">Last run: {formatDateTime(job.last_run_at)}</div>
+                            <div className="text-xs">Last run: {renderDateTime(job.last_run_at)}</div>
                             <div className="line-clamp-2 text-xs">
                               Last fetch: {job.last_fetch_value || 'No fetched value yet'}
                             </div>
@@ -562,7 +579,7 @@ export function JobsList() {
                               size="sm"
                               variant="outline"
                               disabled={runningJobId === job.id || deletingJobId === job.id}
-                              onClick={() => setSelectedJob(job)}
+                              onClick={() => openJobDetail(job)}
                             >
                               <Eye className="h-3.5 w-3.5" />
                               Details
@@ -665,7 +682,6 @@ export function JobsList() {
                   setCreateForm((current) => ({
                     ...current,
                     jobType: value,
-                    triggerType: value === 'analysis' ? 'time' : current.triggerType,
                   }))
                 }
               >
@@ -682,11 +698,10 @@ export function JobsList() {
             <div className="space-y-2 sm:col-span-1">
               <label className="text-sm font-medium">Trigger type</label>
               <Select
-                value={createForm.jobType === 'analysis' ? 'time' : createForm.triggerType}
+                value={createForm.triggerType}
                 onValueChange={(value: 'time' | 'event') =>
                   setCreateForm((current) => ({ ...current, triggerType: value }))
                 }
-                disabled={createForm.jobType === 'analysis'}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -727,7 +742,7 @@ export function JobsList() {
               </div>
             )}
 
-            {(createForm.jobType === 'analysis' || createForm.triggerType === 'time') ? (
+            {createForm.triggerType === 'time' ? (
               <>
                 <div className="space-y-2 sm:col-span-1">
                   <label className="text-sm font-medium">Interval seconds</label>
@@ -815,105 +830,6 @@ export function JobsList() {
         </DialogContent>
       </Dialog>
 
-      <Sheet open={selectedJob !== null} onOpenChange={(open) => (!open ? setSelectedJob(null) : null)}>
-        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
-          {selectedJob ? (
-            <>
-              <SheetHeader className="border-b">
-                <SheetTitle>{selectedJob.name}</SheetTitle>
-                <SheetDescription>
-                  Full execution detail for {selectedJob.id}
-                </SheetDescription>
-              </SheetHeader>
-
-              <div className="grid gap-6 p-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardDescription>Identity</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                      <div><span className="font-medium">Thread:</span> {selectedJob.thread_id}</div>
-                      <div><span className="font-medium">Job type:</span> {selectedJob.job_type}</div>
-                      <div><span className="font-medium">Trigger:</span> {selectedJob.trigger_type}</div>
-                      <div><span className="font-medium">Status:</span> {getJobStatus(selectedJob, new Date())}</div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardDescription>Timing</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                      <div><span className="font-medium">Schedule:</span> {getScheduleLabel(selectedJob)}</div>
-                      <div><span className="font-medium">Next run:</span> {formatDateTime(selectedJob.next_run_at)}</div>
-                      <div><span className="font-medium">Last run:</span> {formatDateTime(selectedJob.last_run_at)}</div>
-                      <div><span className="font-medium">Created:</span> {formatDateTime(selectedJob.created_at)}</div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Purpose</CardTitle>
-                    <CardDescription>{purposeLabel?.label}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-4 text-xs text-muted-foreground">
-                      {purposeLabel?.content}
-                    </pre>
-                  </CardContent>
-                </Card>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base">Target</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                      <div><span className="font-medium">Thing ID:</span> {selectedJob.thing_id || 'Not set'}</div>
-                      <div><span className="font-medium">Event name:</span> {selectedJob.event_name || 'Not set'}</div>
-                      <div><span className="font-medium">Subscription ID:</span> {selectedJob.subscription_id || 'Not set'}</div>
-                      <div><span className="font-medium">Run count:</span> {selectedJob.run_count}</div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base">Diagnostics</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                      <div><span className="font-medium">Last fetch value:</span> {selectedJob.last_fetch_value || 'Not captured'}</div>
-                      <div><span className="font-medium">Last error:</span> {selectedJob.last_error || 'No recent error'}</div>
-                      <div><span className="font-medium">Updated:</span> {formatDateTime(selectedJob.updated_at)}</div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Last Result</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-4 text-xs text-muted-foreground">
-                      {selectedJob.last_response || 'No result captured yet.'}
-                    </pre>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Subscription Input</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-4 text-xs text-muted-foreground">
-                      {formatJson(selectedJob.subscription_input)}
-                    </pre>
-                  </CardContent>
-                </Card>
-              </div>
-            </>
-          ) : null}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

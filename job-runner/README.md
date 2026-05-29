@@ -5,7 +5,7 @@
 It supports:
 - Time-triggered jobs (`run_at` and optional `interval_seconds`)
 - WoT event-triggered jobs (subscribed through `wot-runtime`)
-- Periodic analysis jobs (`job_type: "analysis"`) executed in `code-executor`
+- Analysis jobs (`job_type: "analysis"`) executed in `code-executor`
 
 When a trigger fires, `job-runner` sends the job prompt into the copilot thread through:
 - `POST /internal/jobs/dispatch` on `copilot`
@@ -112,7 +112,7 @@ Example payload:
 }
 ```
 
-Periodic analysis job example:
+Time-based analysis job example:
 
 ```json
 {
@@ -122,6 +122,20 @@ Periodic analysis job example:
   "trigger_type": "time",
   "interval_seconds": 300,
   "analysis_code": "data = wot.read_property('thermostat', 'temperature'); print(data)"
+}
+```
+
+Event-based analysis job example:
+
+```json
+{
+  "name": "Analyze motion event payload",
+  "thread_id": "analysis-thread",
+  "job_type": "analysis",
+  "trigger_type": "event",
+  "thing_id": "front-door-sensor",
+  "event_name": "motion",
+  "analysis_code": "print('Analyze latest context for motion event')"
 }
 ```
 
