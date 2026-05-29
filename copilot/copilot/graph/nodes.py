@@ -2,13 +2,14 @@
 
 import json
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from copilotkit import CopilotKitState
 from langchain_core.messages import (
     AIMessage,
-    AnyMessage,
+    BaseMessage,
     HumanMessage,
     RemoveMessage,
     SystemMessage,
@@ -30,14 +31,14 @@ logger = logging.getLogger(__name__)
 
 
 class CopilotState(CopilotKitState):
-    intent: str = ""
+    intent: str
 
 
 class IntentClassification(BaseModel):
     intent: Literal["chat", "control", "analysis"] = Field(description="The classified intent")
 
 
-def _strip_wot_calls(message: AnyMessage) -> AnyMessage:
+def _strip_wot_calls(message: BaseMessage) -> BaseMessage:
     """Remove ``wot_calls`` from ToolMessage content before sending to the LLM.
 
     ``wot_calls`` are only needed by the UI to render device-interaction
@@ -60,7 +61,7 @@ def _strip_wot_calls(message: AnyMessage) -> AnyMessage:
     return message.model_copy(update={"content": json.dumps(stripped)})
 
 
-def _trim_conversation(messages: list[AnyMessage], max_tokens: int) -> list[AnyMessage]:
+def _trim_conversation(messages: Sequence[BaseMessage], max_tokens: int) -> list[BaseMessage]:
     trimmed = trim_messages(
         messages,
         max_tokens=max_tokens,
@@ -75,9 +76,9 @@ def _trim_conversation(messages: list[AnyMessage], max_tokens: int) -> list[AnyM
     return [_strip_wot_calls(m) for m in sanitized]
 
 
-def _sanitize_message_sequence(messages: list[AnyMessage]) -> list[AnyMessage]:
+def _sanitize_message_sequence(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
     """Ensure every AI tool_call has a matching ToolMessage and vice-versa."""
-    sanitized: list[AnyMessage] = []
+    sanitized: list[BaseMessage] = []
     index = 0
 
     while index < len(messages):
@@ -87,8 +88,11 @@ def _sanitize_message_sequence(messages: list[AnyMessage]) -> list[AnyMessage]:
         if isinstance(message, AIMessage) and message.tool_calls:
             tool_messages: list[ToolMessage] = []
             next_index = index + 1
-            while next_index < len(messages) and isinstance(messages[next_index], ToolMessage):
-                tool_messages.append(messages[next_index])
+            while next_index < len(messages):
+                next_message = messages[next_index]
+                if not isinstance(next_message, ToolMessage):
+                    break
+                tool_messages.append(next_message)
                 next_index += 1
 
             if not tool_messages:
@@ -105,17 +109,24 @@ def _sanitize_message_sequence(messages: list[AnyMessage]) -> list[AnyMessage]:
                 continue
 
             # Patch the AI message to only reference matched calls.
+            sanitized_message = message
             if len(matched_calls) != len(message.tool_calls):
-                message.tool_calls = matched_calls
-                if message.additional_kwargs.get("tool_calls"):
-                    message.additional_kwargs["tool_calls"] = [
-                        tc
-                        for tc in message.additional_kwargs["tool_calls"]
-                        if tc.get("id") in matched_ids
+                additional_kwargs = dict(message.additional_kwargs)
+                if additional_kwargs.get("tool_calls"):
+                    additional_kwargs["tool_calls"] = [
+                        tool_call
+                        for tool_call in additional_kwargs["tool_calls"]
+                        if tool_call.get("id") in matched_ids
                     ]
+                sanitized_message = message.model_copy(
+                    update={
+                        "tool_calls": matched_calls,
+                        "additional_kwargs": additional_kwargs,
+                    }
+                )
 
             matched_tool_messages = [tm for tm in tool_messages if tm.tool_call_id in matched_ids]
-            sanitized.append(message)
+            sanitized.append(sanitized_message)
             sanitized.extend(matched_tool_messages)
             index = next_index
             continue
@@ -131,7 +142,7 @@ def _sanitize_message_sequence(messages: list[AnyMessage]) -> list[AnyMessage]:
     return sanitized
 
 
-def _make_router_messages(messages: list[AnyMessage], max_tokens: int) -> list[AnyMessage]:
+def _make_router_messages(messages: Sequence[BaseMessage], max_tokens: int) -> list[BaseMessage]:
     trimmed = trim_messages(
         messages,
         max_tokens=max_tokens,
@@ -174,7 +185,7 @@ def _current_time_block() -> str:
 def _make_node_prompt(system_text: str, max_tokens: int):
     system_message = SystemMessage(content=system_text)
 
-    def prompt(state: CopilotState) -> list[AnyMessage]:
+    def prompt(state: CopilotState) -> list[BaseMessage]:
         trimmed = _trim_conversation(state["messages"], max_tokens)
         return [system_message, *trimmed]
 
@@ -188,7 +199,10 @@ def make_router_node(llm: ChatOpenAI, max_tokens: int):
 
     async def router(state: CopilotState):
         tail = _make_router_messages(state["messages"], max_tokens)
-        result = await structured_llm.ainvoke([system_message, *tail])
+        result = cast(
+            IntentClassification,
+            await structured_llm.ainvoke([system_message, *tail]),
+        )
         logger.info("Router classified intent as: %s", result.intent)
         return {"intent": result.intent}
 
@@ -277,7 +291,7 @@ def make_prune_node(max_checkpoint_tokens: int):
     """
 
     async def prune(state: CopilotState):
-        messages: list[AnyMessage] = state["messages"]
+        messages = state["messages"]
         kept = trim_messages(
             messages,
             max_tokens=max_checkpoint_tokens,
@@ -287,8 +301,12 @@ def make_prune_node(max_checkpoint_tokens: int):
             allow_partial=False,
         )
         kept = _sanitize_message_sequence(kept)
-        kept_ids = {m.id for m in kept}
-        removals = [RemoveMessage(id=m.id) for m in messages if m.id not in kept_ids]
+        kept_ids = {m.id for m in kept if m.id is not None}
+        removals = [
+            RemoveMessage(id=message.id)
+            for message in messages
+            if message.id is not None and message.id not in kept_ids
+        ]
         if removals:
             logger.info(
                 "Pruning %d messages from checkpoint (%d kept)",

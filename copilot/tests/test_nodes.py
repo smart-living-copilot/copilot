@@ -93,6 +93,40 @@ class NodeMessageSanitizationTestCase(unittest.TestCase):
         self.assertEqual(sanitized[1].tool_calls[0]["id"], "call_a")
         self.assertEqual(len(sanitized[1].additional_kwargs["tool_calls"]), 1)
 
+    def test_sanitize_does_not_mutate_ai_messages_when_patching(self) -> None:
+        ai = AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "wot_get_action", "args": {}, "id": "call_a"},
+                {"name": "wot_get_action", "args": {}, "id": "call_b"},
+            ],
+            additional_kwargs={
+                "tool_calls": [
+                    {
+                        "id": "call_a",
+                        "type": "function",
+                        "function": {"name": "wot_get_action", "arguments": "{}"},
+                    },
+                    {
+                        "id": "call_b",
+                        "type": "function",
+                        "function": {"name": "wot_get_action", "arguments": "{}"},
+                    },
+                ]
+            },
+        )
+
+        _sanitize_message_sequence(
+            [
+                HumanMessage(content="Inspect both"),
+                ai,
+                ToolMessage(content='{"schema": "a"}', tool_call_id="call_a"),
+            ]
+        )
+
+        self.assertEqual([call["id"] for call in ai.tool_calls], ["call_a", "call_b"])
+        self.assertEqual(len(ai.additional_kwargs["tool_calls"]), 2)
+
     def test_sanitize_keeps_all_parallel_results(self) -> None:
         """AI made 2 tool calls and both ToolMessages exist — keep everything."""
         ai = AIMessage(

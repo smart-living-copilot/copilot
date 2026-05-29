@@ -206,7 +206,7 @@ async def create_analysis_job(
 
 
 @tool
-async def list_jobs(config: RunnableConfig, thread_id: str | None = None) -> dict[str, Any]:
+async def list_jobs(thread_id: str | None = None) -> dict[str, Any]:
     """List automation jobs, optionally filtered by thread_id.
 
     If thread_id is omitted, returns all jobs.

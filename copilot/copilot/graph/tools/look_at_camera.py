@@ -11,7 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from copilot.media import media_sessions
 from copilot.core.settings import Settings
@@ -65,7 +65,7 @@ def _make_vision_llm() -> ChatOpenAI:
     model = _settings.vision_model or _settings.openai_model
     return ChatOpenAI(
         model=model,
-        api_key=api_key,
+        api_key=SecretStr(api_key) if api_key else None,
         base_url=base_url or None,
         timeout=_settings.vision_timeout_seconds,
         max_retries=1,

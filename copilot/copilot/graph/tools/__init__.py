@@ -1,7 +1,7 @@
 from copilot.graph.tools.run_code import run_code
 from copilot.graph.tools.get_current_time import get_current_time
 from copilot.graph.tools.look_at_camera import look_at_camera
-from copilot.graph.tools.registry import REGISTRY_TOOLS
+from copilot.graph.tools.registry import REGISTRY_TOOLS as REGISTRY_TOOLS
 from copilot.graph.tools.job_scheduler import (
     create_analysis_job,
     create_job,
@@ -21,4 +21,15 @@ LOCAL_TOOLS = [
     delete_job,
 ]
 
-AVAILABLE_TOOLS = [*LOCAL_TOOLS, *REGISTRY_TOOLS]
+__all__ = [
+    "LOCAL_TOOLS",
+    "REGISTRY_TOOLS",
+    "create_analysis_job",
+    "create_job",
+    "delete_job",
+    "get_current_time",
+    "list_jobs",
+    "look_at_camera",
+    "run_code",
+    "run_job_now",
+]
