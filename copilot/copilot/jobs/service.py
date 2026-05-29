@@ -9,9 +9,9 @@ from typing import Any, AsyncIterator
 
 import redis.asyncio as redis
 
+from copilot.wot_runtime.client import WotRuntimeClient
 from copilot.jobs.code_executor_client import CodeExecutorClient
 from copilot.jobs.models import CreateJobRequest, Job
-from copilot.jobs.runtime_client import WotRuntimeClient
 from copilot.jobs.storage import JobRepository, utc_now
 from copilot.jobs.stream import StreamConfig, ensure_stream_group, parse_runtime_stream_fields
 from copilot.core.settings import Settings
@@ -20,6 +20,25 @@ logger = logging.getLogger(__name__)
 
 # (thread_id, prompt, metadata) -> dispatch result dict (expects an "assistant" key).
 DispatchPrompt = Callable[[str, str, dict[str, Any]], Awaitable[dict[str, Any]]]
+
+
+def _subscription_id_from_response(response: dict[str, Any] | str) -> str:
+    if isinstance(response, str):
+        return response
+
+    subscription = response.get("subscription", {})
+    if not isinstance(subscription, dict):
+        subscription = {}
+
+    subscription_id = (
+        subscription.get("subscriptionId")
+        or subscription.get("subscription_id")
+        or response.get("subscriptionId")
+        or response.get("subscription_id")
+    )
+    if not subscription_id:
+        raise ValueError("Runtime did not return a subscription id")
+    return str(subscription_id)
 
 
 class JobService:
@@ -62,11 +81,12 @@ class JobService:
             elif request.interval_seconds is not None:
                 next_run_at = utc_now() + timedelta(seconds=request.interval_seconds)
         else:
-            subscription_id = await self._runtime_client.subscribe_event(
+            subscription_response = await self._runtime_client.subscribe_event(
                 thing_id=request.thing_id or "",
                 event_name=request.event_name or "",
                 subscription_input=request.subscription_input,
             )
+            subscription_id = _subscription_id_from_response(subscription_response)
 
         return await self._repo.create_job(
             request,
@@ -93,7 +113,9 @@ class JobService:
         job = await self._repo.delete_job(job_id)
         if job.subscription_id:
             try:
-                await self._runtime_client.remove_subscription(job.subscription_id)
+                await self._runtime_client.remove_subscription(
+                    subscription_id=job.subscription_id,
+                )
             except Exception as exc:
                 logger.warning("Failed to remove runtime subscription for job %s: %s", job_id, exc)
         return job
@@ -134,14 +156,17 @@ class JobService:
         jobs = await self._repo.list_enabled_event_jobs()
         for job in jobs:
             try:
-                new_subscription_id = await self._runtime_client.subscribe_event(
+                subscription_response = await self._runtime_client.subscribe_event(
                     thing_id=job.thing_id or "",
                     event_name=job.event_name or "",
                     subscription_input=job.subscription_input,
                 )
+                new_subscription_id = _subscription_id_from_response(subscription_response)
                 if job.subscription_id and job.subscription_id != new_subscription_id:
                     try:
-                        await self._runtime_client.remove_subscription(job.subscription_id)
+                        await self._runtime_client.remove_subscription(
+                            subscription_id=job.subscription_id,
+                        )
                     except Exception:
                         pass
                 await self._repo.set_subscription_id(job.id, new_subscription_id)

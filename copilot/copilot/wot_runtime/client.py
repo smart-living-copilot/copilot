@@ -7,17 +7,44 @@ import aiohttp
 from copilot.core.config import Settings
 
 
+def _setting_value(settings: Any, *names: str, default: Any = None) -> Any:
+    for name in names:
+        if hasattr(settings, name):
+            return getattr(settings, name)
+    return default
+
+
 class WotRuntimeClient:
-    def __init__(self, settings: Settings) -> None:
-        self._base_url = settings.WOT_RUNTIME_URL.rstrip("/")
-        self._headers = {
-            "Authorization": f"Bearer {settings.WOT_RUNTIME_API_TOKEN or ''}",
-        }
+    def __init__(self, settings: Settings | Any) -> None:
+        self._base_url = str(
+            _setting_value(
+                settings,
+                "WOT_RUNTIME_URL",
+                "wot_runtime_url",
+                default="http://localhost:3003",
+            )
+        ).rstrip("/")
+        token = _setting_value(
+            settings,
+            "WOT_RUNTIME_API_TOKEN",
+            "wot_runtime_api_token",
+        )
+        self._headers = {"Authorization": f"Bearer {token}"} if token else {}
         self._default_timeout = aiohttp.ClientTimeout(
-            total=settings.WOT_RUNTIME_TIMEOUT_SECONDS
+            total=_setting_value(
+                settings,
+                "WOT_RUNTIME_TIMEOUT_SECONDS",
+                "wot_runtime_timeout_seconds",
+                default=15,
+            )
         )
         self._subscription_timeout = aiohttp.ClientTimeout(
-            total=settings.WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS
+            total=_setting_value(
+                settings,
+                "WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS",
+                "wot_runtime_subscription_timeout_seconds",
+                default=20,
+            )
         )
 
     async def get_runtime_health(self) -> dict[str, Any]:
