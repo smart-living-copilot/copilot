@@ -1,6 +1,6 @@
 import unittest
 
-from copilot.prompts import ANALYSIS_PROMPT, CONTROL_PROMPT
+from copilot.graph.prompts import ANALYSIS_PROMPT, CONTROL_PROMPT
 
 
 class AnalysisGuidanceTestCase(unittest.TestCase):

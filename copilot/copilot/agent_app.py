@@ -39,7 +39,7 @@ from copilot.thread_store import (
     update_thread_title,
 )
 from copilot.thread_titles import suggest_thread_title
-from copilot.tools import LOCAL_TOOLS, REGISTRY_TOOLS
+from copilot.graph.tools import LOCAL_TOOLS, REGISTRY_TOOLS
 from copilot.jobs import JobService, router as jobs_router
 
 logger = logging.getLogger(__name__)

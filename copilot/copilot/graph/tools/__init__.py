@@ -1,8 +1,8 @@
-from copilot.tools.run_code import run_code
-from copilot.tools.get_current_time import get_current_time
-from copilot.tools.look_at_camera import look_at_camera
-from copilot.tools.registry import REGISTRY_TOOLS
-from copilot.tools.job_scheduler import (
+from copilot.graph.tools.run_code import run_code
+from copilot.graph.tools.get_current_time import get_current_time
+from copilot.graph.tools.look_at_camera import look_at_camera
+from copilot.graph.tools.registry import REGISTRY_TOOLS
+from copilot.graph.tools.job_scheduler import (
     create_analysis_job,
     create_job,
     delete_job,

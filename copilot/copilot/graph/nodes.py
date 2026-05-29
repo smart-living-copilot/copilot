@@ -19,7 +19,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END
 from pydantic import BaseModel, Field
 
-from copilot.prompts import (
+from copilot.graph.prompts import (
     ANALYSIS_PROMPT,
     CONTROL_PROMPT,
     RESPOND_PROMPT,

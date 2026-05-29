@@ -1,4 +1,4 @@
-from copilot.tools.registry import REGISTRY_TOOLS, _registry_base_url, things_validate
+from copilot.graph.tools.registry import REGISTRY_TOOLS, _registry_base_url, things_validate
 from copilot.settings import Settings
 
 
