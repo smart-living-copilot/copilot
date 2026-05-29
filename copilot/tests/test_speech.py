@@ -5,7 +5,7 @@ import asyncio
 import httpx
 import numpy as np
 
-from copilot.speech import (
+from copilot.media import (
     OpenAICompatibleSpeechToTextClient,
     OpenAICompatibleTextToSpeechClient,
     Pcm16FrameChunker,

@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import dataclass
 
-from copilot.thread_titles import suggest_thread_title
+from copilot.threads.titles import suggest_thread_title
 
 
 @dataclass

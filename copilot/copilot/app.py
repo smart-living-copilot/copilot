@@ -1,46 +1,49 @@
 """FastAPI + AG-UI entrypoint for the Smart Living Copilot."""
 
 import asyncio
-import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-import aiosqlite
-from ag_ui_langgraph import add_langgraph_fastapi_endpoint
+from ag_ui_langgraph import add_langgraph_fastapi_endpoint  # type: ignore[import-untyped]
 from copilotkit import LangGraphAGUIAgent
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import BaseModel, Field
 
 from copilot.core.llm import _make_llm
-from copilot.core.agui_messages import strip_none_fields
+from copilot.core.config import get_settings as get_registry_settings
+from copilot.core.database import get_session_factory, init_db
+from copilot.core.health import router as registry_health_router
+from copilot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
 from copilot.graph import build_graph
 from copilot.graph.checkpointer import CachingCheckpointSaver
 from copilot.media import (
     create_media_stream,
-    media_sessions,
-    parse_rtc_configuration,
+    SemanticTextChunker,
     speech_pipelines,
 )
-from copilot.core.settings import Settings
-from copilot.speech import SemanticTextChunker
-from copilot.thread_store import (
-    create_thread,
-    delete_thread as delete_thread_metadata,
-    get_thread,
+from copilot.media.routes import create_media_router
+from copilot.core.settings import Settings as AgentSettings
+from copilot.threads import (
     init_thread_store,
-    list_threads,
+    suggest_thread_title,
     sync_thread_after_run,
-    update_thread_title,
 )
-from copilot.thread_titles import suggest_thread_title
+from copilot.threads.routes import create_threads_router
 from copilot.graph.tools import LOCAL_TOOLS, REGISTRY_TOOLS
+import copilot.api_keys.models  # noqa: F401 — register table before init_db()
+from copilot.api_keys.router import router as api_keys_router
+import copilot.things.credentials.models  # noqa: F401 — register table before init_db()
+import copilot.things.events.models  # noqa: F401 — register table before init_db()
+import copilot.things.models  # noqa: F401 — register table before init_db()
+from copilot.auth.router import router as me_router
 from copilot.jobs import JobService, router as jobs_router
+from copilot.wot_runtime.router import router as wot_operations_router
+from copilot.search.router import router as search_router
+from copilot.things.router import router as things_router
 
 logger = logging.getLogger(__name__)
 EMBED_EPHEMERAL_THREAD_PREFIX = "embed-ephemeral-"
@@ -54,7 +57,7 @@ NOISY_MEDIA_LOGGERS = (
 _agent: LangGraphAGUIAgent | None = None
 _graph: Any | None = None
 _checkpointer: CachingCheckpointSaver | None = None
-_settings: Settings | None = None
+_settings: AgentSettings | None = None
 _job_service: JobService | None = None
 _thread_run_locks: dict[str, asyncio.Lock] = {}
 _thread_run_locks_guard = asyncio.Lock()
@@ -157,7 +160,7 @@ async def _flush_pending_checkpoints_on_shutdown() -> None:
         return
 
     for thread_id in await _checkpointer.pending_thread_ids():
-        if _is_embed_ephemeral_thread(thread_id):
+        if thread_id is not None and _is_embed_ephemeral_thread(thread_id):
             await _checkpointer.adelete_thread(thread_id)
 
     cancelled = await _run_persistence_operation(
@@ -318,68 +321,87 @@ async def dispatch_prompt_to_graph(
 async def lifespan(app: FastAPI):
     global _agent, _graph, _checkpointer, _settings, _job_service
 
-    settings = Settings()
+    settings = AgentSettings()
     _settings = settings
     logging.basicConfig(level=settings.log_level)
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
     _quiet_noisy_media_loggers()
     await asyncio.to_thread(init_thread_store, settings.agent_state_db_path)
+    await asyncio.to_thread(init_db)
 
-    llm = _make_llm(settings)
+    registry_settings = get_registry_settings()
+    registry_session_factory = get_session_factory()
+    await start_backend_runtime(
+        app,
+        settings=registry_settings,
+        session_factory=registry_session_factory,
+    )
 
-    async with AsyncSqliteSaver.from_conn_string(settings.agent_state_db_path) as sqlite_saver:
-        _checkpointer = CachingCheckpointSaver(sqlite_saver)
-        checkpointer = _checkpointer
-        graph = build_graph(
-            llm=llm,
-            registry_tools=REGISTRY_TOOLS,
-            local_tools=LOCAL_TOOLS,
-            max_tokens=settings.max_context_tokens,
-            checkpointer=checkpointer,
-            parallel_tool_calls=settings.parallel_tool_calls,
-            max_checkpoint_tokens=settings.max_checkpoint_tokens,
-            vision_enabled=settings.vision_enabled,
-        )
-        graph = graph.with_config(recursion_limit=settings.recursion_limit)
-        _graph = graph
-        speech_pipelines.configure(
-            settings,
-            _submit_voice_transcript_to_chat,
-            _stream_voice_transcript_to_chat,
-        )
+    try:
+        llm = _make_llm(settings)
 
-        logger.info(
-            "Graph created with %d registry tools, model=%s, recursion_limit=%d",
-            len(REGISTRY_TOOLS),
-            settings.openai_model,
-            settings.recursion_limit,
-        )
+        async with AsyncSqliteSaver.from_conn_string(settings.agent_state_db_path) as sqlite_saver:
+            _checkpointer = CachingCheckpointSaver(sqlite_saver)
+            checkpointer = _checkpointer
+            graph = build_graph(
+                llm=llm,
+                registry_tools=REGISTRY_TOOLS,
+                local_tools=LOCAL_TOOLS,
+                max_tokens=settings.max_context_tokens,
+                checkpointer=checkpointer,
+                parallel_tool_calls=settings.parallel_tool_calls,
+                max_checkpoint_tokens=settings.max_checkpoint_tokens,
+                vision_enabled=settings.vision_enabled,
+            )
+            graph = graph.with_config(recursion_limit=settings.recursion_limit)
+            _graph = graph
+            speech_pipelines.configure(
+                settings,
+                _submit_voice_transcript_to_chat,
+                _stream_voice_transcript_to_chat,
+            )
 
-        _agent = LangGraphAGUIAgent(
-            name="copilot",
-            description="Smart Living Copilot",
-            graph=graph,
-        )
-        _graph = graph
+            logger.info(
+                "Graph created with %d registry tools, model=%s, recursion_limit=%d",
+                len(REGISTRY_TOOLS),
+                settings.openai_model,
+                settings.recursion_limit,
+            )
 
-        app.state.settings = settings
-        if settings.jobs_enabled:
-            _job_service = JobService(settings, dispatch_prompt=dispatch_prompt_to_graph)
-            await _job_service.start()
-            app.state.service = _job_service
-            logger.info("Job runner started (in-process)")
-        else:
-            logger.info("Job runner disabled (JOBS_ENABLED=false)")
+            _agent = LangGraphAGUIAgent(
+                name="copilot",
+                description="Smart Living Copilot",
+                graph=graph,
+            )
+            _graph = graph
 
-        yield
-        if _job_service is not None:
-            await _job_service.stop()
-        await speech_pipelines.stop_all()
-        await _flush_pending_checkpoints_on_shutdown()
+            app.state.settings = settings
+            app.state.agent_settings = settings
+            if settings.jobs_enabled:
+                _job_service = JobService(settings, dispatch_prompt=dispatch_prompt_to_graph)
+                await _job_service.start()
+                app.state.service = _job_service
+                logger.info("Job runner started (in-process)")
+            else:
+                logger.info("Job runner disabled (JOBS_ENABLED=false)")
+
+            yield
+            if _job_service is not None:
+                await _job_service.stop()
+            await speech_pipelines.stop_all()
+            await _flush_pending_checkpoints_on_shutdown()
+    finally:
+        await shutdown_backend_runtime(app)
 
 
 app = FastAPI(title="Smart Living Copilot", lifespan=lifespan)
 add_langgraph_fastapi_endpoint(app=app, agent=_AGUIAgentProxy(), path="/ag-ui")
+app.include_router(registry_health_router)
+app.include_router(me_router)
+app.include_router(search_router)
+app.include_router(things_router)
+app.include_router(api_keys_router)
+app.include_router(wot_operations_router)
 app.include_router(jobs_router)
 _media_stream = create_media_stream()
 
@@ -394,14 +416,12 @@ def _verify_internal_api_key(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Invalid internal API key")
 
 
-@app.middleware("http")
-async def _verify_media_http_requests(request: Request, call_next):
-    if request.url.path.startswith("/media/"):
-        try:
-            _verify_internal_api_key(request)
-        except HTTPException as exc:
-            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-    return await call_next(request)
+def _current_settings() -> AgentSettings | None:
+    return _settings
+
+
+def _current_checkpointer() -> CachingCheckpointSaver | None:
+    return _checkpointer
 
 
 def _request_thread_id(input_data: Any) -> str | None:
@@ -447,56 +467,6 @@ async def dispatch_job_prompt(payload: JobDispatchRequest, request: Request):
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-async def _read_optional_json(request: Request) -> dict[str, Any]:
-    raw_body = await request.body()
-    if not raw_body:
-        return {}
-
-    try:
-        parsed = json.loads(raw_body)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
-
-    if not isinstance(parsed, dict):
-        raise HTTPException(status_code=400, detail="JSON object body is required")
-
-    return parsed
-
-
-async def _count_thread_rows(db_path: str, thread_id: str) -> tuple[int, int]:
-    async with aiosqlite.connect(db_path) as db:
-        writes_cursor = await db.execute(
-            "SELECT COUNT(*) FROM writes WHERE thread_id = ?",
-            (thread_id,),
-        )
-        writes_row = await writes_cursor.fetchone()
-        checkpoints_cursor = await db.execute(
-            "SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?",
-            (thread_id,),
-        )
-        checkpoints_row = await checkpoints_cursor.fetchone()
-
-    return (
-        int(writes_row[0]) if writes_row else 0,
-        int(checkpoints_row[0]) if checkpoints_row else 0,
-    )
-
-
-async def _delete_thread_rows(db_path: str, thread_id: str) -> tuple[int, int]:
-    async with aiosqlite.connect(db_path) as db:
-        writes_cursor = await db.execute(
-            "DELETE FROM writes WHERE thread_id = ?",
-            (thread_id,),
-        )
-        checkpoints_cursor = await db.execute(
-            "DELETE FROM checkpoints WHERE thread_id = ?",
-            (thread_id,),
-        )
-        await db.commit()
-
-    return writes_cursor.rowcount, checkpoints_cursor.rowcount
-
-
 async def _sync_thread_metadata_after_run(thread_id: str | None) -> None:
     if not thread_id or _settings is None:
         return
@@ -529,235 +499,26 @@ async def _suggest_thread_title(thread_id: str) -> str | None:
     return suggest_thread_title(messages)
 
 
-async def _get_thread_messages_payload(thread_id: str) -> list[dict[str, Any]]:
-    if _checkpointer is None:
-        raise HTTPException(status_code=503, detail="Checkpointer not ready")
-
-    state = await _checkpointer.aget_tuple({"configurable": {"thread_id": thread_id}})
-    if state is None or state.checkpoint is None:
-        return []
-
-    from ag_ui_langgraph.utils import langchain_messages_to_agui
-
-    channel_values = state.checkpoint.get("channel_values", {})
-    messages = channel_values.get("messages", [])
-    if not isinstance(messages, list):
-        return []
-
-    agui_messages = jsonable_encoder(langchain_messages_to_agui(messages))
-    return strip_none_fields(agui_messages)
-
-
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
 
-@app.get("/media/rtc-configuration")
-async def get_media_rtc_configuration(request: Request):
-    _verify_internal_api_key(request)
-
-    try:
-        raw_configuration = _settings.media_rtc_configuration if _settings else ""
-        configuration = parse_rtc_configuration(raw_configuration)
-        configuration["iceGatherTimeoutMs"] = (
-            _settings.media_ice_gather_timeout_ms if _settings else 750
-        )
-        return configuration
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@app.get("/media/sessions")
-async def get_media_sessions(request: Request):
-    _verify_internal_api_key(request)
-    return {"sessions": media_sessions.snapshots()}
-
-
-@app.get("/media/sessions/{webrtc_id}")
-async def get_media_session(webrtc_id: str, request: Request):
-    _verify_internal_api_key(request)
-    stats = media_sessions.get(webrtc_id)
-    if stats is None:
-        raise HTTPException(status_code=404, detail="Media session not found")
-    return stats
-
-
-@app.get("/media/sessions/{webrtc_id}/stream")
-async def stream_media_session(webrtc_id: str, request: Request):
-    _verify_internal_api_key(request)
-
-    async def event_generator():
-        previous: tuple[str | None, str | None, bool] | None = None
-        idle_ticks = 0
-        missing_ticks = 0
-        while True:
-            if await request.is_disconnected():
-                return
-            current = media_sessions.latest_text_fields(webrtc_id)
-            if current is None:
-                # Tolerate a brief gap (e.g. client connects before the
-                # offer round-trip has registered the session) but give up
-                # once the session looks truly gone.
-                missing_ticks += 1
-                if missing_ticks >= 75:
-                    yield "event: end\ndata: {}\n\n"
-                    return
-                await asyncio.sleep(0.2)
-                continue
-            missing_ticks = 0
-            latest_transcript_text, latest_assistant_text, assistant_response_pending = current
-            if current != previous:
-                previous = current
-                payload = json.dumps(
-                    {
-                        "latest_transcript_text": latest_transcript_text,
-                        "latest_assistant_text": latest_assistant_text,
-                        "assistant_response_pending": assistant_response_pending,
-                    }
-                )
-                yield f"event: snapshot\ndata: {payload}\n\n"
-                idle_ticks = 0
-            else:
-                idle_ticks += 1
-                # Keep proxies and load balancers from closing the connection on idle
-                if idle_ticks >= 75:
-                    yield ": keepalive\n\n"
-                    idle_ticks = 0
-            await asyncio.sleep(0.2)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",
-        },
+app.include_router(
+    create_media_router(
+        get_settings=_current_settings,
+        verify_internal_api_key=_verify_internal_api_key,
     )
-
-
-@app.post("/media/sessions/{webrtc_id}/metadata")
-async def set_media_session_metadata(webrtc_id: str, request: Request):
-    _verify_internal_api_key(request)
-    body = await _read_optional_json(request)
-    thread_id = body.get("threadId")
-    stats = media_sessions.set_metadata(
-        webrtc_id,
-        thread_id=thread_id if isinstance(thread_id, str) and thread_id else None,
+)
+app.include_router(
+    create_threads_router(
+        get_settings=_current_settings,
+        get_checkpointer=_current_checkpointer,
+        verify_internal_api_key=_verify_internal_api_key,
     )
-    return jsonable_encoder(stats)
-
-
-@app.delete("/media/sessions/{webrtc_id}")
-async def delete_media_session(webrtc_id: str, request: Request):
-    _verify_internal_api_key(request)
-    await speech_pipelines.stop(webrtc_id)
-    return {"ok": media_sessions.remove(webrtc_id)}
-
+)
 
 if _media_stream is not None:
     # Keep explicit /media routes above the mounted FastRTC app; Starlette
     # matches routes in registration order.
     _media_stream.mount(app, path="/media", tags=["media"])
-
-
-@app.get("/threads")
-async def get_threads(request: Request):
-    _verify_internal_api_key(request)
-
-    if _settings is None:
-        raise HTTPException(status_code=503, detail="Settings not loaded")
-
-    return await asyncio.to_thread(list_threads, _settings.agent_state_db_path)
-
-
-@app.post("/threads")
-async def post_thread(request: Request):
-    _verify_internal_api_key(request)
-
-    if _settings is None:
-        raise HTTPException(status_code=503, detail="Settings not loaded")
-
-    body = await _read_optional_json(request)
-    title = body.get("title")
-    thread_id = body.get("id")
-    created_at = body.get("createdAt")
-    updated_at = body.get("updatedAt")
-
-    record = await asyncio.to_thread(
-        create_thread,
-        _settings.agent_state_db_path,
-        thread_id=thread_id if isinstance(thread_id, str) and thread_id else None,
-        title=title if isinstance(title, str) else "New Chat",
-        created_at=created_at if isinstance(created_at, str) and created_at else None,
-        updated_at=updated_at if isinstance(updated_at, str) and updated_at else None,
-    )
-    return record
-
-
-@app.patch("/threads/{thread_id}")
-async def patch_thread(thread_id: str, request: Request):
-    _verify_internal_api_key(request)
-
-    if _settings is None:
-        raise HTTPException(status_code=503, detail="Settings not loaded")
-
-    body = await _read_optional_json(request)
-    title = body.get("title")
-    if not isinstance(title, str) or not title.strip():
-        raise HTTPException(status_code=400, detail="Title is required")
-
-    try:
-        return await asyncio.to_thread(
-            update_thread_title,
-            _settings.agent_state_db_path,
-            thread_id=thread_id,
-            title=title,
-            force=bool(body.get("force")),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/threads/{thread_id}")
-async def get_thread_by_id(thread_id: str, request: Request):
-    _verify_internal_api_key(request)
-
-    if _settings is None:
-        raise HTTPException(status_code=503, detail="Settings not loaded")
-
-    record = await asyncio.to_thread(get_thread, _settings.agent_state_db_path, thread_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    messages = await _get_thread_messages_payload(thread_id)
-    return {**record, "messages": messages}
-
-
-@app.delete("/threads/{thread_id}")
-async def delete_thread(thread_id: str, request: Request):
-    _verify_internal_api_key(request)
-
-    if _settings is None:
-        raise HTTPException(status_code=503, detail="Settings not loaded")
-
-    deleted_writes, deleted_checkpoints = await _count_thread_rows(
-        _settings.agent_state_db_path,
-        thread_id,
-    )
-
-    if _checkpointer is not None:
-        await _checkpointer.adelete_thread(thread_id)
-    else:
-        deleted_writes, deleted_checkpoints = await _delete_thread_rows(
-            _settings.agent_state_db_path,
-            thread_id,
-        )
-    await asyncio.to_thread(delete_thread_metadata, _settings.agent_state_db_path, thread_id)
-
-    return {
-        "ok": True,
-        "thread_id": thread_id,
-        "deleted_writes": deleted_writes,
-        "deleted_checkpoints": deleted_checkpoints,
-    }

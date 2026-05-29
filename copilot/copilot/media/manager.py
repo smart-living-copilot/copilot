@@ -10,19 +10,19 @@ from contextlib import suppress
 from threading import Lock
 from typing import Any, Protocol
 
-from copilot.speech.audio import Pcm16FrameChunker, TTS_FRAME_SAMPLES, TTS_OUTPUT_SAMPLE_RATE
-from copilot.speech.clients import (
+from copilot.media.audio import Pcm16FrameChunker, TTS_FRAME_SAMPLES, TTS_OUTPUT_SAMPLE_RATE
+from copilot.media.clients import (
     OpenAICompatibleSpeechToTextClient,
     OpenAICompatibleTextToSpeechClient,
 )
-from copilot.speech.pipeline import SpeechPipeline
-from copilot.speech.settings import (
+from copilot.media.pipeline import SpeechPipeline
+from copilot.media.settings import (
     SttSettings,
     TtsSettings,
     VadSettings,
     settings_from_app_settings,
 )
-from copilot.speech.vad import SileroSpeechProbabilityDetector, VadUtteranceSegmenter
+from copilot.media.vad import SileroSpeechProbabilityDetector, VadUtteranceSegmenter
 
 logger = logging.getLogger(__name__)
 TTS_OUTPUT_FRAME_SECONDS = TTS_FRAME_SAMPLES / TTS_OUTPUT_SAMPLE_RATE

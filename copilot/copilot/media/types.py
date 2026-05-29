@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from copilot.speech.audio import TARGET_SAMPLE_RATE
+from copilot.media.audio import TARGET_SAMPLE_RATE
 
 
 @dataclass(frozen=True)

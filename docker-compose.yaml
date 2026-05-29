@@ -5,7 +5,7 @@ services:
     volumes:
       - copilot-data:/data
     environment:
-      WOT_REGISTRY_URL: "${WOT_REGISTRY_URL:-http://wot-registry:8000}"
+      WOT_REGISTRY_URL: "${WOT_REGISTRY_URL:-http://copilot:8123}"
       WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
       CODE_EXECUTOR_URL: "http://code-executor:8888"
       JOB_RUNNER_URL: "http://copilot:8123"
@@ -15,6 +15,20 @@ services:
       WOT_RUNTIME_URL: "http://wot-runtime:3003"
       WOT_RUNTIME_API_TOKEN: "${WOT_RUNTIME_API_TOKEN}"
       WOT_RUNTIME_STREAM: "${WOT_RUNTIME_STREAM:-wot_runtime_events}"
+      REGISTRY_DATABASE_URL: "${REGISTRY_DATABASE_URL:-sqlite:////data/registry/wot_registry.db}"
+      REGISTRY_PUBLIC_URL: "${REGISTRY_PUBLIC_URL:-http://copilot:8123}"
+      INIT_ADMIN_TOKEN: "${INIT_ADMIN_TOKEN}"
+      WOT_RUNTIME_REGISTRY_TOKEN: "${WOT_RUNTIME_REGISTRY_TOKEN}"
+      SEARCH_VECTOR_COLLECTION_NAME: "${SEARCH_VECTOR_COLLECTION_NAME:-thing_search}"
+      SEARCH_VECTOR_STORE_DIR: "/data/registry/search-index"
+      SEARCH_INDEXER_EVENTS_GROUP: "${SEARCH_INDEXER_EVENTS_GROUP:-thing_search_indexer}"
+      SEARCH_INDEXER_RETRY_SECONDS: "${SEARCH_INDEXER_RETRY_SECONDS:-5}"
+      OPENAI_EMBEDDING_API_BASE_URL: "${OPENAI_EMBEDDING_API_BASE_URL:-}"
+      OPENAI_EMBEDDING_API_KEY: "${OPENAI_EMBEDDING_API_KEY:-}"
+      OPENAI_EMBEDDING_MODEL: "${OPENAI_EMBEDDING_MODEL:-}"
+      WOT_RUNTIME_TIMEOUT_SECONDS: "${WOT_RUNTIME_TIMEOUT_SECONDS:-15}"
+      WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS: "${WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS:-5}"
+      WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS: "${WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS:-0}"
       JOBS_EVENTS_GROUP: "${JOBS_EVENTS_GROUP:-job_runner}"
       JOBS_EVENTS_CONSUMER: "${JOBS_EVENTS_CONSUMER:-job_runner_1}"
       INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
@@ -53,12 +67,14 @@ services:
       VISION_MAX_IMAGE_DIMENSION: "${VISION_MAX_IMAGE_DIMENSION:-1024}"
       VISION_JPEG_QUALITY: "${VISION_JPEG_QUALITY:-85}"
     depends_on:
-      wot-registry:
-        condition: service_healthy
       valkey:
         condition: service_healthy
-      wot-runtime:
-        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8123/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     networks:
       - frontend-internal
       - backend-isolated
@@ -75,7 +91,7 @@ services:
       COPILOT_URL: "http://copilot:8123"
       CODE_EXECUTOR_URL: "http://code-executor:8888"
       JOB_RUNNER_URL: "http://copilot:8123"
-      WOT_API_URL: "http://wot-registry:8000/api"
+      WOT_API_URL: "http://copilot:8123/api"
       WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
       HOSTNAME: "0.0.0.0"
       INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
@@ -110,7 +126,7 @@ services:
       IDLE_TIMEOUT_SECONDS: "1800"
       MAX_SESSIONS: "50"
       LOG_LEVEL: "INFO"
-      WOT_REGISTRY_URL: "http://wot-registry:8000"
+      WOT_REGISTRY_URL: "http://copilot:8123"
       WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
       INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
     restart: unless-stopped
@@ -128,51 +144,12 @@ services:
       - backend-isolated
     restart: unless-stopped
 
-  wot-registry:
-    image: ghcr.io/smart-living-copilot/wot-registry:latest
-    depends_on:
-      valkey:
-        condition: service_healthy
-    networks:
-      - backend-isolated
-      - egress-api
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-      start_period: 10s
-    environment:
-      REDIS_URL: redis://valkey:6379
-      REGISTRY_DATABASE_URL: ${REGISTRY_DATABASE_URL:-sqlite:////data/registry/wot_registry.db}
-      REGISTRY_PUBLIC_URL: ${REGISTRY_PUBLIC_URL:-http://wot-registry:8000}
-      INIT_ADMIN_TOKEN: ${INIT_ADMIN_TOKEN}
-      WOT_RUNTIME_REGISTRY_TOKEN: ${WOT_RUNTIME_REGISTRY_TOKEN}
-      WOT_RUNTIME_API_TOKEN: ${WOT_RUNTIME_API_TOKEN}
-      WOT_RUNTIME_URL: http://wot-runtime:3003
-      SEARCH_VECTOR_COLLECTION_NAME: ${SEARCH_VECTOR_COLLECTION_NAME:-thing_search}
-      SEARCH_VECTOR_STORE_DIR: /data/registry/search-index
-      SEARCH_INDEXER_EVENTS_GROUP: ${SEARCH_INDEXER_EVENTS_GROUP:-thing_search_indexer}
-      SEARCH_INDEXER_RETRY_SECONDS: ${SEARCH_INDEXER_RETRY_SECONDS:-5}
-      OPENAI_EMBEDDING_API_BASE_URL: ${OPENAI_EMBEDDING_API_BASE_URL:-}
-      OPENAI_EMBEDDING_API_KEY: ${OPENAI_EMBEDDING_API_KEY:-}
-      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-}
-      OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
-      WOT_RUNTIME_TIMEOUT_SECONDS: ${WOT_RUNTIME_TIMEOUT_SECONDS:-15}
-      WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS: ${WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS:-5}
-      WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS: ${WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS:-0}
-    volumes:
-      - wot-registry-data:/data/registry
-
   wot-runtime:
     image: ghcr.io/smart-living-copilot/wot-runtime:latest
     depends_on:
       valkey:
         condition: service_healthy
-      wot-registry:
+      copilot:
         condition: service_healthy
     networks:
       - backend-isolated
@@ -188,27 +165,11 @@ services:
       HOST: "0.0.0.0"
       PORT: "3003"
       REDIS_URL: redis://valkey:6379
-      REGISTRY_URL: http://wot-registry:8000
+      REGISTRY_URL: http://copilot:8123
       WOT_RUNTIME_REGISTRY_TOKEN: ${WOT_RUNTIME_REGISTRY_TOKEN}
       WOT_RUNTIME_API_TOKEN: ${WOT_RUNTIME_API_TOKEN}
       WOT_RUNTIME_STREAM: ${WOT_RUNTIME_STREAM:-wot_runtime_events}
       WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS: ${WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS:-0}
-
-  data-replay:
-    image: ghcr.io/smart-living-copilot/data-replay:latest
-    volumes:
-      - ./data-replay:/app/data:ro
-    environment:
-      DB_PATH: /app/data/fixtures.db
-      REPLAY_BASE_URL: http://data-replay:9000
-      WOT_REGISTRY_URL: http://wot-registry:8000
-      WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
-    depends_on:
-      wot-registry:
-        condition: service_healthy
-    networks:
-      - backend-isolated
-    restart: unless-stopped
 
   kokoro-tts:
     image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
@@ -224,7 +185,6 @@ services:
 volumes:
   copilot-data:
   valkey-data:
-  wot-registry-data:
 
 networks:
   frontend-internal:

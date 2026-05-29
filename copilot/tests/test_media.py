@@ -9,7 +9,7 @@ from copilot.media import (
     media_sessions,
     parse_rtc_configuration,
 )
-from copilot.speech import SpeechPipelineManager
+from copilot.media import SpeechPipelineManager
 
 
 class MediaSessionRegistryTestCase(unittest.TestCase):
@@ -256,7 +256,7 @@ class SpeechPipelineManagerTestCase(unittest.IsolatedAsyncioTestCase):
         manager = SpeechPipelineManager(media_sessions)
         manager._tts_client = FailingTtsClient()
 
-        with self.assertLogs("copilot.speech.manager", level="ERROR"):
+        with self.assertLogs("copilot.media.manager", level="ERROR"):
             await manager.synthesize_response("webrtc-tts-failed", "Hello")
 
         snapshot = media_sessions.get("webrtc-tts-failed")

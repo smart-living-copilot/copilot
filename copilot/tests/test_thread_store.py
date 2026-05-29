@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from copilot.thread_store import (
+from copilot.threads.store import (
     create_thread,
     delete_thread,
     get_thread,

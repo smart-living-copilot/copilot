@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from copilot.auth import User, require_scopes
 from copilot.core.config import get_settings
-from copilot.runtime.client import WotRuntimeClient
+from copilot.wot_runtime.client import WotRuntimeClient
 
 logger = logging.getLogger(__name__)
 

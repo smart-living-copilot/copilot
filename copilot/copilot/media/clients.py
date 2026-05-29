@@ -7,8 +7,8 @@ from typing import Any
 
 import httpx
 
-from copilot.speech.settings import SttSettings, TtsSettings
-from copilot.speech.types import TranscriptResult
+from copilot.media.settings import SttSettings, TtsSettings
+from copilot.media.types import TranscriptResult
 
 logger = logging.getLogger(__name__)
 

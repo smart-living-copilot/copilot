@@ -15,5 +15,5 @@ class Settings(BaseSettings):
     internal_api_key: str = ""
 
     # WoT registry access for sandbox WoT client
-    wot_registry_url: str = "http://wot-registry:8000"
+    wot_registry_url: str = "http://copilot:8123"
     wot_registry_token: str = ""

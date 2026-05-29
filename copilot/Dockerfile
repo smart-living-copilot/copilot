@@ -8,4 +8,4 @@ RUN pip install --no-cache-dir .
 
 EXPOSE 8123
 
-CMD ["uvicorn", "copilot.agent_app:app", "--host", "0.0.0.0", "--port", "8123"]
+CMD ["uvicorn", "copilot.app:app", "--host", "0.0.0.0", "--port", "8123"]

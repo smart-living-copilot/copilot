@@ -7,12 +7,14 @@ import logging
 import os
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict
 from datetime import UTC, datetime
 from threading import Lock
 from typing import Any
 
-from copilot.speech import SpeechPipelineManager, new_transcript_id
+from copilot.media.manager import SpeechPipelineManager
+from copilot.media.models import MediaSessionStats, MediaTranscript
+from copilot.media.pipeline import new_transcript_id
 
 logger = logging.getLogger(__name__)
 
@@ -67,46 +69,6 @@ def _public_snapshot(stats: "MediaSessionStats") -> dict[str, Any]:
     data = asdict(stats)
     data.pop("last_video_frame_jpeg", None)
     return data
-
-
-@dataclass
-class MediaTranscript:
-    id: str
-    created_at: str
-    updated_at: str
-    status: str
-    webrtc_id: str | None = None
-    thread_id: str | None = None
-    text: str = ""
-    error: str | None = None
-
-
-@dataclass
-class MediaSessionStats:
-    id: str
-    created_at: str
-    updated_at: str
-    status: str = "active"
-    webrtc_id: str | None = None
-    thread_id: str | None = None
-    audio_frames: int = 0
-    audio_samples: int = 0
-    audio_sample_rate: int | None = None
-    audio_channels: int | None = None
-    video_frames: int = 0
-    video_width: int | None = None
-    video_height: int | None = None
-    last_video_frame_jpeg: bytes | None = field(default=None, repr=False)
-    last_video_frame_at: str | None = None
-    transcript_count: int = 0
-    latest_transcript_text: str | None = None
-    latest_assistant_text: str | None = None
-    assistant_response_pending: bool = False
-    transcripts: list[MediaTranscript] = field(default_factory=list)
-    tts_requests: int = 0
-    tts_audio_frames: int = 0
-    latest_tts_text: str | None = None
-    latest_tts_error: str | None = None
 
 
 class MediaSessionRegistry:
@@ -427,7 +389,7 @@ def create_media_stream():
             )
             self.session_id = f"media-{uuid.uuid4()}"
             self._last_webrtc_id: str | None = None
-            self._video_queue = asyncio.Queue(maxsize=1)
+            self._video_queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=1)
             self._last_log_at = 0.0
             self._last_jpeg_encode_at = 0.0
 

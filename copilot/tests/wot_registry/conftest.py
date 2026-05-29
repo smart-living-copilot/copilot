@@ -1,7 +1,10 @@
+from contextlib import asynccontextmanager
+
 import pytest
 
 from copilot.core.config import get_settings
 from copilot.core.database import get_engine, get_session_factory
+from copilot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
 from copilot.search import set_active_search_service
 from copilot.things.schema import load_td_schema
 
@@ -49,6 +52,25 @@ class StubSearchService:
 
 
 INIT_ADMIN_TOKEN = "test-init-admin-token"
+
+
+@asynccontextmanager
+async def _registry_only_lifespan(app):
+    from copilot.core.database import init_db
+
+    settings = get_settings()
+    app.state.settings = settings
+    init_db()
+    session_factory = get_session_factory()
+    await start_backend_runtime(
+        app,
+        settings=settings,
+        session_factory=session_factory,
+    )
+    try:
+        yield
+    finally:
+        await shutdown_backend_runtime(app)
 
 
 @pytest.fixture(autouse=True)
@@ -108,6 +130,16 @@ def stub_search_runtime(monkeypatch):
     set_active_search_service(None)
     yield
     set_active_search_service(None)
+
+
+@pytest.fixture(autouse=True)
+def registry_only_app_lifespan(clear_backend_state, stub_search_runtime):
+    from copilot.app import app
+
+    original_lifespan_context = app.router.lifespan_context
+    app.router.lifespan_context = _registry_only_lifespan
+    yield
+    app.router.lifespan_context = original_lifespan_context
 
 
 @pytest.fixture

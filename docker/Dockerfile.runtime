@@ -26,7 +26,7 @@ COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
-ENV REGISTRY_URL=http://wot-registry:8000 \
+ENV REGISTRY_URL=http://copilot:8123 \
     REDIS_URL=redis://valkey:6379 \
     WOT_RUNTIME_STREAM=wot_runtime_events
 

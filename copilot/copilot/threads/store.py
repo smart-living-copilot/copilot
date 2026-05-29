@@ -5,16 +5,10 @@ from __future__ import annotations
 import sqlite3
 import uuid
 from datetime import datetime, timezone
-from typing import TypedDict
+
+from copilot.threads.models import ThreadRecord
 
 DEFAULT_THREAD_TITLE = "New Chat"
-
-
-class ThreadRecord(TypedDict):
-    id: str
-    title: str
-    createdAt: str
-    updatedAt: str
 
 
 def _now_iso() -> str:

@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from copilot.core.config import get_settings
-from copilot.registry_app import app
+from copilot.app import app
 
 
 def _wot_runtime_headers(token: str) -> dict[str, str]:

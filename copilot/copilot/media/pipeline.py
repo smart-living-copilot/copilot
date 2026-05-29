@@ -8,10 +8,10 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
-from copilot.speech.audio import encode_wav, normalize_audio_frame
-from copilot.speech.clients import OpenAICompatibleSpeechToTextClient
-from copilot.speech.types import SpeechUtterance
-from copilot.speech.vad import VadUtteranceSegmenter
+from copilot.media.audio import encode_wav, normalize_audio_frame
+from copilot.media.clients import OpenAICompatibleSpeechToTextClient
+from copilot.media.types import SpeechUtterance
+from copilot.media.vad import VadUtteranceSegmenter
 
 logger = logging.getLogger(__name__)
 

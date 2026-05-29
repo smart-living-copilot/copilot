@@ -1,6 +1,6 @@
-"""Speech segmentation, transcription, and synthesis helpers."""
+"""Browser media, speech, and live camera helpers."""
 
-from copilot.speech.audio import (
+from copilot.media.audio import (
     TARGET_SAMPLE_RATE,
     TTS_FRAME_SAMPLES,
     TTS_OUTPUT_SAMPLE_RATE,
@@ -10,13 +10,14 @@ from copilot.speech.audio import (
     normalize_audio_frame,
     pcm_bytes_to_float32_frames,
 )
-from copilot.speech.clients import (
+from copilot.media.clients import (
     OpenAICompatibleSpeechToTextClient,
     OpenAICompatibleTextToSpeechClient,
 )
-from copilot.speech.chunking import SemanticTextChunker
-from copilot.speech.manager import SpeechMediaSessionRegistry, SpeechPipelineManager
-from copilot.speech.pipeline import (
+from copilot.media.chunking import SemanticTextChunker
+from copilot.media.manager import SpeechMediaSessionRegistry, SpeechPipelineManager
+from copilot.media.models import MediaSessionStats, MediaTranscript
+from copilot.media.pipeline import (
     AssistantResponse,
     AssistantResponseDelta,
     AssistantWorkRunner,
@@ -31,17 +32,25 @@ from copilot.speech.pipeline import (
     TranscriptSubmitter,
     new_transcript_id,
 )
-from copilot.speech.settings import (
+from copilot.media.settings import (
     SttSettings,
     TtsSettings,
     VadSettings,
     settings_from_app_settings,
 )
-from copilot.speech.types import SpeechUtterance, TranscriptResult
-from copilot.speech.vad import (
+from copilot.media.types import SpeechUtterance, TranscriptResult
+from copilot.media.vad import (
     SileroSpeechProbabilityDetector,
     SpeechProbabilityDetector,
     VadUtteranceSegmenter,
+)
+from copilot.media.ingress import (
+    MediaSessionRegistry,
+    create_media_stream,
+    encode_frame_to_jpeg,
+    media_sessions,
+    parse_rtc_configuration,
+    speech_pipelines,
 )
 
 __all__ = [
@@ -53,6 +62,9 @@ __all__ = [
     "Pcm16FrameChunker",
     "SemanticTextChunker",
     "SileroSpeechProbabilityDetector",
+    "MediaSessionRegistry",
+    "MediaSessionStats",
+    "MediaTranscript",
     "SpeechPipeline",
     "SpeechMediaSessionRegistry",
     "SpeechPipelineManager",
@@ -75,9 +87,14 @@ __all__ = [
     "VAD_WINDOW_SAMPLES",
     "VadSettings",
     "VadUtteranceSegmenter",
+    "create_media_stream",
     "encode_wav",
+    "encode_frame_to_jpeg",
+    "media_sessions",
     "new_transcript_id",
     "normalize_audio_frame",
+    "parse_rtc_configuration",
     "pcm_bytes_to_float32_frames",
     "settings_from_app_settings",
+    "speech_pipelines",
 ]

@@ -11,6 +11,3 @@ node_modules/
 .pytest_cache/
 wot_registry.db
 thing_descriptions
-data-replay/sources.yaml
-data-replay/data/
-data-replay/fixtures.db

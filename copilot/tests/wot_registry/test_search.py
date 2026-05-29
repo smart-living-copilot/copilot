@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from copilot.registry_app import app
+from copilot.app import app
 
 
 def sample_thing(thing_id: str = "urn:thing:search-stub") -> dict[str, object]:

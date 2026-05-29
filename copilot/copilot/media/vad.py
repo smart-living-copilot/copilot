@@ -7,9 +7,9 @@ from collections import deque
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from copilot.speech.audio import TARGET_SAMPLE_RATE, VAD_WINDOW_SAMPLES
-from copilot.speech.settings import VadSettings
-from copilot.speech.types import SpeechUtterance
+from copilot.media.audio import TARGET_SAMPLE_RATE, VAD_WINDOW_SAMPLES
+from copilot.media.settings import VadSettings
+from copilot.media.types import SpeechUtterance
 
 
 class SpeechProbabilityDetector(Protocol):
@@ -59,7 +59,7 @@ class SileroSpeechProbabilityDetector:
 
     @staticmethod
     def _load_model() -> Any:
-        from silero_vad import load_silero_vad
+        from silero_vad import load_silero_vad  # type: ignore[import-untyped]
 
         try:
             return load_silero_vad(onnx=True)
@@ -77,7 +77,7 @@ class VadUtteranceSegmenter:
         self._on_speech_started: Callable[[], None] | None = None
         self._pending = np.array([], dtype=np.float32)
         pad_windows = self._samples_from_ms(settings.speech_pad_ms) // VAD_WINDOW_SAMPLES
-        self._pre_speech = deque(maxlen=max(1, pad_windows))
+        self._pre_speech: deque[Any] = deque(maxlen=max(1, pad_windows))
         self._candidate_chunks: list[Any] = []
         self._utterance_chunks: list[Any] = []
         self._in_speech = False

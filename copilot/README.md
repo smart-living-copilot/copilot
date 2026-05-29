@@ -5,9 +5,8 @@
 ## Current Role In The Stack
 
 - `chat-ui` owns the browser experience and the authenticated edge.
-- `copilot` owns agent orchestration, prompts, tool use, LangGraph checkpoint state, and thread metadata.
+- `copilot` owns agent orchestration, prompts, tool use, the WoT registry API, LangGraph checkpoint state, and thread metadata.
 - `code-executor` runs stateful Python for the `run_code` tool.
-- `wot-registry` provides discovery, schema inspection, and runtime WoT actions through HTTP APIs.
 - the in-process job runner (`copilot/jobs`) schedules time/event automations and dispatches prompts into existing copilot threads.
 
 At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `copilot`, and `copilot` uses local LangGraph tools for registry/runtime access and `code-executor` for Python execution. Automation jobs run inside `copilot` itself.
@@ -197,7 +196,7 @@ The dev override:
 ```bash
 cd copilot
 pip install -e ".[dev]"
-uvicorn copilot.agent_app:app --host 0.0.0.0 --port 8123 --reload
+uvicorn copilot.app:app --host 0.0.0.0 --port 8123 --reload
 ```
 
 ## Environment Variables
@@ -250,8 +249,9 @@ Also defined today but not currently wired into the graph execution path:
 
 ## Important Files
 
-- [`copilot/agent_app.py`](./copilot/agent_app.py): LangGraph FastAPI app, AG-UI endpoint registration, thread deletion
-- [`copilot/registry_app.py`](./copilot/registry_app.py): WoT registry REST API app
+- [`copilot/app.py`](./copilot/app.py): unified FastAPI app composition and AG-UI endpoint registration
+- [`copilot/media`](./copilot/media): browser media ingress, speech pipeline, live camera helpers, and media routes
+- [`copilot/threads`](./copilot/threads): thread metadata storage, title helpers, and thread routes
 - [`copilot/agent.py`](./copilot/agent.py): model factory
 - [`copilot/graph/builder.py`](./copilot/graph/builder.py): graph assembly
 - [`copilot/graph/nodes.py`](./copilot/graph/nodes.py): node behavior, prompt shaping, tool truncation

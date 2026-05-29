@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from copilot.registry_app import app
+from copilot.app import app
 
 
 def _create_key(
