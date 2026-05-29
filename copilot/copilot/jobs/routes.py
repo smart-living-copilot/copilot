@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from html import escape
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from copilot.jobs.models import CreateJobRequest
 from copilot.jobs.service import JobService
@@ -210,6 +211,41 @@ async def list_jobs(request: Request, thread_id: str | None = Query(default=None
     service = _service(request)
     jobs = await service.list_jobs(thread_id=thread_id)
     return {"jobs": [job.model_dump() for job in jobs]}
+
+
+@router.get("/jobs/events")
+async def stream_job_events(request: Request):
+    _verify_internal_api_key(request)
+    service = _service(request)
+
+    async def event_stream():
+        yield ": connected\n\n"
+        async for event in service.subscribe_run_events():
+            if await request.is_disconnected():
+                break
+            payload = json.dumps(event, ensure_ascii=True)
+            yield f"data: {payload}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/jobs/{job_id}")
+async def get_job(job_id: str, request: Request):
+    _verify_internal_api_key(request)
+    service = _service(request)
+    try:
+        job = await service.get_job(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job.model_dump()
 
 
 @router.delete("/jobs/{job_id}")

@@ -5,7 +5,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
-from typing import Any
+from typing import Any, AsyncIterator
 
 import redis.asyncio as redis
 
@@ -32,6 +32,7 @@ class JobService:
         self._stop_event = asyncio.Event()
         self._time_task: asyncio.Task[None] | None = None
         self._stream_task: asyncio.Task[None] | None = None
+        self._run_event_subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
 
     async def start(self) -> None:
         await self._repo.init()
@@ -73,6 +74,18 @@ class JobService:
             subscription_id=subscription_id,
         )
 
+    async def get_job(self, job_id: str) -> Job:
+        return await self._repo.get_job(job_id)
+
+    async def subscribe_run_events(self) -> AsyncIterator[dict[str, Any]]:
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
+        self._run_event_subscribers.add(queue)
+        try:
+            while True:
+                yield await queue.get()
+        finally:
+            self._run_event_subscribers.discard(queue)
+
     async def list_jobs(self, thread_id: str | None = None) -> list[Job]:
         return await self._repo.list_jobs(thread_id)
 
@@ -96,14 +109,13 @@ class JobService:
             response_text=result.get("assistant"),
             last_fetch_value=result.get("last_fetch_value"),
         )
+        await self._emit_run_event(job.id)
         return result
 
     def _validate_request(self, request: CreateJobRequest) -> None:
         if request.job_type == "analysis":
             if not request.analysis_code or not request.analysis_code.strip():
                 raise ValueError("analysis jobs require analysis_code")
-            if request.trigger_type != "time":
-                raise ValueError("analysis jobs currently support only time triggers")
         else:
             if not request.prompt or not request.prompt.strip():
                 raise ValueError("prompt jobs require prompt")
@@ -141,7 +153,8 @@ class JobService:
             now = utc_now()
             due_jobs = await self._repo.list_due_time_jobs(now=now)
             for job in due_jobs:
-                result = await self._dispatch_job(job, trigger={"source": "time"})
+                trigger = {"source": "time"}
+                result = await self._dispatch_job(job, trigger=trigger)
                 await self._repo.mark_time_job_result(
                     job=job,
                     now=utc_now(),
@@ -150,6 +163,7 @@ class JobService:
                     response_text=result.get("assistant"),
                     last_fetch_value=result.get("last_fetch_value"),
                 )
+                await self._emit_run_event(job.id)
             await asyncio.sleep(self._settings.scheduler_poll_seconds)
 
     async def _run_event_consumer(self) -> None:
@@ -244,16 +258,15 @@ class JobService:
             return
 
         for job in jobs:
+            trigger = {
+                "source": "wot_event",
+                "thing_id": event.get("thing_id"),
+                "event_name": event.get("name"),
+                "timestamp": event.get("timestamp"),
+            }
             result = await self._dispatch_job(
                 job,
-                trigger={
-                    "source": "wot_event",
-                    "thing_id": event.get("thing_id"),
-                    "event_name": event.get("name"),
-                    "content_type": event.get("content_type"),
-                    "payload_base64": event.get("payload_base64"),
-                    "timestamp": event.get("timestamp"),
-                },
+                trigger=trigger,
             )
             await self._repo.mark_event_job_result(
                 job_id=job.id,
@@ -263,6 +276,7 @@ class JobService:
                 response_text=result.get("assistant"),
                 last_fetch_value=result.get("last_fetch_value"),
             )
+            await self._emit_run_event(job.id)
 
     async def _dispatch_job(self, job: Job, *, trigger: dict) -> dict:
         if job.job_type == "analysis":
@@ -344,3 +358,35 @@ class JobService:
             pass
 
         return last_line[:500]
+
+    async def _emit_run_event(self, job_id: str) -> None:
+        if not self._run_event_subscribers:
+            return
+
+        try:
+            job = await self._repo.get_job(job_id)
+        except Exception:
+            return
+
+        event = {
+            "type": "job_run",
+            "job": job.model_dump(mode="json"),
+        }
+        self._publish_run_event(event)
+
+    def _publish_run_event(self, event: dict[str, Any]) -> None:
+        stale: list[asyncio.Queue[dict[str, Any]]] = []
+        for queue in self._run_event_subscribers:
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                try:
+                    _ = queue.get_nowait()
+                    queue.put_nowait(event)
+                except Exception:
+                    stale.append(queue)
+            except Exception:
+                stale.append(queue)
+
+        for queue in stale:
+            self._run_event_subscribers.discard(queue)

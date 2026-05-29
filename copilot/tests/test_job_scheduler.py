@@ -54,6 +54,7 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
                 {
                     "name": "demo job",
                     "analysis_code": "print('hello')",
+                    "trigger_type": "time",
                     "config": {"configurable": {"thread_id": "thread-1"}},
                 }
             )

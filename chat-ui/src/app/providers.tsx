@@ -3,6 +3,8 @@
 import '@copilotkit/react-core/v2/styles.css';
 import { Toaster } from 'sonner';
 import { ThemeProvider } from '@/components/theme-provider';
+import { JobDetailProvider } from '@/components/jobs/job-detail-context';
+import { JobTriggerToasts } from '@/components/jobs/job-trigger-toasts';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -10,6 +12,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ThemeProvider defaultTheme="system">
       <TooltipProvider>{children}</TooltipProvider>
       <Toaster />
+      <JobDetailProvider>
+        <JobTriggerToasts />
+        <TooltipProvider>{children}</TooltipProvider>
+        <Toaster />
+      </JobDetailProvider>
     </ThemeProvider>
   );
 }

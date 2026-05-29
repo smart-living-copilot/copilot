@@ -155,26 +155,32 @@ async def create_job(
 async def create_analysis_job(
     name: str,
     analysis_code: str,
+    trigger_type: str,
     config: RunnableConfig,
     thread_id: str | None = None,
     run_at: str | None = None,
     interval_seconds: int | None = None,
+    thing_id: str | None = None,
+    event_name: str | None = None,
+    subscription_input: Any = None,
 ) -> dict[str, Any]:
-    """Create a periodic analysis job.
+    """Create an analysis job that runs Python in the code-executor sandbox.
 
-    Analysis jobs run Python in the code-executor sandbox on a schedule.
-    They currently support only time-based triggers, so provide either:
-    - run_at: one-time ISO datetime, or
-    - interval_seconds: recurring cadence in seconds.
+    trigger_type:
+    - "time": use run_at (one-time ISO datetime) or interval_seconds (recurring cadence)
+    - "event": use thing_id and event_name to run on a subscribed WoT event
     """
     payload = {
         "name": name,
         "thread_id": _thread_id_from_config(config, thread_id),
         "job_type": "analysis",
-        "trigger_type": "time",
+        "trigger_type": trigger_type,
         "analysis_code": analysis_code,
         "run_at": run_at,
         "interval_seconds": interval_seconds,
+        "thing_id": thing_id,
+        "event_name": event_name,
+        "subscription_input": subscription_input,
     }
     try:
         async with httpx.AsyncClient(timeout=float(_settings.job_runner_timeout_seconds)) as client:
