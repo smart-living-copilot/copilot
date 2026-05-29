@@ -1,5 +1,5 @@
 from copilot.graph.tools.registry import REGISTRY_TOOLS, _registry_base_url, things_validate
-from copilot.settings import Settings
+from copilot.core.settings import Settings
 
 
 def sample_thing(thing_id: str = "urn:thing:tool-test") -> dict[str, object]:

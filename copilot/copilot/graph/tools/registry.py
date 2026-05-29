@@ -6,7 +6,7 @@ from urllib.parse import quote
 import httpx
 from langchain_core.tools import tool
 
-from copilot.settings import Settings
+from copilot.core.settings import Settings
 from copilot.things import validate_document
 
 

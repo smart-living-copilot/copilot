@@ -6,12 +6,12 @@ from dataclasses import dataclass
 
 import redis.asyncio as redis
 
-from copilot.config import Settings
+from copilot.core.config import Settings
 from copilot.search.indexer.runtime import SearchIndexerStreamConfig
 from copilot.search.indexer.service import SearchIndexerService
 from copilot.search.indexer.store import SearchVectorStore
 from copilot.search.indexer.stream_utils import parse_stream_event
-from copilot.stream_runtime import StreamConsumerState, ensure_stream_group
+from copilot.core.stream_runtime import StreamConsumerState, ensure_stream_group
 
 
 logger = logging.getLogger(__name__)

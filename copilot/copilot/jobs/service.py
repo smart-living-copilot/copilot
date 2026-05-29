@@ -14,7 +14,7 @@ from copilot.jobs.models import CreateJobRequest, Job
 from copilot.jobs.runtime_client import WotRuntimeClient
 from copilot.jobs.storage import JobRepository, utc_now
 from copilot.jobs.stream import StreamConfig, ensure_stream_group, parse_runtime_stream_fields
-from copilot.settings import Settings
+from copilot.core.settings import Settings
 
 logger = logging.getLogger(__name__)
 

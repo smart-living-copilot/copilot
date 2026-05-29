@@ -1,7 +1,7 @@
 from fastapi import Request
 
 from copilot.auth import get_current_user
-from copilot.config import get_settings
+from copilot.core.config import get_settings
 
 
 def _request_with_headers(headers: dict[str, str]) -> Request:

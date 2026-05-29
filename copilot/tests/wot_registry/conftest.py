@@ -1,7 +1,7 @@
 import pytest
 
-from copilot.config import get_settings
-from copilot.database import get_engine, get_session_factory
+from copilot.core.config import get_settings
+from copilot.core.database import get_engine, get_session_factory
 from copilot.search import set_active_search_service
 from copilot.things.schema import load_td_schema
 
@@ -94,16 +94,16 @@ def stub_search_runtime(monkeypatch):
         app.state.search_indexer_consumer = None
 
     monkeypatch.setattr(
-        "copilot.lifecycle.start_search_service", fake_start_search_service
+        "copilot.core.lifecycle.start_search_service", fake_start_search_service
     )
     monkeypatch.setattr(
-        "copilot.lifecycle.stop_search_service", fake_stop_search_service
+        "copilot.core.lifecycle.stop_search_service", fake_stop_search_service
     )
     monkeypatch.setattr(
-        "copilot.lifecycle.start_search_indexer", fake_start_search_indexer
+        "copilot.core.lifecycle.start_search_indexer", fake_start_search_indexer
     )
     monkeypatch.setattr(
-        "copilot.lifecycle.stop_search_indexer", fake_stop_search_indexer
+        "copilot.core.lifecycle.stop_search_indexer", fake_stop_search_indexer
     )
     set_active_search_service(None)
     yield

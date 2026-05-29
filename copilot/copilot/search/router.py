@@ -4,7 +4,7 @@ from urllib.parse import unquote
 from fastapi import APIRouter, Depends, Query, Request
 
 from copilot.auth import User, require_scopes
-from copilot.api_dependencies import SessionDep
+from copilot.core.api_dependencies import SessionDep
 from copilot.search.service import SearchQueryService
 
 router = APIRouter(prefix="/api", tags=["search"])

@@ -3,7 +3,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from copilot.api_keys import ensure_init_admin_key
-from copilot.config import Settings
+from copilot.core.config import Settings
 
 logger = logging.getLogger(__name__)
 

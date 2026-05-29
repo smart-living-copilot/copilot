@@ -6,7 +6,7 @@ from sqlalchemy import Boolean, DateTime, Index, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
-from copilot.database import Base
+from copilot.core.database import Base
 
 
 @dataclass(frozen=True)

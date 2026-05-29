@@ -1,9 +1,9 @@
 import pytest
 from fastapi import FastAPI
 
-from copilot.config import get_settings
-from copilot.database import get_engine, get_session_factory
-from copilot.lifecycle import start_backend_runtime
+from copilot.core.config import get_settings
+from copilot.core.database import get_engine, get_session_factory
+from copilot.core.lifecycle import start_backend_runtime
 
 
 @pytest.mark.anyio

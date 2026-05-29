@@ -5,7 +5,7 @@ from sqlalchemy import DateTime, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
-from copilot.database import Base
+from copilot.core.database import Base
 
 
 class CredentialRow(Base):

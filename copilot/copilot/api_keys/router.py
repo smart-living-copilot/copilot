@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from copilot.auth import User, require_scopes
-from copilot.api_dependencies import SessionDep
+from copilot.core.api_dependencies import SessionDep
 from copilot.api_keys.service import ApiKeyManagementService
 
 

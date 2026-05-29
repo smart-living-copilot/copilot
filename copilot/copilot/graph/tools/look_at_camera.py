@@ -14,7 +14,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from copilot.media import media_sessions
-from copilot.settings import Settings
+from copilot.core.settings import Settings
 
 logger = logging.getLogger(__name__)
 

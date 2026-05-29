@@ -3,7 +3,7 @@ import logging
 import signal
 import sys
 
-from copilot.config import get_settings
+from copilot.core.config import get_settings
 from copilot.search.indexer.consumer import (
     SearchIndexerStreamConsumer,
     SearchIndexerConsumerState,

@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from copilot.config import Settings
+from copilot.core.config import Settings
 from copilot.search.indexer.embeddings import create_openai_embeddings
 from copilot.search.indexer.store import SearchVectorStore
 from copilot.things.store import get_thing

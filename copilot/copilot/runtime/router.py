@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from copilot.auth import User, require_scopes
-from copilot.config import get_settings
+from copilot.core.config import get_settings
 from copilot.runtime.client import WotRuntimeClient
 
 logger = logging.getLogger(__name__)

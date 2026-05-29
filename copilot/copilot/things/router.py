@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, Query
 
 from copilot.auth import User, require_scopes
-from copilot.api_dependencies import SessionDep
+from copilot.core.api_dependencies import SessionDep
 from copilot.things.ids import decode_thing_id
 from copilot.things.service import (
     ThingCatalogQueryService,

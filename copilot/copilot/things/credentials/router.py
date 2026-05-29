@@ -4,7 +4,7 @@ from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel
 
 from copilot.auth import User, require_scopes, require_service
-from copilot.api_dependencies import SessionDep
+from copilot.core.api_dependencies import SessionDep
 from copilot.things.ids import decode_thing_id
 from copilot.things.credentials.service import CredentialService
 

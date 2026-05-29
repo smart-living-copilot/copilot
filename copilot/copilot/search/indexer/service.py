@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from copilot.config import Settings
+from copilot.core.config import Settings
 from copilot.search.indexer.chunking import generate_chunk
 from copilot.search.indexer.embeddings import (
     create_openai_embeddings,

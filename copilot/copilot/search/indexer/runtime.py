@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from copilot.config import Settings
+from copilot.core.config import Settings
 
 
 @dataclass(frozen=True)

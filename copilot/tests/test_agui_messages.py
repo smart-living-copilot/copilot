@@ -1,6 +1,6 @@
 import unittest
 
-from copilot.agui_messages import strip_none_fields
+from copilot.core.agui_messages import strip_none_fields
 
 
 class StripNoneFieldsTestCase(unittest.TestCase):

@@ -4,7 +4,7 @@ from typing import Any
 
 import aiohttp
 
-from copilot.config import Settings
+from copilot.core.config import Settings
 
 
 class WotRuntimeClient:

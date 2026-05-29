@@ -6,11 +6,11 @@ from typing import Awaitable, Callable, Protocol
 from fastapi import FastAPI
 from sqlalchemy.orm import sessionmaker
 
-from copilot.config import Settings
-from copilot.bootstrap import BackendBootstrapService
+from copilot.core.config import Settings
+from copilot.core.bootstrap import BackendBootstrapService
 from copilot.search import ThingSearchService, set_active_search_service
 from copilot.search.indexer.store import SearchVectorStore
-from copilot.stream_runtime import StreamConsumerState
+from copilot.core.stream_runtime import StreamConsumerState
 from copilot.things.events import (
     ThingEventOutboxPublisherState,
     ThingEventOutboxPublisherWorker,

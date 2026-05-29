@@ -3,7 +3,7 @@ from functools import lru_cache
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-from copilot.config import get_settings
+from copilot.core.config import get_settings
 
 
 class Base(DeclarativeBase):

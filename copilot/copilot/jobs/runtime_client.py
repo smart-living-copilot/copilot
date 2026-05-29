@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from copilot.settings import Settings
+from copilot.core.settings import Settings
 
 
 class WotRuntimeClient:

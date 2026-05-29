@@ -3,10 +3,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from copilot.config import get_settings
-from copilot.database import get_session_factory, init_db
-from copilot.health import router as health_router
-from copilot.lifecycle import shutdown_backend_runtime, start_backend_runtime
+from copilot.core.config import get_settings
+from copilot.core.database import get_session_factory, init_db
+from copilot.core.health import router as health_router
+from copilot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
 import copilot.api_keys.models  # noqa: F401 — register table before init_db()
 import copilot.things.credentials.models  # noqa: F401 — register table before init_db()
 import copilot.things.events.models  # noqa: F401 — register table before init_db()

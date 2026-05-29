@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, AIMessageChunk
 
 import copilot.agent_app as agent_app
-from copilot.settings import Settings
+from copilot.core.settings import Settings
 
 
 @asynccontextmanager

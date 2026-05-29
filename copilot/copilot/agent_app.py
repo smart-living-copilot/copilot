@@ -17,8 +17,8 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import BaseModel, Field
 
-from copilot.agent import _make_llm
-from copilot.agui_messages import strip_none_fields
+from copilot.core.llm import _make_llm
+from copilot.core.agui_messages import strip_none_fields
 from copilot.graph import build_graph
 from copilot.graph.checkpointer import CachingCheckpointSaver
 from copilot.media import (
@@ -27,7 +27,7 @@ from copilot.media import (
     parse_rtc_configuration,
     speech_pipelines,
 )
-from copilot.settings import Settings
+from copilot.core.settings import Settings
 from copilot.speech import SemanticTextChunker
 from copilot.thread_store import (
     create_thread,

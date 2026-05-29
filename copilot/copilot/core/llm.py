@@ -4,7 +4,7 @@ import logging
 
 from langchain_openai import ChatOpenAI
 
-from copilot.settings import Settings
+from copilot.core.settings import Settings
 
 logger = logging.getLogger(__name__)
 

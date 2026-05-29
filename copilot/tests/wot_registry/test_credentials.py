@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from copilot.config import get_settings
+from copilot.core.config import get_settings
 from copilot.registry_app import app
 
 
