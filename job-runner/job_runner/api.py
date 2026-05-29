@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from html import escape
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from job_runner.models import CreateJobRequest
 from job_runner.service import JobService
@@ -218,6 +219,41 @@ async def create_job(payload: CreateJobRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return job.model_dump()
+
+
+@app.get("/jobs/events")
+async def stream_job_events(request: Request):
+    _verify_internal_api_key(request)
+    service: JobService = app.state.service
+
+    async def event_stream():
+        yield ": connected\n\n"
+        async for event in service.subscribe_run_events():
+            if await request.is_disconnected():
+                break
+            payload = json.dumps(event, ensure_ascii=True)
+            yield f"data: {payload}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/jobs/{job_id}")
+async def get_job(job_id: str, request: Request):
+    _verify_internal_api_key(request)
+    service: JobService = app.state.service
+    try:
+        job = await service.get_job(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="job not found")
     return job.model_dump()
 
 
