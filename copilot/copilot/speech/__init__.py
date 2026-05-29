@@ -15,6 +15,7 @@ from copilot.speech.clients import (
     OpenAICompatibleTextToSpeechClient,
 )
 from copilot.speech.chunking import SemanticTextChunker
+from copilot.speech.manager import SpeechMediaSessionRegistry, SpeechPipelineManager
 from copilot.speech.pipeline import (
     AssistantResponse,
     AssistantResponseDelta,
@@ -53,6 +54,8 @@ __all__ = [
     "SemanticTextChunker",
     "SileroSpeechProbabilityDetector",
     "SpeechPipeline",
+    "SpeechMediaSessionRegistry",
+    "SpeechPipelineManager",
     "SpeechProbabilityDetector",
     "SpeechStarted",
     "SpeechSynthesizer",

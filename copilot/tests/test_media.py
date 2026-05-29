@@ -6,10 +6,10 @@ import numpy as np
 
 from copilot.media import (
     MediaSessionRegistry,
-    SpeechPipelineManager,
     media_sessions,
     parse_rtc_configuration,
 )
+from copilot.speech import SpeechPipelineManager
 
 
 class MediaSessionRegistryTestCase(unittest.TestCase):
@@ -166,7 +166,7 @@ class MediaSessionRegistryTestCase(unittest.TestCase):
 
 class SpeechPipelineManagerTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_outbound_audio_queue_drains_for_emit(self) -> None:
-        manager = SpeechPipelineManager()
+        manager = SpeechPipelineManager(media_sessions)
         frame = np.array([0.0, 0.25], dtype=np.float32)
 
         await manager.enqueue_output_audio("webrtc-a", frame)
@@ -182,7 +182,7 @@ class SpeechPipelineManagerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(empty)
 
     async def test_interrupt_playback_clears_outbound_audio(self) -> None:
-        manager = SpeechPipelineManager()
+        manager = SpeechPipelineManager(media_sessions)
         frame = np.array([0.0, 0.25], dtype=np.float32)
 
         await manager.enqueue_output_audio("webrtc-a", frame)
@@ -191,7 +191,7 @@ class SpeechPipelineManagerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await manager.next_output_audio("webrtc-a"))
 
     async def test_output_audio_emit_is_paced(self) -> None:
-        manager = SpeechPipelineManager()
+        manager = SpeechPipelineManager(media_sessions)
         frame = np.zeros(480, dtype=np.float32)
 
         await manager.enqueue_output_audio("webrtc-a", frame)
@@ -206,7 +206,7 @@ class SpeechPipelineManagerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(time.monotonic() - started_at, 0.015)
 
     async def test_interrupt_playback_stops_paced_frame_already_taken_by_emit(self) -> None:
-        manager = SpeechPipelineManager()
+        manager = SpeechPipelineManager(media_sessions)
         frame = np.zeros(480, dtype=np.float32)
 
         await manager.enqueue_output_audio("webrtc-a", frame)
@@ -229,7 +229,7 @@ class SpeechPipelineManagerTestCase(unittest.IsolatedAsyncioTestCase):
                 await release.wait()
                 yield b"\x00\x00" * 480
 
-        manager = SpeechPipelineManager()
+        manager = SpeechPipelineManager(media_sessions)
         manager._tts_client = DelayedTtsClient()
 
         task = asyncio.create_task(manager.synthesize_response("webrtc-interrupted-tts", "Hello"))
@@ -253,10 +253,10 @@ class SpeechPipelineManagerTestCase(unittest.IsolatedAsyncioTestCase):
                 raise RuntimeError("tts unavailable")
                 yield b""
 
-        manager = SpeechPipelineManager()
+        manager = SpeechPipelineManager(media_sessions)
         manager._tts_client = FailingTtsClient()
 
-        with self.assertLogs("copilot.media", level="ERROR"):
+        with self.assertLogs("copilot.speech.manager", level="ERROR"):
             await manager.synthesize_response("webrtc-tts-failed", "Hello")
 
         snapshot = media_sessions.get("webrtc-tts-failed")
