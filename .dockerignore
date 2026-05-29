@@ -1,0 +1,17 @@
+.git
+.gitignore
+.DS_Store
+.env
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+**/node_modules
+**/dist
+logs
+thing_descriptions
+data-replay/sources.yaml
+data-replay/data
+data-replay/fixtures.db

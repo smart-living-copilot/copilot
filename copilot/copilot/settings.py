@@ -2,18 +2,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # LLM
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
     openai_base_url: str = ""
 
-    # MCP / WoT Registry
-    wot_registry_url: str = "http://localhost:8000/mcp"
+    # WoT Registry REST API
+    wot_registry_url: str = "http://localhost:8000"
     wot_registry_token: str = ""
     wot_registry_timeout_seconds: int = 30
-    wot_registry_sse_read_timeout_seconds: int = 300
 
     # Agent
     max_iterations: int = 20

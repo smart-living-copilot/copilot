@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, AIMessageChunk
 
-import copilot.server as server
-from copilot.models import Settings
+import copilot.agent_app as agent_app
+from copilot.settings import Settings
 
 
 @asynccontextmanager
@@ -18,32 +18,32 @@ async def _noop_lifespan(_app):
     yield
 
 
-class ServerRoutesTestCase(unittest.TestCase):
+class AgentAppRoutesTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls._original_lifespan_context = server.app.router.lifespan_context
-        server.app.router.lifespan_context = _noop_lifespan
+        cls._original_lifespan_context = agent_app.app.router.lifespan_context
+        agent_app.app.router.lifespan_context = _noop_lifespan
 
     @classmethod
     def tearDownClass(cls) -> None:
-        server.app.router.lifespan_context = cls._original_lifespan_context
+        agent_app.app.router.lifespan_context = cls._original_lifespan_context
 
     def setUp(self) -> None:
-        self._original_settings = server._settings
-        self._original_agent = server._agent
-        self._original_graph = server._graph
-        self._original_checkpointer = server._checkpointer
-        self._original_thread_run_locks = server._thread_run_locks
-        server._thread_run_locks = {}
-        self.client = TestClient(server.app)
+        self._original_settings = agent_app._settings
+        self._original_agent = agent_app._agent
+        self._original_graph = agent_app._graph
+        self._original_checkpointer = agent_app._checkpointer
+        self._original_thread_run_locks = agent_app._thread_run_locks
+        agent_app._thread_run_locks = {}
+        self.client = TestClient(agent_app.app)
 
     def tearDown(self) -> None:
         self.client.close()
-        server._settings = self._original_settings
-        server._agent = self._original_agent
-        server._graph = self._original_graph
-        server._checkpointer = self._original_checkpointer
-        server._thread_run_locks = self._original_thread_run_locks
+        agent_app._settings = self._original_settings
+        agent_app._agent = self._original_agent
+        agent_app._graph = self._original_graph
+        agent_app._checkpointer = self._original_checkpointer
+        agent_app._thread_run_locks = self._original_thread_run_locks
 
     def test_ag_ui_health_route_reports_agent_name(self) -> None:
         response = self.client.get("/ag-ui/health")
@@ -80,34 +80,32 @@ class ServerRoutesTestCase(unittest.TestCase):
 
         async def exercise() -> None:
             with (
-                patch.object(server, "Settings", return_value=fake_settings),
-                patch.object(server, "init_thread_store"),
-                patch.object(server, "_make_llm", return_value=object()),
-                patch.object(server, "_make_mcp_client", return_value=object()),
-                patch.object(server, "_load_mcp_tools", AsyncMock(return_value=[])),
+                patch.object(agent_app, "Settings", return_value=fake_settings),
+                patch.object(agent_app, "init_thread_store"),
+                patch.object(agent_app, "_make_llm", return_value=object()),
                 patch.object(
-                    server.AsyncSqliteSaver,
+                    agent_app.AsyncSqliteSaver,
                     "from_conn_string",
                     return_value=FakeSaverContext(),
                 ),
-                patch.object(server, "CachingCheckpointSaver", return_value=object()),
-                patch.object(server, "build_graph", return_value=fake_graph),
-                patch.object(server, "LangGraphAGUIAgent", return_value=object()),
-                patch.object(server.speech_pipelines, "configure"),
-                patch.object(server.speech_pipelines, "stop_all", AsyncMock()),
+                patch.object(agent_app, "CachingCheckpointSaver", return_value=object()),
+                patch.object(agent_app, "build_graph", return_value=fake_graph),
+                patch.object(agent_app, "LangGraphAGUIAgent", return_value=object()),
+                patch.object(agent_app.speech_pipelines, "configure"),
+                patch.object(agent_app.speech_pipelines, "stop_all", AsyncMock()),
                 patch.object(
-                    server,
+                    agent_app,
                     "_flush_pending_checkpoints_on_shutdown",
                     AsyncMock(),
                 ),
             ):
-                async with server.lifespan(server.app):
-                    self.assertIs(server._graph, fake_graph)
+                async with agent_app.lifespan(agent_app.app):
+                    self.assertIs(agent_app._graph, fake_graph)
 
         asyncio.run(exercise())
 
     def test_media_rtc_configuration_includes_ice_gather_timeout(self) -> None:
-        server._settings = Settings(
+        agent_app._settings = Settings(
             internal_api_key="test-internal-key",
             media_rtc_configuration='{"iceServers":[]}',
             media_ice_gather_timeout_ms=500,
@@ -149,7 +147,7 @@ class ServerRoutesTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "agent_state.db"
             self._seed_checkpoint_db(db_path)
-            server._settings = Settings(
+            agent_app._settings = Settings(
                 internal_api_key="test-internal-key",
                 agent_state_db_path=str(db_path),
             )
@@ -196,11 +194,11 @@ class ServerRoutesTestCase(unittest.TestCase):
                 return []
 
         fake_checkpointer = FakeCheckpointer()
-        server._agent = FakeAgent()
-        server._checkpointer = fake_checkpointer
+        agent_app._agent = FakeAgent()
+        agent_app._checkpointer = fake_checkpointer
 
         async def collect_events():
-            proxy = server._AGUIAgentProxy()
+            proxy = agent_app._AGUIAgentProxy()
             return [event async for event in proxy.run({"threadId": "thread-a"})]
 
         events = asyncio.run(collect_events())
@@ -229,13 +227,13 @@ class ServerRoutesTestCase(unittest.TestCase):
 
         fake_graph = FakeGraph()
         fake_checkpointer = FakeCheckpointer()
-        server._graph = fake_graph
-        server._checkpointer = fake_checkpointer
+        agent_app._graph = fake_graph
+        agent_app._checkpointer = fake_checkpointer
 
         async def submit_twice():
             return await asyncio.gather(
-                server._submit_voice_transcript_to_chat("thread-a", "first"),
-                server._submit_voice_transcript_to_chat("thread-a", "second"),
+                agent_app._submit_voice_transcript_to_chat("thread-a", "first"),
+                agent_app._submit_voice_transcript_to_chat("thread-a", "second"),
             )
 
         results = asyncio.run(submit_twice())
@@ -274,12 +272,12 @@ class ServerRoutesTestCase(unittest.TestCase):
                 return None
 
         fake_graph = FakeGraph()
-        server._graph = fake_graph
-        server._checkpointer = FakeCheckpointer()
+        agent_app._graph = fake_graph
+        agent_app._checkpointer = FakeCheckpointer()
 
         async def exercise():
             task = asyncio.create_task(
-                server._submit_voice_transcript_to_chat("thread-a", "cancel me")
+                agent_app._submit_voice_transcript_to_chat("thread-a", "cancel me")
             )
             await asyncio.wait_for(fake_graph.started.wait(), timeout=1)
             task.cancel()
@@ -318,13 +316,13 @@ class ServerRoutesTestCase(unittest.TestCase):
 
         fake_graph = FakeGraph()
         fake_checkpointer = FakeCheckpointer()
-        server._graph = fake_graph
-        server._checkpointer = fake_checkpointer
+        agent_app._graph = fake_graph
+        agent_app._checkpointer = fake_checkpointer
 
         async def collect_chunks():
             return [
                 chunk
-                async for chunk in server._stream_voice_transcript_to_chat(
+                async for chunk in agent_app._stream_voice_transcript_to_chat(
                     "thread-a",
                     "turn on the light",
                 )
@@ -367,14 +365,14 @@ class ServerRoutesTestCase(unittest.TestCase):
 
         fake_graph = FakeGraph()
         fake_checkpointer = FakeCheckpointer()
-        server._graph = fake_graph
-        server._checkpointer = fake_checkpointer
+        agent_app._graph = fake_graph
+        agent_app._checkpointer = fake_checkpointer
 
         async def exercise():
             async def collect():
                 return [
                     chunk
-                    async for chunk in server._stream_voice_transcript_to_chat(
+                    async for chunk in agent_app._stream_voice_transcript_to_chat(
                         "thread-a",
                         "cancel me",
                     )
@@ -407,11 +405,11 @@ class ServerRoutesTestCase(unittest.TestCase):
                 return []
 
         fake_checkpointer = FakeCheckpointer()
-        server._agent = FakeAgent()
-        server._checkpointer = fake_checkpointer
+        agent_app._agent = FakeAgent()
+        agent_app._checkpointer = fake_checkpointer
 
         async def collect_events():
-            proxy = server._AGUIAgentProxy()
+            proxy = agent_app._AGUIAgentProxy()
             return [event async for event in proxy.run({"threadId": "embed-ephemeral-thread-a"})]
 
         events = asyncio.run(collect_events())
@@ -434,7 +432,7 @@ class ServerRoutesTestCase(unittest.TestCase):
         async def exercise() -> None:
             probe = OperationProbe()
             task = asyncio.create_task(
-                server._run_persistence_operation(
+                agent_app._run_persistence_operation(
                     probe.run(),
                     error_message="probe failed",
                 )
@@ -466,9 +464,9 @@ class ServerRoutesTestCase(unittest.TestCase):
                 self.deleted_threads.append(thread_id)
 
         fake_checkpointer = FakeCheckpointer()
-        server._checkpointer = fake_checkpointer
+        agent_app._checkpointer = fake_checkpointer
 
-        asyncio.run(server._flush_pending_checkpoints_on_shutdown())
+        asyncio.run(agent_app._flush_pending_checkpoints_on_shutdown())
 
         self.assertEqual(fake_checkpointer.deleted_threads, ["embed-ephemeral-thread-a"])
 
@@ -494,11 +492,11 @@ class ServerRoutesTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "agent_state.db"
             self._seed_checkpoint_db(db_path)
-            server._settings = Settings(
+            agent_app._settings = Settings(
                 internal_api_key="test-internal-key",
                 agent_state_db_path=str(db_path),
             )
-            server._checkpointer = FakeCheckpointer(db_path)
+            agent_app._checkpointer = FakeCheckpointer(db_path)
 
             response = self.client.delete(
                 "/threads/thread-a",
@@ -506,7 +504,7 @@ class ServerRoutesTestCase(unittest.TestCase):
             )
 
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(server._checkpointer.deleted_threads, ["thread-a"])
+            self.assertEqual(agent_app._checkpointer.deleted_threads, ["thread-a"])
             self.assertEqual(self._row_count(db_path, "writes", "thread-a"), 0)
             self.assertEqual(self._row_count(db_path, "checkpoints", "thread-a"), 0)
 

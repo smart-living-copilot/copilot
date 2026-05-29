@@ -7,10 +7,10 @@
 - `chat-ui` owns the browser experience and the authenticated edge.
 - `copilot` owns agent orchestration, prompts, tool use, LangGraph checkpoint state, and thread metadata.
 - `code-executor` runs stateful Python for the `run_code` tool.
-- `wot-registry` provides discovery, schema inspection, and runtime WoT actions through MCP and HTTP APIs.
+- `wot-registry` provides discovery, schema inspection, and runtime WoT actions through HTTP APIs.
 - the in-process job runner (`copilot/jobs`) schedules time/event automations and dispatches prompts into existing copilot threads.
 
-At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `copilot`, and `copilot` talks to MCP tools and `code-executor`. Automation jobs run inside `copilot` itself.
+At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `copilot`, and `copilot` uses local LangGraph tools for registry/runtime access and `code-executor` for Python execution. Automation jobs run inside `copilot` itself.
 
 ## Request Lifecycle
 
@@ -21,7 +21,7 @@ At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `
   -> copilot POST /ag-ui
   -> LangGraphAGUIAgent
   -> router branch
-  -> MCP tools and local tools
+  -> registry/runtime tools and local tools
   -> AG-UI stream back to chat-ui
 ```
 
@@ -123,13 +123,14 @@ Local tools are grouped separately:
 - [`get_current_time`](./copilot/tools/get_current_time.py)
 - [`run_code`](./copilot/tools/run_code.py)
 - [`create_job`, `create_analysis_job`, `list_jobs`, `run_job_now`, `delete_job`](./copilot/tools/job_scheduler.py)
+- registry/runtime tools live in [`copilot/tools/registry.py`](./copilot/tools/registry.py)
 
 ## Prompts And Few-Shots
 
 - Branch prompts live in [`copilot/prompts`](./copilot/prompts).
 - Analysis examples live in [`copilot/few_shots/analysis.py`](./copilot/few_shots/analysis.py).
 - Control examples live in [`copilot/few_shots/control.py`](./copilot/few_shots/control.py).
-- MCP tool descriptions are shortened in [`copilot/agent.py`](./copilot/agent.py) to make tool choice easier for smaller models.
+- Registry/runtime tools are grouped explicitly in [`copilot/graph/tool_groups.py`](./copilot/graph/tool_groups.py).
 
 Current behavior worth knowing:
 
@@ -196,16 +197,16 @@ The dev override:
 ```bash
 cd copilot
 pip install -e ".[dev]"
-uvicorn copilot.server:app --host 0.0.0.0 --port 8123 --reload
+uvicorn copilot.agent_app:app --host 0.0.0.0 --port 8123 --reload
 ```
 
 ## Environment Variables
 
-Defined in [`copilot/models/settings.py`](./copilot/models/settings.py):
+Defined in [`copilot/settings.py`](./copilot/settings.py):
 
 - `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL`
 - `WOT_REGISTRY_URL`, `WOT_REGISTRY_TOKEN`
-- `WOT_REGISTRY_TIMEOUT_SECONDS`, `WOT_REGISTRY_SSE_READ_TIMEOUT_SECONDS`
+- `WOT_REGISTRY_TIMEOUT_SECONDS`
 - `CODE_EXECUTOR_URL`, `CODE_EXECUTOR_TIMEOUT_SECONDS`
 - `JOB_RUNNER_URL`, `JOB_RUNNER_TIMEOUT_SECONDS` (the job tools call copilot's own `/jobs` API)
 - `JOBS_ENABLED`, `JOBS_DB_PATH`, `SCHEDULER_POLL_SECONDS`
@@ -249,8 +250,9 @@ Also defined today but not currently wired into the graph execution path:
 
 ## Important Files
 
-- [`copilot/server.py`](./copilot/server.py): FastAPI app, AG-UI endpoint registration, thread deletion
-- [`copilot/agent.py`](./copilot/agent.py): model factory, MCP client setup, MCP tool loading
+- [`copilot/agent_app.py`](./copilot/agent_app.py): LangGraph FastAPI app, AG-UI endpoint registration, thread deletion
+- [`copilot/registry_app.py`](./copilot/registry_app.py): WoT registry REST API app
+- [`copilot/agent.py`](./copilot/agent.py): model factory
 - [`copilot/graph/builder.py`](./copilot/graph/builder.py): graph assembly
 - [`copilot/graph/nodes.py`](./copilot/graph/nodes.py): node behavior, prompt shaping, tool truncation
 - [`copilot/graph/tool_groups.py`](./copilot/graph/tool_groups.py): explicit tool grouping

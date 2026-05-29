@@ -1,28 +1,38 @@
 [project]
 name = "copilot"
 version = "0.1.0"
-description = "A LangChain-powered smart home copilot with WoT registry integration via MCP"
+description = "A LangChain-powered smart home copilot with WoT registry integration"
 requires-python = ">=3.12"
 dependencies = [
     "langchain>=0.3",
     "langchain-openai>=1.1",
-    "langchain-mcp-adapters>=0.2",
     "langgraph>=0.4",
     "langgraph-prebuilt<1.0.8",
     "langgraph-checkpoint-sqlite>=2.0",
     "copilotkit>=0.1.31",
-    "fastapi>=0.115",
+    "fastapi>=0.128,<1",
     "fastrtc>=0.0.34",
-    "uvicorn[standard]>=0.34",
+    "uvicorn[standard]>=0.37,<1",
     "aiosqlite>=0.20",
     "pydantic-settings>=2.7",
     "httpx>=0.27",
-    "redis>=5.2",
+    "redis>=6.4,<7",
     "silero-vad[onnx-cpu]>=6.2",
+    "aiohttp>=3.10",
+    "chromadb>=1.5,<2",
+    "jsonschema>=4.25.1,<5",
+    "langchain-chroma>=1.1,<2",
+    "langchain-core>=1.0,<2",
+    "openai>=2.29,<3",
+    "psycopg[binary,pool]>=3.2,<4",
+    "python-dotenv>=1.0",
+    "python-multipart>=0.0.20",
+    "sqlalchemy>=2.0.43,<3",
 ]
 
 [project.optional-dependencies]
-dev = ["ruff", "mypy"]
+dev = ["ruff", "mypy", "pytest>=8,<10"]
+test = ["pytest>=8,<10", "httpx>=0.27,<1", "anyio>=4,<5"]
 
 [build-system]
 requires = ["hatchling"]
@@ -30,6 +40,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["copilot"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"copilot/things/td-schema.json" = "copilot/things/td-schema.json"
 
 [tool.ruff]
 target-version = "py312"

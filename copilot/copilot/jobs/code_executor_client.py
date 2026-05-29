@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from copilot.models import Settings
+from copilot.settings import Settings
 
 
 logger = logging.getLogger(__name__)

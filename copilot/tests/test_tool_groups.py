@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from copilot.graph.tool_groups import group_local_tools, partition_mcp_tools
+from copilot.graph.tool_groups import group_local_tools, partition_registry_tools
 
 
 def _tool(name: str) -> SimpleNamespace:
@@ -9,12 +9,16 @@ def _tool(name: str) -> SimpleNamespace:
 
 
 class ToolGroupsTestCase(unittest.TestCase):
-    def test_partition_mcp_tools_uses_explicit_name_groups(self) -> None:
-        grouped = partition_mcp_tools(
+    def test_partition_registry_tools_uses_explicit_name_groups(self) -> None:
+        grouped = partition_registry_tools(
             [
+                _tool("registry_health"),
                 _tool("things_search"),
+                _tool("things_validate"),
                 _tool("things_get"),
+                _tool("wot_get_runtime_health"),
                 _tool("wot_read_property"),
+                _tool("things_upsert"),
                 _tool("wot_invoke_action"),
                 _tool("unknown_tool"),
             ]
@@ -22,20 +26,25 @@ class ToolGroupsTestCase(unittest.TestCase):
 
         self.assertEqual(
             [tool.name for tool in grouped.discovery],
-            ["things_search"],
+            ["registry_health", "things_search"],
         )
-        self.assertEqual([tool.name for tool in grouped.inspect], ["things_get"])
+        self.assertEqual([tool.name for tool in grouped.inspect], ["things_validate", "things_get"])
         self.assertEqual(
             [tool.name for tool in grouped.runtime],
-            ["wot_read_property", "wot_invoke_action"],
+            [
+                "wot_get_runtime_health",
+                "wot_read_property",
+                "things_upsert",
+                "wot_invoke_action",
+            ],
         )
         self.assertEqual(
             [tool.name for tool in grouped.runtime_read],
-            ["wot_read_property"],
+            ["wot_get_runtime_health", "wot_read_property"],
         )
         self.assertEqual(
             [tool.name for tool in grouped.discovery_and_inspect],
-            ["things_search", "things_get"],
+            ["registry_health", "things_search", "things_validate", "things_get"],
         )
 
     def test_group_local_tools_requires_expected_tools(self) -> None:

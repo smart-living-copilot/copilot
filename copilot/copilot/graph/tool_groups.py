@@ -6,18 +6,22 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DISCOVERY_NAMES = {"things_list", "things_search"}
+_DISCOVERY_NAMES = {"registry_health", "things_list", "things_search"}
 _INSPECT_NAMES = {
+    "things_validate",
     "things_get",
     "wot_get_action",
     "wot_get_property",
     "wot_get_event",
 }
 _RUNTIME_READ_NAMES = {
+    "wot_get_runtime_health",
     "wot_read_property",
     "wot_observe_property",
 }
 _RUNTIME_WRITE_NAMES = {
+    "things_upsert",
+    "things_delete",
     "wot_invoke_action",
     "wot_write_property",
     "wot_subscribe_event",
@@ -27,7 +31,7 @@ _RUNTIME_NAMES = _RUNTIME_READ_NAMES | _RUNTIME_WRITE_NAMES
 
 
 @dataclass(frozen=True)
-class McpToolGroups:
+class RegistryToolGroups:
     discovery: list[Any]
     inspect: list[Any]
     runtime: list[Any]
@@ -46,13 +50,13 @@ class LocalToolGroups:
     job_tools: list[Any]
 
 
-def partition_mcp_tools(mcp_tools: list[Any]) -> McpToolGroups:
-    """Split MCP tools into functional groups by explicit name."""
+def partition_registry_tools(registry_tools: list[Any]) -> RegistryToolGroups:
+    """Split registry tools into functional groups by explicit name."""
     discovery: list[Any] = []
     inspect: list[Any] = []
     runtime: list[Any] = []
 
-    for tool in mcp_tools:
+    for tool in registry_tools:
         name = tool.name
         if name in _DISCOVERY_NAMES:
             discovery.append(tool)
@@ -61,11 +65,11 @@ def partition_mcp_tools(mcp_tools: list[Any]) -> McpToolGroups:
         elif name in _RUNTIME_NAMES:
             runtime.append(tool)
         else:
-            logger.debug("MCP tool %r not assigned to any partition group", name)
+            logger.debug("Registry tool %r not assigned to any partition group", name)
 
     runtime_read = [tool for tool in runtime if tool.name in _RUNTIME_READ_NAMES]
 
-    return McpToolGroups(
+    return RegistryToolGroups(
         discovery=discovery,
         inspect=inspect,
         runtime=runtime,

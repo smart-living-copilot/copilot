@@ -8,7 +8,7 @@ services:
       - ./copilot/tests:/app/tests:cached
     environment:
       LOG_LEVEL: "DEBUG"
-    entrypoint: ["uvicorn", "copilot.server:app", "--host", "0.0.0.0", "--port", "8123", "--reload", "--reload-dir", "copilot"]
+    entrypoint: ["uvicorn", "copilot.agent_app:app", "--host", "0.0.0.0", "--port", "8123", "--reload", "--reload-dir", "copilot"]
 
   chat-ui:
     build:
@@ -49,3 +49,25 @@ services:
       - ./data-replay/td_generator.py:/app/td_generator.py:cached
       - ./data-replay:/app/data:ro
     entrypoint: ["uvicorn", "replay_server:app", "--host", "0.0.0.0", "--port", "9000", "--reload"]
+
+  wot-registry:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.registry
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./copilot/copilot:/app/copilot/copilot:cached
+    environment:
+      REGISTRY_PUBLIC_URL: "http://localhost:8000"
+    entrypoint: ["uvicorn", "copilot.registry_app:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/copilot/copilot"]
+
+  wot-runtime:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.runtime
+      target: deps
+    volumes:
+      - ./wot_runtime:/app:cached
+      - /app/node_modules
+    command: ["npx", "tsx", "watch", "src/index.ts"]

@@ -5,7 +5,7 @@ services:
     volumes:
       - copilot-data:/data
     environment:
-      WOT_REGISTRY_URL: "${WOT_REGISTRY_URL:-http://wot-registry:8000/mcp}"
+      WOT_REGISTRY_URL: "${WOT_REGISTRY_URL:-http://wot-registry:8000}"
       WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
       CODE_EXECUTOR_URL: "http://code-executor:8888"
       JOB_RUNNER_URL: "http://copilot:8123"

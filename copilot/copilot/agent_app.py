@@ -11,15 +11,13 @@ import aiosqlite
 from ag_ui_langgraph import add_langgraph_fastapi_endpoint
 from copilotkit import LangGraphAGUIAgent
 from fastapi import FastAPI, HTTPException, Request
-from langchain_core.messages import AIMessage, HumanMessage
-from fastapi.encoders import jsonable_encoder
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import BaseModel, Field
 
-from copilot.agent import _load_mcp_tools, _make_llm, _make_mcp_client
+from copilot.agent import _make_llm
 from copilot.agui_messages import strip_none_fields
 from copilot.graph import build_graph
 from copilot.graph.checkpointer import CachingCheckpointSaver
@@ -29,7 +27,7 @@ from copilot.media import (
     parse_rtc_configuration,
     speech_pipelines,
 )
-from copilot.models import Settings
+from copilot.settings import Settings
 from copilot.speech import SemanticTextChunker
 from copilot.thread_store import (
     create_thread,
@@ -41,7 +39,7 @@ from copilot.thread_store import (
     update_thread_title,
 )
 from copilot.thread_titles import suggest_thread_title
-from copilot.tools import AVAILABLE_TOOLS
+from copilot.tools import LOCAL_TOOLS, REGISTRY_TOOLS
 from copilot.jobs import JobService, router as jobs_router
 
 logger = logging.getLogger(__name__)
@@ -53,7 +51,6 @@ NOISY_MEDIA_LOGGERS = (
 )
 
 # Module-level references kept alive for the process lifetime.
-_mcp_client = None
 _agent: LangGraphAGUIAgent | None = None
 _graph: Any | None = None
 _checkpointer: CachingCheckpointSaver | None = None
@@ -61,7 +58,6 @@ _settings: Settings | None = None
 _job_service: JobService | None = None
 _thread_run_locks: dict[str, asyncio.Lock] = {}
 _thread_run_locks_guard = asyncio.Lock()
-_graph: Any | None = None
 
 
 class JobDispatchRequest(BaseModel):
@@ -320,7 +316,7 @@ async def dispatch_prompt_to_graph(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mcp_client, _agent, _graph, _checkpointer, _settings, _job_service
+    global _agent, _graph, _checkpointer, _settings, _job_service
 
     settings = Settings()
     _settings = settings
@@ -331,16 +327,13 @@ async def lifespan(app: FastAPI):
 
     llm = _make_llm(settings)
 
-    _mcp_client = _make_mcp_client(settings)
-    mcp_tools = await _load_mcp_tools(_mcp_client)
-
     async with AsyncSqliteSaver.from_conn_string(settings.agent_state_db_path) as sqlite_saver:
         _checkpointer = CachingCheckpointSaver(sqlite_saver)
         checkpointer = _checkpointer
         graph = build_graph(
             llm=llm,
-            mcp_tools=mcp_tools,
-            local_tools=AVAILABLE_TOOLS,
+            registry_tools=REGISTRY_TOOLS,
+            local_tools=LOCAL_TOOLS,
             max_tokens=settings.max_context_tokens,
             checkpointer=checkpointer,
             parallel_tool_calls=settings.parallel_tool_calls,
@@ -356,8 +349,8 @@ async def lifespan(app: FastAPI):
         )
 
         logger.info(
-            "Graph created with %d MCP tools, model=%s, recursion_limit=%d",
-            len(mcp_tools),
+            "Graph created with %d registry tools, model=%s, recursion_limit=%d",
+            len(REGISTRY_TOOLS),
             settings.openai_model,
             settings.recursion_limit,
         )

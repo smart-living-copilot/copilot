@@ -3,11 +3,13 @@ __pycache__/
 *.pyc
 .env
 dist/
+node_modules/
 *.egg-info/
 .venv/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+wot_registry.db
 thing_descriptions
 data-replay/sources.yaml
 data-replay/data/

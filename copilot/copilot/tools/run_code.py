@@ -4,7 +4,7 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from copilot.models import Settings
+from copilot.settings import Settings
 
 _settings = Settings()
 

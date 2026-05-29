@@ -15,12 +15,12 @@ from copilot.graph.nodes import (
     make_router_node,
     respond_should_continue,
 )
-from copilot.graph.tool_groups import group_local_tools, partition_mcp_tools
+from copilot.graph.tool_groups import group_local_tools, partition_registry_tools
 
 
 def build_graph(
     llm: ChatOpenAI,
-    mcp_tools: list[Any],
+    registry_tools: list[Any],
     local_tools: list[Any],
     max_tokens: int,
     checkpointer=None,
@@ -29,7 +29,7 @@ def build_graph(
     vision_enabled: bool = False,
 ):
     """Build and compile the copilot StateGraph."""
-    mcp_tool_groups = partition_mcp_tools(mcp_tools)
+    registry_tool_groups = partition_registry_tools(registry_tools)
     local_tool_groups = group_local_tools(local_tools, vision_enabled=vision_enabled)
 
     vision_tools: list[Any] = (
@@ -48,7 +48,7 @@ def build_graph(
     graph.add_node("respond_tools", ToolNode(respond_tools))
 
     control_tools = (
-        mcp_tool_groups.discovery_and_inspect + mcp_tool_groups.runtime + vision_tools
+        registry_tool_groups.discovery_and_inspect + registry_tool_groups.runtime + vision_tools
         + local_tool_groups.job_tools
     )
     graph.add_node(
@@ -58,8 +58,8 @@ def build_graph(
     graph.add_node("control_tools", ToolNode(control_tools))
 
     analysis_tools = (
-        mcp_tool_groups.discovery_and_inspect
-        + mcp_tool_groups.runtime_read
+        registry_tool_groups.discovery_and_inspect
+        + registry_tool_groups.runtime_read
         + [local_tool_groups.run_code]
         + vision_tools
         + local_tool_groups.job_tools
