@@ -61,10 +61,13 @@ def get_session() -> Iterator[Session]:
 def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
     """Create or update the Postgres schema owned by the copilot service."""
     connection_pool = pool or get_connection_pool()
+    vector_dimensions = get_settings().SEARCH_VECTOR_DIMENSIONS
     with connection_pool.connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                """
+                f"""
+                CREATE EXTENSION IF NOT EXISTS vector;
+
                 CREATE TABLE IF NOT EXISTS api_keys (
                     id TEXT PRIMARY KEY,
                     key_prefix TEXT NOT NULL,
@@ -118,6 +121,23 @@ def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
 
                 CREATE INDEX IF NOT EXISTS idx_thing_event_outbox_pending
                     ON thing_event_outbox(published_at, id);
+
+                CREATE TABLE IF NOT EXISTS search_index_chunks (
+                    chunk_id TEXT PRIMARY KEY,
+                    thing_id TEXT NOT NULL,
+                    page_content TEXT NOT NULL,
+                    metadata_json JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                    embedding vector({vector_dimensions}) NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_search_index_chunks_thing_id
+                    ON search_index_chunks(thing_id);
+
+                CREATE INDEX IF NOT EXISTS idx_search_index_chunks_embedding_hnsw
+                    ON search_index_chunks
+                    USING hnsw (embedding vector_cosine_ops);
 
                 CREATE TABLE IF NOT EXISTS jobs (
                     id TEXT PRIMARY KEY,

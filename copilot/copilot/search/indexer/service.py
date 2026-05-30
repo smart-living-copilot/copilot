@@ -54,8 +54,7 @@ class SearchIndexerService:
         )
         self._vector_store = vector_store or SearchVectorStore(
             embeddings=self._embeddings,
-            collection_name=settings.SEARCH_VECTOR_COLLECTION_NAME,
-            persist_directory=settings.SEARCH_VECTOR_STORE_DIR,
+            embedding_dimensions=settings.SEARCH_VECTOR_DIMENSIONS,
         )
 
     async def start(self) -> None:

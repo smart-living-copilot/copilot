@@ -102,6 +102,7 @@ def clear_backend_state(monkeypatch):
     monkeypatch.setenv("REGISTRY_PUBLIC_URL", "http://testserver")
     monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
     monkeypatch.setenv("OPENAI_MODEL", "gpt-test")
+    monkeypatch.setenv("SEARCH_VECTOR_DIMENSIONS", "4")
     monkeypatch.setenv("WOT_RUNTIME_REGISTRY_TOKEN", "test-runtime-registry-token")
     monkeypatch.setenv("WOT_RUNTIME_API_TOKEN", "test-runtime-api-token")
 
@@ -117,7 +118,7 @@ def clear_backend_state(monkeypatch):
         connection.execute(
             """
             TRUNCATE api_keys, things, thing_credentials, thing_event_outbox,
-                threads, jobs
+                search_index_chunks, threads, jobs
             RESTART IDENTITY CASCADE
             """
         )

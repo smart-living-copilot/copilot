@@ -50,8 +50,7 @@ class Settings:
     INIT_ADMIN_TOKEN: str | None
     WOT_RUNTIME_REGISTRY_TOKEN: str | None
     WOT_RUNTIME_API_TOKEN: str | None
-    SEARCH_VECTOR_COLLECTION_NAME: str
-    SEARCH_VECTOR_STORE_DIR: str
+    SEARCH_VECTOR_DIMENSIONS: int
     SEARCH_INDEXER_EVENTS_GROUP: str
     SEARCH_INDEXER_EVENTS_CONSUMER: str
     SEARCH_INDEXER_POLL_BLOCK_MS: int
@@ -120,14 +119,7 @@ def get_settings() -> Settings:
         INIT_ADMIN_TOKEN=os.getenv("INIT_ADMIN_TOKEN") or None,
         WOT_RUNTIME_REGISTRY_TOKEN=os.getenv("WOT_RUNTIME_REGISTRY_TOKEN") or None,
         WOT_RUNTIME_API_TOKEN=os.getenv("WOT_RUNTIME_API_TOKEN") or None,
-        SEARCH_VECTOR_COLLECTION_NAME=os.getenv(
-            "SEARCH_VECTOR_COLLECTION_NAME",
-            "thing_search",
-        ),
-        SEARCH_VECTOR_STORE_DIR=os.getenv(
-            "SEARCH_VECTOR_STORE_DIR",
-            "./data/search-index",
-        ),
+        SEARCH_VECTOR_DIMENSIONS=_positive_int_env("SEARCH_VECTOR_DIMENSIONS", 1024),
         SEARCH_INDEXER_EVENTS_GROUP=os.getenv(
             "SEARCH_INDEXER_EVENTS_GROUP", "thing_search_indexer"
         ),

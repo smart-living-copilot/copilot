@@ -77,11 +77,10 @@ def test_extract_message_text_reads_block_payload():
 
 
 @pytest.mark.anyio
-async def test_chroma_search_vector_store_round_trip(tmp_path):
+async def test_pgvector_search_vector_store_round_trip():
     store = SearchVectorStore(
         embeddings=FakeEmbeddings(),
-        collection_name="thing-search-test",
-        persist_directory=str(tmp_path / "search-index"),
+        embedding_dimensions=4,
     )
     thing_id = "urn:thing:alpha"
     await store.replace_thing_chunks(
@@ -112,11 +111,10 @@ async def test_chroma_search_vector_store_round_trip(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_chroma_store_skips_empty_list_metadata_values(tmp_path):
+async def test_pgvector_store_preserves_empty_list_metadata_values():
     store = SearchVectorStore(
         embeddings=FakeEmbeddings(),
-        collection_name="thing-search-empty-lists",
-        persist_directory=str(tmp_path / "search-index"),
+        embedding_dimensions=4,
     )
     thing_id = "urn:thing:empty-meta"
 
@@ -145,5 +143,5 @@ async def test_chroma_store_skips_empty_list_metadata_values(tmp_path):
     assert stored is not None
     assert stored.metadata["id"] == thing_id
     assert stored.metadata["title"] == "No Tag Thing"
-    assert stored.metadata.get("tags") is None
-    assert stored.metadata.get("locationCandidates") is None
+    assert stored.metadata["tags"] == []
+    assert stored.metadata["locationCandidates"] == []

@@ -36,8 +36,7 @@ class ThingSearchService:
         )
         self._vector_store = SearchVectorStore(
             embeddings=self._embeddings,
-            collection_name=self._settings.SEARCH_VECTOR_COLLECTION_NAME,
-            persist_directory=self._settings.SEARCH_VECTOR_STORE_DIR,
+            embedding_dimensions=self._settings.SEARCH_VECTOR_DIMENSIONS,
         )
 
     async def search(self, query: str, k: int = 5) -> list[dict[str, Any]]:

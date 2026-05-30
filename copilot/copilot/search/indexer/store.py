@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import math
+from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
-from langchain_chroma import Chroma
-from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session, sessionmaker
 
-
-MetadataScalar = str | int | float | bool
+from copilot.core.database import get_session_factory
+from copilot.search.indexer.models import SearchIndexChunk
 
 
 @dataclass(frozen=True)
@@ -36,40 +38,9 @@ def _distance_to_score(value: Any) -> float:
         distance = float(value)
     except (TypeError, ValueError):
         return 0.0
-    return 1.0 / (1.0 + max(distance, 0.0))
-
-
-def _is_metadata_scalar(value: Any) -> bool:
-    return isinstance(value, (str, int, float, bool))
-
-
-def _sanitize_metadata_for_chroma(metadata: dict[str, Any]) -> dict[str, Any]:
-    sanitized: dict[str, MetadataScalar | list[MetadataScalar]] = {}
-    for key, value in metadata.items():
-        if value is None:
-            continue
-
-        if _is_metadata_scalar(value):
-            sanitized[key] = value
-            continue
-
-        if isinstance(value, list):
-            items = [item for item in value if _is_metadata_scalar(item)]
-            if items:
-                sanitized[key] = items
-
-    return sanitized
-
-
-def _document_to_langchain_document(
-    chunk_id: str,
-    document: SearchIndexDocument,
-) -> Document:
-    return Document(
-        id=chunk_id,
-        page_content=document.page_content,
-        metadata=_sanitize_metadata_for_chroma(document.metadata),
-    )
+    if not math.isfinite(distance):
+        return 0.0
+    return max(0.0, min(1.0, 1.0 - distance))
 
 
 class SearchVectorStore:
@@ -77,19 +48,18 @@ class SearchVectorStore:
         self,
         *,
         embeddings: Embeddings | None,
-        collection_name: str,
-        persist_directory: str,
+        embedding_dimensions: int,
+        session_factory: sessionmaker[Session] | None = None,
     ) -> None:
+        if embedding_dimensions < 1:
+            raise ValueError("embedding_dimensions must be a positive integer")
+
         self._embeddings = embeddings
-        self._persist_directory = Path(persist_directory)
-        self._vector_store = Chroma(
-            collection_name=collection_name,
-            embedding_function=embeddings,
-            persist_directory=str(self._persist_directory),
-        )
+        self._embedding_dimensions = embedding_dimensions
+        self._session_factory = session_factory or get_session_factory()
 
     async def ensure_schema(self) -> None:
-        self._persist_directory.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(self._ensure_schema_sync)
 
     async def query_similar(
         self,
@@ -97,32 +67,23 @@ class SearchVectorStore:
         *,
         limit: int,
     ) -> list[SearchIndexMatch]:
+        if limit < 1:
+            return []
+
         await self.ensure_schema()
-        self._require_embeddings()
-        matches = await self._vector_store.asimilarity_search_with_score(
-            query,
-            k=limit,
+        embeddings = self._require_embeddings()
+        query_embedding = self._validate_embedding(
+            await embeddings.aembed_query(query),
         )
-        return [
-            SearchIndexMatch(
-                chunk_id=document.id or "",
-                document=document.page_content,
-                metadata=_coerce_metadata(document.metadata),
-                score=_distance_to_score(score),
-            )
-            for document, score in matches
-        ]
+        return await asyncio.to_thread(
+            self._query_similar_sync,
+            query_embedding,
+            limit,
+        )
 
     async def get_device_chunk(self, thing_id: str) -> SearchIndexDocument | None:
         await self.ensure_schema()
-        documents = await self._vector_store.aget_by_ids([thing_id])
-        if not documents:
-            return None
-        document = documents[0]
-        return SearchIndexDocument(
-            page_content=document.page_content,
-            metadata=_coerce_metadata(document.metadata),
-        )
+        return await asyncio.to_thread(self._get_device_chunk_sync, thing_id)
 
     async def replace_thing_chunks(
         self,
@@ -130,42 +91,175 @@ class SearchVectorStore:
         chunks: list[tuple[str, SearchIndexDocument]],
     ) -> None:
         await self.ensure_schema()
-        existing_chunk_ids = set(await self._get_chunk_ids(thing_id))
-        next_chunk_ids = [chunk_id for chunk_id, _ in chunks]
+        documents_by_id = dict(chunks)
+        next_chunk_ids = list(documents_by_id)
 
-        if chunks:
-            # Keep the previous index intact until the new documents have been
-            # written successfully.
-            self._require_embeddings()
-            await self._vector_store.aadd_documents(
-                [
-                    _document_to_langchain_document(chunk_id, document)
-                    for chunk_id, document in chunks
-                ],
-                ids=next_chunk_ids,
+        rows: list[dict[str, Any]] = []
+        if documents_by_id:
+            embeddings = self._require_embeddings()
+            documents = list(documents_by_id.values())
+            vectors = await embeddings.aembed_documents(
+                [document.page_content for document in documents]
             )
+            rows = [
+                {
+                    "chunk_id": chunk_id,
+                    "thing_id": thing_id,
+                    "page_content": document.page_content,
+                    "metadata_json": dict(document.metadata),
+                    "embedding": self._validate_embedding(vector),
+                }
+                for chunk_id, document, vector in zip(
+                    next_chunk_ids,
+                    documents,
+                    vectors,
+                    strict=True,
+                )
+            ]
 
-        stale_chunk_ids = sorted(existing_chunk_ids.difference(next_chunk_ids))
-        if stale_chunk_ids:
-            await self._vector_store.adelete(ids=stale_chunk_ids)
+        await asyncio.to_thread(
+            self._replace_thing_chunks_sync,
+            thing_id,
+            next_chunk_ids,
+            rows,
+        )
 
     async def delete_thing_chunks(self, thing_id: str) -> None:
         await self.ensure_schema()
-        chunk_ids = await self._get_chunk_ids(thing_id)
-        if chunk_ids:
-            await self._vector_store.adelete(ids=chunk_ids)
+        await asyncio.to_thread(self._delete_thing_chunks_sync, thing_id)
 
-    async def _get_chunk_ids(self, thing_id: str) -> list[str]:
-        result = await asyncio.to_thread(
-            self._vector_store.get,
-            where={"id": thing_id},
-            include=[],
+    def _ensure_schema_sync(self) -> None:
+        with self._session_factory() as session:
+            session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            session.execute(
+                text(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS search_index_chunks (
+                        chunk_id TEXT PRIMARY KEY,
+                        thing_id TEXT NOT NULL,
+                        page_content TEXT NOT NULL,
+                        metadata_json JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                        embedding vector({self._embedding_dimensions}) NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+            )
+            session.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_search_index_chunks_thing_id
+                        ON search_index_chunks(thing_id)
+                    """
+                )
+            )
+            session.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_search_index_chunks_embedding_hnsw
+                        ON search_index_chunks
+                        USING hnsw (embedding vector_cosine_ops)
+                    """
+                )
+            )
+            session.commit()
+
+    def _query_similar_sync(
+        self,
+        query_embedding: list[float],
+        limit: int,
+    ) -> list[SearchIndexMatch]:
+        distance = SearchIndexChunk.embedding.cosine_distance(query_embedding).label(
+            "distance"
         )
-        ids = result.get("ids", [])
-        return [str(chunk_id) for chunk_id in ids if isinstance(chunk_id, str)]
+        stmt = (
+            select(SearchIndexChunk, distance)
+            .order_by(distance, SearchIndexChunk.chunk_id)
+            .limit(limit)
+        )
+        with self._session_factory() as session:
+            rows = session.execute(stmt).all()
 
-    def _require_embeddings(self) -> None:
+        return [
+            SearchIndexMatch(
+                chunk_id=chunk.chunk_id,
+                document=chunk.page_content,
+                metadata=_coerce_metadata(chunk.metadata_json),
+                score=_distance_to_score(row_distance),
+            )
+            for chunk, row_distance in rows
+        ]
+
+    def _get_device_chunk_sync(self, thing_id: str) -> SearchIndexDocument | None:
+        stmt = (
+            select(SearchIndexChunk)
+            .where(SearchIndexChunk.thing_id == thing_id)
+            .order_by(SearchIndexChunk.chunk_id)
+            .limit(1)
+        )
+        with self._session_factory() as session:
+            chunk = session.scalar(stmt)
+
+        if chunk is None:
+            return None
+        return SearchIndexDocument(
+            page_content=chunk.page_content,
+            metadata=_coerce_metadata(chunk.metadata_json),
+        )
+
+    def _replace_thing_chunks_sync(
+        self,
+        thing_id: str,
+        next_chunk_ids: list[str],
+        rows: list[dict[str, Any]],
+    ) -> None:
+        with self._session_factory() as session:
+            if rows:
+                stmt = insert(SearchIndexChunk).values(rows)
+                session.execute(
+                    stmt.on_conflict_do_update(
+                        index_elements=[SearchIndexChunk.chunk_id],
+                        set_={
+                            "thing_id": stmt.excluded.thing_id,
+                            "page_content": stmt.excluded.page_content,
+                            "metadata_json": stmt.excluded.metadata_json,
+                            "embedding": stmt.excluded.embedding,
+                            "updated_at": func.now(),
+                        },
+                    )
+                )
+
+            stale_delete = delete(SearchIndexChunk).where(
+                SearchIndexChunk.thing_id == thing_id
+            )
+            if next_chunk_ids:
+                stale_delete = stale_delete.where(
+                    SearchIndexChunk.chunk_id.not_in(next_chunk_ids)
+                )
+            session.execute(stale_delete)
+            session.commit()
+
+    def _delete_thing_chunks_sync(self, thing_id: str) -> None:
+        with self._session_factory() as session:
+            session.execute(
+                delete(SearchIndexChunk).where(SearchIndexChunk.thing_id == thing_id)
+            )
+            session.commit()
+
+    def _validate_embedding(self, embedding: Sequence[float]) -> list[float]:
+        values = [float(value) for value in embedding]
+        if len(values) != self._embedding_dimensions:
+            raise RuntimeError(
+                "Embedding dimension mismatch: "
+                f"SEARCH_VECTOR_DIMENSIONS is {self._embedding_dimensions}, "
+                f"but the embedding provider returned {len(values)} values."
+            )
+        return values
+
+    def _require_embeddings(self) -> Embeddings:
         if self._embeddings is None:
             raise RuntimeError(
-                "OPENAI_API_KEY must be set for semantic search operations."
+                "OPENAI_EMBEDDING_API_KEY must be set for semantic search operations."
             )
+        return self._embeddings
