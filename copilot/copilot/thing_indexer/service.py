@@ -5,18 +5,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from copilot.core.config import Settings
-from copilot.indexer.chunking import generate_chunk
-from copilot.indexer.embeddings import (
+from copilot.thing_indexer.chunking import generate_chunk
+from copilot.search.embeddings import (
     create_openai_embeddings,
     create_openai_client,
 )
-from copilot.indexer.metadata import build_index_metadata
-from copilot.indexer.prompting import (
+from copilot.thing_indexer.metadata import build_index_metadata
+from copilot.thing_indexer.prompting import (
     SUMMARY_PROMPT_VERSION,
     generate_summary,
 )
 from copilot.search.vector_store import SearchVectorStore
-from copilot.indexer.summary_utils import (
+from copilot.thing_indexer.summary_utils import (
     ThingTDMetadata,
     clean_text,
     compute_td_hash,
@@ -67,11 +67,11 @@ class SearchIndexerService:
     async def _validate_dependencies(self) -> None:
         if not self._settings.OPENAI_API_KEY:
             raise RuntimeError(
-                "OPENAI_API_KEY must be set for search indexer embedding generation."
+                "OPENAI_API_KEY must be set for thing indexer embedding generation."
             )
         if not self._settings.OPENAI_MODEL:
             raise RuntimeError(
-                "OPENAI_MODEL must be set for search indexer LLM summarization."
+                "OPENAI_MODEL must be set for thing indexer LLM summarization."
             )
         await self._vector_store.ensure_schema()
 

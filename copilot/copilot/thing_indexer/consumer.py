@@ -7,10 +7,10 @@ from dataclasses import dataclass
 import redis.asyncio as redis
 
 from copilot.core.config import Settings
-from copilot.indexer.runtime import SearchIndexerStreamConfig
-from copilot.indexer.service import SearchIndexerService
+from copilot.thing_indexer.runtime import SearchIndexerStreamConfig
+from copilot.thing_indexer.service import SearchIndexerService
 from copilot.search.vector_store import SearchVectorStore
-from copilot.indexer.stream_utils import parse_stream_event
+from copilot.thing_indexer.stream_utils import parse_stream_event
 from copilot.core.stream_runtime import StreamConsumerState, ensure_stream_group
 
 
@@ -58,7 +58,7 @@ class SearchIndexerStreamConsumer:
                     raise
                 except Exception as exc:
                     self._state.last_error = str(exc)
-                    logger.error("Search indexer listener error: %s", exc)
+                    logger.error("Thing indexer listener error: %s", exc)
                     logger.info("Retrying in %ss", self._stream.retry_seconds)
                     await asyncio.sleep(self._stream.retry_seconds)
                 finally:
@@ -70,7 +70,7 @@ class SearchIndexerStreamConsumer:
 
     async def _connect_redis(self) -> None:
         logger.info(
-            "Search indexer connecting to Redis at %s...",
+            "Thing indexer connecting to Redis at %s...",
             self._settings.REDIS_URL,
         )
         self._redis = redis.from_url(
@@ -83,7 +83,7 @@ class SearchIndexerStreamConsumer:
             group=self._stream.group,
         )
         logger.info(
-            "Search indexer reading from stream '%s' with group '%s' as consumer '%s'.",
+            "Thing indexer reading from stream '%s' with group '%s' as consumer '%s'.",
             self._stream.stream,
             self._stream.group,
             self._stream.consumer,
@@ -92,7 +92,7 @@ class SearchIndexerStreamConsumer:
     async def _run_connected_loop(self, stop_event: asyncio.Event) -> None:
         redis_client = self._redis
         if redis_client is None:
-            raise RuntimeError("Search indexer Redis client is not connected")
+            raise RuntimeError("Thing indexer Redis client is not connected")
 
         while not stop_event.is_set():
             try:
@@ -119,7 +119,7 @@ class SearchIndexerStreamConsumer:
                 raise
             except Exception as exc:
                 self._state.last_error = str(exc)
-                logger.error("Search indexer inner loop error: %s", exc)
+                logger.error("Thing indexer inner loop error: %s", exc)
                 await asyncio.sleep(2)
 
     async def _read_stream_records(
@@ -178,7 +178,7 @@ class SearchIndexerStreamConsumer:
     ) -> None:
         event = parse_stream_event(fields)
         logger.info(
-            "Search indexer received event: %s for thing %s",
+            "Thing indexer received event: %s for thing %s",
             event.get("eventType"),
             event.get("id"),
         )

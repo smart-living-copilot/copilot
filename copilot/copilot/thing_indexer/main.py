@@ -4,7 +4,7 @@ import signal
 import sys
 
 from copilot.core.config import get_settings
-from copilot.indexer.consumer import (
+from copilot.thing_indexer.consumer import (
     SearchIndexerStreamConsumer,
     SearchIndexerConsumerState,
 )
@@ -13,7 +13,7 @@ from copilot.indexer.consumer import (
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger("search_indexer_consumer")
+logger = logging.getLogger("thing_indexer_consumer")
 
 
 async def main() -> None:
@@ -36,14 +36,14 @@ async def main() -> None:
 
     try:
         await consumer.start()
-        logger.info("Search indexer consumer started.")
+        logger.info("Thing indexer consumer started.")
         await consumer.run_forever(stop_event)
     except Exception as exc:
         logger.error("Consumer error: %s", exc)
         sys.exit(1)
     finally:
         await consumer.close()
-        logger.info("Search indexer consumer stopped.")
+        logger.info("Thing indexer consumer stopped.")
 
 
 if __name__ == "__main__":

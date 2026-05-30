@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.embeddings import Embeddings
 
-from copilot.indexer.prompting import _extract_message_text
+from copilot.thing_indexer.prompting import _extract_message_text
 from copilot.search.vector_store import (
     SearchIndexDocument,
     SearchIndexMatch,

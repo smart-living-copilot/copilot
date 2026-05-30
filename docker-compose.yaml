@@ -81,10 +81,10 @@ services:
       - egress-api
     restart: unless-stopped
 
-  indexer:
+  thing-indexer:
     image: ghcr.io/smart-living-copilot/copilot:latest
     env_file: .env
-    command: ["python", "-m", "copilot.indexer.main"]
+    command: ["python", "-m", "copilot.thing_indexer.main"]
     environment:
       REDIS_URL: "redis://valkey:6379"
       THING_EVENTS_STREAM: "${THING_EVENTS_STREAM:-thing_events}"
