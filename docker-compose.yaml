@@ -22,8 +22,6 @@ services:
       SEARCH_VECTOR_DIMENSIONS: "${SEARCH_VECTOR_DIMENSIONS:-1024}"
       THING_EVENT_OUTBOX_BATCH_SIZE: "${THING_EVENT_OUTBOX_BATCH_SIZE:-20}"
       THING_EVENT_OUTBOX_POLL_INTERVAL_SECONDS: "${THING_EVENT_OUTBOX_POLL_INTERVAL_SECONDS:-0.5}"
-      SEARCH_INDEXER_EVENTS_GROUP: "${SEARCH_INDEXER_EVENTS_GROUP:-thing_search_indexer}"
-      SEARCH_INDEXER_RETRY_SECONDS: "${SEARCH_INDEXER_RETRY_SECONDS:-5}"
       OPENAI_EMBEDDING_API_BASE_URL: "${OPENAI_EMBEDDING_API_BASE_URL:-}"
       OPENAI_EMBEDDING_API_KEY: "${OPENAI_EMBEDDING_API_KEY:-}"
       OPENAI_EMBEDDING_MODEL: "${OPENAI_EMBEDDING_MODEL:-}"
@@ -79,6 +77,36 @@ services:
       start_period: 10s
     networks:
       - frontend-internal
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+
+  indexer:
+    image: ghcr.io/smart-living-copilot/copilot:latest
+    env_file: .env
+    command: ["python", "-m", "copilot.indexer.main"]
+    environment:
+      REDIS_URL: "redis://valkey:6379"
+      THING_EVENTS_STREAM: "${THING_EVENTS_STREAM:-thing_events}"
+      REGISTRY_DATABASE_URL: "${REGISTRY_DATABASE_URL:-postgresql://copilot:copilot@postgres:5432/copilot}"
+      SEARCH_VECTOR_DIMENSIONS: "${SEARCH_VECTOR_DIMENSIONS:-1024}"
+      SEARCH_INDEXER_EVENTS_GROUP: "${SEARCH_INDEXER_EVENTS_GROUP:-thing_search_indexer}"
+      SEARCH_INDEXER_POLL_BLOCK_MS: "${SEARCH_INDEXER_POLL_BLOCK_MS:-5000}"
+      SEARCH_INDEXER_BATCH_SIZE: "${SEARCH_INDEXER_BATCH_SIZE:-20}"
+      SEARCH_INDEXER_CLAIM_IDLE_MS: "${SEARCH_INDEXER_CLAIM_IDLE_MS:-60000}"
+      SEARCH_INDEXER_RETRY_SECONDS: "${SEARCH_INDEXER_RETRY_SECONDS:-5}"
+      OPENAI_API_BASE_URL: "${OPENAI_API_BASE_URL:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      OPENAI_MODEL: "${OPENAI_MODEL}"
+      OPENAI_EMBEDDING_API_BASE_URL: "${OPENAI_EMBEDDING_API_BASE_URL:-}"
+      OPENAI_EMBEDDING_API_KEY: "${OPENAI_EMBEDDING_API_KEY:-}"
+      OPENAI_EMBEDDING_MODEL: "${OPENAI_EMBEDDING_MODEL:-mxbai-embed-large}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
       - backend-isolated
       - egress-api
     restart: unless-stopped

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from copilot.search.indexer.store import SearchIndexDocument
-from copilot.search.indexer.summary_utils import ThingTDMetadata
+from copilot.search.vector_store import SearchIndexDocument
+from copilot.indexer.summary_utils import ThingTDMetadata
 
 
 def _schema_summary(schema: Any) -> str:

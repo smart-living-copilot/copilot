@@ -7,10 +7,10 @@ from dataclasses import dataclass
 import redis.asyncio as redis
 
 from copilot.core.config import Settings
-from copilot.search.indexer.runtime import SearchIndexerStreamConfig
-from copilot.search.indexer.service import SearchIndexerService
-from copilot.search.indexer.store import SearchVectorStore
-from copilot.search.indexer.stream_utils import parse_stream_event
+from copilot.indexer.runtime import SearchIndexerStreamConfig
+from copilot.indexer.service import SearchIndexerService
+from copilot.search.vector_store import SearchVectorStore
+from copilot.indexer.stream_utils import parse_stream_event
 from copilot.core.stream_runtime import StreamConsumerState, ensure_stream_group
 
 

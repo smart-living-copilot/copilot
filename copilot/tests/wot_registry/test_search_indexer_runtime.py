@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from copilot.search.indexer.runtime import SearchIndexerStreamConfig
+from copilot.indexer.runtime import SearchIndexerStreamConfig
 
 
 def test_search_indexer_stream_config_reads_settings_values():

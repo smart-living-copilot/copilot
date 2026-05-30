@@ -140,23 +140,11 @@ def stub_search_runtime(monkeypatch):
         app.state.search_service = None
         set_active_search_service(None)
 
-    async def fake_start_search_indexer(app, *, settings, vector_store=None):
-        app.state.search_indexer_consumer = object()
-
-    async def fake_stop_search_indexer(app):
-        app.state.search_indexer_consumer = None
-
     monkeypatch.setattr(
         "copilot.core.lifecycle.start_search_service", fake_start_search_service
     )
     monkeypatch.setattr(
         "copilot.core.lifecycle.stop_search_service", fake_stop_search_service
-    )
-    monkeypatch.setattr(
-        "copilot.core.lifecycle.start_search_indexer", fake_start_search_indexer
-    )
-    monkeypatch.setattr(
-        "copilot.core.lifecycle.stop_search_indexer", fake_stop_search_indexer
     )
     set_active_search_service(None)
     yield

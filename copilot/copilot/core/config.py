@@ -68,20 +68,6 @@ class Settings:
     WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS: int
     REGISTRY_PUBLIC_URL: str
 
-    def validate_search_settings(self) -> None:
-        missing: list[str] = []
-        if not self.OPENAI_API_KEY:
-            missing.append("OPENAI_API_KEY")
-        if not self.OPENAI_MODEL:
-            missing.append("OPENAI_MODEL")
-
-        if missing:
-            missing_values = ", ".join(missing)
-            raise RuntimeError(
-                "Semantic search indexing is always enabled. "
-                f"Missing required setting(s): {missing_values}."
-            )
-
     def validate_runtime_security_settings(self) -> None:
         missing: list[str] = []
         if not self.WOT_RUNTIME_REGISTRY_TOKEN:
@@ -133,11 +119,14 @@ def get_settings() -> Settings:
         SEARCH_INDEXER_RETRY_SECONDS=float(
             os.getenv("SEARCH_INDEXER_RETRY_SECONDS", "5")
         ),
-        OPENAI_API_BASE_URL=os.getenv("OPENAI_API_BASE_URL") or None,
+        OPENAI_API_BASE_URL=os.getenv("OPENAI_API_BASE_URL")
+        or os.getenv("OPENAI_BASE_URL")
+        or None,
         OPENAI_API_KEY=os.getenv("OPENAI_API_KEY") or None,
         OPENAI_MODEL=os.getenv("OPENAI_MODEL") or None,
         OPENAI_EMBEDDING_API_BASE_URL=os.getenv("OPENAI_EMBEDDING_API_BASE_URL")
         or os.getenv("OPENAI_API_BASE_URL")
+        or os.getenv("OPENAI_BASE_URL")
         or None,
         OPENAI_EMBEDDING_API_KEY=os.getenv("OPENAI_EMBEDDING_API_KEY")
         or os.getenv("OPENAI_API_KEY")

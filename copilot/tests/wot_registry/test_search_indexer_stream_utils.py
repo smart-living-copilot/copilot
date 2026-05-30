@@ -1,6 +1,6 @@
 import pytest
 
-from copilot.search.indexer.stream_utils import parse_stream_event
+from copilot.indexer.stream_utils import parse_stream_event
 
 
 def test_parse_stream_event_rejects_missing_event_json():

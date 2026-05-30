@@ -1,4 +1,4 @@
-from copilot.search.indexer.metadata import build_index_metadata
+from copilot.indexer.metadata import build_index_metadata
 
 
 def test_build_index_metadata_shapes_vector_metadata():

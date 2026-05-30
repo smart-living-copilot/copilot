@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from copilot.search.indexer.summary_utils import ThingTDMetadata
+from copilot.indexer.summary_utils import ThingTDMetadata
 
 
 def build_index_metadata(

@@ -4,7 +4,7 @@ import signal
 import sys
 
 from copilot.core.config import get_settings
-from copilot.search.indexer.consumer import (
+from copilot.indexer.consumer import (
     SearchIndexerStreamConsumer,
     SearchIndexerConsumerState,
 )

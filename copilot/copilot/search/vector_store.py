@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from copilot.core.database import get_session_factory
-from copilot.search.indexer.models import SearchIndexChunk
+from copilot.search.models import SearchIndexChunk
 
 
 @dataclass(frozen=True)

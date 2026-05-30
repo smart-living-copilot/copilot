@@ -1,4 +1,4 @@
-from copilot.search.indexer.summary_utils import (
+from copilot.indexer.summary_utils import (
     compute_td_hash,
     extract_td_metadata,
 )

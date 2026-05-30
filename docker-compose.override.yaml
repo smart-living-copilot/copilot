@@ -10,6 +10,17 @@ services:
       LOG_LEVEL: "DEBUG"
     entrypoint: ["uvicorn", "copilot.app:app", "--host", "0.0.0.0", "--port", "8123", "--reload", "--reload-dir", "copilot"]
 
+  indexer:
+    build:
+      context: ./copilot
+      dockerfile: Dockerfile
+    volumes:
+      - ./copilot/copilot:/app/copilot:cached
+      - ./copilot/tests:/app/tests:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+    command: ["python", "-m", "copilot.indexer.main"]
+
   chat-ui:
     build:
       context: ./chat-ui

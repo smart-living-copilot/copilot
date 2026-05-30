@@ -5,18 +5,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from copilot.core.config import Settings
-from copilot.search.indexer.chunking import generate_chunk
-from copilot.search.indexer.embeddings import (
+from copilot.indexer.chunking import generate_chunk
+from copilot.indexer.embeddings import (
     create_openai_embeddings,
     create_openai_client,
 )
-from copilot.search.indexer.metadata import build_index_metadata
-from copilot.search.indexer.prompting import (
+from copilot.indexer.metadata import build_index_metadata
+from copilot.indexer.prompting import (
     SUMMARY_PROMPT_VERSION,
     generate_summary,
 )
-from copilot.search.indexer.store import SearchVectorStore
-from copilot.search.indexer.summary_utils import (
+from copilot.search.vector_store import SearchVectorStore
+from copilot.indexer.summary_utils import (
     ThingTDMetadata,
     clean_text,
     compute_td_hash,
