@@ -3,20 +3,17 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from psycopg.errors import UniqueViolation
-from psycopg.types.json import Jsonb
+from sqlalchemy import Text, cast, func, literal_column, or_, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-from copilot.core.database import DatabaseConnection
 from copilot.things.models import (
+    Thing,
     ThingConflictError,
     ThingDocument,
     ThingRecord,
-    ThingRow,
 )
-
-_THING_COLUMNS = """
-    id, title, description, tags, document, document_hash, created_at, updated_at
-"""
 
 
 def sanitize_document(document: ThingDocument) -> ThingDocument:
@@ -55,27 +52,14 @@ def hash_document(document: ThingDocument) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _row_from_mapping(row: dict[str, Any]) -> ThingRow:
-    return ThingRow(
-        id=str(row["id"]),
-        title=str(row["title"]),
-        description=str(row["description"]),
-        tags=list(row["tags"] or []),
-        document=dict(row["document"] or {}),
-        document_hash=str(row["document_hash"]),
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
-    )
-
-
-def to_record(row: ThingRow) -> ThingRecord:
+def to_record(thing: Thing) -> ThingRecord:
     return ThingRecord(
-        id=row.id,
-        title=row.title,
-        description=row.description,
-        tags=list(row.tags or []),
-        document=dict(row.document),
-        document_hash=row.document_hash,
+        id=thing.id,
+        title=thing.title,
+        description=thing.description,
+        tags=list(thing.tags or []),
+        document=dict(thing.document),
+        document_hash=thing.document_hash,
     )
 
 
@@ -84,7 +68,7 @@ def serialize_document(record: ThingRecord) -> ThingDocument:
 
 
 def list_things(
-    connection: DatabaseConnection,
+    session: Session,
     *,
     query: str = "",
     page: int = 1,
@@ -92,144 +76,121 @@ def list_things(
 ) -> tuple[list[ThingRecord], int]:
     normalized_query = query.strip().lower()
     offset = (page - 1) * per_page
+    filters = []
 
     if normalized_query:
         pattern = f"%{normalized_query}%"
-        where_sql = """
-            WHERE lower(id) LIKE %s
-               OR lower(title) LIKE %s
-               OR lower(description) LIKE %s
-               OR lower(document::text) LIKE %s
-        """
-        where_params: tuple[Any, ...] = (pattern, pattern, pattern, pattern)
-    else:
-        where_sql = ""
-        where_params = ()
-
-    total_row = connection.execute(
-        f"SELECT COUNT(*) AS total FROM things {where_sql}",
-        where_params,
-    ).fetchone()
-    total = int(total_row["total"]) if total_row else 0
-
-    rows = connection.execute(
-        f"""
-        SELECT {_THING_COLUMNS}
-        FROM things
-        {where_sql}
-        ORDER BY lower(title), id
-        OFFSET %s
-        LIMIT %s
-        """,
-        (*where_params, offset, per_page),
-    ).fetchall()
-    return [to_record(_row_from_mapping(row)) for row in rows], total
-
-
-def get_thing(connection: DatabaseConnection, thing_id: str) -> ThingRecord | None:
-    row = connection.execute(
-        f"SELECT {_THING_COLUMNS} FROM things WHERE id = %s",
-        (thing_id,),
-    ).fetchone()
-    return to_record(_row_from_mapping(row)) if row is not None else None
-
-
-def create_thing(
-    connection: DatabaseConnection,
-    document: ThingDocument,
-    *,
-    commit: bool = True,
-) -> ThingRecord:
-    sanitized = sanitize_document(document)
-    thing_id, title, tags, description = summarize_document(sanitized)
-
-    try:
-        row = connection.execute(
-            f"""
-            INSERT INTO things (
-                id, title, description, tags, document, document_hash, updated_at
+        filters.append(
+            or_(
+                func.lower(Thing.id).like(pattern),
+                func.lower(Thing.title).like(pattern),
+                func.lower(Thing.description).like(pattern),
+                func.lower(cast(Thing.document, Text)).like(pattern),
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING {_THING_COLUMNS}
-            """,
-            (
-                thing_id,
-                title,
-                description,
-                Jsonb(tags),
-                Jsonb(sanitized),
-                hash_document(sanitized),
-                datetime.now(timezone.utc),
-            ),
-        ).fetchone()
-    except UniqueViolation as exc:
-        connection.rollback()
-        raise ThingConflictError(f"Thing '{thing_id}' already exists") from exc
+        )
 
-    if commit:
-        connection.commit()
-    if row is None:
-        raise RuntimeError(f"Thing {thing_id} could not be created")
-    return to_record(_row_from_mapping(row))
+    count_query = select(func.count()).select_from(Thing).where(*filters)
+    total = int(session.scalar(count_query) or 0)
+
+    things = session.scalars(
+        select(Thing)
+        .where(*filters)
+        .order_by(func.lower(Thing.title), Thing.id)
+        .offset(offset)
+        .limit(per_page)
+    ).all()
+
+    return [to_record(thing) for thing in things], total
 
 
-def put_thing(
-    connection: DatabaseConnection,
-    thing_id: str,
+def get_thing(session: Session, thing_id: str) -> ThingRecord | None:
+    thing = session.get(Thing, thing_id)
+    return to_record(thing) if thing is not None else None
+
+
+def _make_thing(document: ThingDocument) -> Thing:
+    return Thing(**_thing_values(document, include_created_at=True))
+
+
+def _update_thing(thing: Thing, document: ThingDocument) -> None:
+    values = _thing_values(document, include_created_at=False)
+    document_id = str(values["id"])
+    if document_id != thing.id:
+        raise ValueError("Thing id in path and document body must match")
+
+    thing.title = str(values["title"])
+    thing.description = str(values["description"])
+    thing.tags = list(values["tags"])
+    thing.document = dict(values["document"])
+    thing.document_hash = str(values["document_hash"])
+    thing.updated_at = values["updated_at"]
+
+
+def _thing_values(
     document: ThingDocument,
     *,
-    commit: bool = True,
-) -> tuple[ThingRecord, bool]:
+    include_created_at: bool,
+) -> dict[str, Any]:
+    thing_id, title, tags, description = summarize_document(document)
+    now = datetime.now(timezone.utc)
+    values: dict[str, Any] = {
+        "id": thing_id,
+        "title": title,
+        "description": description,
+        "tags": tags,
+        "document": document,
+        "document_hash": hash_document(document),
+        "updated_at": now,
+    }
+    if include_created_at:
+        values["created_at"] = now
+    return values
+
+
+def create_thing(session: Session, document: ThingDocument) -> ThingRecord:
     sanitized = sanitize_document(document)
-    document_id, title, tags, description = summarize_document(sanitized)
+    thing = _make_thing(sanitized)
+    session.add(thing)
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise ThingConflictError(f"Thing '{thing.id}' already exists") from exc
+
+    return to_record(thing)
+
+
+def put_thing(session: Session, thing_id: str, document: ThingDocument) -> tuple[ThingRecord, bool]:
+    sanitized = sanitize_document(document)
+    document_id = summarize_document(sanitized)[0]
     if document_id != thing_id:
         raise ValueError("Thing id in path and document body must match")
 
-    document_hash = hash_document(sanitized)
-    updated_at = datetime.now(timezone.utc)
-    row = connection.execute(
-        f"""
-        INSERT INTO things (
-            id, title, description, tags, document, document_hash, updated_at
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (id) DO UPDATE
-        SET title = EXCLUDED.title,
-            description = EXCLUDED.description,
-            tags = EXCLUDED.tags,
-            document = EXCLUDED.document,
-            document_hash = EXCLUDED.document_hash,
-            updated_at = EXCLUDED.updated_at
-        RETURNING {_THING_COLUMNS}, (xmax = 0) AS inserted
-        """,
-        (
-            thing_id,
-            title,
-            description,
-            Jsonb(tags),
-            Jsonb(sanitized),
-            document_hash,
-            updated_at,
-        ),
-    ).fetchone()
+    stmt = insert(Thing).values(**_thing_values(sanitized, include_created_at=True))
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[Thing.id],
+        set_={
+            "title": stmt.excluded.title,
+            "description": stmt.excluded.description,
+            "tags": stmt.excluded.tags,
+            "document": stmt.excluded.document,
+            "document_hash": stmt.excluded.document_hash,
+            "updated_at": stmt.excluded.updated_at,
+        },
+    ).returning(Thing, literal_column("xmax = 0").label("inserted"))
 
-    if commit:
-        connection.commit()
-    if row is None:
-        raise RuntimeError(f"Thing {thing_id} could not be upserted")
-    return to_record(_row_from_mapping(row)), bool(row["inserted"])
+    row = session.execute(
+        stmt,
+        execution_options={"populate_existing": True},
+    ).one()
+    thing = row[0]
+    return to_record(thing), bool(row.inserted)
 
 
-def delete_thing(
-    connection: DatabaseConnection,
-    thing_id: str,
-    *,
-    commit: bool = True,
-) -> bool:
-    row = connection.execute(
-        "DELETE FROM things WHERE id = %s RETURNING id",
-        (thing_id,),
-    ).fetchone()
-    if commit:
-        connection.commit()
-    return row is not None
+def delete_thing(session: Session, thing_id: str) -> bool:
+    thing = session.get(Thing, thing_id)
+    if thing is None:
+        return False
+
+    session.delete(thing)
+    session.flush()
+    return True

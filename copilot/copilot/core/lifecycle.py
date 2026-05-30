@@ -8,7 +8,7 @@ from psycopg_pool import ConnectionPool
 
 from copilot.core.config import Settings
 from copilot.core.bootstrap import BackendBootstrapService
-from copilot.core.database import DatabaseConnection
+from copilot.core.database import DatabaseConnection, get_session_factory
 from copilot.search import ThingSearchService, set_active_search_service
 from copilot.search.indexer.store import SearchVectorStore
 from copilot.core.stream_runtime import StreamConsumerState
@@ -29,7 +29,10 @@ def initialize_app_state(
     settings: Settings,
     connection_pool: ConnectionPool[DatabaseConnection],
 ) -> None:
+    session_factory = get_session_factory()
     app.state.connection_pool = connection_pool
+    app.state.orm_session_factory = session_factory
+    app.state.session_factory = session_factory
     app.state.event_publisher = ValkeyThingEventStreamPublisher(
         settings.REDIS_URL,
         settings.THING_EVENTS_STREAM,
@@ -84,12 +87,14 @@ async def _stop_background_task(
 def start_thing_event_outbox(
     app: FastAPI,
     *,
-    connection_pool: ConnectionPool[DatabaseConnection],
+    settings: Settings,
 ) -> None:
     publisher = ThingEventOutboxPublisherWorker(
-        connection_pool=connection_pool,
+        session_factory=app.state.orm_session_factory,
         publisher_getter=lambda: app.state.event_publisher,
         state=app.state.thing_event_outbox_state,
+        batch_size=settings.THING_EVENT_OUTBOX_BATCH_SIZE,
+        poll_interval_seconds=settings.THING_EVENT_OUTBOX_POLL_INTERVAL_SECONDS,
     )
     app.state.thing_event_outbox_publisher = publisher
     _start_background_task(
@@ -169,7 +174,7 @@ async def start_backend_runtime(
     bootstrap_persistent_state(connection_pool=connection_pool, settings=settings)
 
     try:
-        start_thing_event_outbox(app, connection_pool=connection_pool)
+        start_thing_event_outbox(app, settings=settings)
         start_search_service(app, settings=settings)
         await start_search_indexer(
             app,

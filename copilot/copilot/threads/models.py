@@ -6,13 +6,11 @@ from typing import TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import Index, String
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
+
+from copilot.core.orm import Base
 
 DEFAULT_THREAD_TITLE = "New Chat"
-
-
-class Base(DeclarativeBase):
-    pass
 
 
 class Thread(Base):

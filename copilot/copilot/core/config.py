@@ -20,11 +20,33 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    value = _int_env(name, default)
+    return value if value > 0 else default
+
+
+def _float_env(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    value = _float_env(name, default)
+    return value if value > 0 else default
+
+
 @dataclass(frozen=True)
 class Settings:
     DATABASE_URL: str
     REDIS_URL: str
     THING_EVENTS_STREAM: str
+    THING_EVENT_OUTBOX_BATCH_SIZE: int
+    THING_EVENT_OUTBOX_POLL_INTERVAL_SECONDS: float
     INIT_ADMIN_TOKEN: str | None
     WOT_RUNTIME_REGISTRY_TOKEN: str | None
     WOT_RUNTIME_API_TOKEN: str | None
@@ -87,6 +109,14 @@ def get_settings() -> Settings:
         DATABASE_URL=_normalize_database_url(database_url),
         REDIS_URL=os.getenv("REDIS_URL", "redis://valkey:6379"),
         THING_EVENTS_STREAM=os.getenv("THING_EVENTS_STREAM", "thing_events"),
+        THING_EVENT_OUTBOX_BATCH_SIZE=_positive_int_env(
+            "THING_EVENT_OUTBOX_BATCH_SIZE",
+            20,
+        ),
+        THING_EVENT_OUTBOX_POLL_INTERVAL_SECONDS=_positive_float_env(
+            "THING_EVENT_OUTBOX_POLL_INTERVAL_SECONDS",
+            0.5,
+        ),
         INIT_ADMIN_TOKEN=os.getenv("INIT_ADMIN_TOKEN") or None,
         WOT_RUNTIME_REGISTRY_TOKEN=os.getenv("WOT_RUNTIME_REGISTRY_TOKEN") or None,
         WOT_RUNTIME_API_TOKEN=os.getenv("WOT_RUNTIME_API_TOKEN") or None,

@@ -3,18 +3,17 @@ from dataclasses import dataclass
 import logging
 from typing import Callable
 
-from psycopg_pool import ConnectionPool
+from sqlalchemy.orm import Session, sessionmaker
 
-from copilot.core.database import DatabaseConnection
 from copilot.things.events.outbox import (
-    OUTBOX_BATCH_SIZE,
+    DEFAULT_OUTBOX_BATCH_SIZE,
     publish_pending_thing_events,
 )
 from copilot.things.events.publisher import ThingEventPublisher
 
 
 logger = logging.getLogger(__name__)
-OUTBOX_POLL_INTERVAL_SECONDS = 0.5
+DEFAULT_OUTBOX_POLL_INTERVAL_SECONDS = 0.5
 
 
 @dataclass
@@ -30,13 +29,13 @@ class ThingEventOutboxPublisherWorker:
     def __init__(
         self,
         *,
-        connection_pool: ConnectionPool[DatabaseConnection],
+        session_factory: sessionmaker[Session],
         publisher_getter: Callable[[], ThingEventPublisher],
         state: ThingEventOutboxPublisherState,
-        batch_size: int = OUTBOX_BATCH_SIZE,
-        poll_interval_seconds: float = OUTBOX_POLL_INTERVAL_SECONDS,
+        batch_size: int = DEFAULT_OUTBOX_BATCH_SIZE,
+        poll_interval_seconds: float = DEFAULT_OUTBOX_POLL_INTERVAL_SECONDS,
     ) -> None:
-        self._connection_pool = connection_pool
+        self._session_factory = session_factory
         self._publisher_getter = publisher_getter
         self._state = state
         self._batch_size = batch_size
@@ -49,7 +48,7 @@ class ThingEventOutboxPublisherWorker:
             while not stop_event.is_set():
                 try:
                     published_count = publish_pending_thing_events(
-                        self._connection_pool,
+                        self._session_factory,
                         self._publisher_getter(),
                         limit=self._batch_size,
                         state=self._state,
