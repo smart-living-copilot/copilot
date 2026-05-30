@@ -5,8 +5,8 @@ from functools import lru_cache
 
 
 def _normalize_database_url(value: str) -> str:
-    if value.startswith("postgresql://"):
-        return value.replace("postgresql://", "postgresql+psycopg://", 1)
+    if value.startswith("postgresql+psycopg://"):
+        return value.replace("postgresql+psycopg://", "postgresql://", 1)
     return value
 
 
@@ -78,7 +78,10 @@ class Settings:
 
 @lru_cache()
 def get_settings() -> Settings:
-    database_url = os.getenv("REGISTRY_DATABASE_URL", "sqlite:///./wot_registry.db")
+    database_url = os.getenv(
+        "REGISTRY_DATABASE_URL",
+        "postgresql://copilot:copilot@localhost:5432/copilot",
+    )
 
     return Settings(
         DATABASE_URL=_normalize_database_url(database_url),

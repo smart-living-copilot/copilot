@@ -155,9 +155,12 @@ This is the current structured-artifact flow. The older marker-based `[IMAGE:...
 
 ### LangGraph State
 
-- backend: SQLite through `AsyncSqliteSaver`
-- path: `AGENT_STATE_DB_PATH`
+- backend: Postgres through `AsyncPostgresSaver` by default
+- database URL: `AGENT_STATE_DATABASE_URL`, falling back to `REGISTRY_DATABASE_URL`
 - key: `thread_id`
+
+Thread metadata, registry tables, API keys, credentials, event outbox rows, and
+automation jobs share the SQLAlchemy database configured by `REGISTRY_DATABASE_URL`.
 
 ### Code Execution State
 
@@ -199,6 +202,10 @@ pip install -e ".[dev]"
 uvicorn copilot.app:app --host 0.0.0.0 --port 8123 --reload
 ```
 
+Postgres-backed tests require `COPILOT_TEST_DATABASE_URL` to point at a
+disposable Postgres database. Tests that need database access are skipped when
+that variable is not set.
+
 ## Environment Variables
 
 Defined in [`copilot/settings.py`](./copilot/settings.py):
@@ -208,11 +215,11 @@ Defined in [`copilot/settings.py`](./copilot/settings.py):
 - `WOT_REGISTRY_TIMEOUT_SECONDS`
 - `CODE_EXECUTOR_URL`, `CODE_EXECUTOR_TIMEOUT_SECONDS`
 - `JOB_RUNNER_URL`, `JOB_RUNNER_TIMEOUT_SECONDS` (the job tools call copilot's own `/jobs` API)
-- `JOBS_ENABLED`, `JOBS_DB_PATH`, `SCHEDULER_POLL_SECONDS`
+- `JOBS_ENABLED`, `SCHEDULER_POLL_SECONDS`
 - `REDIS_URL`, `WOT_RUNTIME_URL`, `WOT_RUNTIME_API_TOKEN`, `WOT_RUNTIME_STREAM`
 - `JOBS_EVENTS_GROUP`, `JOBS_EVENTS_CONSUMER`, `JOBS_STREAM_BATCH_SIZE`, `JOBS_STREAM_POLL_BLOCK_MS`, `JOBS_STREAM_CLAIM_IDLE_MS`
 - `INTERNAL_API_KEY`
-- `AGENT_STATE_DB_PATH`
+- `REGISTRY_DATABASE_URL`, `AGENT_STATE_DATABASE_URL`
 - `MAX_CONTEXT_TOKENS`
 - `LOG_LEVEL`
 - `MEDIA_RTC_CONFIGURATION`, `MEDIA_SERVER_RTC_CONFIGURATION`

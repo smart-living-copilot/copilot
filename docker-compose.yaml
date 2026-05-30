@@ -10,12 +10,12 @@ services:
       CODE_EXECUTOR_URL: "http://code-executor:8888"
       JOB_RUNNER_URL: "http://copilot:8123"
       JOBS_ENABLED: "${JOBS_ENABLED:-true}"
-      JOBS_DB_PATH: "/data/jobs.db"
       REDIS_URL: "redis://valkey:6379"
       WOT_RUNTIME_URL: "http://wot-runtime:3003"
       WOT_RUNTIME_API_TOKEN: "${WOT_RUNTIME_API_TOKEN}"
       WOT_RUNTIME_STREAM: "${WOT_RUNTIME_STREAM:-wot_runtime_events}"
-      REGISTRY_DATABASE_URL: "${REGISTRY_DATABASE_URL:-sqlite:////data/registry/wot_registry.db}"
+      REGISTRY_DATABASE_URL: "${REGISTRY_DATABASE_URL:-postgresql://copilot:copilot@postgres:5432/copilot}"
+      AGENT_STATE_DATABASE_URL: "${AGENT_STATE_DATABASE_URL:-}"
       REGISTRY_PUBLIC_URL: "${REGISTRY_PUBLIC_URL:-http://copilot:8123}"
       INIT_ADMIN_TOKEN: "${INIT_ADMIN_TOKEN}"
       WOT_RUNTIME_REGISTRY_TOKEN: "${WOT_RUNTIME_REGISTRY_TOKEN}"
@@ -35,7 +35,6 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       OPENAI_MODEL: "${OPENAI_MODEL}"
       OPENAI_BASE_URL: "${OPENAI_API_BASE_URL}"
-      AGENT_STATE_DB_PATH: "/data/agent_state.db"
       MEDIA_RTC_CONFIGURATION: "${MEDIA_RTC_CONFIGURATION:-}"
       MEDIA_SERVER_RTC_CONFIGURATION: "${MEDIA_SERVER_RTC_CONFIGURATION:-}"
       MEDIA_ICE_GATHER_TIMEOUT_MS: "${MEDIA_ICE_GATHER_TIMEOUT_MS:-750}"
@@ -67,6 +66,8 @@ services:
       VISION_MAX_IMAGE_DIMENSION: "${VISION_MAX_IMAGE_DIMENSION:-1024}"
       VISION_JPEG_QUALITY: "${VISION_JPEG_QUALITY:-85}"
     depends_on:
+      postgres:
+        condition: service_healthy
       valkey:
         condition: service_healthy
     healthcheck:
@@ -144,6 +145,23 @@ services:
       - backend-isolated
     restart: unless-stopped
 
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-copilot}"
+      POSTGRES_USER: "${POSTGRES_USER:-copilot}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-copilot}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - backend-isolated
+    restart: unless-stopped
+
   wot-runtime:
     image: ghcr.io/smart-living-copilot/wot-runtime:latest
     depends_on:
@@ -184,6 +202,7 @@ services:
 
 volumes:
   copilot-data:
+  postgres-data:
   valkey-data:
 
 networks:

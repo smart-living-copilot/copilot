@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
 
 from copilot.core.config import Settings
+from copilot.core.database import DatabaseConnection
 from copilot.search.indexer.embeddings import create_openai_embeddings
 from copilot.search.indexer.store import SearchVectorStore
 from copilot.things.store import get_thing
@@ -97,10 +97,10 @@ class ThingSearchService:
 class SearchQueryService:
     def __init__(
         self,
-        session: Session,
+        connection: DatabaseConnection,
         search_service: ThingSearchService,
     ) -> None:
-        self._session = session
+        self._connection = connection
         self._search_service = search_service
 
     async def search(self, *, query: str, k: int) -> dict[str, Any]:
@@ -108,7 +108,7 @@ class SearchQueryService:
         return {"items": items, "query": query}
 
     async def get_index_status(self, thing_id: str) -> dict[str, Any]:
-        thing = get_thing(self._session, thing_id)
+        thing = get_thing(self._connection, thing_id)
         if thing is None:
             raise HTTPException(status_code=404, detail="Thing not found")
 

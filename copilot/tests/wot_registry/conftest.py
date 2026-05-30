@@ -1,9 +1,10 @@
 from contextlib import asynccontextmanager
+import os
 
 import pytest
 
 from copilot.core.config import get_settings
-from copilot.core.database import get_engine, get_session_factory
+from copilot.core.database import get_connection_pool
 from copilot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
 from copilot.search import set_active_search_service
 from copilot.things.schema import load_td_schema
@@ -54,6 +55,12 @@ class StubSearchService:
 INIT_ADMIN_TOKEN = "test-init-admin-token"
 
 
+def _close_cached_pool() -> None:
+    if get_connection_pool.cache_info().currsize:
+        get_connection_pool().close()
+    get_connection_pool.cache_clear()
+
+
 @asynccontextmanager
 async def _registry_only_lifespan(app):
     from copilot.core.database import init_db
@@ -61,11 +68,11 @@ async def _registry_only_lifespan(app):
     settings = get_settings()
     app.state.settings = settings
     init_db()
-    session_factory = get_session_factory()
+    connection_pool = get_connection_pool()
     await start_backend_runtime(
         app,
         settings=settings,
-        session_factory=session_factory,
+        connection_pool=connection_pool,
     )
     try:
         yield
@@ -74,11 +81,12 @@ async def _registry_only_lifespan(app):
 
 
 @pytest.fixture(autouse=True)
-def clear_backend_state(tmp_path, monkeypatch):
-    monkeypatch.setenv(
-        "REGISTRY_DATABASE_URL",
-        f"sqlite:///{tmp_path / 'backend-test.db'}",
-    )
+def clear_backend_state(monkeypatch):
+    test_database_url = os.getenv("COPILOT_TEST_DATABASE_URL")
+    if not test_database_url:
+        pytest.skip("COPILOT_TEST_DATABASE_URL is required for Postgres registry tests")
+
+    monkeypatch.setenv("REGISTRY_DATABASE_URL", test_database_url)
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
     monkeypatch.setenv("INIT_ADMIN_TOKEN", INIT_ADMIN_TOKEN)
     monkeypatch.setenv("REGISTRY_PUBLIC_URL", "http://testserver")
@@ -88,13 +96,24 @@ def clear_backend_state(tmp_path, monkeypatch):
     monkeypatch.setenv("WOT_RUNTIME_API_TOKEN", "test-runtime-api-token")
 
     get_settings.cache_clear()
-    get_engine.cache_clear()
-    get_session_factory.cache_clear()
+    _close_cached_pool()
     load_td_schema.cache_clear()
+    init_pool = get_connection_pool()
+    from copilot.core.database import init_db
+
+    init_db(init_pool)
+    with init_pool.connection() as connection:
+        connection.execute(
+            """
+            TRUNCATE api_keys, things, thing_credentials, thing_event_outbox,
+                threads, jobs
+            RESTART IDENTITY CASCADE
+            """
+        )
+        connection.commit()
     yield
     get_settings.cache_clear()
-    get_engine.cache_clear()
-    get_session_factory.cache_clear()
+    _close_cached_pool()
     load_td_schema.cache_clear()
 
 

@@ -44,7 +44,7 @@ def _subscription_id_from_response(response: dict[str, Any] | str) -> str:
 class JobService:
     def __init__(self, settings: Settings, dispatch_prompt: DispatchPrompt) -> None:
         self._settings = settings
-        self._repo = JobRepository(settings.jobs_db_path)
+        self._repo = JobRepository()
         self._runtime_client = WotRuntimeClient(settings)
         self._dispatch_prompt = dispatch_prompt
         self._code_executor_client = CodeExecutorClient(settings)
@@ -54,7 +54,6 @@ class JobService:
         self._run_event_subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
 
     async def start(self) -> None:
-        await self._repo.init()
         await self._sync_event_subscriptions()
         self._time_task = asyncio.create_task(self._run_time_scheduler())
         self._stream_task = asyncio.create_task(self._run_event_consumer())

@@ -56,22 +56,19 @@ def get_api_key_user(request: Request) -> User | None:
 
     token = auth_header[7:]
     key_hash = hash_api_key(token)
-    session = request.app.state.session_factory()
-    try:
-        row = lookup_api_key_by_hash(session, key_hash)
+    with request.app.state.connection_pool.connection() as connection:
+        row = lookup_api_key_by_hash(connection, key_hash)
         if row is None or not row.is_active:
             return None
         if row.expires_at is not None and row.expires_at < datetime.now(timezone.utc):
             return None
 
-        touch_last_used(session, row)
+        touch_last_used(connection, row)
         return User(
             user_id=row.user_id,
             scopes=list(row.scopes or []),
             auth_type="api_key",
         )
-    finally:
-        session.close()
 
 
 def get_current_user(request: Request) -> User | None:

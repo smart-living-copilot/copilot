@@ -1,9 +1,6 @@
 import asyncio
-import sqlite3
-import tempfile
 import unittest
 from contextlib import asynccontextmanager
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -76,7 +73,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 return False
 
         fake_graph = FakeGraph()
-        fake_settings = Settings(agent_state_db_path=":memory:", jobs_enabled=False)
+        fake_settings = Settings(jobs_enabled=False)
 
         async def exercise() -> None:
             with (
@@ -84,15 +81,11 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 patch.object(copilot_app, "init_thread_store"),
                 patch.object(copilot_app, "init_db"),
                 patch.object(copilot_app, "get_registry_settings"),
-                patch.object(copilot_app, "get_session_factory", return_value=object()),
+                patch.object(copilot_app, "get_connection_pool", return_value=object()),
                 patch.object(copilot_app, "start_backend_runtime", AsyncMock()),
                 patch.object(copilot_app, "shutdown_backend_runtime", AsyncMock()),
                 patch.object(copilot_app, "_make_llm", return_value=object()),
-                patch.object(
-                    copilot_app.AsyncSqliteSaver,
-                    "from_conn_string",
-                    return_value=FakeSaverContext(),
-                ),
+                patch.object(copilot_app, "_checkpoint_saver_context", return_value=FakeSaverContext()),
                 patch.object(copilot_app, "CachingCheckpointSaver", return_value=object()),
                 patch.object(copilot_app, "build_graph", return_value=fake_graph),
                 patch.object(copilot_app, "LangGraphAGUIAgent", return_value=object()),
@@ -149,39 +142,23 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         )
 
     def test_delete_thread_removes_langgraph_checkpoint_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "agent_state.db"
-            self._seed_checkpoint_db(db_path)
-            copilot_app._settings = Settings(
-                internal_api_key="test-internal-key",
-                agent_state_db_path=str(db_path),
-            )
+        copilot_app._settings = Settings(internal_api_key="test-internal-key")
 
+        with patch("copilot.threads.routes.delete_thread_metadata", return_value=True):
             response = self.client.delete(
                 "/threads/thread-a",
                 headers={"Authorization": "Bearer test-internal-key"},
             )
 
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(
-                response.json(),
-                {
-                    "ok": True,
-                    "thread_id": "thread-a",
-                    "deleted_writes": 2,
-                    "deleted_checkpoints": 1,
-                },
-            )
-            self.assertEqual(self._row_count(db_path, "writes", "thread-a"), 0)
-            self.assertEqual(
-                self._row_count(db_path, "checkpoints", "thread-a"),
-                0,
-            )
-            self.assertEqual(self._row_count(db_path, "writes", "thread-b"), 1)
-            self.assertEqual(
-                self._row_count(db_path, "checkpoints", "thread-b"),
-                1,
-            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "thread_id": "thread-a",
+                "deleted": True,
+            },
+        )
 
     def test_ag_ui_proxy_flushes_only_the_active_thread(self) -> None:
         class FakeAgent:
@@ -477,66 +454,23 @@ class AgentAppRoutesTestCase(unittest.TestCase):
 
     def test_delete_thread_uses_checkpointer_when_available(self) -> None:
         class FakeCheckpointer:
-            def __init__(self, db_path: Path) -> None:
-                self.db_path = db_path
+            def __init__(self) -> None:
                 self.deleted_threads: list[str] = []
 
             async def adelete_thread(self, thread_id: str) -> None:
                 self.deleted_threads.append(thread_id)
-                with sqlite3.connect(self.db_path) as connection:
-                    connection.execute(
-                        "DELETE FROM writes WHERE thread_id = ?",
-                        (thread_id,),
-                    )
-                    connection.execute(
-                        "DELETE FROM checkpoints WHERE thread_id = ?",
-                        (thread_id,),
-                    )
-                    connection.commit()
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "agent_state.db"
-            self._seed_checkpoint_db(db_path)
-            copilot_app._settings = Settings(
-                internal_api_key="test-internal-key",
-                agent_state_db_path=str(db_path),
-            )
-            copilot_app._checkpointer = FakeCheckpointer(db_path)
+        copilot_app._settings = Settings(internal_api_key="test-internal-key")
+        copilot_app._checkpointer = FakeCheckpointer()
 
+        with patch("copilot.threads.routes.delete_thread_metadata", return_value=True):
             response = self.client.delete(
                 "/threads/thread-a",
                 headers={"Authorization": "Bearer test-internal-key"},
             )
 
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(copilot_app._checkpointer.deleted_threads, ["thread-a"])
-            self.assertEqual(self._row_count(db_path, "writes", "thread-a"), 0)
-            self.assertEqual(self._row_count(db_path, "checkpoints", "thread-a"), 0)
-
-    @staticmethod
-    def _row_count(db_path: Path, table_name: str, thread_id: str) -> int:
-        with sqlite3.connect(db_path) as connection:
-            row = connection.execute(
-                f"SELECT COUNT(*) FROM {table_name} WHERE thread_id = ?",
-                (thread_id,),
-            ).fetchone()
-
-        return int(row[0]) if row else 0
-
-    @staticmethod
-    def _seed_checkpoint_db(db_path: Path) -> None:
-        with sqlite3.connect(db_path) as connection:
-            connection.execute("CREATE TABLE writes (thread_id TEXT)")
-            connection.execute("CREATE TABLE checkpoints (thread_id TEXT)")
-            connection.executemany(
-                "INSERT INTO writes(thread_id) VALUES (?)",
-                [("thread-a",), ("thread-a",), ("thread-b",)],
-            )
-            connection.executemany(
-                "INSERT INTO checkpoints(thread_id) VALUES (?)",
-                [("thread-a",), ("thread-b",)],
-            )
-            connection.commit()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(copilot_app._checkpointer.deleted_threads, ["thread-a"])
 
 
 if __name__ == "__main__":

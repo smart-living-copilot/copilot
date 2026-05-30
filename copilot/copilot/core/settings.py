@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     max_context_tokens: int = 120000
     max_checkpoint_tokens: int = 240000
     parallel_tool_calls: bool = False
-    agent_state_db_path: str = "/data/agent_state.db"
+    agent_state_database_url: str = ""
 
     # Security
     internal_api_key: str = ""
@@ -75,7 +75,6 @@ class Settings(BaseSettings):
     job_runner_url: str = "http://localhost:8123"
     job_runner_timeout_seconds: int = 30
     jobs_enabled: bool = True
-    jobs_db_path: str = "/data/jobs.db"
     scheduler_poll_seconds: int = 2
     redis_url: str = "redis://valkey:6379"
     wot_runtime_url: str = "http://wot-runtime:3003"

@@ -1,8 +1,8 @@
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
 
+from copilot.core.database import DatabaseConnection
 from copilot.things.models import ThingConflictError, ThingDocument, ThingRecord
 from copilot.things.events.outbox import enqueue_thing_event
 from copilot.things.events import build_change_event, build_remove_event
@@ -17,8 +17,8 @@ from copilot.things.store import (
 
 
 class ThingCatalogQueryService:
-    def __init__(self, session: Session):
-        self._session = session
+    def __init__(self, connection: DatabaseConnection):
+        self._connection = connection
 
     def list_owned_things(
         self,
@@ -28,7 +28,7 @@ class ThingCatalogQueryService:
         per_page: int = 25,
     ) -> dict[str, Any]:
         items, total = list_things(
-            self._session,
+            self._connection,
             query=query,
             page=page,
             per_page=per_page,
@@ -60,7 +60,7 @@ class ThingCatalogQueryService:
         return {"name": name, "definition": affordances[name]}
 
     def _get_thing_or_404(self, thing_id: str) -> ThingRecord:
-        record = get_thing(self._session, thing_id)
+        record = get_thing(self._connection, thing_id)
         if record is None:
             raise HTTPException(status_code=404, detail="Thing not found")
         return record
@@ -71,25 +71,25 @@ class ThingCatalogQueryService:
 
 
 class ThingCatalogWriteService:
-    def __init__(self, session: Session):
-        self._session = session
+    def __init__(self, connection: DatabaseConnection):
+        self._connection = connection
 
     def create(self, document: ThingDocument) -> ThingRecord:
         try:
-            record = create_thing(self._session, document, commit=False)
+            record = create_thing(self._connection, document, commit=False)
             enqueue_thing_event(
-                self._session,
+                self._connection,
                 build_change_event("create", record),
             )
-            self._session.commit()
+            self._connection.commit()
         except ThingConflictError as exc:
-            self._session.rollback()
+            self._connection.rollback()
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
-            self._session.rollback()
+            self._connection.rollback()
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except Exception:
-            self._session.rollback()
+            self._connection.rollback()
             raise
 
         return record
@@ -97,36 +97,36 @@ class ThingCatalogWriteService:
     def update(self, thing_id: str, document: ThingDocument) -> ThingRecord:
         try:
             record, created = put_thing(
-                self._session,
+                self._connection,
                 thing_id,
                 document,
                 commit=False,
             )
             enqueue_thing_event(
-                self._session,
+                self._connection,
                 build_change_event("create" if created else "update", record),
             )
-            self._session.commit()
+            self._connection.commit()
         except ValueError as exc:
-            self._session.rollback()
+            self._connection.rollback()
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception:
-            self._session.rollback()
+            self._connection.rollback()
             raise
 
         return record
 
     def delete(self, thing_id: str) -> None:
         try:
-            deleted = delete_thing(self._session, thing_id, commit=False)
+            deleted = delete_thing(self._connection, thing_id, commit=False)
             if not deleted:
-                self._session.rollback()
+                self._connection.rollback()
                 raise HTTPException(status_code=404, detail="Thing not found")
 
-            enqueue_thing_event(self._session, build_remove_event(thing_id))
-            self._session.commit()
+            enqueue_thing_event(self._connection, build_remove_event(thing_id))
+            self._connection.commit()
         except HTTPException:
             raise
         except Exception:
-            self._session.rollback()
+            self._connection.rollback()
             raise

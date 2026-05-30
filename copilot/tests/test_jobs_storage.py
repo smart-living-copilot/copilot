@@ -1,18 +1,40 @@
+import os
 import unittest
 from datetime import timedelta
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
+import pytest
+
+from copilot.core.config import get_settings
+from copilot.core.database import get_connection_pool, init_db
 from copilot.jobs.models import CreateJobRequest
 from copilot.jobs.storage import JobRepository, utc_now
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("COPILOT_TEST_DATABASE_URL"),
+    reason="COPILOT_TEST_DATABASE_URL is required for Postgres job repository tests",
+)
+
+
+def _close_cached_pool() -> None:
+    if get_connection_pool.cache_info().currsize:
+        get_connection_pool().close()
+    get_connection_pool.cache_clear()
 
 
 class JobRepositoryTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self._tmpdir = TemporaryDirectory()
-        self.addCleanup(self._tmpdir.cleanup)
-        self.repo = JobRepository(str(Path(self._tmpdir.name) / "jobs.db"))
-        await self.repo.init()
+        os.environ["REGISTRY_DATABASE_URL"] = os.environ["COPILOT_TEST_DATABASE_URL"]
+        get_settings.cache_clear()
+        _close_cached_pool()
+        init_db()
+        with get_connection_pool().connection() as connection:
+            connection.execute("TRUNCATE jobs")
+            connection.commit()
+        self.repo = JobRepository()
+
+    async def asyncTearDown(self):
+        get_settings.cache_clear()
+        _close_cached_pool()
 
     async def test_time_job_lifecycle(self):
         now = utc_now()

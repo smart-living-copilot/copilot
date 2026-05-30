@@ -1,35 +1,14 @@
-import uuid
-from datetime import datetime, timezone
-
-from sqlalchemy import DateTime, Text, UniqueConstraint, func
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.types import JSON
-
-from copilot.core.database import Base
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
 
 
-class CredentialRow(Base):
-    __tablename__ = "thing_credentials"
-    __table_args__ = (
-        UniqueConstraint("thing_id", "security_name", name="uq_thing_security"),
-    )
-
-    id: Mapped[str] = mapped_column(
-        Text, primary_key=True, default=lambda: str(uuid.uuid4())
-    )
-    thing_id: Mapped[str] = mapped_column(Text, nullable=False)
-    security_name: Mapped[str] = mapped_column(Text, nullable=False)
-    scheme: Mapped[str] = mapped_column(Text, nullable=False)
-    credentials: Mapped[dict] = mapped_column(JSON, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-        server_default=func.now(),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-        server_default=func.now(),
-    )
+@dataclass(frozen=True)
+class CredentialRow:
+    id: str
+    thing_id: str
+    security_name: str
+    scheme: str
+    credentials: dict[str, Any]
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

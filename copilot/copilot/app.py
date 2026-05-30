@@ -10,12 +10,16 @@ from ag_ui_langgraph import add_langgraph_fastapi_endpoint  # type: ignore[impor
 from copilotkit import LangGraphAGUIAgent
 from fastapi import FastAPI, HTTPException, Request
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import BaseModel, Field
+
+try:
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+except ImportError:  # pragma: no cover - exercised when optional dep is absent locally.
+    AsyncPostgresSaver = None  # type: ignore[assignment]
 
 from copilot.core.llm import _make_llm
 from copilot.core.config import get_settings as get_registry_settings
-from copilot.core.database import get_session_factory, init_db
+from copilot.core.database import get_connection_pool, init_db, psycopg_conninfo
 from copilot.core.health import router as registry_health_router
 from copilot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
 from copilot.graph import build_graph
@@ -34,11 +38,7 @@ from copilot.threads import (
 )
 from copilot.threads.routes import create_threads_router
 from copilot.graph.tools import LOCAL_TOOLS, REGISTRY_TOOLS
-import copilot.api_keys.models  # noqa: F401 — register table before init_db()
 from copilot.api_keys.router import router as api_keys_router
-import copilot.things.credentials.models  # noqa: F401 — register table before init_db()
-import copilot.things.events.models  # noqa: F401 — register table before init_db()
-import copilot.things.models  # noqa: F401 — register table before init_db()
 from copilot.auth.router import router as me_router
 from copilot.jobs import JobService, router as jobs_router
 from copilot.wot_runtime.router import router as wot_operations_router
@@ -76,6 +76,37 @@ def _is_embed_ephemeral_thread(thread_id: str | None) -> bool:
 def _quiet_noisy_media_loggers() -> None:
     for logger_name in NOISY_MEDIA_LOGGERS:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
+def _checkpoint_database_url(
+    *,
+    settings: AgentSettings,
+    registry_database_url: str,
+) -> str:
+    if settings.agent_state_database_url:
+        return settings.agent_state_database_url
+
+    return registry_database_url
+
+
+@asynccontextmanager
+async def _checkpoint_saver_context(
+    *,
+    settings: AgentSettings,
+    registry_database_url: str,
+):
+    database_url = _checkpoint_database_url(
+        settings=settings,
+        registry_database_url=registry_database_url,
+    )
+    if AsyncPostgresSaver is None:
+        raise RuntimeError(
+            "Postgres checkpointing requires langgraph-checkpoint-postgres to be installed"
+        )
+
+    async with AsyncPostgresSaver.from_conn_string(psycopg_conninfo(database_url)) as postgres_saver:
+        await postgres_saver.setup()
+        yield postgres_saver
 
 
 def _log_background_task_exception(
@@ -324,24 +355,26 @@ async def lifespan(app: FastAPI):
     settings = AgentSettings()
     _settings = settings
     logging.basicConfig(level=settings.log_level)
-    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
     _quiet_noisy_media_loggers()
-    await asyncio.to_thread(init_thread_store, settings.agent_state_db_path)
     await asyncio.to_thread(init_db)
+    await asyncio.to_thread(init_thread_store)
 
     registry_settings = get_registry_settings()
-    registry_session_factory = get_session_factory()
+    connection_pool = get_connection_pool()
     await start_backend_runtime(
         app,
         settings=registry_settings,
-        session_factory=registry_session_factory,
+        connection_pool=connection_pool,
     )
 
     try:
         llm = _make_llm(settings)
 
-        async with AsyncSqliteSaver.from_conn_string(settings.agent_state_db_path) as sqlite_saver:
-            _checkpointer = CachingCheckpointSaver(sqlite_saver)
+        async with _checkpoint_saver_context(
+            settings=settings,
+            registry_database_url=registry_settings.DATABASE_URL,
+        ) as saver:
+            _checkpointer = CachingCheckpointSaver(saver)
             checkpointer = _checkpointer
             graph = build_graph(
                 llm=llm,
@@ -477,7 +510,6 @@ async def _sync_thread_metadata_after_run(thread_id: str | None) -> None:
     title = await _suggest_thread_title(thread_id)
     await asyncio.to_thread(
         sync_thread_after_run,
-        _settings.agent_state_db_path,
         thread_id,
         suggested_title=title,
     )

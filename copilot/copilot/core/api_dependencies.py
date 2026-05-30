@@ -2,16 +2,14 @@ from collections.abc import Iterator
 from typing import Annotated
 
 from fastapi import Depends, Request
-from sqlalchemy.orm import Session
+
+from copilot.core.database import DatabaseConnection
 
 
-def get_db_session(request: Request) -> Iterator[Session]:
-    session_factory = request.app.state.session_factory
-    session = session_factory()
-    try:
-        yield session
-    finally:
-        session.close()
+def get_db_connection(request: Request) -> Iterator[DatabaseConnection]:
+    connection_pool = request.app.state.connection_pool
+    with connection_pool.connection() as connection:
+        yield connection
 
 
-SessionDep = Annotated[Session, Depends(get_db_session)]
+DatabaseDep = Annotated[DatabaseConnection, Depends(get_db_connection)]

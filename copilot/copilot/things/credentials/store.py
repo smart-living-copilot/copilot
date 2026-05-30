@@ -2,12 +2,15 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from psycopg.types.json import Jsonb
 
+from copilot.core.database import DatabaseConnection
 from copilot.things.credentials.models import CredentialRow
 
 _SENSITIVE_FIELDS = {"password", "token", "apiKey"}
+_CREDENTIAL_COLUMNS = """
+    id, thing_id, security_name, scheme, credentials, created_at, updated_at
+"""
 
 
 def _utcnow() -> datetime:
@@ -30,17 +33,33 @@ def _mask_credentials(creds: dict[str, Any]) -> dict[str, Any]:
     return masked
 
 
+def _row_from_mapping(row: dict[str, Any]) -> CredentialRow:
+    return CredentialRow(
+        id=str(row["id"]),
+        thing_id=str(row["thing_id"]),
+        security_name=str(row["security_name"]),
+        scheme=str(row["scheme"]),
+        credentials=dict(row["credentials"] or {}),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 def _get_credential_row(
-    session: Session,
+    connection: DatabaseConnection,
     *,
     thing_id: str,
     security_name: str,
 ) -> CredentialRow | None:
-    stmt = select(CredentialRow).where(
-        CredentialRow.thing_id == thing_id,
-        CredentialRow.security_name == security_name,
-    )
-    return session.execute(stmt).scalar_one_or_none()
+    row = connection.execute(
+        f"""
+        SELECT {_CREDENTIAL_COLUMNS}
+        FROM thing_credentials
+        WHERE thing_id = %s AND security_name = %s
+        """,
+        (thing_id, security_name),
+    ).fetchone()
+    return _row_from_mapping(row) if row is not None else None
 
 
 def _serialize_credential_row(row: CredentialRow) -> dict[str, Any]:
@@ -75,83 +94,94 @@ def _append_runtime_secret(
 
 
 def set_credential(
-    session: Session,
+    connection: DatabaseConnection,
     thing_id: str,
     security_name: str,
     scheme: str,
     credentials: dict[str, Any],
 ) -> CredentialRow:
     """Upsert a credential for a thing's security definition."""
-    row = _get_credential_row(
-        session,
-        thing_id=thing_id,
-        security_name=security_name,
-    )
-
-    if row is not None:
-        row.scheme = scheme
-        row.credentials = credentials
-        row.updated_at = _utcnow()
-    else:
-        row = CredentialRow(
-            id=str(uuid.uuid4()),
-            thing_id=thing_id,
-            security_name=security_name,
-            scheme=scheme,
-            credentials=credentials,
+    row = connection.execute(
+        f"""
+        INSERT INTO thing_credentials (
+            id, thing_id, security_name, scheme, credentials, updated_at
         )
-        session.add(row)
-
-    session.commit()
-    session.refresh(row)
-    return row
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (thing_id, security_name) DO UPDATE
+        SET scheme = EXCLUDED.scheme,
+            credentials = EXCLUDED.credentials,
+            updated_at = EXCLUDED.updated_at
+        RETURNING {_CREDENTIAL_COLUMNS}
+        """,
+        (
+            str(uuid.uuid4()),
+            thing_id,
+            security_name,
+            scheme,
+            Jsonb(credentials),
+            _utcnow(),
+        ),
+    ).fetchone()
+    connection.commit()
+    if row is None:
+        raise RuntimeError("Credential row was not returned")
+    return _row_from_mapping(row)
 
 
 def get_credential(
-    session: Session, thing_id: str, security_name: str
+    connection: DatabaseConnection, thing_id: str, security_name: str
 ) -> CredentialRow | None:
     return _get_credential_row(
-        session,
+        connection,
         thing_id=thing_id,
         security_name=security_name,
     )
 
 
-def list_credentials(session: Session, thing_id: str) -> list[dict[str, Any]]:
+def list_credentials(connection: DatabaseConnection, thing_id: str) -> list[dict[str, Any]]:
     """List credentials for a thing with masked sensitive values."""
-    stmt = (
-        select(CredentialRow)
-        .where(CredentialRow.thing_id == thing_id)
-        .order_by(CredentialRow.security_name)
-    )
-    rows = session.execute(stmt).scalars().all()
-    return [_serialize_credential_row(row) for row in rows]
+    rows = connection.execute(
+        f"""
+        SELECT {_CREDENTIAL_COLUMNS}
+        FROM thing_credentials
+        WHERE thing_id = %s
+        ORDER BY security_name
+        """,
+        (thing_id,),
+    ).fetchall()
+    return [_serialize_credential_row(_row_from_mapping(row)) for row in rows]
 
 
-def delete_credential(session: Session, thing_id: str, security_name: str) -> bool:
-    row = _get_credential_row(
-        session,
-        thing_id=thing_id,
-        security_name=security_name,
-    )
-    if row is None:
-        return False
-    session.delete(row)
-    session.commit()
-    return True
+def delete_credential(
+    connection: DatabaseConnection,
+    thing_id: str,
+    security_name: str,
+) -> bool:
+    row = connection.execute(
+        """
+        DELETE FROM thing_credentials
+        WHERE thing_id = %s AND security_name = %s
+        RETURNING id
+        """,
+        (thing_id, security_name),
+    ).fetchone()
+    connection.commit()
+    return row is not None
 
 
-def get_runtime_secrets(session: Session) -> dict[str, Any]:
+def get_runtime_secrets(connection: DatabaseConnection) -> dict[str, Any]:
     """Return credentials keyed by Thing id for runtime consumption."""
-    stmt = select(CredentialRow).order_by(
-        CredentialRow.thing_id,
-        CredentialRow.security_name,
-    )
-    rows = session.execute(stmt).scalars().all()
+    rows = connection.execute(
+        f"""
+        SELECT {_CREDENTIAL_COLUMNS}
+        FROM thing_credentials
+        ORDER BY thing_id, security_name
+        """
+    ).fetchall()
     secrets: dict[str, Any] = {}
     for row in rows:
         _append_runtime_secret(
             secrets,
-            row=row,
+            row=_row_from_mapping(row),
         )
     return secrets

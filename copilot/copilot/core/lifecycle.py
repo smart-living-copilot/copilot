@@ -4,10 +4,11 @@ import asyncio
 from typing import Awaitable, Callable, Protocol
 
 from fastapi import FastAPI
-from sqlalchemy.orm import sessionmaker
+from psycopg_pool import ConnectionPool
 
 from copilot.core.config import Settings
 from copilot.core.bootstrap import BackendBootstrapService
+from copilot.core.database import DatabaseConnection
 from copilot.search import ThingSearchService, set_active_search_service
 from copilot.search.indexer.store import SearchVectorStore
 from copilot.core.stream_runtime import StreamConsumerState
@@ -26,9 +27,9 @@ def initialize_app_state(
     app: FastAPI,
     *,
     settings: Settings,
-    session_factory: sessionmaker,
+    connection_pool: ConnectionPool[DatabaseConnection],
 ) -> None:
-    app.state.session_factory = session_factory
+    app.state.connection_pool = connection_pool
     app.state.event_publisher = ValkeyThingEventStreamPublisher(
         settings.REDIS_URL,
         settings.THING_EVENTS_STREAM,
@@ -45,14 +46,11 @@ def initialize_app_state(
 
 def bootstrap_persistent_state(
     *,
-    session_factory: sessionmaker,
+    connection_pool: ConnectionPool[DatabaseConnection],
     settings: Settings,
 ) -> None:
-    session = session_factory()
-    try:
-        BackendBootstrapService(session).bootstrap(settings)
-    finally:
-        session.close()
+    with connection_pool.connection() as connection:
+        BackendBootstrapService(connection).bootstrap(settings)
 
 
 def _start_background_task(
@@ -86,10 +84,10 @@ async def _stop_background_task(
 def start_thing_event_outbox(
     app: FastAPI,
     *,
-    session_factory: sessionmaker,
+    connection_pool: ConnectionPool[DatabaseConnection],
 ) -> None:
     publisher = ThingEventOutboxPublisherWorker(
-        session_factory=session_factory,
+        connection_pool=connection_pool,
         publisher_getter=lambda: app.state.event_publisher,
         state=app.state.thing_event_outbox_state,
     )
@@ -163,15 +161,15 @@ async def start_backend_runtime(
     app: FastAPI,
     *,
     settings: Settings,
-    session_factory: sessionmaker,
+    connection_pool: ConnectionPool[DatabaseConnection],
 ) -> None:
     settings.validate_search_settings()
     settings.validate_runtime_security_settings()
-    initialize_app_state(app, settings=settings, session_factory=session_factory)
-    bootstrap_persistent_state(session_factory=session_factory, settings=settings)
+    initialize_app_state(app, settings=settings, connection_pool=connection_pool)
+    bootstrap_persistent_state(connection_pool=connection_pool, settings=settings)
 
     try:
-        start_thing_event_outbox(app, session_factory=session_factory)
+        start_thing_event_outbox(app, connection_pool=connection_pool)
         start_search_service(app, settings=settings)
         await start_search_indexer(
             app,

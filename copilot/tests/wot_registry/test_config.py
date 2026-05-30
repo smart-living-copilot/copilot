@@ -2,26 +2,36 @@ import pytest
 from fastapi import FastAPI
 
 from copilot.core.config import get_settings
-from copilot.core.database import get_engine, get_session_factory
+from copilot.core.database import get_connection_pool
 from copilot.core.lifecycle import start_backend_runtime
 
 
-@pytest.mark.anyio
-async def test_backend_startup_requires_openai_search_settings(
-    tmp_path,
-    monkeypatch,
-):
+def test_postgresql_psycopg_url_is_normalized(monkeypatch):
     monkeypatch.setenv(
         "REGISTRY_DATABASE_URL",
-        f"sqlite:///{tmp_path / 'backend-test.db'}",
+        "postgresql+psycopg://copilot:copilot@postgres:5432/copilot",
+    )
+
+    get_settings.cache_clear()
+
+    assert (
+        get_settings().DATABASE_URL
+        == "postgresql://copilot:copilot@postgres:5432/copilot"
+    )
+
+
+@pytest.mark.anyio
+async def test_backend_startup_requires_openai_search_settings(monkeypatch):
+    monkeypatch.setenv(
+        "REGISTRY_DATABASE_URL",
+        "postgresql://copilot:copilot@localhost:5432/copilot",
     )
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
 
     get_settings.cache_clear()
-    get_engine.cache_clear()
-    get_session_factory.cache_clear()
+    get_connection_pool.cache_clear()
 
     settings = get_settings()
     app = FastAPI()
@@ -30,18 +40,15 @@ async def test_backend_startup_requires_openai_search_settings(
         await start_backend_runtime(
             app,
             settings=settings,
-            session_factory=get_session_factory(),
+            connection_pool=object(),  # type: ignore[arg-type]
         )
 
 
 @pytest.mark.anyio
-async def test_backend_startup_requires_runtime_security_tokens(
-    tmp_path,
-    monkeypatch,
-):
+async def test_backend_startup_requires_runtime_security_tokens(monkeypatch):
     monkeypatch.setenv(
         "REGISTRY_DATABASE_URL",
-        f"sqlite:///{tmp_path / 'backend-test.db'}",
+        "postgresql://copilot:copilot@localhost:5432/copilot",
     )
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
     monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
@@ -50,8 +57,7 @@ async def test_backend_startup_requires_runtime_security_tokens(
     monkeypatch.delenv("WOT_RUNTIME_API_TOKEN", raising=False)
 
     get_settings.cache_clear()
-    get_engine.cache_clear()
-    get_session_factory.cache_clear()
+    get_connection_pool.cache_clear()
 
     settings = get_settings()
     app = FastAPI()
@@ -63,5 +69,5 @@ async def test_backend_startup_requires_runtime_security_tokens(
         await start_backend_runtime(
             app,
             settings=settings,
-            session_factory=get_session_factory(),
+            connection_pool=object(),  # type: ignore[arg-type]
         )

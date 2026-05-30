@@ -3,15 +3,20 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Text, cast, func, or_, select
-from sqlalchemy.orm import Session
+from psycopg.errors import UniqueViolation
+from psycopg.types.json import Jsonb
 
+from copilot.core.database import DatabaseConnection
 from copilot.things.models import (
     ThingConflictError,
     ThingDocument,
     ThingRecord,
     ThingRow,
 )
+
+_THING_COLUMNS = """
+    id, title, description, tags, document, document_hash, created_at, updated_at
+"""
 
 
 def sanitize_document(document: ThingDocument) -> ThingDocument:
@@ -50,6 +55,19 @@ def hash_document(document: ThingDocument) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _row_from_mapping(row: dict[str, Any]) -> ThingRow:
+    return ThingRow(
+        id=str(row["id"]),
+        title=str(row["title"]),
+        description=str(row["description"]),
+        tags=list(row["tags"] or []),
+        document=dict(row["document"] or {}),
+        document_hash=str(row["document_hash"]),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 def to_record(row: ThingRow) -> ThingRecord:
     return ThingRecord(
         id=row.id,
@@ -66,44 +84,58 @@ def serialize_document(record: ThingRecord) -> ThingDocument:
 
 
 def list_things(
-    session: Session,
+    connection: DatabaseConnection,
     *,
     query: str = "",
     page: int = 1,
     per_page: int = 25,
 ) -> tuple[list[ThingRecord], int]:
-    statement = select(ThingRow)
     normalized_query = query.strip().lower()
+    offset = (page - 1) * per_page
 
     if normalized_query:
         pattern = f"%{normalized_query}%"
-        statement = statement.where(
-            or_(
-                func.lower(ThingRow.id).like(pattern),
-                func.lower(ThingRow.title).like(pattern),
-                func.lower(ThingRow.description).like(pattern),
-                func.lower(cast(ThingRow.document, Text)).like(pattern),
-            )
-        )
+        where_sql = """
+            WHERE lower(id) LIKE %s
+               OR lower(title) LIKE %s
+               OR lower(description) LIKE %s
+               OR lower(document::text) LIKE %s
+        """
+        where_params: tuple[Any, ...] = (pattern, pattern, pattern, pattern)
+    else:
+        where_sql = ""
+        where_params = ()
 
-    count_statement = select(func.count()).select_from(statement.subquery())
-    total = session.execute(count_statement).scalar_one()
+    total_row = connection.execute(
+        f"SELECT COUNT(*) AS total FROM things {where_sql}",
+        where_params,
+    ).fetchone()
+    total = int(total_row["total"]) if total_row else 0
 
-    statement = statement.order_by(func.lower(ThingRow.title), ThingRow.id)
-    statement = statement.offset((page - 1) * per_page).limit(per_page)
-    rows = session.execute(statement).scalars().all()
-    return [to_record(row) for row in rows], total
+    rows = connection.execute(
+        f"""
+        SELECT {_THING_COLUMNS}
+        FROM things
+        {where_sql}
+        ORDER BY lower(title), id
+        OFFSET %s
+        LIMIT %s
+        """,
+        (*where_params, offset, per_page),
+    ).fetchall()
+    return [to_record(_row_from_mapping(row)) for row in rows], total
 
 
-def get_thing(session: Session, thing_id: str) -> ThingRecord | None:
-    row = session.get(ThingRow, thing_id)
-    if row is None:
-        return None
-    return to_record(row)
+def get_thing(connection: DatabaseConnection, thing_id: str) -> ThingRecord | None:
+    row = connection.execute(
+        f"SELECT {_THING_COLUMNS} FROM things WHERE id = %s",
+        (thing_id,),
+    ).fetchone()
+    return to_record(_row_from_mapping(row)) if row is not None else None
 
 
 def create_thing(
-    session: Session,
+    connection: DatabaseConnection,
     document: ThingDocument,
     *,
     commit: bool = True,
@@ -111,28 +143,38 @@ def create_thing(
     sanitized = sanitize_document(document)
     thing_id, title, tags, description = summarize_document(sanitized)
 
-    if session.get(ThingRow, thing_id) is not None:
-        raise ThingConflictError(f"Thing '{thing_id}' already exists")
+    try:
+        row = connection.execute(
+            f"""
+            INSERT INTO things (
+                id, title, description, tags, document, document_hash, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING {_THING_COLUMNS}
+            """,
+            (
+                thing_id,
+                title,
+                description,
+                Jsonb(tags),
+                Jsonb(sanitized),
+                hash_document(sanitized),
+                datetime.now(timezone.utc),
+            ),
+        ).fetchone()
+    except UniqueViolation as exc:
+        connection.rollback()
+        raise ThingConflictError(f"Thing '{thing_id}' already exists") from exc
 
-    row = ThingRow(
-        id=thing_id,
-        title=title,
-        description=description,
-        tags=tags,
-        document=sanitized,
-        document_hash=hash_document(sanitized),
-        updated_at=datetime.now(timezone.utc),
-    )
-    session.add(row)
-    session.flush()
     if commit:
-        session.commit()
-        session.refresh(row)
-    return to_record(row)
+        connection.commit()
+    if row is None:
+        raise RuntimeError(f"Thing {thing_id} could not be created")
+    return to_record(_row_from_mapping(row))
 
 
 def put_thing(
-    session: Session,
+    connection: DatabaseConnection,
     thing_id: str,
     document: ThingDocument,
     *,
@@ -143,41 +185,51 @@ def put_thing(
     if document_id != thing_id:
         raise ValueError("Thing id in path and document body must match")
 
-    row = session.get(ThingRow, thing_id)
-    created = row is None
-
-    if row is None:
-        row = ThingRow(
-            id=thing_id,
-            title=title,
-            description=description,
-            tags=tags,
-            document=sanitized,
-            document_hash=hash_document(sanitized),
-            updated_at=datetime.now(timezone.utc),
+    document_hash = hash_document(sanitized)
+    updated_at = datetime.now(timezone.utc)
+    row = connection.execute(
+        f"""
+        INSERT INTO things (
+            id, title, description, tags, document, document_hash, updated_at
         )
-        session.add(row)
-    else:
-        row.title = title
-        row.description = description
-        row.tags = tags
-        row.document = sanitized
-        row.document_hash = hash_document(sanitized)
-        row.updated_at = datetime.now(timezone.utc)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE
+        SET title = EXCLUDED.title,
+            description = EXCLUDED.description,
+            tags = EXCLUDED.tags,
+            document = EXCLUDED.document,
+            document_hash = EXCLUDED.document_hash,
+            updated_at = EXCLUDED.updated_at
+        RETURNING {_THING_COLUMNS}, (xmax = 0) AS inserted
+        """,
+        (
+            thing_id,
+            title,
+            description,
+            Jsonb(tags),
+            Jsonb(sanitized),
+            document_hash,
+            updated_at,
+        ),
+    ).fetchone()
 
-    session.flush()
     if commit:
-        session.commit()
-        session.refresh(row)
-    return to_record(row), created
-
-
-def delete_thing(session: Session, thing_id: str, *, commit: bool = True) -> bool:
-    row = session.get(ThingRow, thing_id)
+        connection.commit()
     if row is None:
-        return False
+        raise RuntimeError(f"Thing {thing_id} could not be upserted")
+    return to_record(_row_from_mapping(row)), bool(row["inserted"])
 
-    session.delete(row)
+
+def delete_thing(
+    connection: DatabaseConnection,
+    thing_id: str,
+    *,
+    commit: bool = True,
+) -> bool:
+    row = connection.execute(
+        "DELETE FROM things WHERE id = %s RETURNING id",
+        (thing_id,),
+    ).fetchone()
     if commit:
-        session.commit()
-    return True
+        connection.commit()
+    return row is not None
