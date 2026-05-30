@@ -1,98 +1,43 @@
 """LangGraph tools for the WoT registry and runtime."""
 
+import asyncio
+from collections.abc import Callable
 from typing import Any
-from urllib.parse import quote
 
-import httpx
+from fastapi import HTTPException
 from langchain_core.tools import tool
+from sqlalchemy.orm import Session
 
-from copilot.core.settings import Settings
-from copilot.things import validate_document
-
-
-def _settings() -> Settings:
-    return Settings()
-
-
-def _registry_base_url(settings: Settings) -> str:
-    url = settings.wot_registry_url.rstrip("/")
-    if url.endswith("/mcp"):
-        url = url[: -len("/mcp")]
-    if url.endswith("/api"):
-        url = url[: -len("/api")]
-    return url
+from copilot.core.config import get_settings as get_registry_settings
+from copilot.core.database import get_session_factory
+from copilot.search import get_active_search_service
+from copilot.things import serialize_thing, validate_document
+from copilot.things.ids import decode_thing_id
+from copilot.things.service import ThingCatalogQueryService, ThingCatalogWriteService
+from copilot.wot_runtime import WotRuntimeClient
 
 
-def _auth_headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"} if token else {}
-
-
-def _path_segment(value: str) -> str:
-    return quote(value, safe="")
-
-
-def _response_error(response: httpx.Response) -> ValueError:
-    detail: Any = None
-    try:
-        data = response.json()
-    except ValueError:
-        data = None
-
-    if isinstance(data, dict):
-        detail = data.get("detail")
+def _tool_error(exc: HTTPException) -> ValueError:
+    detail = exc.detail
     if isinstance(detail, str) and detail.strip():
         return ValueError(detail)
-    return ValueError(f"Request failed with status {response.status_code}")
+    return ValueError(f"Request failed with status {exc.status_code}")
 
 
-async def _request_registry(
-    method: str,
-    path: str,
-    *,
-    json: dict[str, Any] | None = None,
-    params: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    settings = _settings()
-    async with httpx.AsyncClient(timeout=settings.wot_registry_timeout_seconds) as client:
-        response = await client.request(
-            method,
-            f"{_registry_base_url(settings)}{path}",
-            headers=_auth_headers(settings.wot_registry_token),
-            json=json,
-            params=params,
-        )
+async def _run_with_session(operation: Callable[[Session], dict[str, Any]]) -> dict[str, Any]:
+    def run() -> dict[str, Any]:
+        session_factory = get_session_factory()
+        with session_factory() as session:
+            try:
+                return operation(session)
+            except HTTPException as exc:
+                raise _tool_error(exc) from exc
 
-    if response.status_code >= 400:
-        raise _response_error(response)
-
-    data = response.json()
-    if not isinstance(data, dict):
-        raise ValueError("Registry returned a non-object response")
-    return data
+    return await asyncio.to_thread(run)
 
 
-async def _request_runtime(
-    method: str,
-    path: str,
-    *,
-    json: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    settings = _settings()
-    async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.request(
-            method,
-            f"{settings.wot_runtime_url.rstrip('/')}{path}",
-            headers=_auth_headers(settings.wot_runtime_api_token),
-            json=json,
-        )
-
-    if response.status_code >= 400:
-        raise _response_error(response)
-
-    data = response.json()
-    if not isinstance(data, dict):
-        raise ValueError("WoT runtime returned a non-object response")
-    return data
+def _runtime_client() -> WotRuntimeClient:
+    return WotRuntimeClient(get_registry_settings())
 
 
 def _thing_summary(payload: dict[str, Any]) -> dict[str, Any]:
@@ -113,11 +58,13 @@ async def _get_affordance(
     affordance_type: str,
     affordance_name: str,
 ) -> dict[str, Any]:
-    path = (
-        f"/api/things/{_path_segment(thing_id)}/{affordance_type}/"
-        f"{_path_segment(affordance_name)}"
+    payload = await _run_with_session(
+        lambda session: ThingCatalogQueryService(session).get_affordance(
+            decode_thing_id(thing_id),
+            affordance_type,
+            affordance_name,
+        )
     )
-    payload = await _request_registry("GET", path)
     return {
         "thing_id": thing_id,
         "name": payload.get("name", affordance_name),
@@ -129,12 +76,10 @@ async def _get_affordance(
 @tool
 async def registry_health() -> dict[str, Any]:
     """Check registry health and return the REST base URL."""
-    settings = _settings()
-    payload = await _request_registry("GET", "/health")
     return {
-        **payload,
+        "status": "ok",
         "product": "wot_registry",
-        "rest_base_url": _registry_base_url(settings),
+        "rest_base_url": get_registry_settings().REGISTRY_PUBLIC_URL,
     }
 
 
@@ -145,10 +90,17 @@ async def things_list(
     per_page: int = 25,
 ) -> dict[str, Any]:
     """List stored Thing Descriptions from the registry catalog."""
-    return await _request_registry(
-        "GET",
-        "/api/things",
-        params={"q": query, "page": page, "per_page": per_page},
+    if page < 1:
+        raise ValueError("page must be at least 1")
+    if per_page < 1 or per_page > 200:
+        raise ValueError("per_page must be between 1 and 200")
+
+    return await _run_with_session(
+        lambda session: ThingCatalogQueryService(session).list_owned_things(
+            query=query,
+            page=page,
+            per_page=per_page,
+        )
     )
 
 
@@ -160,17 +112,22 @@ async def things_search(query: str, k: int = 5) -> dict[str, Any]:
         raise ValueError("query must not be empty")
     if k < 1 or k > 20:
         raise ValueError("k must be between 1 and 20")
-    return await _request_registry(
-        "GET",
-        "/api/things/search",
-        params={"q": normalized_query, "k": k},
-    )
+    search_service = get_active_search_service()
+    if search_service is None:
+        raise ValueError("Search service is not ready")
+
+    items = await search_service.search(query=normalized_query, k=k)
+    return {"items": items, "query": normalized_query}
 
 
 @tool
 async def things_get(thing_id: str) -> dict[str, Any]:
     """Fetch one stored Thing Description by id."""
-    payload = await _request_registry("GET", f"/api/things/{_path_segment(thing_id)}")
+    payload = await _run_with_session(
+        lambda session: ThingCatalogQueryService(session).get_owned_thing(
+            decode_thing_id(thing_id)
+        )
+    )
     return _thing_summary(payload)
 
 
@@ -210,28 +167,35 @@ def things_validate(document: dict[str, Any]) -> dict[str, Any]:
 async def things_upsert(thing_id: str, document: dict[str, Any]) -> dict[str, Any]:
     """Create or update a Thing Description in the catalog."""
     sanitized = validate_document(document)
-    payload = await _request_registry(
-        "PUT",
-        f"/api/things/{_path_segment(thing_id)}",
-        json=sanitized,
+    decoded_thing_id = decode_thing_id(thing_id)
+    payload = await _run_with_session(
+        lambda session: _thing_summary(
+            serialize_thing(
+                ThingCatalogWriteService(session).update(decoded_thing_id, sanitized),
+                include_document=True,
+            )
+        )
     )
-    return _thing_summary(payload)
+    return payload
 
 
 @tool
 async def things_delete(thing_id: str) -> dict[str, str]:
     """Delete a Thing Description by id."""
-    payload = await _request_registry("DELETE", f"/api/things/{_path_segment(thing_id)}")
-    return {
-        "id": str(payload.get("id", thing_id)),
-        "status": str(payload.get("status", "deleted")),
-    }
+    decoded_thing_id = decode_thing_id(thing_id)
+    await _run_with_session(
+        lambda session: (
+            ThingCatalogWriteService(session).delete(decoded_thing_id)
+            or {"id": decoded_thing_id, "status": "deleted"}
+        )
+    )
+    return {"id": decoded_thing_id, "status": "deleted"}
 
 
 @tool
 async def wot_get_runtime_health() -> dict[str, Any]:
     """Return the live runtime health from wot_runtime."""
-    return await _request_runtime("GET", "/health")
+    return await _runtime_client().get_runtime_health()
 
 
 @tool
@@ -242,15 +206,11 @@ async def wot_read_property(
     form_index: int | None = None,
 ) -> dict[str, Any]:
     """Read a live WoT property through wot_runtime."""
-    return await _request_runtime(
-        "POST",
-        "/runtime/read-property",
-        json={
-            "thing_id": thing_id,
-            "property_name": property_name,
-            "uri_variables": uri_variables or {},
-            "form_index": form_index,
-        },
+    return await _runtime_client().read_property(
+        thing_id=thing_id,
+        property_name=property_name,
+        uri_variables=uri_variables,
+        form_index=form_index,
     )
 
 
@@ -265,18 +225,14 @@ async def wot_write_property(
     form_index: int | None = None,
 ) -> dict[str, Any]:
     """Write a live WoT property through wot_runtime."""
-    return await _request_runtime(
-        "POST",
-        "/runtime/write-property",
-        json={
-            "thing_id": thing_id,
-            "property_name": property_name,
-            "value": value,
-            "value_content_type": value_content_type,
-            "value_base64": value_base64,
-            "uri_variables": uri_variables or {},
-            "form_index": form_index,
-        },
+    return await _runtime_client().write_property(
+        thing_id=thing_id,
+        property_name=property_name,
+        value=value,
+        value_content_type=value_content_type,
+        value_base64=value_base64,
+        uri_variables=uri_variables,
+        form_index=form_index,
     )
 
 
@@ -292,19 +248,15 @@ async def wot_invoke_action(
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """Invoke a live WoT action through wot_runtime."""
-    return await _request_runtime(
-        "POST",
-        "/runtime/invoke-action",
-        json={
-            "thing_id": thing_id,
-            "action_name": action_name,
-            "input": input,
-            "input_content_type": input_content_type,
-            "input_base64": input_base64,
-            "uri_variables": uri_variables or {},
-            "form_index": form_index,
-            "idempotency_key": idempotency_key,
-        },
+    return await _runtime_client().invoke_action(
+        thing_id=thing_id,
+        action_name=action_name,
+        input=input,
+        input_content_type=input_content_type,
+        input_base64=input_base64,
+        uri_variables=uri_variables,
+        form_index=form_index,
+        idempotency_key=idempotency_key,
     )
 
 
@@ -316,15 +268,11 @@ async def wot_observe_property(
     form_index: int | None = None,
 ) -> dict[str, Any]:
     """Start or reuse a live WoT property observation."""
-    return await _request_runtime(
-        "POST",
-        "/runtime/observe-property",
-        json={
-            "thing_id": thing_id,
-            "property_name": property_name,
-            "uri_variables": uri_variables or {},
-            "form_index": form_index,
-        },
+    return await _runtime_client().observe_property(
+        thing_id=thing_id,
+        property_name=property_name,
+        uri_variables=uri_variables,
+        form_index=form_index,
     )
 
 
@@ -339,18 +287,14 @@ async def wot_subscribe_event(
     form_index: int | None = None,
 ) -> dict[str, Any]:
     """Start or reuse a live WoT event subscription."""
-    return await _request_runtime(
-        "POST",
-        "/runtime/subscribe-event",
-        json={
-            "thing_id": thing_id,
-            "event_name": event_name,
-            "subscription_input": subscription_input,
-            "subscription_input_content_type": subscription_input_content_type,
-            "subscription_input_base64": subscription_input_base64,
-            "uri_variables": uri_variables or {},
-            "form_index": form_index,
-        },
+    return await _runtime_client().subscribe_event(
+        thing_id=thing_id,
+        event_name=event_name,
+        subscription_input=subscription_input,
+        subscription_input_content_type=subscription_input_content_type,
+        subscription_input_base64=subscription_input_base64,
+        uri_variables=uri_variables,
+        form_index=form_index,
     )
 
 
@@ -362,15 +306,11 @@ async def wot_remove_subscription(
     cancellation_input_base64: str | None = None,
 ) -> dict[str, Any]:
     """Stop a live WoT observation or event subscription."""
-    return await _request_runtime(
-        "POST",
-        "/runtime/remove-subscription",
-        json={
-            "subscription_id": subscription_id,
-            "cancellation_input": cancellation_input,
-            "cancellation_input_content_type": cancellation_input_content_type,
-            "cancellation_input_base64": cancellation_input_base64,
-        },
+    return await _runtime_client().remove_subscription(
+        subscription_id=subscription_id,
+        cancellation_input=cancellation_input,
+        cancellation_input_content_type=cancellation_input_content_type,
+        cancellation_input_base64=cancellation_input_base64,
     )
 
 

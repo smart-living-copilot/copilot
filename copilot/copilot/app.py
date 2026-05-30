@@ -22,8 +22,7 @@ from copilot.core.config import get_settings as get_registry_settings
 from copilot.core.database import get_connection_pool, init_db, psycopg_conninfo
 from copilot.core.health import router as registry_health_router
 from copilot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
-from copilot.graph import build_graph
-from copilot.graph.checkpointer import CachingCheckpointSaver
+from copilot.agent import build_graph
 from copilot.media import (
     create_media_stream,
     SemanticTextChunker,
@@ -37,7 +36,7 @@ from copilot.threads import (
     sync_thread_after_run,
 )
 from copilot.threads.routes import create_threads_router
-from copilot.graph.tools import LOCAL_TOOLS, REGISTRY_TOOLS
+from copilot.agent.tools import LOCAL_TOOLS, REGISTRY_TOOLS
 from copilot.api_keys.router import router as api_keys_router
 from copilot.auth.router import router as me_router
 from copilot.jobs import JobService, router as jobs_router
@@ -56,7 +55,7 @@ NOISY_MEDIA_LOGGERS = (
 # Module-level references kept alive for the process lifetime.
 _agent: LangGraphAGUIAgent | None = None
 _graph: Any | None = None
-_checkpointer: CachingCheckpointSaver | None = None
+_checkpointer: Any | None = None
 _settings: AgentSettings | None = None
 _job_service: JobService | None = None
 _thread_run_locks: dict[str, asyncio.Lock] = {}
@@ -152,25 +151,15 @@ async def _run_persistence_operation(
 
 async def _finalize_thread_run(thread_id: str | None) -> None:
     if _is_embed_ephemeral_thread(thread_id):
+        if thread_id:
+            cancelled = await _delete_checkpoint_thread(thread_id)
+            if cancelled:
+                raise asyncio.CancelledError
         return
 
-    cancelled = False
-
-    if _checkpointer is not None:
-        cancelled = (
-            await _run_persistence_operation(
-                _checkpointer.flush(thread_id=thread_id),
-                error_message=f"Failed to flush checkpoints for {thread_id}",
-            )
-            or cancelled
-        )
-
-    cancelled = (
-        await _run_persistence_operation(
-            _sync_thread_metadata_after_run(thread_id),
-            error_message=f"Failed to sync thread metadata for {thread_id}",
-        )
-        or cancelled
+    cancelled = await _run_persistence_operation(
+        _sync_thread_metadata_after_run(thread_id),
+        error_message=f"Failed to sync thread metadata for {thread_id}",
     )
 
     if cancelled:
@@ -186,21 +175,21 @@ async def _thread_run_lock(thread_id: str) -> asyncio.Lock:
         return lock
 
 
-async def _flush_pending_checkpoints_on_shutdown() -> None:
+async def _delete_checkpoint_thread(thread_id: str) -> bool:
     if _checkpointer is None:
-        return
+        return False
 
-    for thread_id in await _checkpointer.pending_thread_ids():
-        if thread_id is not None and _is_embed_ephemeral_thread(thread_id):
-            await _checkpointer.adelete_thread(thread_id)
-
-    cancelled = await _run_persistence_operation(
-        _checkpointer.flush(),
-        error_message="Failed to flush pending checkpoints during shutdown",
+    return await _run_persistence_operation(
+        _checkpointer.adelete_thread(thread_id),
+        error_message=f"Failed to delete checkpoints for {thread_id}",
     )
 
-    if cancelled:
-        raise asyncio.CancelledError
+
+async def _get_checkpoint_tuple(thread_id: str) -> Any | None:
+    if _checkpointer is None:
+        return None
+
+    return await _checkpointer.aget_tuple({"configurable": {"thread_id": thread_id}})
 
 
 class _AGUIAgentProxy:
@@ -374,7 +363,8 @@ async def lifespan(app: FastAPI):
             settings=settings,
             registry_database_url=registry_settings.DATABASE_URL,
         ) as saver:
-            _checkpointer = CachingCheckpointSaver(saver)
+            logger.info("Using LangGraph Postgres saver for checkpoints")
+            _checkpointer = saver
             checkpointer = _checkpointer
             graph = build_graph(
                 llm=llm,
@@ -383,7 +373,6 @@ async def lifespan(app: FastAPI):
                 max_tokens=settings.max_context_tokens,
                 checkpointer=checkpointer,
                 parallel_tool_calls=settings.parallel_tool_calls,
-                max_checkpoint_tokens=settings.max_checkpoint_tokens,
                 vision_enabled=settings.vision_enabled,
             )
             graph = graph.with_config(recursion_limit=settings.recursion_limit)
@@ -422,7 +411,6 @@ async def lifespan(app: FastAPI):
             if _job_service is not None:
                 await _job_service.stop()
             await speech_pipelines.stop_all()
-            await _flush_pending_checkpoints_on_shutdown()
     finally:
         await shutdown_backend_runtime(app)
 
@@ -453,7 +441,7 @@ def _current_settings() -> AgentSettings | None:
     return _settings
 
 
-def _current_checkpointer() -> CachingCheckpointSaver | None:
+def _current_checkpointer() -> Any | None:
     return _checkpointer
 
 
@@ -504,9 +492,6 @@ async def _sync_thread_metadata_after_run(thread_id: str | None) -> None:
     if not thread_id or _settings is None:
         return
 
-    if _checkpointer is not None and await _checkpointer.is_deleted_thread(thread_id):
-        return
-
     title = await _suggest_thread_title(thread_id)
     await asyncio.to_thread(
         sync_thread_after_run,
@@ -516,10 +501,7 @@ async def _sync_thread_metadata_after_run(thread_id: str | None) -> None:
 
 
 async def _suggest_thread_title(thread_id: str) -> str | None:
-    if _checkpointer is None:
-        return None
-
-    state = await _checkpointer.aget_tuple({"configurable": {"thread_id": thread_id}})
+    state = await _get_checkpoint_tuple(thread_id)
     if state is None or state.checkpoint is None:
         return None
 

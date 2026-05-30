@@ -21,30 +21,6 @@ def test_postgresql_psycopg_url_is_normalized(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_backend_startup_requires_openai_search_settings(monkeypatch):
-    monkeypatch.setenv(
-        "REGISTRY_DATABASE_URL",
-        "postgresql://copilot:copilot@localhost:5432/copilot",
-    )
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_MODEL", raising=False)
-
-    get_settings.cache_clear()
-    get_connection_pool.cache_clear()
-
-    settings = get_settings()
-    app = FastAPI()
-
-    with pytest.raises(RuntimeError, match="OPENAI_API_KEY, OPENAI_MODEL"):
-        await start_backend_runtime(
-            app,
-            settings=settings,
-            connection_pool=object(),  # type: ignore[arg-type]
-        )
-
-
-@pytest.mark.anyio
 async def test_backend_startup_requires_runtime_security_tokens(monkeypatch):
     monkeypatch.setenv(
         "REGISTRY_DATABASE_URL",

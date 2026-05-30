@@ -1,4 +1,19 @@
-"""Tool grouping helpers for the Smart Living Copilot graph."""
+"""Tool grouping helpers for the Smart Living Copilot agent graph.
+
+The graph is handed two flat lists of LangChain tools (see ``agent.tools``):
+
+* **registry tools** cover Thing catalog/search operations and the external
+  ``wot_runtime`` service (live device reads, writes, action invocations,
+  subscriptions).
+* **local tools** are the copilot's own first-party tools: ``get_current_time``
+  (in-process), ``run_code`` (code-executor), ``look_at_camera`` (vision model)
+  and the job-scheduler tools (job-runner).
+
+Each graph node only gets a subset of these (e.g. the chat ``respond`` node has
+no device-write tools). This module is the single place that maps tool *names*
+to those functional groups, so the routing policy lives in one spot instead of
+being scattered across ``builder``.
+"""
 
 import logging
 from dataclasses import dataclass
@@ -6,6 +21,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Registry tools, grouped by what they do.
 _DISCOVERY_NAMES = {"registry_health", "things_list", "things_search"}
 _INSPECT_NAMES = {
     "things_validate",
@@ -28,6 +44,14 @@ _RUNTIME_WRITE_NAMES = {
     "wot_remove_subscription",
 }
 _RUNTIME_NAMES = _RUNTIME_READ_NAMES | _RUNTIME_WRITE_NAMES
+
+# Local tools that are referenced individually by the graph. Every other local
+# tool is treated as a job-scheduler tool, so adding a new job tool in
+# ``agent.tools`` needs no change here.
+_GET_CURRENT_TIME = "get_current_time"
+_RUN_CODE = "run_code"
+_LOOK_AT_CAMERA = "look_at_camera"
+_NAMED_LOCAL_NAMES = {_GET_CURRENT_TIME, _RUN_CODE, _LOOK_AT_CAMERA}
 
 
 @dataclass(frozen=True)
@@ -55,6 +79,7 @@ def partition_registry_tools(registry_tools: list[Any]) -> RegistryToolGroups:
     discovery: list[Any] = []
     inspect: list[Any] = []
     runtime: list[Any] = []
+    runtime_read: list[Any] = []
 
     for tool in registry_tools:
         name = tool.name
@@ -64,10 +89,10 @@ def partition_registry_tools(registry_tools: list[Any]) -> RegistryToolGroups:
             inspect.append(tool)
         elif name in _RUNTIME_NAMES:
             runtime.append(tool)
+            if name in _RUNTIME_READ_NAMES:
+                runtime_read.append(tool)
         else:
             logger.debug("Registry tool %r not assigned to any partition group", name)
-
-    runtime_read = [tool for tool in runtime if tool.name in _RUNTIME_READ_NAMES]
 
     return RegistryToolGroups(
         discovery=discovery,
@@ -84,23 +109,13 @@ def group_local_tools(
 ) -> LocalToolGroups:
     """Return the local tools required by the graph by their explicit names."""
     tools_by_name = {tool.name: tool for tool in local_tools}
-    missing = [
-        tool_name
-        for tool_name in ("get_current_time", "run_code")
-        if tool_name not in tools_by_name
-    ]
+    missing = [name for name in (_GET_CURRENT_TIME, _RUN_CODE) if name not in tools_by_name]
     if missing:
-        missing_names = ", ".join(sorted(missing))
-        raise ValueError(f"Missing required local tools: {missing_names}")
+        raise ValueError(f"Missing required local tools: {', '.join(sorted(missing))}")
 
     return LocalToolGroups(
-        get_current_time=tools_by_name["get_current_time"],
-        run_code=tools_by_name["run_code"],
-        look_at_camera=tools_by_name.get("look_at_camera") if vision_enabled else None,
-        job_tools=[
-            tool
-            for tool in local_tools
-            if tool.name
-            in {"create_job", "create_analysis_job", "list_jobs", "run_job_now", "delete_job"}
-        ],
+        get_current_time=tools_by_name[_GET_CURRENT_TIME],
+        run_code=tools_by_name[_RUN_CODE],
+        look_at_camera=tools_by_name.get(_LOOK_AT_CAMERA) if vision_enabled else None,
+        job_tools=[tool for tool in local_tools if tool.name not in _NAMED_LOCAL_NAMES],
     )

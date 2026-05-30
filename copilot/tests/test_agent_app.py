@@ -67,11 +67,12 @@ class AgentAppRoutesTestCase(unittest.TestCase):
 
         class FakeSaverContext:
             async def __aenter__(self):
-                return object()
+                return fake_saver
 
             async def __aexit__(self, *_args):
                 return False
 
+        fake_saver = object()
         fake_graph = FakeGraph()
         fake_settings = Settings(jobs_enabled=False)
 
@@ -86,19 +87,14 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 patch.object(copilot_app, "shutdown_backend_runtime", AsyncMock()),
                 patch.object(copilot_app, "_make_llm", return_value=object()),
                 patch.object(copilot_app, "_checkpoint_saver_context", return_value=FakeSaverContext()),
-                patch.object(copilot_app, "CachingCheckpointSaver", return_value=object()),
-                patch.object(copilot_app, "build_graph", return_value=fake_graph),
+                patch.object(copilot_app, "build_graph", return_value=fake_graph) as build_graph,
                 patch.object(copilot_app, "LangGraphAGUIAgent", return_value=object()),
                 patch.object(copilot_app.speech_pipelines, "configure"),
                 patch.object(copilot_app.speech_pipelines, "stop_all", AsyncMock()),
-                patch.object(
-                    copilot_app,
-                    "_flush_pending_checkpoints_on_shutdown",
-                    AsyncMock(),
-                ),
             ):
                 async with copilot_app.lifespan(copilot_app.app):
                     self.assertIs(copilot_app._graph, fake_graph)
+                    self.assertIs(build_graph.call_args.kwargs["checkpointer"], fake_saver)
 
         asyncio.run(exercise())
 
@@ -160,24 +156,12 @@ class AgentAppRoutesTestCase(unittest.TestCase):
             },
         )
 
-    def test_ag_ui_proxy_flushes_only_the_active_thread(self) -> None:
+    def test_ag_ui_proxy_runs_active_thread(self) -> None:
         class FakeAgent:
             async def run(self, _input_data):
                 yield {"event": "done"}
 
-        class FakeCheckpointer:
-            def __init__(self) -> None:
-                self.flush_calls: list[str | None] = []
-
-            async def flush(self, thread_id: str | None = None) -> None:
-                self.flush_calls.append(thread_id)
-
-            async def pending_thread_ids(self) -> list[str | None]:
-                return []
-
-        fake_checkpointer = FakeCheckpointer()
         copilot_app._agent = FakeAgent()
-        copilot_app._checkpointer = fake_checkpointer
 
         async def collect_events():
             proxy = copilot_app._AGUIAgentProxy()
@@ -186,7 +170,6 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         events = asyncio.run(collect_events())
 
         self.assertEqual(events, [{"event": "done"}])
-        self.assertEqual(fake_checkpointer.flush_calls, ["thread-a"])
 
     def test_voice_transcript_submission_invokes_graph_with_thread_lock(self) -> None:
         class FakeGraph:
@@ -200,17 +183,8 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     "messages": [AIMessage(content=f"reply to {input_data['messages'][0].content}")]
                 }
 
-        class FakeCheckpointer:
-            def __init__(self) -> None:
-                self.flush_calls: list[str | None] = []
-
-            async def flush(self, thread_id: str | None = None) -> None:
-                self.flush_calls.append(thread_id)
-
         fake_graph = FakeGraph()
-        fake_checkpointer = FakeCheckpointer()
         copilot_app._graph = fake_graph
-        copilot_app._checkpointer = fake_checkpointer
 
         async def submit_twice():
             return await asyncio.gather(
@@ -233,7 +207,6 @@ class AgentAppRoutesTestCase(unittest.TestCase):
             ["first", "second"],
         )
         self.assertEqual(results, ["reply to first", "reply to second"])
-        self.assertEqual(fake_checkpointer.flush_calls, ["thread-a", "thread-a"])
 
     def test_voice_transcript_submission_cancels_graph_invocation(self) -> None:
         class FakeGraph:
@@ -249,13 +222,8 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     self.cancelled.set()
                     raise
 
-        class FakeCheckpointer:
-            async def flush(self, thread_id: str | None = None) -> None:
-                return None
-
         fake_graph = FakeGraph()
         copilot_app._graph = fake_graph
-        copilot_app._checkpointer = FakeCheckpointer()
 
         async def exercise():
             task = asyncio.create_task(
@@ -289,17 +257,8 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     {"langgraph_node": "respond"},
                 )
 
-        class FakeCheckpointer:
-            def __init__(self) -> None:
-                self.flush_calls: list[str | None] = []
-
-            async def flush(self, thread_id: str | None = None) -> None:
-                self.flush_calls.append(thread_id)
-
         fake_graph = FakeGraph()
-        fake_checkpointer = FakeCheckpointer()
         copilot_app._graph = fake_graph
-        copilot_app._checkpointer = fake_checkpointer
 
         async def collect_chunks():
             return [
@@ -318,7 +277,6 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         )
         self.assertEqual(len(fake_graph.calls), 1)
         self.assertEqual(fake_graph.calls[0][2], "messages")
-        self.assertEqual(fake_checkpointer.flush_calls, ["thread-a"])
 
     def test_voice_transcript_streaming_cancels_graph_stream(self) -> None:
         class FakeGraph:
@@ -338,17 +296,8 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     self.cancelled.set()
                     raise
 
-        class FakeCheckpointer:
-            def __init__(self) -> None:
-                self.flush_calls: list[str | None] = []
-
-            async def flush(self, thread_id: str | None = None) -> None:
-                self.flush_calls.append(thread_id)
-
         fake_graph = FakeGraph()
-        fake_checkpointer = FakeCheckpointer()
         copilot_app._graph = fake_graph
-        copilot_app._checkpointer = fake_checkpointer
 
         async def exercise():
             async def collect():
@@ -369,22 +318,17 @@ class AgentAppRoutesTestCase(unittest.TestCase):
 
         asyncio.run(exercise())
 
-        self.assertEqual(fake_checkpointer.flush_calls, ["thread-a"])
-
-    def test_ag_ui_proxy_skips_persistence_for_embed_ephemeral_threads(self) -> None:
+    def test_ag_ui_proxy_cleans_up_embed_ephemeral_checkpoints(self) -> None:
         class FakeAgent:
             async def run(self, _input_data):
                 yield {"event": "done"}
 
         class FakeCheckpointer:
             def __init__(self) -> None:
-                self.flush_calls: list[str | None] = []
+                self.deleted_threads: list[str] = []
 
-            async def flush(self, thread_id: str | None = None) -> None:
-                self.flush_calls.append(thread_id)
-
-            async def pending_thread_ids(self) -> list[str | None]:
-                return []
+            async def adelete_thread(self, thread_id: str) -> None:
+                self.deleted_threads.append(thread_id)
 
         fake_checkpointer = FakeCheckpointer()
         copilot_app._agent = FakeAgent()
@@ -397,7 +341,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         events = asyncio.run(collect_events())
 
         self.assertEqual(events, [{"event": "done"}])
-        self.assertEqual(fake_checkpointer.flush_calls, [])
+        self.assertEqual(fake_checkpointer.deleted_threads, ["embed-ephemeral-thread-a"])
 
     def test_persistence_operation_survives_cancellation(self) -> None:
         class OperationProbe:
@@ -429,28 +373,6 @@ class AgentAppRoutesTestCase(unittest.TestCase):
             await asyncio.wait_for(probe.completed.wait(), timeout=1)
 
         asyncio.run(exercise())
-
-    def test_shutdown_flushes_pending_checkpoints(self) -> None:
-        class FakeCheckpointer:
-            def __init__(self) -> None:
-                self.flush_calls: list[str | None] = []
-                self.deleted_threads: list[str] = []
-
-            async def flush(self, thread_id: str | None = None) -> None:
-                self.flush_calls.append(thread_id)
-
-            async def pending_thread_ids(self) -> list[str | None]:
-                return ["embed-ephemeral-thread-a", "thread-b"]
-
-            async def adelete_thread(self, thread_id: str) -> None:
-                self.deleted_threads.append(thread_id)
-
-        fake_checkpointer = FakeCheckpointer()
-        copilot_app._checkpointer = fake_checkpointer
-
-        asyncio.run(copilot_app._flush_pending_checkpoints_on_shutdown())
-
-        self.assertEqual(fake_checkpointer.deleted_threads, ["embed-ephemeral-thread-a"])
 
     def test_delete_thread_uses_checkpointer_when_available(self) -> None:
         class FakeCheckpointer:

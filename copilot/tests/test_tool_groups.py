@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from copilot.graph.tool_groups import group_local_tools, partition_registry_tools
+from copilot.agent.tool_groups import group_local_tools, partition_registry_tools
 
 
 def _tool(name: str) -> SimpleNamespace:

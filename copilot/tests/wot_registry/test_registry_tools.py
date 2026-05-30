@@ -1,5 +1,12 @@
-from copilot.graph.tools.registry import REGISTRY_TOOLS, _registry_base_url, things_validate
-from copilot.core.settings import Settings
+import asyncio
+
+from copilot.agent.tools.wot_registry import (
+    REGISTRY_TOOLS,
+    registry_health,
+    things_search,
+    things_validate,
+)
+from copilot.search import set_active_search_service
 
 
 def sample_thing(thing_id: str = "urn:thing:tool-test") -> dict[str, object]:
@@ -31,10 +38,11 @@ def test_registry_tools_include_catalog_and_runtime_tools():
     assert "wot_subscribe_event" in tool_names
 
 
-def test_registry_base_url_accepts_old_mcp_url_for_compatibility():
-    settings = Settings(wot_registry_url="http://registry.example/mcp")
+def test_registry_health_tool_returns_in_process_registry_status():
+    response = asyncio.run(registry_health.ainvoke({}))
 
-    assert _registry_base_url(settings) == "http://registry.example"
+    assert response["status"] == "ok"
+    assert response["product"] == "wot_registry"
 
 
 def test_things_validate_tool_returns_summary_counts():
@@ -43,3 +51,26 @@ def test_things_validate_tool_returns_summary_counts():
     assert response["id"] == "urn:thing:tool-test"
     assert response["property_count"] == 1
     assert response["action_count"] == 0
+
+
+def test_things_search_uses_active_search_service():
+    class FakeSearchService:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, int]] = []
+
+        async def search(self, *, query: str, k: int):
+            self.calls.append((query, k))
+            return [{"id": "thing-a", "score": 0.9}]
+
+    service = FakeSearchService()
+    set_active_search_service(service)  # type: ignore[arg-type]
+    try:
+        response = asyncio.run(things_search.ainvoke({"query": " light ", "k": 2}))
+    finally:
+        set_active_search_service(None)
+
+    assert response == {
+        "items": [{"id": "thing-a", "score": 0.9}],
+        "query": "light",
+    }
+    assert service.calls == [("light", 2)]

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from copilot.graph.tools import job_scheduler
+from copilot.agent.tools import job_scheduler
 
 
 class _FakeResponse:
@@ -49,7 +49,7 @@ class _FakeAsyncClient:
 
 class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_create_analysis_job_deletes_failed_job_after_validation(self):
-        with patch("copilot.graph.tools.job_scheduler.httpx.AsyncClient", _FakeAsyncClient):
+        with patch("copilot.agent.tools.job_scheduler.httpx.AsyncClient", _FakeAsyncClient):
             result = await job_scheduler.create_analysis_job.ainvoke(
                 {
                     "name": "demo job",

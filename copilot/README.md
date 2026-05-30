@@ -81,7 +81,7 @@ retained for external callers.
 
 ## Graph Architecture
 
-The graph is assembled in [`copilot/graph/builder.py`](./copilot/graph/builder.py).
+The graph is assembled in [`copilot/agent/builder.py`](./copilot/agent/builder.py).
 
 ### State
 
@@ -108,7 +108,7 @@ START
 
 ### Tool Grouping
 
-Tool grouping lives in [`copilot/graph/tool_groups.py`](./copilot/graph/tool_groups.py).
+Tool grouping lives in [`copilot/agent/tool_groups.py`](./copilot/agent/tool_groups.py).
 
 | Group | Tools | Used by |
 |-------|-------|---------|
@@ -119,27 +119,27 @@ Tool grouping lives in [`copilot/graph/tool_groups.py`](./copilot/graph/tool_gro
 
 Local tools are grouped separately:
 
-- [`get_current_time`](./copilot/tools/get_current_time.py)
-- [`run_code`](./copilot/tools/run_code.py)
-- [`create_job`, `create_analysis_job`, `list_jobs`, `run_job_now`, `delete_job`](./copilot/tools/job_scheduler.py)
-- registry/runtime tools live in [`copilot/tools/registry.py`](./copilot/tools/registry.py)
+- [`get_current_time`](./copilot/agent/tools/get_current_time.py)
+- [`run_code`](./copilot/agent/tools/run_code.py)
+- [`create_job`, `create_analysis_job`, `list_jobs`, `run_job_now`, `delete_job`](./copilot/agent/tools/job_scheduler.py)
+- registry/runtime tools live in [`copilot/agent/tools/wot_registry.py`](./copilot/agent/tools/wot_registry.py)
 
 ## Prompts And Few-Shots
 
-- Branch prompts live in [`copilot/prompts`](./copilot/prompts).
+- Branch prompts live in [`copilot/agent/prompts`](./copilot/agent/prompts).
 - Analysis examples live in [`copilot/few_shots/analysis.py`](./copilot/few_shots/analysis.py).
 - Control examples live in [`copilot/few_shots/control.py`](./copilot/few_shots/control.py).
-- Registry/runtime tools are grouped explicitly in [`copilot/graph/tool_groups.py`](./copilot/graph/tool_groups.py).
+- Registry/runtime tools are grouped explicitly in [`copilot/agent/tool_groups.py`](./copilot/agent/tool_groups.py).
 
 Current behavior worth knowing:
 
 - tool calls are bound with `parallel_tool_calls=False`
 - analysis gets a current-time block injected into its system prompt
-- large tool responses are truncated in [`copilot/graph/nodes.py`](./copilot/graph/nodes.py) before they are fed back to the model
+- prompts are shaped and trimmed in [`copilot/agent/nodes.py`](./copilot/agent/nodes.py) before they are fed to the model
 
 ## `run_code` Integration
 
-`run_code` is a local LangChain tool implemented in [`copilot/tools/run_code.py`](./copilot/tools/run_code.py).
+`run_code` is a local LangChain tool implemented in [`copilot/agent/tools/run_code.py`](./copilot/agent/tools/run_code.py).
 
 Current flow:
 
@@ -208,11 +208,9 @@ that variable is not set.
 
 ## Environment Variables
 
-Defined in [`copilot/settings.py`](./copilot/settings.py):
+Defined in [`copilot/core/settings.py`](./copilot/core/settings.py):
 
 - `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL`
-- `WOT_REGISTRY_URL`, `WOT_REGISTRY_TOKEN`
-- `WOT_REGISTRY_TIMEOUT_SECONDS`
 - `CODE_EXECUTOR_URL`, `CODE_EXECUTOR_TIMEOUT_SECONDS`
 - `JOB_RUNNER_URL`, `JOB_RUNNER_TIMEOUT_SECONDS` (the job tools call copilot's own `/jobs` API)
 - `JOBS_ENABLED`, `SCHEDULER_POLL_SECONDS`
@@ -259,14 +257,13 @@ Also defined today but not currently wired into the graph execution path:
 - [`copilot/app.py`](./copilot/app.py): unified FastAPI app composition and AG-UI endpoint registration
 - [`copilot/media`](./copilot/media): browser media ingress, speech pipeline, live camera helpers, and media routes
 - [`copilot/threads`](./copilot/threads): thread metadata storage, title helpers, and thread routes
-- [`copilot/agent.py`](./copilot/agent.py): model factory
-- [`copilot/graph/builder.py`](./copilot/graph/builder.py): graph assembly
-- [`copilot/graph/nodes.py`](./copilot/graph/nodes.py): node behavior, prompt shaping, tool truncation
-- [`copilot/graph/tool_groups.py`](./copilot/graph/tool_groups.py): explicit tool grouping
-- [`copilot/prompts`](./copilot/prompts): system prompts by branch
-- [`copilot/few_shots`](./copilot/few_shots): branch-specific examples
-- [`copilot/tools/run_code.py`](./copilot/tools/run_code.py): bridge to `code-executor`
-- [`copilot/tools/job_scheduler.py`](./copilot/tools/job_scheduler.py): agent tools for the job API
+- [`copilot/core/llm.py`](./copilot/core/llm.py): model factory
+- [`copilot/agent/builder.py`](./copilot/agent/builder.py): graph assembly
+- [`copilot/agent/nodes.py`](./copilot/agent/nodes.py): node behavior and prompt shaping
+- [`copilot/agent/tool_groups.py`](./copilot/agent/tool_groups.py): explicit tool grouping
+- [`copilot/agent/prompts`](./copilot/agent/prompts): system prompts by branch
+- [`copilot/agent/tools/run_code.py`](./copilot/agent/tools/run_code.py): bridge to `code-executor`
+- [`copilot/agent/tools/job_scheduler.py`](./copilot/agent/tools/job_scheduler.py): agent tools for the job API
 - [`copilot/jobs`](./copilot/jobs): in-process automation engine (scheduler, event consumer, job CRUD routes)
 
 ## Contributor Notes

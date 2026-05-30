@@ -1,4 +1,4 @@
-"""Node helpers for the Smart Living Copilot LangGraph."""
+"""Node helpers for the Smart Living Copilot agent graph."""
 
 import json
 import logging
@@ -11,7 +11,6 @@ from langchain_core.messages import (
     AIMessage,
     BaseMessage,
     HumanMessage,
-    RemoveMessage,
     SystemMessage,
     ToolMessage,
     trim_messages,
@@ -20,7 +19,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END
 from pydantic import BaseModel, Field
 
-from copilot.graph.prompts import (
+from copilot.agent.prompts import (
     ANALYSIS_PROMPT,
     CONTROL_PROMPT,
     RESPOND_PROMPT,
@@ -278,44 +277,6 @@ def make_analysis_node(
         return {"messages": [response]}
 
     return node
-
-
-def make_prune_node(max_checkpoint_tokens: int):
-    """Remove old messages from state so the persisted checkpoint stays bounded.
-
-    Messages beyond ``max_checkpoint_tokens`` (oldest first) are pruned using
-    ``RemoveMessage`` so the ``add_messages`` reducer drops them from the
-    checkpoint.  The LLM prompt is already trimmed independently by
-    ``_trim_conversation``, so this only affects the stored checkpoint size
-    (and therefore cold-load time).
-    """
-
-    async def prune(state: CopilotState):
-        messages = state["messages"]
-        kept = trim_messages(
-            messages,
-            max_tokens=max_checkpoint_tokens,
-            token_counter="approximate",
-            strategy="last",
-            include_system=True,
-            allow_partial=False,
-        )
-        kept = _sanitize_message_sequence(kept)
-        kept_ids = {m.id for m in kept if m.id is not None}
-        removals = [
-            RemoveMessage(id=message.id)
-            for message in messages
-            if message.id is not None and message.id not in kept_ids
-        ]
-        if removals:
-            logger.info(
-                "Pruning %d messages from checkpoint (%d kept)",
-                len(removals),
-                len(kept),
-            )
-        return {"messages": removals} if removals else {}
-
-    return prune
 
 
 def respond_should_continue(state: CopilotState) -> str:

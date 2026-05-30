@@ -2,7 +2,7 @@ import unittest
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from copilot.graph.nodes import _make_router_messages, _trim_conversation
+from copilot.agent.nodes import _make_router_messages, _trim_conversation
 
 
 def _tool_call(tool_id: str) -> dict:

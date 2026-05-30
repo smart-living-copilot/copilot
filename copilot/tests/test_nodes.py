@@ -2,7 +2,7 @@ import unittest
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from copilot.graph.nodes import _make_router_messages, _sanitize_message_sequence, _strip_wot_calls
+from copilot.agent.nodes import _make_router_messages, _sanitize_message_sequence, _strip_wot_calls
 
 
 class NodeMessageSanitizationTestCase(unittest.TestCase):

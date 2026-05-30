@@ -9,16 +9,10 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o"
     openai_base_url: str = ""
 
-    # WoT Registry REST API
-    wot_registry_url: str = "http://localhost:8000"
-    wot_registry_token: str = ""
-    wot_registry_timeout_seconds: int = 30
-
     # Agent
     max_iterations: int = 20
     recursion_limit: int = 50
     max_context_tokens: int = 120000
-    max_checkpoint_tokens: int = 240000
     parallel_tool_calls: bool = False
     agent_state_database_url: str = ""
 
