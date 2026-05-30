@@ -4,6 +4,9 @@ from functools import lru_cache
 import psycopg
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import ConnectionPool
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from copilot.core.config import get_settings
 
@@ -13,6 +16,12 @@ DatabaseConnection = psycopg.Connection[DictRow]
 def psycopg_conninfo(database_url: str) -> str:
     if database_url.startswith("postgresql+psycopg://"):
         return database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+    return database_url
+
+
+def sqlalchemy_url(database_url: str) -> str:
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
     return database_url
 
 
@@ -27,10 +36,26 @@ def get_connection_pool() -> ConnectionPool[DatabaseConnection]:
     )
 
 
+@lru_cache()
+def get_sqlalchemy_engine() -> Engine:
+    return create_engine(sqlalchemy_url(get_settings().DATABASE_URL), pool_pre_ping=True)
+
+
+@lru_cache()
+def get_session_factory() -> sessionmaker[Session]:
+    return sessionmaker(bind=get_sqlalchemy_engine(), expire_on_commit=False)
+
+
 def get_connection() -> Iterator[DatabaseConnection]:
     """FastAPI dependency yielding a pooled Postgres connection."""
     with get_connection_pool().connection() as connection:
         yield connection
+
+
+def get_session() -> Iterator[Session]:
+    """FastAPI dependency yielding a SQLAlchemy ORM session."""
+    with get_session_factory() as session:
+        yield session
 
 
 def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
@@ -93,16 +118,6 @@ def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
 
                 CREATE INDEX IF NOT EXISTS idx_thing_event_outbox_pending
                     ON thing_event_outbox(published_at, id);
-
-                CREATE TABLE IF NOT EXISTS threads (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL DEFAULT 'New Chat',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_threads_updated_at
-                    ON threads(updated_at DESC, created_at DESC);
 
                 CREATE TABLE IF NOT EXISTS jobs (
                     id TEXT PRIMARY KEY,

@@ -4,9 +4,14 @@ import os
 import pytest
 
 from copilot.core.config import get_settings
-from copilot.core.database import get_connection_pool
+from copilot.core.database import (
+    get_connection_pool,
+    get_session_factory,
+    get_sqlalchemy_engine,
+)
 from copilot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
 from copilot.search import set_active_search_service
+from copilot.threads import init_thread_store
 from copilot.things.schema import load_td_schema
 
 
@@ -59,6 +64,10 @@ def _close_cached_pool() -> None:
     if get_connection_pool.cache_info().currsize:
         get_connection_pool().close()
     get_connection_pool.cache_clear()
+    get_session_factory.cache_clear()
+    if get_sqlalchemy_engine.cache_info().currsize:
+        get_sqlalchemy_engine().dispose()
+    get_sqlalchemy_engine.cache_clear()
 
 
 @asynccontextmanager
@@ -68,6 +77,7 @@ async def _registry_only_lifespan(app):
     settings = get_settings()
     app.state.settings = settings
     init_db()
+    init_thread_store()
     connection_pool = get_connection_pool()
     await start_backend_runtime(
         app,
@@ -102,6 +112,7 @@ def clear_backend_state(monkeypatch):
     from copilot.core.database import init_db
 
     init_db(init_pool)
+    init_thread_store()
     with init_pool.connection() as connection:
         connection.execute(
             """

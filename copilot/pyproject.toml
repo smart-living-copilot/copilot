@@ -24,6 +24,7 @@ dependencies = [
     "langchain-core>=1.0,<2",
     "openai>=2.29,<3",
     "psycopg[binary,pool]>=3.2,<4",
+    "sqlalchemy>=2,<3",
     "python-dotenv>=1.0",
     "python-multipart>=0.0.20",
 ]

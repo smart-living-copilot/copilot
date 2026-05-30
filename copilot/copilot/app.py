@@ -544,7 +544,6 @@ app.include_router(
 )
 app.include_router(
     create_threads_router(
-        get_settings=_current_settings,
         get_checkpointer=_current_checkpointer,
         verify_internal_api_key=_verify_internal_api_key,
     )

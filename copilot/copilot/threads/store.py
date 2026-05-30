@@ -4,52 +4,179 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
 
-from copilot.core.database import get_connection_pool
-from copilot.threads.models import DEFAULT_THREAD_TITLE, ThreadRecord
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, sessionmaker
+
+from copilot.core.database import get_session_factory, get_sqlalchemy_engine
+from copilot.threads.models import DEFAULT_THREAD_TITLE, Base, Thread, ThreadRecord
+from copilot.threads.titles import MAX_THREAD_TITLE_LENGTH
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
-def _row_to_record(row: dict[str, Any]) -> ThreadRecord:
+def _clean_title(title: str | None, *, default: str | None) -> str | None:
+    if not isinstance(title, str):
+        return default
+
+    cleaned = title.strip()[:MAX_THREAD_TITLE_LENGTH]
+    return cleaned or default
+
+
+def _to_record(thread: Thread) -> ThreadRecord:
     return {
-        "id": str(row["id"]),
-        "title": str(row["title"]),
-        "createdAt": str(row["created_at"]),
-        "updatedAt": str(row["updated_at"]),
+        "id": thread.id,
+        "title": thread.title,
+        "createdAt": thread.created_at,
+        "updatedAt": thread.updated_at,
     }
 
 
+class ThreadStore:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session] | None = None,
+    ) -> None:
+        self._session_factory = session_factory or get_session_factory()
+
+    def list(self) -> list[ThreadRecord]:
+        with self._session_factory() as session:
+            threads = session.scalars(
+                select(Thread).order_by(
+                    Thread.updated_at.desc(),
+                    Thread.created_at.desc(),
+                )
+            ).all()
+
+        return [_to_record(thread) for thread in threads]
+
+    def get(self, thread_id: str) -> ThreadRecord | None:
+        with self._session_factory() as session:
+            thread = session.get(Thread, thread_id)
+
+        return _to_record(thread) if thread is not None else None
+
+    def create(
+        self,
+        *,
+        thread_id: str | None = None,
+        title: str = DEFAULT_THREAD_TITLE,
+        created_at: str | None = None,
+        updated_at: str | None = None,
+    ) -> ThreadRecord:
+        now = _now_iso()
+        record_id = thread_id or str(uuid.uuid4())
+        record_created_at = created_at or now
+        record_updated_at = updated_at or record_created_at
+        record_title = _clean_title(title, default=DEFAULT_THREAD_TITLE)
+
+        with self._session_factory() as session:
+            thread = session.get(Thread, record_id)
+            if thread is None:
+                thread = Thread(
+                    id=record_id,
+                    title=record_title or DEFAULT_THREAD_TITLE,
+                    created_at=record_created_at,
+                    updated_at=record_updated_at,
+                )
+                session.add(thread)
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    thread = session.get(Thread, record_id)
+
+        if thread is None:
+            raise RuntimeError(f"Thread {record_id} could not be created")
+
+        return _to_record(thread)
+
+    def sync_after_run(
+        self,
+        thread_id: str,
+        *,
+        suggested_title: str | None = None,
+    ) -> ThreadRecord | None:
+        now = _now_iso()
+        next_title = _clean_title(suggested_title, default=None)
+
+        with self._session_factory() as session:
+            thread = session.get(Thread, thread_id)
+            if thread is None:
+                return None
+
+            if next_title is not None and thread.title == DEFAULT_THREAD_TITLE:
+                thread.title = next_title
+            thread.updated_at = now
+            session.commit()
+
+        return _to_record(thread)
+
+    def touch(self, thread_id: str) -> ThreadRecord | None:
+        return self.sync_after_run(thread_id)
+
+    def update_title(
+        self,
+        *,
+        thread_id: str,
+        title: str,
+        force: bool = False,
+    ) -> ThreadRecord:
+        next_title = _clean_title(title, default=None)
+        if next_title is None:
+            raise ValueError("Title is required")
+
+        now = _now_iso()
+        with self._session_factory() as session:
+            thread = session.get(Thread, thread_id)
+            if thread is None:
+                thread = Thread(
+                    id=thread_id,
+                    title=next_title,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(thread)
+            elif force or thread.title == DEFAULT_THREAD_TITLE:
+                thread.title = next_title
+                thread.updated_at = now
+
+            session.commit()
+
+        if thread is None:
+            raise RuntimeError(f"Thread {thread_id} could not be updated")
+
+        return _to_record(thread)
+
+    def delete(self, thread_id: str) -> bool:
+        with self._session_factory() as session:
+            thread = session.get(Thread, thread_id)
+            if thread is None:
+                return False
+
+            session.delete(thread)
+            session.commit()
+
+        return True
+
+
 def init_thread_store() -> None:
-    return None
+    Base.metadata.create_all(get_sqlalchemy_engine())
 
 
 def list_threads() -> list[ThreadRecord]:
-    with get_connection_pool().connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, title, created_at, updated_at
-            FROM threads
-            ORDER BY updated_at DESC, created_at DESC
-            """
-        ).fetchall()
-    return [_row_to_record(row) for row in rows]
+    return ThreadStore().list()
 
 
 def get_thread(thread_id: str) -> ThreadRecord | None:
-    with get_connection_pool().connection() as connection:
-        row = connection.execute(
-            """
-            SELECT id, title, created_at, updated_at
-            FROM threads
-            WHERE id = %s
-            """,
-            (thread_id,),
-        ).fetchone()
-    return _row_to_record(row) if row is not None else None
+    return ThreadStore().get(thread_id)
 
 
 def create_thread(
@@ -59,36 +186,12 @@ def create_thread(
     created_at: str | None = None,
     updated_at: str | None = None,
 ) -> ThreadRecord:
-    now = _now_iso()
-    record_id = thread_id or str(uuid.uuid4())
-    record_created_at = created_at or now
-    record_updated_at = updated_at or record_created_at
-    record_title = title.strip()[:50] or DEFAULT_THREAD_TITLE
-
-    with get_connection_pool().connection() as connection:
-        row = connection.execute(
-            """
-            INSERT INTO threads(id, title, created_at, updated_at)
-            VALUES(%s, %s, %s, %s)
-            ON CONFLICT (id) DO NOTHING
-            RETURNING id, title, created_at, updated_at
-            """,
-            (record_id, record_title, record_created_at, record_updated_at),
-        ).fetchone()
-        if row is None:
-            row = connection.execute(
-                """
-                SELECT id, title, created_at, updated_at
-                FROM threads
-                WHERE id = %s
-                """,
-                (record_id,),
-            ).fetchone()
-        connection.commit()
-
-    if row is None:
-        raise RuntimeError(f"Thread {record_id} could not be created")
-    return _row_to_record(row)
+    return ThreadStore().create(
+        thread_id=thread_id,
+        title=title,
+        created_at=created_at,
+        updated_at=updated_at,
+    )
 
 
 def sync_thread_after_run(
@@ -96,45 +199,11 @@ def sync_thread_after_run(
     *,
     suggested_title: str | None = None,
 ) -> ThreadRecord | None:
-    now = _now_iso()
-    next_title = suggested_title.strip()[:50] if isinstance(suggested_title, str) else None
-    if next_title == "":
-        next_title = None
-
-    with get_connection_pool().connection() as connection:
-        existing = connection.execute(
-            """
-            SELECT id, title, created_at, updated_at
-            FROM threads
-            WHERE id = %s
-            """,
-            (thread_id,),
-        ).fetchone()
-        if existing is None:
-            return None
-
-        current_title = str(existing["title"])
-        resolved_title = (
-            next_title if next_title and current_title == DEFAULT_THREAD_TITLE else current_title
-        )
-        row = connection.execute(
-            """
-            UPDATE threads
-            SET title = %s, updated_at = %s
-            WHERE id = %s
-            RETURNING id, title, created_at, updated_at
-            """,
-            (resolved_title, now, thread_id),
-        ).fetchone()
-        connection.commit()
-
-    if row is None:
-        raise RuntimeError(f"Thread {thread_id} could not be touched")
-    return _row_to_record(row)
+    return ThreadStore().sync_after_run(thread_id, suggested_title=suggested_title)
 
 
 def touch_thread(thread_id: str) -> ThreadRecord | None:
-    return sync_thread_after_run(thread_id)
+    return ThreadStore().touch(thread_id)
 
 
 def update_thread_title(
@@ -143,50 +212,8 @@ def update_thread_title(
     title: str,
     force: bool = False,
 ) -> ThreadRecord:
-    next_title = title.strip()[:50]
-    if not next_title:
-        raise ValueError("Title is required")
-
-    now = _now_iso()
-    with get_connection_pool().connection() as connection:
-        row = connection.execute(
-            """
-            INSERT INTO threads(id, title, created_at, updated_at)
-            VALUES(%s, %s, %s, %s)
-            ON CONFLICT (id) DO UPDATE
-            SET title = CASE
-                    WHEN %s OR threads.title = %s THEN EXCLUDED.title
-                    ELSE threads.title
-                END,
-                updated_at = CASE
-                    WHEN %s OR threads.title = %s THEN EXCLUDED.updated_at
-                    ELSE threads.updated_at
-                END
-            RETURNING id, title, created_at, updated_at
-            """,
-            (
-                thread_id,
-                next_title,
-                now,
-                now,
-                force,
-                DEFAULT_THREAD_TITLE,
-                force,
-                DEFAULT_THREAD_TITLE,
-            ),
-        ).fetchone()
-        connection.commit()
-
-    if row is None:
-        raise RuntimeError(f"Thread {thread_id} could not be updated")
-    return _row_to_record(row)
+    return ThreadStore().update_title(thread_id=thread_id, title=title, force=force)
 
 
 def delete_thread(thread_id: str) -> bool:
-    with get_connection_pool().connection() as connection:
-        row = connection.execute(
-            "DELETE FROM threads WHERE id = %s RETURNING id",
-            (thread_id,),
-        ).fetchone()
-        connection.commit()
-    return row is not None
+    return ThreadStore().delete(thread_id)

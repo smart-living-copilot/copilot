@@ -4,7 +4,13 @@ import unittest
 import pytest
 
 from copilot.core.config import get_settings
-from copilot.core.database import get_connection_pool, init_db
+from copilot.core.database import (
+    get_connection_pool,
+    get_session_factory,
+    get_sqlalchemy_engine,
+    init_db,
+)
+from copilot.threads import init_thread_store
 from copilot.threads.store import (
     create_thread,
     delete_thread,
@@ -25,6 +31,10 @@ def _close_cached_pool() -> None:
     if get_connection_pool.cache_info().currsize:
         get_connection_pool().close()
     get_connection_pool.cache_clear()
+    get_session_factory.cache_clear()
+    if get_sqlalchemy_engine.cache_info().currsize:
+        get_sqlalchemy_engine().dispose()
+    get_sqlalchemy_engine.cache_clear()
 
 
 class ThreadStoreTestCase(unittest.TestCase):
@@ -33,6 +43,7 @@ class ThreadStoreTestCase(unittest.TestCase):
         get_settings.cache_clear()
         _close_cached_pool()
         init_db()
+        init_thread_store()
         with get_connection_pool().connection() as connection:
             connection.execute("TRUNCATE threads")
             connection.commit()
