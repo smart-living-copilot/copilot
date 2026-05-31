@@ -1,15 +1,15 @@
 # Copilot
 
-`copilot` is the Python agent service behind Smart Living Copilot. It is an internal FastAPI service that builds a LangGraph-based assistant on startup, serves the AG-UI protocol to CopilotKit, and persists both LangGraph thread state and sidebar thread metadata in SQLite.
+`copilot` is the Python agent service behind Smart Living Copilot. It is an internal FastAPI service that builds a LangGraph-based assistant on startup, serves the AG-UI protocol to CopilotKit, and persists both LangGraph thread state and sidebar thread metadata in Postgres.
 
 ## Current Role In The Stack
 
 - `chat-ui` owns the browser experience and the authenticated edge.
 - `copilot` owns agent orchestration, prompts, tool use, the WoT registry API, LangGraph checkpoint state, and thread metadata.
 - `code-executor` runs stateful Python for the `run_code` tool.
-- the in-process job runner (`copilot/jobs`) schedules time/event automations and dispatches prompts into existing copilot threads.
+- `job-worker` and `job-scheduler` run automation jobs through Taskiq.
 
-At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `copilot`, and `copilot` uses local LangGraph tools for registry/runtime access and `code-executor` for Python execution. Automation jobs run inside `copilot` itself.
+At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `copilot`, and `copilot` uses local LangGraph tools for registry/runtime access and `code-executor` for Python execution. `copilot` owns the job API and result SSE stream, `job-worker` executes jobs and bridges WoT runtime events into Taskiq jobs, and `job-scheduler` sends time-triggered runs. Prompt jobs use a stateless background graph and store results on the job record instead of visible chat threads.
 
 ## Request Lifecycle
 
@@ -68,16 +68,6 @@ Deletes LangGraph checkpoint rows and thread metadata for one thread.
 - Auth: `Authorization: Bearer <INTERNAL_API_KEY>` when configured
 - Deletes from both `writes` and `checkpoints`
 - Used by: thread deletion flow in `chat-ui`
-
-### `POST /internal/jobs/dispatch`
-
-Internal endpoint to execute a prompt in an existing thread. Shares its
-implementation (`dispatch_prompt_to_graph`) with the in-process job runner;
-retained for external callers.
-
-- Auth: `Authorization: Bearer <INTERNAL_API_KEY>` when configured
-- Input: `{ "thread_id": "...", "prompt": "...", "metadata": {...} }`
-- Behavior: invokes the same LangGraph/checkpointer pipeline as normal chat turns
 
 ## Graph Architecture
 
@@ -213,7 +203,7 @@ Defined in [`copilot/core/settings.py`](./copilot/core/settings.py):
 - `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL`
 - `CODE_EXECUTOR_URL`, `CODE_EXECUTOR_TIMEOUT_SECONDS`
 - `JOB_RUNNER_URL`, `JOB_RUNNER_TIMEOUT_SECONDS` (the job tools call copilot's own `/jobs` API)
-- `JOBS_ENABLED`, `SCHEDULER_POLL_SECONDS`
+- `JOBS_ENABLED`, `JOB_TASK_TIMEOUT_SECONDS`, `JOBS_RUN_EVENTS_STREAM`, `JOB_SCHEDULER_UPDATE_INTERVAL_SECONDS`
 - `REDIS_URL`, `WOT_RUNTIME_URL`, `WOT_RUNTIME_API_TOKEN`, `WOT_RUNTIME_STREAM`
 - `JOBS_EVENTS_GROUP`, `JOBS_EVENTS_CONSUMER`, `JOBS_STREAM_BATCH_SIZE`, `JOBS_STREAM_POLL_BLOCK_MS`, `JOBS_STREAM_CLAIM_IDLE_MS`
 - `INTERNAL_API_KEY`
@@ -264,7 +254,7 @@ Also defined today but not currently wired into the graph execution path:
 - [`copilot/agent/prompts`](./copilot/agent/prompts): system prompts by branch
 - [`copilot/agent/tools/run_code.py`](./copilot/agent/tools/run_code.py): bridge to `code-executor`
 - [`copilot/agent/tools/job_scheduler.py`](./copilot/agent/tools/job_scheduler.py): agent tools for the job API
-- [`copilot/jobs`](./copilot/jobs): in-process automation engine (scheduler, event consumer, job CRUD routes)
+- [`copilot/jobs`](./copilot/jobs): job CRUD routes, Taskiq worker task, Postgres schedule source, WoT event consumer, and Redis-backed run events
 
 ## Contributor Notes
 

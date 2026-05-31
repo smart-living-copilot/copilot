@@ -10,14 +10,13 @@ from ag_ui_langgraph import add_langgraph_fastapi_endpoint  # type: ignore[impor
 from copilotkit import LangGraphAGUIAgent
 from fastapi import FastAPI, HTTPException, Request
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
-from pydantic import BaseModel, Field
 
 try:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 except ImportError:  # pragma: no cover - exercised when optional dep is absent locally.
     AsyncPostgresSaver = None  # type: ignore[assignment]
 
-from copilot.core.llm import _make_llm
+from copilot.core.llm import make_llm
 from copilot.core.config import get_settings as get_registry_settings
 from copilot.core.database import get_connection_pool, init_db, psycopg_conninfo
 from copilot.core.health import router as registry_health_router
@@ -40,6 +39,7 @@ from copilot.agent.tools import LOCAL_TOOLS, REGISTRY_TOOLS
 from copilot.api_keys.router import router as api_keys_router
 from copilot.auth.router import router as me_router
 from copilot.jobs import JobService, router as jobs_router
+from copilot.jobs.active import set_active_job_service
 from copilot.wot_runtime.router import router as wot_operations_router
 from copilot.search.router import router as search_router
 from copilot.things.router import router as things_router
@@ -60,12 +60,6 @@ _settings: AgentSettings | None = None
 _job_service: JobService | None = None
 _thread_run_locks: dict[str, asyncio.Lock] = {}
 _thread_run_locks_guard = asyncio.Lock()
-
-
-class JobDispatchRequest(BaseModel):
-    thread_id: str
-    prompt: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def _is_embed_ephemeral_thread(thread_id: str | None) -> bool:
@@ -304,39 +298,6 @@ async def _stream_voice_transcript_to_chat(
             await _finalize_thread_run(thread_id)
 
 
-async def dispatch_prompt_to_graph(
-    thread_id: str,
-    prompt: str,
-    metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Run a prompt through the graph for one thread and return the assistant text.
-
-    Shared by the ``/internal/jobs/dispatch`` endpoint and the in-process job
-    runner, so both reach the agent the same way.
-    """
-    if _graph is None:
-        raise RuntimeError("Graph is not ready")
-
-    result = await _graph.ainvoke(
-        {"messages": [HumanMessage(content=prompt)]},
-        config={"configurable": {"thread_id": thread_id}},
-    )
-
-    assistant_text = ""
-    for message in reversed(result.get("messages", [])):
-        if isinstance(message, AIMessage):
-            content = message.content
-            assistant_text = content if isinstance(content, str) else str(content)
-            break
-
-    return {
-        "ok": True,
-        "thread_id": thread_id,
-        "assistant": assistant_text,
-        "metadata": metadata or {},
-    }
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _agent, _graph, _checkpointer, _settings, _job_service
@@ -357,7 +318,7 @@ async def lifespan(app: FastAPI):
     )
 
     try:
-        llm = _make_llm(settings)
+        llm = make_llm(settings)
 
         async with _checkpoint_saver_context(
             settings=settings,
@@ -400,14 +361,16 @@ async def lifespan(app: FastAPI):
             app.state.settings = settings
             app.state.agent_settings = settings
             if settings.jobs_enabled:
-                _job_service = JobService(settings, dispatch_prompt=dispatch_prompt_to_graph)
+                _job_service = JobService(settings)
                 await _job_service.start()
                 app.state.service = _job_service
-                logger.info("Job runner started (in-process)")
+                set_active_job_service(_job_service)
+                logger.info("Job API started")
             else:
-                logger.info("Job runner disabled (JOBS_ENABLED=false)")
+                logger.info("Job API disabled (JOBS_ENABLED=false)")
 
             yield
+            set_active_job_service(None)
             if _job_service is not None:
                 await _job_service.stop()
             await speech_pipelines.stop_all()
@@ -473,19 +436,6 @@ def _request_thread_id(input_data: Any) -> str | None:
                 return value
 
     return None
-
-
-@app.post("/internal/jobs/dispatch")
-async def dispatch_job_prompt(payload: JobDispatchRequest, request: Request):
-    _verify_internal_api_key(request)
-    try:
-        return await dispatch_prompt_to_graph(
-            payload.thread_id,
-            payload.prompt,
-            payload.metadata,
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 async def _sync_thread_metadata_after_run(thread_id: str | None) -> None:

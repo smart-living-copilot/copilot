@@ -1,3 +1,7 @@
+import os
+import socket
+
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -65,20 +69,21 @@ class Settings(BaseSettings):
     code_executor_retry_attempts: int = 3
     code_executor_retry_backoff_seconds: float = 1.0
 
-    # Job Runner (in-process automation engine)
-    job_runner_url: str = "http://localhost:8123"
-    job_runner_timeout_seconds: int = 30
+    # Jobs
+    job_task_timeout_seconds: int = 300
     jobs_enabled: bool = True
-    scheduler_poll_seconds: int = 2
     redis_url: str = "redis://valkey:6379"
     wot_runtime_url: str = "http://wot-runtime:3003"
     wot_runtime_api_token: str = ""
     wot_runtime_stream: str = "wot_runtime_events"
     jobs_events_group: str = "job_runner"
-    jobs_events_consumer: str = "job_runner_1"
+    jobs_events_consumer: str = Field(
+        default_factory=lambda: f"{socket.gethostname()}-{os.getpid()}"
+    )
     jobs_stream_batch_size: int = 20
     jobs_stream_poll_block_ms: int = 5000
     jobs_stream_claim_idle_ms: int = 60000
+    jobs_run_events_stream: str = "jobs_run_events"
 
     # Logging
     log_level: str = "INFO"

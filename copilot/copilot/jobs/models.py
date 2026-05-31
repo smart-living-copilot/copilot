@@ -4,6 +4,43 @@ from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+from sqlalchemy import Boolean, Index, Integer, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from copilot.core.orm import Base
+
+
+class JobRow(Base):
+    """SQLAlchemy mapping for the ``jobs`` table (created in core.database.init_db)."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        Index("idx_jobs_due", "trigger_type", "enabled", "next_run_at"),
+        Index("idx_jobs_subscription", "subscription_id", "enabled"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    thread_id: Mapped[str] = mapped_column(Text, nullable=False)
+    job_type: Mapped[str] = mapped_column(Text, nullable=False, default="prompt")
+    prompt: Mapped[str | None] = mapped_column(Text)
+    analysis_code: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    trigger_type: Mapped[str] = mapped_column(Text, nullable=False)
+    run_at: Mapped[str | None] = mapped_column(Text)
+    interval_seconds: Mapped[int | None] = mapped_column(Integer)
+    next_run_at: Mapped[str | None] = mapped_column(Text)
+    thing_id: Mapped[str | None] = mapped_column(Text)
+    event_name: Mapped[str | None] = mapped_column(Text)
+    subscription_id: Mapped[str | None] = mapped_column(Text)
+    subscription_input_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+    last_run_at: Mapped[str | None] = mapped_column(Text)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    last_response: Mapped[str | None] = mapped_column(Text)
+    run_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_fetch_value: Mapped[str | None] = mapped_column(Text)
 
 
 class Job(BaseModel):

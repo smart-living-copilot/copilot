@@ -1,72 +1,57 @@
-"""LangChain tools for managing automation jobs via copilot's in-process job API."""
+"""LangChain tools for managing automation jobs via copilot's in-process JobService.
+
+These tools only run inside the API-process agent graph (see ``LOCAL_TOOLS``), where the
+``JobService`` singleton is registered with ``set_active_job_service``. They therefore call
+it directly instead of round-tripping through the HTTP job API.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
+from pydantic import ValidationError
 
-from copilot.core.settings import Settings
+from copilot.jobs.active import get_active_job_service
+from copilot.jobs.models import CreateJobRequest
 
-_settings = Settings()
+if TYPE_CHECKING:
+    from copilot.jobs.service import JobService
 
-
-def _headers() -> dict[str, str]:
-    if _settings.internal_api_key:
-        return {"Authorization": f"Bearer {_settings.internal_api_key}"}
-    return {}
+_SERVICE_UNAVAILABLE = {"error": "Job runner is not enabled"}
 
 
 def _thread_id_from_config(config: RunnableConfig, thread_id: str | None) -> str:
     return thread_id or config.get("configurable", {}).get("thread_id", "default")
 
 
-def _response_error_detail(exc: httpx.HTTPStatusError, fallback: str) -> str:
+async def _run_job(service: JobService, job_id: str) -> dict[str, Any]:
     try:
-        detail = exc.response.json().get("detail")
-    except Exception:
-        detail = None
-    return detail or fallback
+        return await service.run_job_now(job_id)
+    except KeyError:
+        return {"ok": False, "error": "job not found"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
-async def _delete_job_with_client(client: httpx.AsyncClient, job_id: str) -> dict[str, Any]:
-    response = await client.delete(
-        f"{_settings.job_runner_url}/jobs/{job_id}",
-        headers=_headers(),
-    )
-    response.raise_for_status()
-    body = response.json()
-    return body if isinstance(body, dict) else {"ok": True}
-
-
-async def _validate_new_job(
-    client: httpx.AsyncClient,
-    created_job: dict[str, Any],
+async def _create_and_validate(
+    service: JobService,
+    request: CreateJobRequest,
 ) -> dict[str, Any]:
+    try:
+        job = await service.create_job(request)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    created_job = job.model_dump(mode="json")
     job_id = created_job.get("id")
     if not job_id:
         return created_job
 
-    try:
-        run_response = await client.post(
-            f"{_settings.job_runner_url}/jobs/{job_id}/run",
-            headers=_headers(),
-        )
-        run_response.raise_for_status()
-        run_result = run_response.json()
-    except httpx.ConnectError:
-        run_result = {"ok": False, "error": "Job runner service is unavailable during validation."}
-    except httpx.HTTPStatusError as exc:
-        run_result = {
-            "ok": False,
-            "error": _response_error_detail(
-                exc,
-                f"Running job failed with status {exc.response.status_code}.",
-            ),
-        }
-
+    run_result = await _run_job(service, str(job_id))
     if isinstance(run_result, dict) and run_result.get("ok"):
         created_job["test_run"] = run_result
         return created_job
@@ -74,15 +59,12 @@ async def _validate_new_job(
     deleted_failed_job = False
     delete_error = None
     try:
-        await _delete_job_with_client(client, str(job_id))
+        await service.delete_job(str(job_id))
         deleted_failed_job = True
-    except httpx.ConnectError:
-        delete_error = "Job runner service is unavailable during cleanup."
-    except httpx.HTTPStatusError as exc:
-        delete_error = _response_error_detail(
-            exc,
-            f"Deleting failed job failed with status {exc.response.status_code}.",
-        )
+    except KeyError:
+        delete_error = "Job not found during cleanup."
+    except Exception as exc:
+        delete_error = str(exc)
 
     error_message = "Newly created job failed validation and was deleted."
     if isinstance(run_result, dict) and run_result.get("error"):
@@ -117,38 +99,24 @@ async def create_job(
     - "time": use run_at (ISO datetime) or interval_seconds
     - "event": use thing_id and event_name
     """
-    payload = {
-        "name": name,
-        "thread_id": _thread_id_from_config(config, thread_id),
-        "prompt": prompt,
-        "trigger_type": trigger_type,
-        "run_at": run_at,
-        "interval_seconds": interval_seconds,
-        "thing_id": thing_id,
-        "event_name": event_name,
-        "subscription_input": subscription_input,
-    }
+    service = get_active_job_service()
+    if service is None:
+        return dict(_SERVICE_UNAVAILABLE)
     try:
-        async with httpx.AsyncClient(timeout=float(_settings.job_runner_timeout_seconds)) as client:
-            response = await client.post(
-                f"{_settings.job_runner_url}/jobs",
-                json=payload,
-                headers=_headers(),
-            )
-            response.raise_for_status()
-            created_job = response.json()
-            if not isinstance(created_job, dict):
-                return {"error": "Job creation returned an invalid response."}
-            return await _validate_new_job(client, created_job)
-    except httpx.ConnectError:
-        return {"error": "Job runner service is unavailable."}
-    except httpx.HTTPStatusError as exc:
-        return {
-            "error": _response_error_detail(
-                exc,
-                f"Job creation failed with status {exc.response.status_code}.",
-            )
-        }
+        request = CreateJobRequest(
+            name=name,
+            thread_id=_thread_id_from_config(config, thread_id),
+            prompt=prompt,
+            trigger_type=trigger_type,
+            run_at=run_at,
+            interval_seconds=interval_seconds,
+            thing_id=thing_id,
+            event_name=event_name,
+            subscription_input=subscription_input,
+        )
+    except ValidationError as exc:
+        return {"error": str(exc)}
+    return await _create_and_validate(service, request)
 
 
 @tool
@@ -170,39 +138,25 @@ async def create_analysis_job(
     - "time": use run_at (one-time ISO datetime) or interval_seconds (recurring cadence)
     - "event": use thing_id and event_name to run on a subscribed WoT event
     """
-    payload = {
-        "name": name,
-        "thread_id": _thread_id_from_config(config, thread_id),
-        "job_type": "analysis",
-        "trigger_type": trigger_type,
-        "analysis_code": analysis_code,
-        "run_at": run_at,
-        "interval_seconds": interval_seconds,
-        "thing_id": thing_id,
-        "event_name": event_name,
-        "subscription_input": subscription_input,
-    }
+    service = get_active_job_service()
+    if service is None:
+        return dict(_SERVICE_UNAVAILABLE)
     try:
-        async with httpx.AsyncClient(timeout=float(_settings.job_runner_timeout_seconds)) as client:
-            response = await client.post(
-                f"{_settings.job_runner_url}/jobs",
-                json=payload,
-                headers=_headers(),
-            )
-            response.raise_for_status()
-            created_job = response.json()
-            if not isinstance(created_job, dict):
-                return {"error": "Analysis job creation returned an invalid response."}
-            return await _validate_new_job(client, created_job)
-    except httpx.ConnectError:
-        return {"error": "Job runner service is unavailable."}
-    except httpx.HTTPStatusError as exc:
-        return {
-            "error": _response_error_detail(
-                exc,
-                f"Analysis job creation failed with status {exc.response.status_code}.",
-            )
-        }
+        request = CreateJobRequest(
+            name=name,
+            thread_id=_thread_id_from_config(config, thread_id),
+            job_type="analysis",
+            analysis_code=analysis_code,
+            trigger_type=trigger_type,
+            run_at=run_at,
+            interval_seconds=interval_seconds,
+            thing_id=thing_id,
+            event_name=event_name,
+            subscription_input=subscription_input,
+        )
+    except ValidationError as exc:
+        return {"error": str(exc)}
+    return await _create_and_validate(service, request)
 
 
 @tool
@@ -211,56 +165,32 @@ async def list_jobs(thread_id: str | None = None) -> dict[str, Any]:
 
     If thread_id is omitted, returns all jobs.
     """
-    params = {"thread_id": thread_id} if thread_id else None
-    try:
-        async with httpx.AsyncClient(timeout=float(_settings.job_runner_timeout_seconds)) as client:
-            response = await client.get(
-                f"{_settings.job_runner_url}/jobs",
-                params=params,
-                headers=_headers(),
-            )
-            response.raise_for_status()
-            return response.json()
-    except httpx.ConnectError:
-        return {"error": "Job runner service is unavailable."}
-    except httpx.HTTPStatusError as exc:
-        return {"error": f"Listing jobs failed with status {exc.response.status_code}."}
+    service = get_active_job_service()
+    if service is None:
+        return dict(_SERVICE_UNAVAILABLE)
+    jobs = await service.list_jobs(thread_id=thread_id)
+    return {"jobs": [job.model_dump(mode="json") for job in jobs]}
 
 
 @tool
 async def delete_job(job_id: str) -> dict[str, Any]:
     """Delete an automation job by id."""
+    service = get_active_job_service()
+    if service is None:
+        return dict(_SERVICE_UNAVAILABLE)
     try:
-        async with httpx.AsyncClient(timeout=float(_settings.job_runner_timeout_seconds)) as client:
-            return await _delete_job_with_client(client, job_id)
-    except httpx.ConnectError:
-        return {"error": "Job runner service is unavailable."}
-    except httpx.HTTPStatusError as exc:
-        return {
-            "error": _response_error_detail(
-                exc,
-                f"Deleting job failed with status {exc.response.status_code}.",
-            )
-        }
+        job = await service.delete_job(job_id)
+    except KeyError:
+        return {"error": "job not found"}
+    except Exception as exc:
+        return {"error": str(exc)}
+    return {"ok": True, "job": job.model_dump(mode="json")}
 
 
 @tool
 async def run_job_now(job_id: str) -> dict[str, Any]:
     """Trigger an automation job immediately and return the execution result."""
-    try:
-        async with httpx.AsyncClient(timeout=float(_settings.job_runner_timeout_seconds)) as client:
-            response = await client.post(
-                f"{_settings.job_runner_url}/jobs/{job_id}/run",
-                headers=_headers(),
-            )
-            response.raise_for_status()
-            return response.json()
-    except httpx.ConnectError:
-        return {"error": "Job runner service is unavailable."}
-    except httpx.HTTPStatusError as exc:
-        return {
-            "error": _response_error_detail(
-                exc,
-                f"Running job failed with status {exc.response.status_code}.",
-            )
-        }
+    service = get_active_job_service()
+    if service is None:
+        return dict(_SERVICE_UNAVAILABLE)
+    return await _run_job(service, job_id)

@@ -53,14 +53,15 @@ async def list_jobs(request: Request, thread_id: str | None = Query(default=None
 async def stream_job_events(request: Request):
     _verify_internal_api_key(request)
     service = _service(request)
+    last_event_id = request.headers.get("last-event-id")
 
     async def event_stream():
         yield ": connected\n\n"
-        async for event in service.subscribe_run_events():
+        async for event_id, event in service.subscribe_run_events(last_event_id=last_event_id):
             if await request.is_disconnected():
                 break
             payload = json.dumps(event, ensure_ascii=True)
-            yield f"data: {payload}\n\n"
+            yield f"id: {event_id}\ndata: {payload}\n\n"
 
     return StreamingResponse(
         event_stream(),

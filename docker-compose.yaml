@@ -26,8 +26,10 @@ services:
       WOT_RUNTIME_TIMEOUT_SECONDS: "${WOT_RUNTIME_TIMEOUT_SECONDS:-15}"
       WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS: "${WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS:-5}"
       WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS: "${WOT_SUBSCRIPTION_SETUP_TIMEOUT_MS:-0}"
+      JOB_TASK_TIMEOUT_SECONDS: "${JOB_TASK_TIMEOUT_SECONDS:-300}"
       JOBS_EVENTS_GROUP: "${JOBS_EVENTS_GROUP:-job_runner}"
-      JOBS_EVENTS_CONSUMER: "${JOBS_EVENTS_CONSUMER:-job_runner_1}"
+      JOBS_RUN_EVENTS_STREAM: "${JOBS_RUN_EVENTS_STREAM:-jobs_run_events}"
+      JOB_SCHEDULER_UPDATE_INTERVAL_SECONDS: "${JOB_SCHEDULER_UPDATE_INTERVAL_SECONDS:-2}"
       INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
       OPENAI_MODEL: "${OPENAI_MODEL}"
@@ -77,6 +79,71 @@ services:
       - frontend-internal
       - backend-isolated
       - egress-api
+    restart: unless-stopped
+
+  job-worker:
+    image: ghcr.io/smart-living-copilot/copilot:latest
+    env_file: .env
+    # The worker also hosts the WoT event consumer (formerly the standalone
+    # job-events service), so it needs the WoT stream + consumer-group settings.
+    command: ["taskiq", "worker", "--ack-type", "when_saved", "copilot.jobs.taskiq_app:broker"]
+    environment:
+      CODE_EXECUTOR_URL: "http://code-executor:8888"
+      REDIS_URL: "redis://valkey:6379"
+      WOT_RUNTIME_URL: "http://wot-runtime:3003"
+      WOT_RUNTIME_API_TOKEN: "${WOT_RUNTIME_API_TOKEN}"
+      WOT_RUNTIME_STREAM: "${WOT_RUNTIME_STREAM:-wot_runtime_events}"
+      REGISTRY_DATABASE_URL: "${REGISTRY_DATABASE_URL:-postgresql://copilot:copilot@postgres:5432/copilot}"
+      REGISTRY_PUBLIC_URL: "${REGISTRY_PUBLIC_URL:-http://copilot:8123}"
+      SEARCH_VECTOR_DIMENSIONS: "${SEARCH_VECTOR_DIMENSIONS:-1024}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      OPENAI_MODEL: "${OPENAI_MODEL}"
+      OPENAI_BASE_URL: "${OPENAI_API_BASE_URL}"
+      OPENAI_API_BASE_URL: "${OPENAI_API_BASE_URL:-}"
+      OPENAI_EMBEDDING_API_BASE_URL: "${OPENAI_EMBEDDING_API_BASE_URL:-}"
+      OPENAI_EMBEDDING_API_KEY: "${OPENAI_EMBEDDING_API_KEY:-}"
+      OPENAI_EMBEDDING_MODEL: "${OPENAI_EMBEDDING_MODEL:-mxbai-embed-large}"
+      INTERNAL_API_KEY: "${INTERNAL_API_KEY}"
+      JOB_TASK_TIMEOUT_SECONDS: "${JOB_TASK_TIMEOUT_SECONDS:-300}"
+      JOBS_EVENTS_GROUP: "${JOBS_EVENTS_GROUP:-job_runner}"
+      JOBS_RUN_EVENTS_STREAM: "${JOBS_RUN_EVENTS_STREAM:-jobs_run_events}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      code-executor:
+        condition: service_started
+      wot-runtime:
+        condition: service_healthy
+    networks:
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+
+  job-scheduler:
+    image: ghcr.io/smart-living-copilot/copilot:latest
+    env_file: .env
+    command:
+      [
+        "taskiq",
+        "scheduler",
+        "--update-interval",
+        "${JOB_SCHEDULER_UPDATE_INTERVAL_SECONDS:-2}",
+        "--loop-interval",
+        "1",
+        "copilot.jobs.taskiq_app:scheduler",
+      ]
+    # The scheduler reads schedules from Redis only; the API process keeps Redis in
+    # sync with the jobs database, so this container does not need Postgres.
+    environment:
+      REDIS_URL: "redis://valkey:6379"
+      JOB_SCHEDULER_UPDATE_INTERVAL_SECONDS: "${JOB_SCHEDULER_UPDATE_INTERVAL_SECONDS:-2}"
+    depends_on:
+      valkey:
+        condition: service_healthy
+    networks:
+      - backend-isolated
     restart: unless-stopped
 
   thing-indexer:

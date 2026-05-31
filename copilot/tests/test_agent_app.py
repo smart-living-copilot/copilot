@@ -85,7 +85,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 patch.object(copilot_app, "get_connection_pool", return_value=object()),
                 patch.object(copilot_app, "start_backend_runtime", AsyncMock()),
                 patch.object(copilot_app, "shutdown_backend_runtime", AsyncMock()),
-                patch.object(copilot_app, "_make_llm", return_value=object()),
+                patch.object(copilot_app, "make_llm", return_value=object()),
                 patch.object(copilot_app, "_checkpoint_saver_context", return_value=FakeSaverContext()),
                 patch.object(copilot_app, "build_graph", return_value=fake_graph) as build_graph,
                 patch.object(copilot_app, "LangGraphAGUIAgent", return_value=object()),

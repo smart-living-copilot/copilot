@@ -9,7 +9,7 @@ from copilot.core.settings import Settings
 logger = logging.getLogger(__name__)
 
 
-def _make_llm(settings: Settings) -> ChatOpenAI:
+def make_llm(settings: Settings) -> ChatOpenAI:
     return ChatOpenAI(
         model=settings.openai_model,
         api_key=settings.openai_api_key,

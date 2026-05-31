@@ -10,6 +10,37 @@ services:
       LOG_LEVEL: "DEBUG"
     entrypoint: ["uvicorn", "copilot.app:app", "--host", "0.0.0.0", "--port", "8123", "--reload", "--reload-dir", "copilot"]
 
+  job-worker:
+    build:
+      context: ./copilot
+      dockerfile: Dockerfile
+    volumes:
+      - ./copilot/copilot:/app/copilot:cached
+      - ./copilot/tests:/app/tests:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+    command: ["taskiq", "worker", "--ack-type", "when_saved", "copilot.jobs.taskiq_app:broker"]
+
+  job-scheduler:
+    build:
+      context: ./copilot
+      dockerfile: Dockerfile
+    volumes:
+      - ./copilot/copilot:/app/copilot:cached
+      - ./copilot/tests:/app/tests:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+    command:
+      [
+        "taskiq",
+        "scheduler",
+        "--update-interval",
+        "${JOB_SCHEDULER_UPDATE_INTERVAL_SECONDS:-2}",
+        "--loop-interval",
+        "1",
+        "copilot.jobs.taskiq_app:scheduler",
+      ]
+
   thing-indexer:
     build:
       context: ./copilot

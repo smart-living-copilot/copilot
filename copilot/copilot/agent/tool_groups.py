@@ -7,7 +7,7 @@ The graph is handed two flat lists of LangChain tools (see ``agent.tools``):
   subscriptions).
 * **local tools** are the copilot's own first-party tools: ``get_current_time``
   (in-process), ``run_code`` (code-executor), ``look_at_camera`` (vision model)
-  and the job-scheduler tools (job-runner).
+  and the job API tools.
 
 Each graph node only gets a subset of these (e.g. the chat ``respond`` node has
 no device-write tools). This module is the single place that maps tool *names*
@@ -46,7 +46,7 @@ _RUNTIME_WRITE_NAMES = {
 _RUNTIME_NAMES = _RUNTIME_READ_NAMES | _RUNTIME_WRITE_NAMES
 
 # Local tools that are referenced individually by the graph. Every other local
-# tool is treated as a job-scheduler tool, so adding a new job tool in
+# tool is treated as a job API tool, so adding a new job tool in
 # ``agent.tools`` needs no change here.
 _GET_CURRENT_TIME = "get_current_time"
 _RUN_CODE = "run_code"

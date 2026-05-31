@@ -7,7 +7,7 @@ import pytest
 from copilot.core.config import get_settings
 from copilot.core.database import get_connection_pool, init_db
 from copilot.jobs.models import CreateJobRequest
-from copilot.jobs.storage import JobRepository, utc_now
+from copilot.jobs.store import JobStore, utc_now
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("COPILOT_TEST_DATABASE_URL"),
@@ -21,7 +21,7 @@ def _close_cached_pool() -> None:
     get_connection_pool.cache_clear()
 
 
-class JobRepositoryTestCase(unittest.IsolatedAsyncioTestCase):
+class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         os.environ["REGISTRY_DATABASE_URL"] = os.environ["COPILOT_TEST_DATABASE_URL"]
         get_settings.cache_clear()
@@ -30,7 +30,7 @@ class JobRepositoryTestCase(unittest.IsolatedAsyncioTestCase):
         with get_connection_pool().connection() as connection:
             connection.execute("TRUNCATE jobs")
             connection.commit()
-        self.repo = JobRepository()
+        self.repo = JobStore()
 
     async def asyncTearDown(self):
         get_settings.cache_clear()
@@ -50,11 +50,11 @@ class JobRepositoryTestCase(unittest.IsolatedAsyncioTestCase):
             subscription_id=None,
         )
 
-        due_jobs = await self.repo.list_due_time_jobs(now=now + timedelta(seconds=1))
-        self.assertEqual([due_job.id for due_job in due_jobs], [job.id])
+        enabled = await self.repo.list_enabled_time_jobs()
+        self.assertEqual([enabled_job.id for enabled_job in enabled], [job.id])
 
-        await self.repo.mark_time_job_result(
-            job=job,
+        await self.repo.record_job_result(
+            job_id=job.id,
             now=now + timedelta(seconds=1),
             success=True,
             error=None,
@@ -66,7 +66,6 @@ class JobRepositoryTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated.run_count, 1)
         self.assertEqual(updated.last_response, "all good")
         self.assertEqual(updated.last_fetch_value, "42")
-        self.assertIsNotNone(updated.next_run_at)
 
     async def test_event_job_subscription_lifecycle(self):
         job = await self.repo.create_job(
@@ -95,7 +94,7 @@ class JobRepositoryTestCase(unittest.IsolatedAsyncioTestCase):
             [job.id],
         )
 
-        await self.repo.mark_event_job_result(
+        await self.repo.record_job_result(
             job_id=job.id,
             now=utc_now(),
             success=False,
@@ -110,6 +109,43 @@ class JobRepositoryTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(deleted.id, job.id)
         with self.assertRaises(KeyError):
             await self.repo.get_job(job.id)
+
+    async def test_list_enabled_time_jobs_excludes_disabled(self):
+        now = utc_now()
+        recurring = await self.repo.create_job(
+            CreateJobRequest(
+                name="recurring check",
+                thread_id="thread-1",
+                prompt="check the system",
+                trigger_type="time",
+                interval_seconds=60,
+            ),
+            next_run_at=now,
+            subscription_id=None,
+        )
+        one_shot = await self.repo.create_job(
+            CreateJobRequest(
+                name="one shot",
+                thread_id="thread-1",
+                prompt="check once",
+                trigger_type="time",
+                run_at=now,
+            ),
+            next_run_at=now,
+            subscription_id=None,
+        )
+
+        enabled_ids = {job.id for job in await self.repo.list_enabled_time_jobs()}
+        self.assertEqual(enabled_ids, {recurring.id, one_shot.id})
+
+        await self.repo.disable_job(one_shot.id)
+
+        enabled_ids = {job.id for job in await self.repo.list_enabled_time_jobs()}
+        self.assertEqual(enabled_ids, {recurring.id})
+
+        disabled = await self.repo.get_job(one_shot.id)
+        self.assertFalse(disabled.enabled)
+        self.assertIsNone(disabled.next_run_at)
 
 
 if __name__ == "__main__":

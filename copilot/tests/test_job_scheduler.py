@@ -1,68 +1,134 @@
 import unittest
-from unittest.mock import patch
+from datetime import datetime, timezone
 
 from copilot.agent.tools import job_scheduler
+from copilot.jobs.models import CreateJobRequest, Job
+from copilot.jobs.active import set_active_job_service
 
 
-class _FakeResponse:
-    def __init__(self, status_code, payload):
-        self.status_code = status_code
-        self._payload = payload
-
-    def json(self):
-        return self._payload
-
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            import httpx
-
-            request = httpx.Request("POST", "http://test")
-            response = httpx.Response(self.status_code, request=request, json=self._payload)
-            raise httpx.HTTPStatusError("error", request=request, response=response)
+def _job(**overrides) -> Job:
+    now = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
+    values = {
+        "id": "job-123",
+        "name": "demo",
+        "thread_id": "thread-1",
+        "enabled": True,
+        "trigger_type": "time",
+        "created_at": now,
+        "updated_at": now,
+    }
+    values.update(overrides)
+    return Job(**values)
 
 
-class _FakeAsyncClient:
-    def __init__(self, *args, **kwargs):
-        self.posts = []
-        self.deletes = []
+class _FakeService:
+    def __init__(self, *, run_result=None, create_error=None) -> None:
+        self._run_result = run_result or {"ok": True, "response": "done"}
+        self._create_error = create_error
+        self.created_requests: list[CreateJobRequest] = []
+        self.deleted: list[str] = []
+        self.ran: list[str] = []
+        self.listed: list[str | None] = []
 
-    async def __aenter__(self):
-        return self
+    async def create_job(self, request: CreateJobRequest) -> Job:
+        if self._create_error is not None:
+            raise self._create_error
+        self.created_requests.append(request)
+        return _job(name=request.name, thread_id=request.thread_id)
 
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
+    async def run_job_now(self, job_id: str) -> dict:
+        self.ran.append(job_id)
+        return self._run_result
 
-    async def post(self, url, json=None, headers=None):
-        self.posts.append((url, json, headers))
-        if url.endswith("/jobs"):
-            return _FakeResponse(200, {"id": "job-123", "name": "demo"})
-        if url.endswith("/jobs/job-123/run"):
-            return _FakeResponse(200, {"ok": False, "error": "boom"})
-        raise AssertionError(f"Unexpected POST url: {url}")
+    async def delete_job(self, job_id: str) -> Job:
+        self.deleted.append(job_id)
+        return _job(id=job_id)
 
-    async def delete(self, url, headers=None):
-        self.deletes.append((url, headers))
-        if url.endswith("/jobs/job-123"):
-            return _FakeResponse(200, {"ok": True})
-        raise AssertionError(f"Unexpected DELETE url: {url}")
+    async def list_jobs(self, thread_id: str | None = None) -> list[Job]:
+        self.listed.append(thread_id)
+        return [_job()]
 
 
 class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
-    async def test_create_analysis_job_deletes_failed_job_after_validation(self):
-        with patch("copilot.agent.tools.job_scheduler.httpx.AsyncClient", _FakeAsyncClient):
-            result = await job_scheduler.create_analysis_job.ainvoke(
-                {
-                    "name": "demo job",
-                    "analysis_code": "print('hello')",
-                    "trigger_type": "time",
-                    "config": {"configurable": {"thread_id": "thread-1"}},
-                }
-            )
+    def tearDown(self) -> None:
+        set_active_job_service(None)
+
+    async def test_create_analysis_job_deletes_failed_job_after_validation(self) -> None:
+        service = _FakeService(run_result={"ok": False, "error": "boom"})
+        set_active_job_service(service)
+
+        result = await job_scheduler.create_analysis_job.ainvoke(
+            {
+                "name": "demo job",
+                "analysis_code": "print('hello')",
+                "trigger_type": "time",
+            },
+            config={"configurable": {"thread_id": "thread-1"}},
+        )
 
         self.assertIn("error", result)
         self.assertTrue(result["deleted_failed_job"])
         self.assertEqual(result["job"]["id"], "job-123")
         self.assertEqual(result["test_run"]["error"], "boom")
+        self.assertEqual(service.deleted, ["job-123"])
+        self.assertEqual(service.created_requests[0].job_type, "analysis")
+
+    async def test_create_job_returns_test_run_on_success(self) -> None:
+        service = _FakeService(run_result={"ok": True, "response": "ran"})
+        set_active_job_service(service)
+
+        result = await job_scheduler.create_job.ainvoke(
+            {
+                "name": "demo job",
+                "prompt": "check the house",
+                "trigger_type": "time",
+                "interval_seconds": 10,
+            },
+            config={"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(result["id"], "job-123")
+        self.assertTrue(result["test_run"]["ok"])
+        self.assertEqual(service.created_requests[0].thread_id, "thread-1")
+        self.assertEqual(service.created_requests[0].interval_seconds, 10)
+        self.assertEqual(service.deleted, [])
+
+    async def test_create_job_reports_validation_error(self) -> None:
+        service = _FakeService(create_error=ValueError("time jobs require run_at or interval_seconds"))
+        set_active_job_service(service)
+
+        result = await job_scheduler.create_job.ainvoke(
+            {
+                "name": "demo job",
+                "prompt": "check",
+                "trigger_type": "time",
+            },
+            config={"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(result, {"error": "time jobs require run_at or interval_seconds"})
+
+    async def test_tools_report_when_service_unavailable(self) -> None:
+        set_active_job_service(None)
+
+        result = await job_scheduler.list_jobs.ainvoke({})
+
+        self.assertEqual(result, {"error": "Job runner is not enabled"})
+
+    async def test_list_delete_run_delegate_to_service(self) -> None:
+        service = _FakeService(run_result={"ok": True})
+        set_active_job_service(service)
+
+        listed = await job_scheduler.list_jobs.ainvoke({"thread_id": "thread-1"})
+        deleted = await job_scheduler.delete_job.ainvoke({"job_id": "job-9"})
+        ran = await job_scheduler.run_job_now.ainvoke({"job_id": "job-9"})
+
+        self.assertEqual(listed["jobs"][0]["id"], "job-123")
+        self.assertEqual(service.listed, ["thread-1"])
+        self.assertTrue(deleted["ok"])
+        self.assertEqual(service.deleted, ["job-9"])
+        self.assertEqual(ran, {"ok": True})
+        self.assertEqual(service.ran, ["job-9"])
 
 
 if __name__ == "__main__":
