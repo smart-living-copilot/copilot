@@ -1,6 +1,12 @@
 'use client';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -22,7 +28,7 @@ function formatDateTime(value: string | null): string {
 
 function getJobStatus(job: JobRecord, now: Date): string {
   if (!job.enabled) return 'disabled';
-  if (job.trigger_type === 'event') return 'waiting-event';
+  if (job.trigger_kind === 'event') return 'waiting-event';
   if (!job.next_run_at) return 'queued';
   const nextRunAt = new Date(job.next_run_at);
   if (Number.isNaN(nextRunAt.getTime()) || nextRunAt <= now) return 'queued';
@@ -30,8 +36,10 @@ function getJobStatus(job: JobRecord, now: Date): string {
 }
 
 function getScheduleLabel(job: JobRecord): string {
-  if (job.trigger_type === 'event') {
-    return job.event_name ? `On event: ${job.event_name}` : 'On subscribed event';
+  if (job.trigger_kind === 'event') {
+    return job.event_name
+      ? `On event: ${job.event_name}`
+      : 'On subscribed event';
   }
   if (job.interval_seconds) return `Every ${job.interval_seconds}s`;
   if (job.run_at) return `Once at ${formatDateTime(job.run_at)}`;
@@ -55,8 +63,11 @@ interface JobDetailsDialogProps {
 
 export function JobDetailsDialog({ job, onOpenChange }: JobDetailsDialogProps) {
   const purposeLabel =
-    job?.job_type === 'analysis'
-      ? { label: 'Analysis code', content: job.analysis_code?.trim() || '(empty analysis code)' }
+    job?.action_kind === 'analysis'
+      ? {
+          label: 'Analysis code',
+          content: job.analysis_code?.trim() || '(empty analysis code)',
+        }
       : { label: 'Prompt', content: job?.prompt?.trim() || '(empty prompt)' };
 
   return (
@@ -66,7 +77,9 @@ export function JobDetailsDialog({ job, onOpenChange }: JobDetailsDialogProps) {
           <>
             <DialogHeader>
               <DialogTitle>{job.name}</DialogTitle>
-              <DialogDescription>Full execution detail for {job.id}</DialogDescription>
+              <DialogDescription>
+                Full execution detail for {job.id}
+              </DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-4">
@@ -77,13 +90,20 @@ export function JobDetailsDialog({ job, onOpenChange }: JobDetailsDialogProps) {
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
                     <div>
-                      <span className="font-medium">Thread:</span> {job.thread_id}
+                      <span className="font-medium">Created from thread:</span>{' '}
+                      {job.created_from_thread_id}
                     </div>
                     <div>
-                      <span className="font-medium">Job type:</span> {job.job_type}
+                      <span className="font-medium">Job thread:</span>{' '}
+                      {job.job_thread_id}
                     </div>
                     <div>
-                      <span className="font-medium">Trigger:</span> {job.trigger_type}
+                      <span className="font-medium">Action:</span>{' '}
+                      {job.action_kind}
+                    </div>
+                    <div>
+                      <span className="font-medium">Trigger:</span>{' '}
+                      {job.trigger_kind}
                     </div>
                     <div>
                       <span className="font-medium">Status:</span>{' '}
@@ -97,7 +117,8 @@ export function JobDetailsDialog({ job, onOpenChange }: JobDetailsDialogProps) {
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
                     <div>
-                      <span className="font-medium">Schedule:</span> {getScheduleLabel(job)}
+                      <span className="font-medium">Schedule:</span>{' '}
+                      {getScheduleLabel(job)}
                     </div>
                     <div>
                       <span className="font-medium">Next run:</span>{' '}
@@ -146,7 +167,8 @@ export function JobDetailsDialog({ job, onOpenChange }: JobDetailsDialogProps) {
                       {job.subscription_id || 'Not set'}
                     </div>
                     <div>
-                      <span className="font-medium">Run count:</span> {job.run_count}
+                      <span className="font-medium">Run count:</span>{' '}
+                      {job.run_count}
                     </div>
                   </CardContent>
                 </Card>
@@ -184,7 +206,9 @@ export function JobDetailsDialog({ job, onOpenChange }: JobDetailsDialogProps) {
 
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Subscription Input</CardTitle>
+                  <CardTitle className="text-base">
+                    Subscription Input
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-4 text-xs text-muted-foreground">

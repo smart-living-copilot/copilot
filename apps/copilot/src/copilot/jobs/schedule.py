@@ -9,7 +9,7 @@ from taskiq_redis import ListRedisScheduleSource
 
 from copilot.core.settings import Settings
 from copilot.jobs.constants import JOB_SCHEDULE_PREFIX, RUN_JOB_TASK_NAME
-from copilot.jobs.models import Job
+from copilot.jobs.models import Job, JobTriggerKind, TimeTriggerKind
 from copilot.jobs.store import JobStore
 
 logger = logging.getLogger(__name__)
@@ -51,11 +51,11 @@ def scheduled_task_for_job(job: Job) -> ScheduledTask:
         kwargs={"job_id": job.id, "trigger": {"source": "time"}},
         schedule_id=schedule_id_for_job(job.id),
     )
-    if job.interval_seconds is not None:
+    if job.schedule_kind == TimeTriggerKind.INTERVAL and job.interval_seconds is not None:
         return ScheduledTask(interval=job.interval_seconds, **common)
-    if job.run_at is not None:
+    if job.schedule_kind == TimeTriggerKind.ONCE and job.run_at is not None:
         return ScheduledTask(time=_utc(job.run_at), **common)
-    raise ValueError(f"Time job {job.id} has neither interval_seconds nor run_at")
+    raise ValueError(f"Time job {job.id} has an invalid schedule")
 
 
 class JobScheduleManager:
@@ -76,7 +76,7 @@ class JobScheduleManager:
         self._repo = repo or JobStore()
 
     async def add_job(self, job: Job) -> None:
-        if job.trigger_type != "time":
+        if job.trigger_kind != JobTriggerKind.TIME:
             return
         await self._source.add_schedule(scheduled_task_for_job(job))
 

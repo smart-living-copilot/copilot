@@ -211,7 +211,7 @@ class JobEventConsumer:
             await run_job_task.kiq(
                 job_id=job.id,
                 trigger={
-                    "source": "wot_event",
+                    "source": "event",
                     "thing_id": event.get("thing_id"),
                     "event_name": event.get("name"),
                     "payload_base64": event.get("payload_base64"),

@@ -118,7 +118,7 @@ def clear_backend_state(monkeypatch):
         connection.execute(
             """
             TRUNCATE api_keys, things, thing_credentials, thing_event_outbox,
-                search_index_chunks, threads, jobs
+                search_index_chunks, threads, job_runs, jobs
             RESTART IDENTITY CASCADE
             """
         )

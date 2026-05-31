@@ -8,7 +8,13 @@ from typing import Any
 from taskiq.exceptions import TaskiqResultTimeoutError
 
 from copilot.core.settings import Settings
-from copilot.jobs.models import CreateJobRequest, Job
+from copilot.jobs.models import (
+    CreateJobRequest,
+    Job,
+    JobActionKind,
+    JobTriggerKind,
+    TimeTriggerKind,
+)
 from copilot.jobs.results import JobRunEventStream
 from copilot.jobs.schedule import JobScheduleManager, build_schedule_source
 from copilot.jobs.store import JobStore, utc_now
@@ -50,10 +56,10 @@ class JobService:
 
         next_run_at = None
         subscription_id = None
-        if request.trigger_type == "time":
-            if request.run_at is not None:
+        if request.trigger_kind == JobTriggerKind.TIME:
+            if request.schedule_kind == TimeTriggerKind.ONCE:
                 next_run_at = request.run_at
-            elif request.interval_seconds is not None:
+            elif request.schedule_kind == TimeTriggerKind.INTERVAL:
                 next_run_at = utc_now() + timedelta(seconds=request.interval_seconds)
         else:
             subscription_response = await self._runtime_client.subscribe_event(
@@ -74,7 +80,7 @@ class JobService:
                 await self._remove_subscription_after_create_failure(subscription_id)
             raise
 
-        if job.trigger_type == "time":
+        if job.trigger_kind == JobTriggerKind.TIME:
             try:
                 await self._schedule_manager.add_job(job)
             except Exception:
@@ -95,8 +101,8 @@ class JobService:
         ):
             yield event_id, event
 
-    async def list_jobs(self, thread_id: str | None = None) -> list[Job]:
-        return await self._repo.list_jobs(thread_id)
+    async def list_jobs(self, created_from_thread_id: str | None = None) -> list[Job]:
+        return await self._repo.list_jobs(created_from_thread_id)
 
     async def delete_job(self, job_id: str) -> Job:
         job = await self._repo.get_job(job_id)
@@ -105,7 +111,7 @@ class JobService:
         return job
 
     async def _remove_job_resources(self, job: Job) -> None:
-        if job.trigger_type == "time":
+        if job.trigger_kind == JobTriggerKind.TIME:
             await self._schedule_manager.remove_job(job.id)
         if job.subscription_id:
             await self._runtime_client.remove_subscription(
@@ -175,17 +181,26 @@ class JobService:
         )
 
     def _validate_request(self, request: CreateJobRequest) -> None:
-        if request.job_type == "analysis":
+        if request.action_kind == JobActionKind.ANALYSIS:
             if not request.analysis_code or not request.analysis_code.strip():
                 raise ValueError("analysis jobs require analysis_code")
         else:
             if not request.prompt or not request.prompt.strip():
                 raise ValueError("prompt jobs require prompt")
 
-        if request.trigger_type == "time":
-            if request.run_at is None and request.interval_seconds is None:
-                raise ValueError("time jobs require run_at or interval_seconds")
+        if request.trigger_kind == JobTriggerKind.TIME:
+            if request.schedule_kind is None:
+                raise ValueError("time jobs require schedule_kind")
+            if request.schedule_kind == TimeTriggerKind.ONCE:
+                if request.run_at is None or request.interval_seconds is not None:
+                    raise ValueError("one-time jobs require run_at only")
+            elif request.schedule_kind == TimeTriggerKind.INTERVAL:
+                if request.interval_seconds is None or request.run_at is not None:
+                    raise ValueError("interval jobs require interval_seconds only")
             return
+
+        if request.schedule_kind is not None or request.run_at is not None or request.interval_seconds is not None:
+            raise ValueError("event jobs cannot include time schedule fields")
 
         if not request.thing_id:
             raise ValueError("event jobs require thing_id")

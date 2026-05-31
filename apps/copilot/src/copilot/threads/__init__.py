@@ -1,5 +1,6 @@
 """Thread metadata storage, titles, and routes."""
 
+from copilot.threads.models import ThreadKind
 from copilot.threads.store import (
     create_thread,
     delete_thread,
@@ -20,6 +21,7 @@ __all__ = [
     "list_threads",
     "suggest_thread_title",
     "sync_thread_after_run",
+    "ThreadKind",
     "touch_thread",
     "update_thread_title",
 ]

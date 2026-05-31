@@ -2,7 +2,13 @@ import unittest
 from datetime import datetime, timezone
 
 from copilot.agent.tools import job_scheduler
-from copilot.jobs.models import CreateJobRequest, Job
+from copilot.jobs.models import (
+    CreateJobRequest,
+    Job,
+    JobActionKind,
+    JobTriggerKind,
+    TimeTriggerKind,
+)
 from copilot.jobs.active import set_active_job_service
 
 
@@ -11,9 +17,17 @@ def _job(**overrides) -> Job:
     values = {
         "id": "job-123",
         "name": "demo",
-        "thread_id": "thread-1",
+        "created_from_thread_id": "thread-1",
+        "job_thread_id": "job:job-123",
+        "action_kind": JobActionKind.PROMPT,
+        "prompt": "check",
+        "analysis_code": None,
         "enabled": True,
-        "trigger_type": "time",
+        "trigger_kind": JobTriggerKind.TIME,
+        "schedule_kind": TimeTriggerKind.INTERVAL,
+        "run_at": None,
+        "interval_seconds": 10,
+        "next_run_at": now,
         "created_at": now,
         "updated_at": now,
     }
@@ -34,7 +48,17 @@ class _FakeService:
         if self._create_error is not None:
             raise self._create_error
         self.created_requests.append(request)
-        return _job(name=request.name, thread_id=request.thread_id)
+        return _job(
+            name=request.name,
+            created_from_thread_id=request.created_from_thread_id,
+            action_kind=request.action_kind,
+            prompt=request.prompt,
+            analysis_code=request.analysis_code,
+            trigger_kind=request.trigger_kind,
+            schedule_kind=request.schedule_kind,
+            run_at=request.run_at,
+            interval_seconds=request.interval_seconds,
+        )
 
     async def run_job_now(self, job_id: str) -> dict:
         self.ran.append(job_id)
@@ -44,8 +68,8 @@ class _FakeService:
         self.deleted.append(job_id)
         return _job(id=job_id)
 
-    async def list_jobs(self, thread_id: str | None = None) -> list[Job]:
-        self.listed.append(thread_id)
+    async def list_jobs(self, created_from_thread_id: str | None = None) -> list[Job]:
+        self.listed.append(created_from_thread_id)
         return [_job()]
 
 
@@ -61,7 +85,9 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
             {
                 "name": "demo job",
                 "analysis_code": "print('hello')",
-                "trigger_type": "time",
+                "trigger_kind": "time",
+                "schedule_kind": "interval",
+                "interval_seconds": 60,
             },
             config={"configurable": {"thread_id": "thread-1"}},
         )
@@ -70,7 +96,7 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("test_run", result)
         self.assertEqual(service.ran, [])
         self.assertEqual(service.deleted, [])
-        self.assertEqual(service.created_requests[0].job_type, "analysis")
+        self.assertEqual(service.created_requests[0].action_kind, JobActionKind.ANALYSIS)
 
     async def test_create_job_returns_created_job_without_running(self) -> None:
         service = _FakeService(run_result={"ok": True, "response": "ran"})
@@ -80,7 +106,8 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
             {
                 "name": "demo job",
                 "prompt": "check the house",
-                "trigger_type": "time",
+                "trigger_kind": "time",
+                "schedule_kind": "interval",
                 "interval_seconds": 10,
             },
             config={"configurable": {"thread_id": "thread-1"}},
@@ -88,7 +115,7 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["id"], "job-123")
         self.assertNotIn("test_run", result)
-        self.assertEqual(service.created_requests[0].thread_id, "thread-1")
+        self.assertEqual(service.created_requests[0].created_from_thread_id, "thread-1")
         self.assertEqual(service.created_requests[0].interval_seconds, 10)
         self.assertEqual(service.ran, [])
         self.assertEqual(service.deleted, [])
@@ -101,7 +128,7 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
             {
                 "name": "demo job",
                 "prompt": "check",
-                "trigger_type": "time",
+                "trigger_kind": "time",
             },
             config={"configurable": {"thread_id": "thread-1"}},
         )
@@ -119,7 +146,9 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         service = _FakeService(run_result={"ok": True})
         set_active_job_service(service)
 
-        listed = await job_scheduler.list_jobs.ainvoke({"thread_id": "thread-1"})
+        listed = await job_scheduler.list_jobs.ainvoke(
+            {"created_from_thread_id": "thread-1"}
+        )
         deleted = await job_scheduler.delete_job.ainvoke({"job_id": "job-9"})
         ran = await job_scheduler.run_job_now.ainvoke({"job_id": "job-9"})
 

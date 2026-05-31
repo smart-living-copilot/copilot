@@ -3,12 +3,14 @@ import { httpClient, httpJson } from '@/lib/http-client';
 export interface JobRecord {
   id: string;
   name: string;
-  thread_id: string;
-  job_type: 'prompt' | 'analysis';
+  created_from_thread_id: string;
+  job_thread_id: string;
+  action_kind: 'prompt' | 'analysis';
   prompt: string | null;
   analysis_code: string | null;
   enabled: boolean;
-  trigger_type: 'time' | 'event';
+  trigger_kind: 'time' | 'event';
+  schedule_kind: 'once' | 'interval' | null;
   run_at: string | null;
   interval_seconds: number | null;
   next_run_at: string | null;
@@ -18,7 +20,15 @@ export interface JobRecord {
   subscription_input: unknown | null;
   created_at: string;
   updated_at: string;
+  last_run_id: string | null;
   last_run_at: string | null;
+  last_run_status:
+    | 'running'
+    | 'succeeded'
+    | 'failed'
+    | 'waiting_for_input'
+    | 'cancelled'
+    | null;
   last_error: string | null;
   last_response: string | null;
   run_count: number;
@@ -31,11 +41,12 @@ interface ListJobsResponse {
 
 export interface CreateJobPayload {
   name: string;
-  thread_id: string;
-  job_type: 'prompt' | 'analysis';
+  created_from_thread_id: string;
+  action_kind: 'prompt' | 'analysis';
   prompt?: string;
   analysis_code?: string;
-  trigger_type: 'time' | 'event';
+  trigger_kind: 'time' | 'event';
+  schedule_kind?: 'once' | 'interval';
   run_at?: string;
   interval_seconds?: number;
   thing_id?: string;
@@ -46,7 +57,7 @@ export interface CreateJobPayload {
 export async function fetchJobs(threadId?: string): Promise<JobRecord[]> {
   const query = new URLSearchParams();
   if (threadId?.trim()) {
-    query.set('thread_id', threadId.trim());
+    query.set('created_from_thread_id', threadId.trim());
   }
 
   const suffix = query.toString();

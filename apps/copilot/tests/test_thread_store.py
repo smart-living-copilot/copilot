@@ -10,7 +10,7 @@ from copilot.core.database import (
     get_sqlalchemy_engine,
     init_db,
 )
-from copilot.threads import init_thread_store
+from copilot.threads import ThreadKind, init_thread_store
 from copilot.threads.store import (
     create_thread,
     delete_thread,
@@ -82,6 +82,23 @@ class ThreadStoreTestCase(unittest.TestCase):
 
         self.assertEqual(get_thread("thread-a"), created)
         self.assertIsNone(get_thread("missing-thread"))
+
+    def test_hidden_job_threads_are_not_listed_but_can_be_loaded(self) -> None:
+        create_thread(thread_id="thread-a", title="Visible chat")
+        create_thread(
+            thread_id="job:job-a",
+            title="Hidden job",
+            kind=ThreadKind.JOB,
+            visible=False,
+            job_id="job-a",
+        )
+
+        self.assertEqual([thread["id"] for thread in list_threads()], ["thread-a"])
+        hidden = get_thread("job:job-a")
+        self.assertIsNotNone(hidden)
+        self.assertEqual(hidden["kind"], ThreadKind.JOB)
+        self.assertFalse(hidden["visible"])
+        self.assertEqual(hidden["jobId"], "job-a")
 
     def test_sync_thread_after_run_sets_suggested_title_once_and_updates_timestamp(self) -> None:
         created = create_thread(thread_id="thread-a")

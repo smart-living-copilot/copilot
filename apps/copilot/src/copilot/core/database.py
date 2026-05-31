@@ -142,33 +142,88 @@ def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
                 CREATE TABLE IF NOT EXISTS jobs (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
-                    thread_id TEXT NOT NULL,
-                    job_type TEXT NOT NULL DEFAULT 'prompt',
+                    created_from_thread_id TEXT NOT NULL,
+                    job_thread_id TEXT NOT NULL UNIQUE,
+                    action_kind TEXT NOT NULL DEFAULT 'prompt',
                     prompt TEXT,
                     analysis_code TEXT,
                     enabled BOOLEAN NOT NULL DEFAULT true,
-                    trigger_type TEXT NOT NULL,
-                    run_at TEXT,
+                    trigger_kind TEXT NOT NULL,
+                    schedule_kind TEXT,
+                    run_at TIMESTAMPTZ,
                     interval_seconds INTEGER,
-                    next_run_at TEXT,
+                    next_run_at TIMESTAMPTZ,
                     thing_id TEXT,
                     event_name TEXT,
                     subscription_id TEXT,
-                    subscription_input_json TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    last_run_at TEXT,
+                    subscription_input JSONB,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL,
+                    last_run_id TEXT,
+                    last_run_at TIMESTAMPTZ,
+                    last_run_status TEXT,
                     last_error TEXT,
                     last_response TEXT,
                     run_count INTEGER NOT NULL DEFAULT 0,
-                    last_fetch_value TEXT
+                    last_fetch_value TEXT,
+                    CONSTRAINT ck_jobs_action_kind
+                        CHECK (action_kind IN ('prompt', 'analysis')),
+                    CONSTRAINT ck_jobs_trigger_kind
+                        CHECK (trigger_kind IN ('time', 'event')),
+                    CONSTRAINT ck_jobs_schedule_kind
+                        CHECK (schedule_kind IS NULL OR schedule_kind IN ('once', 'interval')),
+                    CONSTRAINT ck_jobs_last_run_status
+                        CHECK (
+                            last_run_status IS NULL
+                            OR last_run_status IN (
+                                'running',
+                                'succeeded',
+                                'failed',
+                                'waiting_for_input',
+                                'cancelled'
+                            )
+                        )
+                );
+
+                CREATE TABLE IF NOT EXISTS job_runs (
+                    id TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                    job_thread_id TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    trigger_payload JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                    result JSONB,
+                    error TEXT,
+                    response_text TEXT,
+                    last_fetch_value TEXT,
+                    started_at TIMESTAMPTZ NOT NULL,
+                    finished_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    CONSTRAINT ck_job_runs_source
+                        CHECK (source IN ('manual', 'time', 'event')),
+                    CONSTRAINT ck_job_runs_status
+                        CHECK (
+                            status IN (
+                                'running',
+                                'succeeded',
+                                'failed',
+                                'waiting_for_input',
+                                'cancelled'
+                            )
+                        )
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_jobs_due
-                    ON jobs(trigger_type, enabled, next_run_at);
+                    ON jobs(trigger_kind, enabled, next_run_at);
+
+                CREATE INDEX IF NOT EXISTS idx_jobs_created_from_thread
+                    ON jobs(created_from_thread_id);
 
                 CREATE INDEX IF NOT EXISTS idx_jobs_subscription
                     ON jobs(subscription_id, enabled);
+
+                CREATE INDEX IF NOT EXISTS idx_job_runs_job_started
+                    ON job_runs(job_id, started_at);
                 """
             )
         connection.commit()

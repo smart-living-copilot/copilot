@@ -1,6 +1,12 @@
 'use client';
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import {
   Activity,
   Bot,
@@ -19,7 +25,13 @@ import { toast } from 'sonner';
 import { useJobDetail } from '@/components/jobs/job-detail-context';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -57,8 +69,9 @@ import {
 type CreateJobFormState = {
   name: string;
   threadId: string;
-  jobType: 'prompt' | 'analysis';
-  triggerType: 'time' | 'event';
+  actionKind: 'prompt' | 'analysis';
+  triggerKind: 'time' | 'event';
+  scheduleKind: 'once' | 'interval';
   prompt: string;
   analysisCode: string;
   intervalSeconds: string;
@@ -71,8 +84,9 @@ type CreateJobFormState = {
 const INITIAL_CREATE_FORM: CreateJobFormState = {
   name: '',
   threadId: '',
-  jobType: 'prompt',
-  triggerType: 'time',
+  actionKind: 'prompt',
+  triggerKind: 'time',
+  scheduleKind: 'interval',
   prompt: '',
   analysisCode: '',
   intervalSeconds: '',
@@ -86,7 +100,7 @@ function getJobStatus(job: JobRecord, now: Date): string {
   if (!job.enabled) {
     return 'disabled';
   }
-  if (job.trigger_type === 'event') {
+  if (job.trigger_kind === 'event') {
     return 'waiting-event';
   }
   if (!job.next_run_at) {
@@ -117,8 +131,10 @@ function formatDateTime(value: string | null): string {
 }
 
 function getScheduleLabel(job: JobRecord): string {
-  if (job.trigger_type === 'event') {
-    return job.event_name ? `On event: ${job.event_name}` : 'On subscribed event';
+  if (job.trigger_kind === 'event') {
+    return job.event_name
+      ? `On event: ${job.event_name}`
+      : 'On subscribed event';
   }
   if (job.interval_seconds) {
     return `Every ${job.interval_seconds}s`;
@@ -130,7 +146,7 @@ function getScheduleLabel(job: JobRecord): string {
 }
 
 function getPurposePreview(job: JobRecord): { label: string; content: string } {
-  if (job.job_type === 'analysis') {
+  if (job.action_kind === 'analysis') {
     return {
       label: 'Analysis code',
       content: job.analysis_code?.trim() || '(empty analysis code)',
@@ -147,9 +163,11 @@ function getSearchableText(job: JobRecord): string {
   return [
     job.name,
     job.id,
-    job.thread_id,
-    job.job_type,
-    job.trigger_type,
+    job.created_from_thread_id,
+    job.job_thread_id,
+    job.action_kind,
+    job.trigger_kind,
+    job.schedule_kind,
     job.thing_id,
     job.event_name,
     job.last_error,
@@ -163,47 +181,35 @@ function getSearchableText(job: JobRecord): string {
     .toLowerCase();
 }
 
-function getStatusBadgeVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+function getStatusBadgeVariant(
+  status: string,
+): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (status === 'queued') return 'default';
   if (status === 'waiting-event' || status === 'scheduled') return 'secondary';
   if (status === 'disabled') return 'outline';
   return 'outline';
 }
 
-function formatJson(value: unknown): string {
-  if (value == null) {
-    return 'Not available';
-  }
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
 function toCreatePayload(form: CreateJobFormState): CreateJobPayload {
   const payload: CreateJobPayload = {
     name: form.name.trim(),
-    thread_id: form.threadId.trim(),
-    job_type: form.jobType,
-    trigger_type: form.triggerType,
+    created_from_thread_id: form.threadId.trim(),
+    action_kind: form.actionKind,
+    trigger_kind: form.triggerKind,
   };
 
-  if (form.jobType === 'analysis') {
+  if (form.actionKind === 'analysis') {
     payload.analysis_code = form.analysisCode.trim();
   } else {
     payload.prompt = form.prompt.trim();
   }
 
-  if (payload.trigger_type === 'time') {
-    if (form.intervalSeconds.trim()) {
+  if (payload.trigger_kind === 'time') {
+    payload.schedule_kind = form.scheduleKind;
+    if (form.scheduleKind === 'interval' && form.intervalSeconds.trim()) {
       payload.interval_seconds = Number(form.intervalSeconds);
     }
-    if (form.runAt.trim()) {
+    if (form.scheduleKind === 'once' && form.runAt.trim()) {
       payload.run_at = new Date(form.runAt).toISOString();
     }
   } else {
@@ -230,9 +236,8 @@ export function JobsList() {
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [isCreatingJob, setIsCreatingJob] = useState(false);
-  const [createForm, setCreateForm] = useState<CreateJobFormState>(
-    INITIAL_CREATE_FORM,
-  );
+  const [createForm, setCreateForm] =
+    useState<CreateJobFormState>(INITIAL_CREATE_FORM);
 
   const loadJobs = useCallback(async () => {
     setIsPending(true);
@@ -255,18 +260,24 @@ export function JobsList() {
     setIsHydrated(true);
   }, []);
 
-  const now = isHydrated ? new Date() : new Date(0);
+  const now = useMemo(
+    () => (isHydrated ? new Date() : new Date(0)),
+    [isHydrated],
+  );
 
   const renderDateTime = useCallback(
-    (value: string | null) => (isHydrated ? formatDateTime(value) : (value ?? 'Not available')),
+    (value: string | null) =>
+      isHydrated ? formatDateTime(value) : (value ?? 'Not available'),
     [isHydrated],
   );
 
   const renderScheduleLabel = useCallback(
     (job: JobRecord) => {
       if (!isHydrated) {
-        if (job.trigger_type === 'event') {
-          return job.event_name ? `On event: ${job.event_name}` : 'On subscribed event';
+        if (job.trigger_kind === 'event') {
+          return job.event_name
+            ? `On event: ${job.event_name}`
+            : 'On subscribed event';
         }
         if (job.interval_seconds) {
           return `Every ${job.interval_seconds}s`;
@@ -374,8 +385,9 @@ export function JobsList() {
           <div className="space-y-1">
             <h1 className="text-3xl font-semibold tracking-tight">Jobs</h1>
             <p className="max-w-3xl text-sm text-muted-foreground">
-              Review scheduled and event-driven jobs, inspect their prompts or analysis code,
-              and trigger or remove them without leaving the copilot workspace.
+              Review scheduled and event-driven jobs, inspect their prompts or
+              analysis code, and trigger or remove them without leaving the
+              copilot workspace.
             </p>
           </div>
         </div>
@@ -389,7 +401,9 @@ export function JobsList() {
             onClick={() => void loadJobs()}
             disabled={isHydrated ? isPending : false}
           >
-            <RefreshCw className={isPending ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+            <RefreshCw
+              className={isPending ? 'h-4 w-4 animate-spin' : 'h-4 w-4'}
+            />
             Refresh
           </Button>
         </div>
@@ -451,7 +465,7 @@ export function JobsList() {
               <Input
                 value={threadFilter}
                 onChange={(event) => setThreadFilter(event.target.value)}
-                placeholder="Filter backend query by exact thread id"
+                placeholder="Filter by exact created-from thread id"
                 className="w-full xl:max-w-xs"
               />
             </div>
@@ -487,7 +501,9 @@ export function JobsList() {
                     <TableHead className="w-[13%]">Target</TableHead>
                     <TableHead className="w-[11%]">Activity</TableHead>
                     <TableHead className="w-[12%]">Last result</TableHead>
-                    <TableHead className="w-[18%] text-right">Actions</TableHead>
+                    <TableHead className="w-[18%] text-right">
+                      Actions
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -506,8 +522,10 @@ export function JobsList() {
                               </div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                              <Badge variant="outline">{job.job_type}</Badge>
-                              <Badge variant="outline">thread {job.thread_id}</Badge>
+                              <Badge variant="outline">{job.action_kind}</Badge>
+                              <Badge variant="outline">
+                                thread {job.created_from_thread_id}
+                              </Badge>
                             </div>
                             <details className="rounded-lg border bg-muted/25 px-3 py-2">
                               <summary className="cursor-pointer text-sm font-medium">
@@ -541,7 +559,9 @@ export function JobsList() {
                               <CalendarClock className="mt-0.5 h-4 w-4 text-primary" />
                               <div>
                                 <div>{renderScheduleLabel(job)}</div>
-                                <div className="text-xs">Next: {renderDateTime(job.next_run_at)}</div>
+                                <div className="text-xs">
+                                  Next: {renderDateTime(job.next_run_at)}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -550,7 +570,7 @@ export function JobsList() {
                           <div className="space-y-1">
                             <div>{job.thing_id || 'No thing binding'}</div>
                             <div className="text-xs">
-                              {job.event_name || job.trigger_type === 'event'
+                              {job.event_name || job.trigger_kind === 'event'
                                 ? job.event_name || 'Subscribed event'
                                 : 'Time-based trigger'}
                             </div>
@@ -562,9 +582,12 @@ export function JobsList() {
                               <Activity className="h-4 w-4 text-primary" />
                               <span>{job.run_count} runs</span>
                             </div>
-                            <div className="text-xs">Last run: {renderDateTime(job.last_run_at)}</div>
+                            <div className="text-xs">
+                              Last run: {renderDateTime(job.last_run_at)}
+                            </div>
                             <div className="line-clamp-2 text-xs">
-                              Last fetch: {job.last_fetch_value || 'No fetched value yet'}
+                              Last fetch:{' '}
+                              {job.last_fetch_value || 'No fetched value yet'}
                             </div>
                           </div>
                         </TableCell>
@@ -578,7 +601,10 @@ export function JobsList() {
                             <Button
                               size="sm"
                               variant="outline"
-                              disabled={runningJobId === job.id || deletingJobId === job.id}
+                              disabled={
+                                runningJobId === job.id ||
+                                deletingJobId === job.id
+                              }
                               onClick={() => openJobDetail(job)}
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -587,7 +613,10 @@ export function JobsList() {
                             <Button
                               size="sm"
                               variant="outline"
-                              disabled={runningJobId === job.id || deletingJobId === job.id}
+                              disabled={
+                                runningJobId === job.id ||
+                                deletingJobId === job.id
+                              }
                               onClick={() => void handleRun(job.id)}
                             >
                               {runningJobId === job.id ? (
@@ -600,7 +629,10 @@ export function JobsList() {
                             <Button
                               size="sm"
                               variant="outline"
-                              disabled={deletingJobId === job.id || runningJobId === job.id}
+                              disabled={
+                                deletingJobId === job.id ||
+                                runningJobId === job.id
+                              }
                               onClick={() => void handleDelete(job)}
                             >
                               {deletingJobId === job.id ? (
@@ -620,7 +652,9 @@ export function JobsList() {
             </div>
           ) : (
             <div className="rounded-lg border border-dashed px-6 py-12 text-center">
-              <h2 className="text-2xl font-semibold tracking-tight">No jobs found</h2>
+              <h2 className="text-2xl font-semibold tracking-tight">
+                No jobs found
+              </h2>
               <p className="mx-auto mt-2 max-w-md text-base text-muted-foreground">
                 {deferredSearch.trim()
                   ? `No jobs match "${deferredSearch.trim()}". Try another search or clear the filter.`
@@ -648,7 +682,8 @@ export function JobsList() {
           <DialogHeader className="px-6 pt-6">
             <DialogTitle>Create Job</DialogTitle>
             <DialogDescription>
-              Create a prompt or analysis job and attach either a time schedule or a WoT event trigger.
+              Create a prompt or analysis job and attach either a time schedule
+              or a WoT event trigger.
             </DialogDescription>
           </DialogHeader>
 
@@ -658,30 +693,36 @@ export function JobsList() {
               <Input
                 value={createForm.name}
                 onChange={(event) =>
-                  setCreateForm((current) => ({ ...current, name: event.target.value }))
+                  setCreateForm((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
                 }
                 placeholder="Morning energy summary"
               />
             </div>
             <div className="space-y-2 sm:col-span-1">
-              <label className="text-sm font-medium">Thread ID</label>
+              <label className="text-sm font-medium">Created from thread</label>
               <Input
                 value={createForm.threadId}
                 onChange={(event) =>
-                  setCreateForm((current) => ({ ...current, threadId: event.target.value }))
+                  setCreateForm((current) => ({
+                    ...current,
+                    threadId: event.target.value,
+                  }))
                 }
                 placeholder="chat-thread-123"
               />
             </div>
 
             <div className="space-y-2 sm:col-span-1">
-              <label className="text-sm font-medium">Job type</label>
+              <label className="text-sm font-medium">Action</label>
               <Select
-                value={createForm.jobType}
+                value={createForm.actionKind}
                 onValueChange={(value: 'prompt' | 'analysis') =>
                   setCreateForm((current) => ({
                     ...current,
-                    jobType: value,
+                    actionKind: value,
                   }))
                 }
               >
@@ -696,11 +737,14 @@ export function JobsList() {
             </div>
 
             <div className="space-y-2 sm:col-span-1">
-              <label className="text-sm font-medium">Trigger type</label>
+              <label className="text-sm font-medium">Trigger</label>
               <Select
-                value={createForm.triggerType}
+                value={createForm.triggerKind}
                 onValueChange={(value: 'time' | 'event') =>
-                  setCreateForm((current) => ({ ...current, triggerType: value }))
+                  setCreateForm((current) => ({
+                    ...current,
+                    triggerKind: value,
+                  }))
                 }
               >
                 <SelectTrigger className="w-full">
@@ -713,7 +757,7 @@ export function JobsList() {
               </Select>
             </div>
 
-            {createForm.jobType === 'analysis' ? (
+            {createForm.actionKind === 'analysis' ? (
               <div className="space-y-2 sm:col-span-2">
                 <label className="text-sm font-medium">Analysis code</label>
                 <Textarea
@@ -735,21 +779,47 @@ export function JobsList() {
                   rows={8}
                   value={createForm.prompt}
                   onChange={(event) =>
-                    setCreateForm((current) => ({ ...current, prompt: event.target.value }))
+                    setCreateForm((current) => ({
+                      ...current,
+                      prompt: event.target.value,
+                    }))
                   }
                   placeholder="Summarize the latest occupancy and temperature changes."
                 />
               </div>
             )}
 
-            {createForm.triggerType === 'time' ? (
+            {createForm.triggerKind === 'time' ? (
               <>
+                <div className="space-y-2 sm:col-span-2">
+                  <label className="text-sm font-medium">Schedule</label>
+                  <Select
+                    value={createForm.scheduleKind}
+                    onValueChange={(value: 'once' | 'interval') =>
+                      setCreateForm((current) => ({
+                        ...current,
+                        scheduleKind: value,
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="interval">Interval</SelectItem>
+                      <SelectItem value="once">Once</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-2 sm:col-span-1">
-                  <label className="text-sm font-medium">Interval seconds</label>
+                  <label className="text-sm font-medium">
+                    Interval seconds
+                  </label>
                   <Input
                     type="number"
                     min="1"
                     value={createForm.intervalSeconds}
+                    disabled={createForm.scheduleKind !== 'interval'}
                     onChange={(event) =>
                       setCreateForm((current) => ({
                         ...current,
@@ -764,8 +834,12 @@ export function JobsList() {
                   <Input
                     type="datetime-local"
                     value={createForm.runAt}
+                    disabled={createForm.scheduleKind !== 'once'}
                     onChange={(event) =>
-                      setCreateForm((current) => ({ ...current, runAt: event.target.value }))
+                      setCreateForm((current) => ({
+                        ...current,
+                        runAt: event.target.value,
+                      }))
                     }
                   />
                 </div>
@@ -777,7 +851,10 @@ export function JobsList() {
                   <Input
                     value={createForm.thingId}
                     onChange={(event) =>
-                      setCreateForm((current) => ({ ...current, thingId: event.target.value }))
+                      setCreateForm((current) => ({
+                        ...current,
+                        thingId: event.target.value,
+                      }))
                     }
                     placeholder="urn:dev:ops:thermostat-1"
                   />
@@ -787,13 +864,18 @@ export function JobsList() {
                   <Input
                     value={createForm.eventName}
                     onChange={(event) =>
-                      setCreateForm((current) => ({ ...current, eventName: event.target.value }))
+                      setCreateForm((current) => ({
+                        ...current,
+                        eventName: event.target.value,
+                      }))
                     }
                     placeholder="overheat"
                   />
                 </div>
                 <div className="space-y-2 sm:col-span-2">
-                  <label className="text-sm font-medium">Subscription input JSON</label>
+                  <label className="text-sm font-medium">
+                    Subscription input JSON
+                  </label>
                   <Textarea
                     rows={5}
                     value={createForm.subscriptionInput}
@@ -818,7 +900,10 @@ export function JobsList() {
             >
               Cancel
             </Button>
-            <Button onClick={() => void handleCreateJob()} disabled={isCreatingJob}>
+            <Button
+              onClick={() => void handleCreateJob()}
+              disabled={isCreatingJob}
+            >
               {isCreatingJob ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -829,7 +914,6 @@ export function JobsList() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }

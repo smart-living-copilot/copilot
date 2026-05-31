@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import Index, String
+from sqlalchemy import Boolean, CheckConstraint, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from copilot.core.orm import Base
@@ -13,16 +14,30 @@ from copilot.core.orm import Base
 DEFAULT_THREAD_TITLE = "New Chat"
 
 
+class ThreadKind(StrEnum):
+    CHAT = "chat"
+    JOB = "job"
+
+
 class Thread(Base):
     __tablename__ = "threads"
     __table_args__ = (
+        CheckConstraint("kind IN ('chat', 'job')", name="ck_threads_kind"),
         Index("idx_threads_updated_at", "updated_at", "created_at"),
+        Index("idx_threads_visible_kind", "kind", "visible", "updated_at"),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     title: Mapped[str] = mapped_column(String, nullable=False, default=DEFAULT_THREAD_TITLE)
     created_at: Mapped[str] = mapped_column(String, nullable=False)
     updated_at: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default=ThreadKind.CHAT.value,
+    )
+    visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    job_id: Mapped[str | None] = mapped_column(String)
 
 
 class ThreadRecord(TypedDict):
@@ -30,6 +45,9 @@ class ThreadRecord(TypedDict):
     title: str
     createdAt: str
     updatedAt: str
+    kind: str
+    visible: bool
+    jobId: str | None
 
 
 class CreateThreadRequest(BaseModel):

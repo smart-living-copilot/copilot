@@ -5,33 +5,16 @@ import json
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from copilot.core.api_dependencies import verify_internal_api_key
 from copilot.jobs.models import CreateJobRequest
-from copilot.jobs.service import JobService
 
 router = APIRouter()
 
 
-def _service(request: Request) -> JobService:
-    service = getattr(request.app.state, "service", None)
-    if service is None:
-        raise HTTPException(status_code=503, detail="Job runner is not enabled")
-    return service
-
-
-def _verify_internal_api_key(request: Request) -> None:
-    settings = getattr(request.app.state, "settings", None)
-    if settings is None or not settings.internal_api_key:
-        return
-
-    expected = f"Bearer {settings.internal_api_key}"
-    if request.headers.get("authorization", "") != expected:
-        raise HTTPException(status_code=401, detail="Invalid internal API key")
-
-
 @router.post("/jobs")
 async def create_job(payload: CreateJobRequest, request: Request):
-    _verify_internal_api_key(request)
-    service = _service(request)
+    verify_internal_api_key(request)
+    service = request.app.state.service
     try:
         job = await service.create_job(payload)
     except ValueError as exc:
@@ -42,17 +25,20 @@ async def create_job(payload: CreateJobRequest, request: Request):
 
 
 @router.get("/jobs")
-async def list_jobs(request: Request, thread_id: str | None = Query(default=None)):
-    _verify_internal_api_key(request)
-    service = _service(request)
-    jobs = await service.list_jobs(thread_id=thread_id)
+async def list_jobs(
+    request: Request,
+    created_from_thread_id: str | None = Query(default=None),
+):
+    verify_internal_api_key(request)
+    service = request.app.state.service
+    jobs = await service.list_jobs(created_from_thread_id=created_from_thread_id)
     return {"jobs": [job.model_dump() for job in jobs]}
 
 
 @router.get("/jobs/events")
 async def stream_job_events(request: Request):
-    _verify_internal_api_key(request)
-    service = _service(request)
+    verify_internal_api_key(request)
+    service = request.app.state.service
     last_event_id = request.headers.get("last-event-id")
 
     async def event_stream():
@@ -76,8 +62,8 @@ async def stream_job_events(request: Request):
 
 @router.get("/jobs/{job_id}")
 async def get_job(job_id: str, request: Request):
-    _verify_internal_api_key(request)
-    service = _service(request)
+    verify_internal_api_key(request)
+    service = request.app.state.service
     try:
         job = await service.get_job(job_id)
     except KeyError:
@@ -87,8 +73,8 @@ async def get_job(job_id: str, request: Request):
 
 @router.delete("/jobs/{job_id}")
 async def delete_job(job_id: str, request: Request):
-    _verify_internal_api_key(request)
-    service = _service(request)
+    verify_internal_api_key(request)
+    service = request.app.state.service
     try:
         job = await service.delete_job(job_id)
     except KeyError:
@@ -100,8 +86,8 @@ async def delete_job(job_id: str, request: Request):
 
 @router.post("/jobs/{job_id}/run", status_code=202)
 async def run_job(job_id: str, request: Request):
-    _verify_internal_api_key(request)
-    service = _service(request)
+    verify_internal_api_key(request)
+    service = request.app.state.service
     try:
         result = await service.trigger_job_now(job_id)
     except KeyError:

@@ -10,12 +10,19 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from copilot.core.settings import Settings
-from copilot.jobs.models import CreateJobRequest
+from copilot.jobs.models import (
+    CreateJobRequest,
+    JobRunSource,
+    JobRunStatus,
+    JobTriggerKind,
+    TimeTriggerKind,
+)
 from copilot.jobs.results import JobRunEventPublisher
 from copilot.jobs.routes import router as jobs_router
 from copilot.jobs.schedule import build_schedule_source, schedule_id_for_job
 from copilot.jobs.service import JobService
 from copilot.jobs.store import JobStore, utc_now
+from copilot.threads.store import get_thread, list_threads
 
 pytestmark = pytest.mark.integration
 
@@ -50,9 +57,10 @@ def test_jobs_api_persists_time_job_and_syncs_redis_schedule(
             "/jobs",
             json={
                 "name": "check doors",
-                "thread_id": "thread-1",
+                "created_from_thread_id": "thread-1",
                 "prompt": "Check all exterior doors",
-                "trigger_type": "time",
+                "trigger_kind": "time",
+                "schedule_kind": "interval",
                 "interval_seconds": 60,
             },
         )
@@ -60,10 +68,20 @@ def test_jobs_api_persists_time_job_and_syncs_redis_schedule(
         assert create_response.status_code == 200
         created = create_response.json()
         assert created["name"] == "check doors"
+        assert created["created_from_thread_id"] == "thread-1"
+        assert created["job_thread_id"] == f"job:{created['id']}"
+        assert created["trigger_kind"] == "time"
+        assert created["action_kind"] == "prompt"
         assert created["enabled"] is True
         assert created["next_run_at"] is not None
+        assert [thread["id"] for thread in list_threads()] == []
+        hidden_thread = get_thread(created["job_thread_id"])
+        assert hidden_thread is not None
+        assert hidden_thread["kind"] == "job"
+        assert hidden_thread["visible"] is False
+        assert hidden_thread["jobId"] == created["id"]
 
-        list_response = client.get("/jobs", params={"thread_id": "thread-1"})
+        list_response = client.get("/jobs", params={"created_from_thread_id": "thread-1"})
         assert list_response.status_code == 200
         assert [job["id"] for job in list_response.json()["jobs"]] == [created["id"]]
 
@@ -93,25 +111,38 @@ def test_job_run_event_publisher_writes_current_job_snapshot_to_redis_stream(
         repo.create_job(
             CreateJobRequest(
                 name="daily check",
-                thread_id="thread-2",
+                created_from_thread_id="thread-2",
                 prompt="summarize system status",
-                trigger_type="time",
+                trigger_kind=JobTriggerKind.TIME,
+                schedule_kind=TimeTriggerKind.INTERVAL,
                 interval_seconds=300,
             ),
             next_run_at=now,
             subscription_id=None,
         )
     )
+    run = _run(
+        repo.create_job_run(
+            job=job,
+            source=JobRunSource.TIME,
+            trigger_payload={"source": "time"},
+            now=now + timedelta(seconds=1),
+        )
+    )
     _run(
         repo.record_job_result(
+            run_id=run.id,
             job_id=job.id,
             now=now + timedelta(seconds=1),
-            success=True,
+            status=JobRunStatus.SUCCEEDED,
             error=None,
             response_text="all clear",
+            result={"ok": True, "assistant": "all clear"},
             next_run_at=now + timedelta(seconds=301),
         )
     )
+    runs = _run(repo.list_job_runs(job.id))
+    assert [job_run.id for job_run in runs] == [run.id]
 
     event_id = _run(JobRunEventPublisher(settings, repo=repo).publish_job_run(job.id))
 

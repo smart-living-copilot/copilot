@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from copilot.core.database import get_session_factory, get_sqlalchemy_engine
-from copilot.threads.models import DEFAULT_THREAD_TITLE, Base, Thread, ThreadRecord
+from copilot.threads.models import DEFAULT_THREAD_TITLE, Base, Thread, ThreadKind, ThreadRecord
 from copilot.threads.titles import MAX_THREAD_TITLE_LENGTH
 
 
@@ -36,6 +36,9 @@ def _to_record(thread: Thread) -> ThreadRecord:
         "title": thread.title,
         "createdAt": thread.created_at,
         "updatedAt": thread.updated_at,
+        "kind": thread.kind,
+        "visible": thread.visible,
+        "jobId": thread.job_id,
     }
 
 
@@ -46,14 +49,18 @@ class ThreadStore:
     ) -> None:
         self._session_factory = session_factory or get_session_factory()
 
-    def list(self) -> list[ThreadRecord]:
+    def list(self, *, include_hidden: bool = False) -> list[ThreadRecord]:
+        statement = select(Thread).order_by(
+            Thread.updated_at.desc(),
+            Thread.created_at.desc(),
+        )
+        if not include_hidden:
+            statement = statement.where(
+                Thread.kind == ThreadKind.CHAT.value,
+                Thread.visible.is_(True),
+            )
         with self._session_factory() as session:
-            threads = session.scalars(
-                select(Thread).order_by(
-                    Thread.updated_at.desc(),
-                    Thread.created_at.desc(),
-                )
-            ).all()
+            threads = session.scalars(statement).all()
 
         return [_to_record(thread) for thread in threads]
 
@@ -70,6 +77,9 @@ class ThreadStore:
         title: str = DEFAULT_THREAD_TITLE,
         created_at: str | None = None,
         updated_at: str | None = None,
+        kind: ThreadKind = ThreadKind.CHAT,
+        visible: bool = True,
+        job_id: str | None = None,
     ) -> ThreadRecord:
         now = _now_iso()
         record_id = thread_id or str(uuid.uuid4())
@@ -85,6 +95,9 @@ class ThreadStore:
                     title=record_title or DEFAULT_THREAD_TITLE,
                     created_at=record_created_at,
                     updated_at=record_updated_at,
+                    kind=kind.value,
+                    visible=visible,
+                    job_id=job_id,
                 )
                 session.add(thread)
                 try:
@@ -185,12 +198,18 @@ def create_thread(
     title: str = DEFAULT_THREAD_TITLE,
     created_at: str | None = None,
     updated_at: str | None = None,
+    kind: ThreadKind = ThreadKind.CHAT,
+    visible: bool = True,
+    job_id: str | None = None,
 ) -> ThreadRecord:
     return ThreadStore().create(
         thread_id=thread_id,
         title=title,
         created_at=created_at,
         updated_at=updated_at,
+        kind=kind,
+        visible=visible,
+        job_id=job_id,
     )
 
 

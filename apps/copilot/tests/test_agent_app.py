@@ -30,7 +30,9 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         self._original_agent = copilot_app._agent
         self._original_graph = copilot_app._graph
         self._original_checkpointer = copilot_app._checkpointer
+        self._original_job_service = copilot_app._job_service
         self._original_thread_run_locks = copilot_app._thread_run_locks
+        self._original_app_state = dict(copilot_app.app.state._state)
         copilot_app._thread_run_locks = {}
         self.client = TestClient(copilot_app.app)
 
@@ -40,7 +42,14 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         copilot_app._agent = self._original_agent
         copilot_app._graph = self._original_graph
         copilot_app._checkpointer = self._original_checkpointer
+        copilot_app._job_service = self._original_job_service
         copilot_app._thread_run_locks = self._original_thread_run_locks
+        copilot_app.app.state._state.clear()
+        copilot_app.app.state._state.update(self._original_app_state)
+
+    def _set_settings(self, settings: Settings) -> None:
+        copilot_app._settings = settings
+        copilot_app.app.state.settings = settings
 
     def test_ag_ui_health_route_reports_agent_name(self) -> None:
         response = self.client.get("/ag-ui/health")
@@ -74,7 +83,8 @@ class AgentAppRoutesTestCase(unittest.TestCase):
 
         fake_saver = object()
         fake_graph = FakeGraph()
-        fake_settings = Settings(jobs_enabled=False)
+        fake_settings = Settings()
+        fake_job_service = AsyncMock()
 
         async def exercise() -> None:
             with (
@@ -89,21 +99,25 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 patch.object(copilot_app, "_checkpoint_saver_context", return_value=FakeSaverContext()),
                 patch.object(copilot_app, "build_graph", return_value=fake_graph) as build_graph,
                 patch.object(copilot_app, "LangGraphAGUIAgent", return_value=object()),
+                patch.object(copilot_app, "JobService", return_value=fake_job_service),
+                patch.object(copilot_app, "set_active_job_service"),
                 patch.object(copilot_app.speech_pipelines, "configure"),
                 patch.object(copilot_app.speech_pipelines, "stop_all", AsyncMock()),
             ):
                 async with copilot_app.lifespan(copilot_app.app):
                     self.assertIs(copilot_app._graph, fake_graph)
                     self.assertIs(build_graph.call_args.kwargs["checkpointer"], fake_saver)
+                    fake_job_service.start.assert_awaited_once()
+                fake_job_service.stop.assert_awaited_once()
 
         asyncio.run(exercise())
 
     def test_media_rtc_configuration_includes_ice_gather_timeout(self) -> None:
-        copilot_app._settings = Settings(
+        self._set_settings(Settings(
             internal_api_key="test-internal-key",
             media_rtc_configuration='{"iceServers":[]}',
             media_ice_gather_timeout_ms=500,
-        )
+        ))
 
         response = self.client.get(
             "/media/rtc-configuration",
@@ -138,7 +152,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         )
 
     def test_delete_thread_removes_langgraph_checkpoint_rows(self) -> None:
-        copilot_app._settings = Settings(internal_api_key="test-internal-key")
+        self._set_settings(Settings(internal_api_key="test-internal-key"))
 
         with patch("copilot.threads.routes.delete_thread_metadata", return_value=True):
             response = self.client.delete(
@@ -382,7 +396,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
             async def adelete_thread(self, thread_id: str) -> None:
                 self.deleted_threads.append(thread_id)
 
-        copilot_app._settings = Settings(internal_api_key="test-internal-key")
+        self._set_settings(Settings(internal_api_key="test-internal-key"))
         copilot_app._checkpointer = FakeCheckpointer()
 
         with patch("copilot.threads.routes.delete_thread_metadata", return_value=True):

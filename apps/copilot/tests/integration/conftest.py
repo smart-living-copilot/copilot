@@ -15,6 +15,7 @@ from copilot.core.database import (
     get_sqlalchemy_engine,
     init_db,
 )
+from copilot.threads.store import init_thread_store
 
 
 @dataclass(frozen=True)
@@ -92,8 +93,9 @@ def jobs_integration_environment(monkeypatch, job_dependency_urls: JobDependency
     get_settings.cache_clear()
     _close_cached_database_handles()
     init_db()
+    init_thread_store()
     with get_connection_pool().connection() as connection:
-        connection.execute("TRUNCATE jobs")
+        connection.execute("TRUNCATE job_runs, jobs, threads RESTART IDENTITY CASCADE")
         connection.commit()
 
     redis_client = redis.Redis.from_url(job_dependency_urls.redis_url)

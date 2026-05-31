@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 import { jobRunnerFetch } from '@/lib/job-runner-api';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(_req: NextRequest) {
+export async function GET() {
   const res = await jobRunnerFetch('/jobs/events', {
     headers: { Accept: 'text/event-stream' },
     cache: 'no-store',

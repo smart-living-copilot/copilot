@@ -8,7 +8,7 @@ from typing import Any
 
 from ag_ui_langgraph import add_langgraph_fastapi_endpoint  # type: ignore[import-untyped]
 from copilotkit import LangGraphAGUIAgent
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 
 try:
@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover - exercised when optional dep is absent 
     AsyncPostgresSaver = None  # type: ignore[assignment]
 
 from copilot.core.llm import make_llm
+from copilot.core.api_dependencies import verify_internal_api_key
 from copilot.core.config import get_settings as get_registry_settings
 from copilot.core.database import get_connection_pool, init_db, psycopg_conninfo
 from copilot.core.health import router as registry_health_router
@@ -360,14 +361,11 @@ async def lifespan(app: FastAPI):
 
             app.state.settings = settings
             app.state.agent_settings = settings
-            if settings.jobs_enabled:
-                _job_service = JobService(settings)
-                await _job_service.start()
-                app.state.service = _job_service
-                set_active_job_service(_job_service)
-                logger.info("Job API started")
-            else:
-                logger.info("Job API disabled (JOBS_ENABLED=false)")
+            _job_service = JobService(settings)
+            await _job_service.start()
+            app.state.service = _job_service
+            set_active_job_service(_job_service)
+            logger.info("Job API started")
 
             yield
             set_active_job_service(None)
@@ -387,16 +385,6 @@ app.include_router(things_router)
 app.include_router(api_keys_router)
 app.include_router(jobs_router)
 _media_stream = create_media_stream()
-
-
-def _verify_internal_api_key(request: Request) -> None:
-    if not _settings or not _settings.internal_api_key:
-        return
-
-    auth_header = request.headers.get("authorization", "")
-    expected = f"Bearer {_settings.internal_api_key}"
-    if auth_header != expected:
-        raise HTTPException(status_code=401, detail="Invalid internal API key")
 
 
 def _current_settings() -> AgentSettings | None:
@@ -470,13 +458,13 @@ async def health():
 app.include_router(
     create_media_router(
         get_settings=_current_settings,
-        verify_internal_api_key=_verify_internal_api_key,
+        verify_internal_api_key=verify_internal_api_key,
     )
 )
 app.include_router(
     create_threads_router(
         get_checkpointer=_current_checkpointer,
-        verify_internal_api_key=_verify_internal_api_key,
+        verify_internal_api_key=verify_internal_api_key,
     )
 )
 

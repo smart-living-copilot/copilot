@@ -14,7 +14,7 @@ from langchain_core.tools import tool
 from pydantic import ValidationError
 
 from copilot.jobs.active import get_active_job_service
-from copilot.jobs.models import CreateJobRequest
+from copilot.jobs.models import CreateJobRequest, JobActionKind
 
 if TYPE_CHECKING:
     from copilot.jobs.service import JobService
@@ -22,8 +22,11 @@ if TYPE_CHECKING:
 _SERVICE_UNAVAILABLE = {"error": "Job runner is not enabled"}
 
 
-def _thread_id_from_config(config: RunnableConfig, thread_id: str | None) -> str:
-    return thread_id or config.get("configurable", {}).get("thread_id", "default")
+def _thread_id_from_config(
+    config: RunnableConfig,
+    created_from_thread_id: str | None,
+) -> str:
+    return created_from_thread_id or config.get("configurable", {}).get("thread_id", "default")
 
 
 async def _run_job(service: JobService, job_id: str) -> dict[str, Any]:
@@ -53,9 +56,10 @@ async def _create_job(
 async def create_job(
     name: str,
     prompt: str,
-    trigger_type: str,
+    trigger_kind: str,
     config: RunnableConfig,
-    thread_id: str | None = None,
+    schedule_kind: str | None = None,
+    created_from_thread_id: str | None = None,
     run_at: str | None = None,
     interval_seconds: int | None = None,
     thing_id: str | None = None,
@@ -64,9 +68,13 @@ async def create_job(
 ) -> dict[str, Any]:
     """Create an automation job.
 
-    trigger_type:
+    trigger_kind:
     - "time": use run_at (ISO datetime) or interval_seconds
     - "event": use thing_id and event_name
+
+    schedule_kind:
+    - "once": run one time at run_at
+    - "interval": run every interval_seconds
     """
     service = get_active_job_service()
     if service is None:
@@ -74,9 +82,10 @@ async def create_job(
     try:
         request = CreateJobRequest(
             name=name,
-            thread_id=_thread_id_from_config(config, thread_id),
+            created_from_thread_id=_thread_id_from_config(config, created_from_thread_id),
             prompt=prompt,
-            trigger_type=trigger_type,
+            trigger_kind=trigger_kind,
+            schedule_kind=schedule_kind,
             run_at=run_at,
             interval_seconds=interval_seconds,
             thing_id=thing_id,
@@ -92,9 +101,10 @@ async def create_job(
 async def create_analysis_job(
     name: str,
     analysis_code: str,
-    trigger_type: str,
+    trigger_kind: str,
     config: RunnableConfig,
-    thread_id: str | None = None,
+    schedule_kind: str | None = None,
+    created_from_thread_id: str | None = None,
     run_at: str | None = None,
     interval_seconds: int | None = None,
     thing_id: str | None = None,
@@ -103,9 +113,13 @@ async def create_analysis_job(
 ) -> dict[str, Any]:
     """Create an analysis job that runs Python in the code-executor sandbox.
 
-    trigger_type:
+    trigger_kind:
     - "time": use run_at (one-time ISO datetime) or interval_seconds (recurring cadence)
     - "event": use thing_id and event_name to run on a subscribed WoT event
+
+    schedule_kind:
+    - "once": run one time at run_at
+    - "interval": run every interval_seconds
     """
     service = get_active_job_service()
     if service is None:
@@ -113,10 +127,11 @@ async def create_analysis_job(
     try:
         request = CreateJobRequest(
             name=name,
-            thread_id=_thread_id_from_config(config, thread_id),
-            job_type="analysis",
+            created_from_thread_id=_thread_id_from_config(config, created_from_thread_id),
+            action_kind=JobActionKind.ANALYSIS,
             analysis_code=analysis_code,
-            trigger_type=trigger_type,
+            trigger_kind=trigger_kind,
+            schedule_kind=schedule_kind,
             run_at=run_at,
             interval_seconds=interval_seconds,
             thing_id=thing_id,
@@ -129,15 +144,15 @@ async def create_analysis_job(
 
 
 @tool
-async def list_jobs(thread_id: str | None = None) -> dict[str, Any]:
-    """List automation jobs, optionally filtered by thread_id.
+async def list_jobs(created_from_thread_id: str | None = None) -> dict[str, Any]:
+    """List automation jobs, optionally filtered by creating chat thread.
 
-    If thread_id is omitted, returns all jobs.
+    If created_from_thread_id is omitted, returns all jobs.
     """
     service = get_active_job_service()
     if service is None:
         return dict(_SERVICE_UNAVAILABLE)
-    jobs = await service.list_jobs(thread_id=thread_id)
+    jobs = await service.list_jobs(created_from_thread_id=created_from_thread_id)
     return {"jobs": [job.model_dump(mode="json") for job in jobs]}
 
 

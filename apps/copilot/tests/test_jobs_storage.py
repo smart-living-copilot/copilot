@@ -5,9 +5,22 @@ from datetime import timedelta
 import pytest
 
 from copilot.core.config import get_settings
-from copilot.core.database import get_connection_pool, init_db
-from copilot.jobs.models import CreateJobRequest
+from copilot.core.database import (
+    get_connection_pool,
+    get_session_factory,
+    get_sqlalchemy_engine,
+    init_db,
+)
+from copilot.jobs.models import (
+    CreateJobRequest,
+    JobActionKind,
+    JobRunSource,
+    JobRunStatus,
+    JobTriggerKind,
+    TimeTriggerKind,
+)
 from copilot.jobs.store import JobStore, utc_now
+from copilot.threads.store import init_thread_store
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("COPILOT_TEST_DATABASE_URL"),
@@ -19,6 +32,10 @@ def _close_cached_pool() -> None:
     if get_connection_pool.cache_info().currsize:
         get_connection_pool().close()
     get_connection_pool.cache_clear()
+    get_session_factory.cache_clear()
+    if get_sqlalchemy_engine.cache_info().currsize:
+        get_sqlalchemy_engine().dispose()
+    get_sqlalchemy_engine.cache_clear()
 
 
 class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
@@ -27,8 +44,9 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         get_settings.cache_clear()
         _close_cached_pool()
         init_db()
+        init_thread_store()
         with get_connection_pool().connection() as connection:
-            connection.execute("TRUNCATE jobs")
+            connection.execute("TRUNCATE job_runs, jobs, threads RESTART IDENTITY CASCADE")
             connection.commit()
         self.repo = JobStore()
 
@@ -41,9 +59,10 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         job = await self.repo.create_job(
             CreateJobRequest(
                 name="daily check",
-                thread_id="thread-1",
+                created_from_thread_id="thread-1",
                 prompt="check the system",
-                trigger_type="time",
+                trigger_kind=JobTriggerKind.TIME,
+                schedule_kind=TimeTriggerKind.INTERVAL,
                 interval_seconds=60,
             ),
             next_run_at=now,
@@ -53,12 +72,20 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         enabled = await self.repo.list_enabled_time_jobs()
         self.assertEqual([enabled_job.id for enabled_job in enabled], [job.id])
 
+        run = await self.repo.create_job_run(
+            job=job,
+            source=JobRunSource.TIME,
+            trigger_payload={"source": "time"},
+            now=now + timedelta(seconds=1),
+        )
         await self.repo.record_job_result(
+            run_id=run.id,
             job_id=job.id,
             now=now + timedelta(seconds=1),
-            success=True,
+            status=JobRunStatus.SUCCEEDED,
             error=None,
             response_text="all good",
+            result={"ok": True, "assistant": "all good"},
             last_fetch_value="42",
             next_run_at=now + timedelta(seconds=61),
         )
@@ -68,15 +95,18 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated.last_response, "all good")
         self.assertEqual(updated.last_fetch_value, "42")
         self.assertEqual(updated.next_run_at, now + timedelta(seconds=61))
+        runs = await self.repo.list_job_runs(job.id)
+        self.assertEqual([job_run.id for job_run in runs], [run.id])
+        self.assertEqual(runs[0].status, JobRunStatus.SUCCEEDED)
 
     async def test_event_job_subscription_lifecycle(self):
         job = await self.repo.create_job(
             CreateJobRequest(
                 name="event check",
-                thread_id="thread-2",
-                job_type="analysis",
+                created_from_thread_id="thread-2",
+                action_kind=JobActionKind.ANALYSIS,
                 analysis_code="print('ok')",
-                trigger_type="event",
+                trigger_kind=JobTriggerKind.EVENT,
                 thing_id="thing-1",
                 event_name="changed",
                 subscription_input={"threshold": 3},
@@ -96,12 +126,20 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
             [job.id],
         )
 
+        run = await self.repo.create_job_run(
+            job=job,
+            source=JobRunSource.EVENT,
+            trigger_payload={"source": "event"},
+            now=utc_now(),
+        )
         await self.repo.record_job_result(
+            run_id=run.id,
             job_id=job.id,
             now=utc_now(),
-            success=False,
+            status=JobRunStatus.FAILED,
             error="boom",
             response_text=None,
+            result={"ok": False, "error": "boom"},
         )
         updated = await self.repo.get_job(job.id)
         self.assertEqual(updated.run_count, 1)
@@ -117,9 +155,10 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         recurring = await self.repo.create_job(
             CreateJobRequest(
                 name="recurring check",
-                thread_id="thread-1",
+                created_from_thread_id="thread-1",
                 prompt="check the system",
-                trigger_type="time",
+                trigger_kind=JobTriggerKind.TIME,
+                schedule_kind=TimeTriggerKind.INTERVAL,
                 interval_seconds=60,
             ),
             next_run_at=now,
@@ -128,9 +167,10 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         one_shot = await self.repo.create_job(
             CreateJobRequest(
                 name="one shot",
-                thread_id="thread-1",
+                created_from_thread_id="thread-1",
                 prompt="check once",
-                trigger_type="time",
+                trigger_kind=JobTriggerKind.TIME,
+                schedule_kind=TimeTriggerKind.ONCE,
                 run_at=now,
             ),
             next_run_at=now,
