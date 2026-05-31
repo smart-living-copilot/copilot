@@ -1,5 +1,5 @@
+from copilot.core.scopes import API_KEY_SCOPES, VALID_SCOPES
 from copilot.api_keys.store import (
-    VALID_SCOPES,
     create_api_key,
     ensure_init_admin_key,
     generate_api_key,
@@ -11,6 +11,7 @@ from copilot.api_keys.store import (
 )
 
 __all__ = [
+    "API_KEY_SCOPES",
     "VALID_SCOPES",
     "create_api_key",
     "ensure_init_admin_key",

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from copilot.auth import User, require_scopes
 from copilot.core.api_dependencies import DatabaseDep
+from copilot.core.scopes import API_KEY_SCOPES
 from copilot.api_keys.service import ApiKeyManagementService
 
 
@@ -79,6 +80,13 @@ def list_keys(
 ) -> dict[str, Any]:
     records = ApiKeyManagementService(connection).list_for_user(user.user_id)
     return {"items": [_serialize_api_key(record) for record in records]}
+
+
+@router.get("/keys/scopes")
+def list_key_scopes(
+    _user: User = Depends(require_scopes(["keys:manage"])),
+) -> dict[str, list[str]]:
+    return {"items": list(API_KEY_SCOPES)}
 
 
 @router.delete("/keys/{key_id}")

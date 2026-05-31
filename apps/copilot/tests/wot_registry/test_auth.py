@@ -40,12 +40,7 @@ def test_get_current_user_accepts_configured_service_token(monkeypatch):
     assert user.user_id == "service:wot_runtime"
     assert user.service_id == "wot_runtime"
     assert user.auth_type == "service"
-    assert user.scopes == [
-        "things:read",
-        "wot:read",
-        "content:read",
-        "content:write",
-    ]
+    assert user.scopes == ["things:read"]
 
 
 def test_get_current_user_rejects_invalid_service_token(monkeypatch):

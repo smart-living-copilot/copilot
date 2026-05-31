@@ -8,22 +8,7 @@ from psycopg.types.json import Jsonb
 
 from copilot.api_keys.models import ApiKeyRecord, ApiKeyRow
 from copilot.core.database import DatabaseConnection
-
-VALID_SCOPES = frozenset(
-    [
-        "things:read",
-        "things:write",
-        "things:delete",
-        "wot:read",
-        "wot:write",
-        "content:read",
-        "content:write",
-        "search:read",
-        "credentials:read",
-        "credentials:write",
-        "keys:manage",
-    ]
-)
+from copilot.core.scopes import API_KEY_SCOPES, VALID_SCOPES
 
 _API_KEY_COLUMNS = """
     id, key_prefix, key_hash, name, scopes, user_id, created_at, updated_at,
@@ -167,11 +152,12 @@ def ensure_init_admin_key(
     raw_token: str,
     user_id: str,
 ) -> bool:
-    """Create an all-scopes API key for *raw_token* if it doesn't already exist.
+    """Create or refresh the all-scopes API key for *raw_token*.
 
     Returns True if a new row was inserted, False if it was already present.
     """
     key_hash = hash_api_key(raw_token)
+    scopes = list(API_KEY_SCOPES)
     row = connection.execute(
         f"""
         INSERT INTO api_keys (
@@ -186,10 +172,29 @@ def ensure_init_admin_key(
             raw_token[:12],
             key_hash,
             "Init Admin Token",
-            Jsonb(sorted(VALID_SCOPES)),
+            Jsonb(scopes),
             user_id,
             _utcnow(),
         ),
     ).fetchone()
+    if row is None:
+        connection.execute(
+            """
+            UPDATE api_keys
+            SET name = %s,
+                scopes = %s,
+                user_id = %s,
+                is_active = true,
+                updated_at = %s
+            WHERE key_hash = %s
+            """,
+            (
+                "Init Admin Token",
+                Jsonb(scopes),
+                user_id,
+                _utcnow(),
+                key_hash,
+            ),
+        )
     connection.commit()
     return row is not None

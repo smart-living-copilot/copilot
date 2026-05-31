@@ -25,14 +25,10 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 
-const ALL_SCOPES = [
+const DEFAULT_SCOPES = [
   'things:read',
   'things:write',
   'things:delete',
-  'wot:read',
-  'wot:write',
-  'content:read',
-  'content:write',
   'search:read',
   'credentials:read',
   'credentials:write',
@@ -66,6 +62,9 @@ function formatDate(iso: string | null): string {
 export function ApiKeysPanel() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
+  const [availableScopes, setAvailableScopes] = useState<string[]>([
+    ...DEFAULT_SCOPES,
+  ]);
   const [createOpen, setCreateOpen] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ApiKey | null>(null);
   const [rawKey, setRawKey] = useState<string | null>(null);
@@ -78,8 +77,14 @@ export function ApiKeysPanel() {
 
   const loadKeys = useCallback(async () => {
     try {
-      const data = await httpJson<{ items: ApiKey[] }>('/keys');
-      setKeys(data.items);
+      const [keysData, scopesData] = await Promise.all([
+        httpJson<{ items: ApiKey[] }>('/keys'),
+        httpJson<{ items: string[] }>('/keys/scopes'),
+      ]);
+      setKeys(keysData.items);
+      setAvailableScopes(
+        scopesData.items.length > 0 ? scopesData.items : [...DEFAULT_SCOPES],
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load keys');
     } finally {
@@ -233,7 +238,7 @@ export function ApiKeysPanel() {
             <div>
               <label className="mb-2 block text-sm font-medium">Scopes</label>
               <div className="grid grid-cols-2 gap-2">
-                {ALL_SCOPES.map((scope) => (
+                {availableScopes.map((scope) => (
                   <label
                     key={scope}
                     className="flex cursor-pointer items-center gap-2 text-sm"

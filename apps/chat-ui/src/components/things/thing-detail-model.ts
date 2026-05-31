@@ -24,7 +24,7 @@ export interface StoredCredential {
   thing_id: string;
   security_name: string;
   scheme: string;
-  credentials: Record<string, string>;
+  has_credentials: boolean;
   created_at: string | null;
   updated_at: string | null;
 }

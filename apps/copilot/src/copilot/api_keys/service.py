@@ -6,6 +6,16 @@ from copilot.api_keys.store import create_api_key, list_api_keys, revoke_api_key
 from copilot.auth.models import User
 from copilot.api_keys.models import ApiKeyRecord
 from copilot.core.database import DatabaseConnection
+from copilot.core.scopes import VALID_SCOPES
+
+
+def _reject_invalid_scopes(scopes: list[str]) -> None:
+    invalid = set(scopes) - VALID_SCOPES
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid scopes: {', '.join(sorted(invalid))}",
+        )
 
 
 class ApiKeyManagementService:
@@ -20,6 +30,8 @@ class ApiKeyManagementService:
         scopes: list[str],
         expires_at: datetime | None = None,
     ) -> tuple[ApiKeyRecord, str]:
+        _reject_invalid_scopes(scopes)
+
         if user.scopes is not None:
             allowed_scopes = set(user.scopes)
             missing_scopes = set(scopes) - allowed_scopes

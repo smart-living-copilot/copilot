@@ -8,27 +8,9 @@ from sqlalchemy.orm import Session
 
 from copilot.catalog.credentials.models import CredentialRecord, ThingCredential
 
-_SENSITIVE_FIELDS = {"password", "token", "apiKey"}
-
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _mask_value(value: str) -> str:
-    if len(value) <= 4:
-        return "****"
-    return value[:2] + "*" * (len(value) - 4) + value[-2:]
-
-
-def _mask_credentials(creds: dict[str, Any]) -> dict[str, Any]:
-    masked = {}
-    for key, value in creds.items():
-        if key in _SENSITIVE_FIELDS and isinstance(value, str):
-            masked[key] = _mask_value(value)
-        else:
-            masked[key] = value
-    return masked
 
 
 def _to_record(credential: ThingCredential) -> CredentialRecord:
@@ -63,7 +45,7 @@ def _serialize_credential_record(row: CredentialRecord) -> dict[str, Any]:
         "thing_id": row.thing_id,
         "security_name": row.security_name,
         "scheme": row.scheme,
-        "credentials": _mask_credentials(row.credentials),
+        "has_credentials": bool(row.credentials),
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -136,7 +118,7 @@ def get_credential(
 
 
 def list_credentials(session: Session, thing_id: str) -> list[dict[str, Any]]:
-    """List credentials for a thing with masked sensitive values."""
+    """List credential metadata for a thing without exposing stored secret values."""
     credentials = session.scalars(
         select(ThingCredential)
         .where(ThingCredential.thing_id == thing_id)

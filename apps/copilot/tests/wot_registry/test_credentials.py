@@ -50,6 +50,19 @@ def test_runtime_secrets_endpoint_requires_wot_runtime_service(
         )
         assert second_upsert_response.status_code == 200, second_upsert_response.text
 
+        metadata_response = client.get(
+            "/api/credentials/urn%3Athing%3Aalpha",
+            headers=authenticated_headers,
+        )
+        assert metadata_response.status_code == 200, metadata_response.text
+        metadata_items = metadata_response.json()["items"]
+        assert [item["security_name"] for item in metadata_items] == [
+            "basic_sc",
+            "token_sc",
+        ]
+        assert all(item["has_credentials"] for item in metadata_items)
+        assert all("credentials" not in item for item in metadata_items)
+
         forbidden_response = client.get(
             "/api/runtime/secrets",
             headers=authenticated_headers,

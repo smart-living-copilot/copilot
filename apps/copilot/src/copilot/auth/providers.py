@@ -6,18 +6,10 @@ from fastapi import Request
 from copilot.api_keys import hash_api_key, lookup_api_key_by_hash, touch_last_used
 from copilot.auth.models import User
 from copilot.core.config import get_settings
+from copilot.core.scopes import SERVICE_SCOPES
 
 SERVICE_NAME_HEADER = "X-Registry-Service"
 SERVICE_TOKEN_HEADER = "X-Registry-Service-Token"
-
-SERVICE_SCOPES = {
-    "wot_runtime": [
-        "things:read",
-        "wot:read",
-        "content:read",
-        "content:write",
-    ],
-}
 
 
 def _service_token_for(settings, service_name: str) -> str | None:

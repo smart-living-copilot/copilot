@@ -65,17 +65,13 @@ def test_api_me_returns_authenticated_identity(authenticated_headers):
         "preferred_username": None,
         "groups": [],
         "scopes": [
-            "content:read",
-            "content:write",
+            "things:read",
+            "things:write",
+            "things:delete",
+            "search:read",
             "credentials:read",
             "credentials:write",
             "keys:manage",
-            "search:read",
-            "things:delete",
-            "things:read",
-            "things:write",
-            "wot:read",
-            "wot:write",
         ],
     }
 

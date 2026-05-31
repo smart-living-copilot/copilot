@@ -168,6 +168,18 @@ This service currently assumes an internal-service deployment model.
 
 If the stack is deployed publicly through Kubernetes ingress, keep `copilot` internal-only and let ingress or `chat-ui` enforce user authentication.
 
+External API keys are intended for registry management, not direct device
+control. The currently valid API-key scopes are:
+
+- `things:read`, `things:write`, `things:delete`
+- `search:read`
+- `credentials:read`, `credentials:write`
+- `keys:manage`
+
+`GET /api/credentials/{thing_id}` returns credential metadata only. Raw
+credential payloads are only exposed through the service-only
+`GET /api/runtime/secrets` endpoint used by `wot-runtime`.
+
 ## Development
 
 ### With Docker Compose
