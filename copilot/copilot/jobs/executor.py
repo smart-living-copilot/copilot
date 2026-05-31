@@ -16,7 +16,7 @@ from copilot.core.config import get_settings as get_registry_settings
 from copilot.core.database import init_db
 from copilot.core.llm import make_llm
 from copilot.core.settings import Settings
-from copilot.jobs.code_executor_client import CodeExecutorClient
+from copilot.core.code_executor_client import CodeExecutorClient
 from copilot.jobs.models import Job
 from copilot.jobs.results import JobRunEventPublisher
 from copilot.jobs.store import JobStore, utc_now

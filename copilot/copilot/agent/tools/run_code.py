@@ -4,9 +4,11 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
+from copilot.core.code_executor_client import CodeExecutorClient
 from copilot.core.settings import Settings
 
 _settings = Settings()
+_code_executor_client = CodeExecutorClient(_settings)
 
 
 def _build_artifacts(images: list[str], plotly: list[str]) -> list[dict[str, str]]:
@@ -66,20 +68,8 @@ async def run_code(code: str, config: RunnableConfig) -> dict:
     """
     chat_id = config.get("configurable", {}).get("thread_id", "default")
     try:
-        headers = (
-            {"Authorization": f"Bearer {_settings.internal_api_key}"}
-            if _settings.internal_api_key
-            else {}
-        )
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{_settings.code_executor_url}/execute",
-                json={"session_id": chat_id, "code": code},
-                headers=headers,
-                timeout=float(_settings.code_executor_timeout_seconds),
-            )
-            resp.raise_for_status()
-            return _format_run_code_result(resp.json())
+        response = await _code_executor_client.execute(session_id=chat_id, code=code)
+        return _format_run_code_result(response)
     except httpx.ConnectError:
         return {"error": "Code executor service is unavailable. Please try again later."}
     except httpx.TimeoutException:
