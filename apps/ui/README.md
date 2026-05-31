@@ -1,6 +1,6 @@
-# Chat UI
+# UI
 
-`chat-ui` is the Next.js frontend for Smart Living Copilot. It renders the chat experience and proxies both CopilotKit runtime requests and thread APIs to the Python `copilot` service.
+`ui` is the Next.js frontend for Smart Living Copilot. It renders the chat experience and proxies both CopilotKit runtime requests and thread APIs to the Python `copilot` service.
 
 ## What This App Owns
 
@@ -52,17 +52,17 @@ Deleting a thread also fans out to:
 
 The sidebar version label is no longer hard-coded in the UI.
 
-- `chat-ui` reads `NEXT_PUBLIC_APP_VERSION` at build time when available.
+- `ui` reads `NEXT_PUBLIC_APP_VERSION` at build time when available.
 - The publish workflow injects the git tag for tagged releases and the short commit SHA for branch builds.
 - If no build metadata is provided, the UI shows `unknown`.
-- For local Docker dev, you can rebuild with `APP_VERSION="$(git describe --tags --always --dirty)" docker compose up -d --build chat-ui`.
+- For local Docker dev, you can rebuild with `APP_VERSION="$(git describe --tags --always --dirty)" docker compose up -d --build ui`.
 
 ### With Docker Compose
 
 ```bash
-docker compose up -d chat-ui
-docker compose exec chat-ui npm run lint
-docker compose exec chat-ui npm run typecheck
+docker compose up -d ui
+docker compose exec ui npm run lint
+docker compose exec ui npm run typecheck
 ```
 
 ### Hot Reload Caveat
@@ -77,7 +77,7 @@ That means:
 Use:
 
 ```bash
-docker compose up -d --build chat-ui
+docker compose up -d --build ui
 ```
 
 ## Contributor Rules Of Thumb

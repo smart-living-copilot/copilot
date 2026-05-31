@@ -6,13 +6,13 @@ Smart Living Copilot is a multi-service smart home assistant stack. This reposit
 
 ```text
 browser
-  -> chat-ui
+  -> ui
   -> copilot
   -> code-executor
   -> wot-runtime
 ```
 
-- [`apps/chat-ui`](./apps/chat-ui/README.md): Next.js frontend, chat UX, sidebar thread index, and internal API proxying.
+- [`apps/ui`](./apps/ui/README.md): Next.js frontend, chat UX, sidebar thread index, and internal API proxying.
 - [`apps/copilot`](./apps/copilot/README.md): FastAPI + LangGraph agent service behind the chat experience.
 - [`apps/code-executor`](./apps/code-executor/README.md): internal Python execution service used by `run_code`.
 - [`examples/thing-descriptions`](./examples/thing-descriptions): local Thing Description assets used for integration scenarios.
@@ -32,7 +32,7 @@ For local development, [docker-compose.override.yaml](./docker-compose.override.
 
 ## Documentation
 
-- [Chat UI README](./apps/chat-ui/README.md)
+- [UI README](./apps/ui/README.md)
 - [Copilot README](./apps/copilot/README.md)
 - [Code Executor README](./apps/code-executor/README.md)
 

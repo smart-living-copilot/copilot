@@ -20,7 +20,7 @@ if [ -f "$STAMP_FILE" ]; then
 fi
 
 if [ ! -d node_modules ] || [ "$CURRENT_HASH" != "$INSTALLED_HASH" ]; then
-  echo "Installing chat-ui dependencies..."
+  echo "Installing UI dependencies..."
   npm ci
   mkdir -p "$(dirname "$STAMP_FILE")"
   printf '%s' "$CURRENT_HASH" > "$STAMP_FILE"

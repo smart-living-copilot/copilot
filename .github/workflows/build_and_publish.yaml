@@ -59,7 +59,7 @@ jobs:
           cache-from: type=gha,scope=copilot
           cache-to: type=gha,mode=max,scope=copilot
 
-  build-and-push-chat-ui:
+  build-and-push-ui:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -82,18 +82,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Extract metadata for chat-ui
+      - name: Extract metadata for ui
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/chat-ui
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/ui
           tags: |
             type=ref,event=branch
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
 
-      - name: Determine chat-ui app version
+      - name: Determine ui app version
         id: app-version
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
@@ -102,11 +102,11 @@ jobs:
             echo "value=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build and push chat-ui image
+      - name: Build and push ui image
         uses: docker/build-push-action@v6
         with:
-          context: ./apps/chat-ui
-          file: ./apps/chat-ui/Dockerfile
+          context: ./apps/ui
+          file: ./apps/ui/Dockerfile
           target: runtime
           build-args: |
             APP_VERSION=${{ steps.app-version.outputs.value }}
@@ -114,8 +114,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=chat-ui
-          cache-to: type=gha,mode=max,scope=chat-ui
+          cache-from: type=gha,scope=ui
+          cache-to: type=gha,mode=max,scope=ui
 
   build-and-push-code-executor:
     runs-on: ubuntu-latest

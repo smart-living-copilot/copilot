@@ -4,20 +4,20 @@
 
 ## Current Role In The Stack
 
-- `chat-ui` renders charts and images, but does not execute Python.
+- `ui` renders charts and images, but does not execute Python.
 - `copilot` decides when to call `run_code`.
 - `code-executor` runs the Python, keeps session state alive, and stores artifacts temporarily on disk.
 
 Current high-level flow:
 
 ```text
-chat-ui
+ui
   -> copilot /ag-ui
   -> run_code tool
   -> code-executor POST /execute
   -> { stdout, images, plotly }
   -> copilot normalizes to structured artifacts
-  -> chat-ui renders artifacts via its authenticated proxy route
+  -> ui renders artifacts via its authenticated proxy route
 ```
 
 The older marker-based `[IMAGE:...]` / `[CHART:...]` flow is no longer the current design.
@@ -129,13 +129,13 @@ Authenticated with `Authorization: Bearer <INTERNAL_API_KEY>`.
 - `.png` files are returned directly
 - `.json` Plotly files are converted to embeddable HTML
 
-In normal app usage, the browser does not call this service directly. `chat-ui` proxies artifact access through its own `/api/artifacts/[id]` route.
+In normal app usage, the browser does not call this service directly. `ui` proxies artifact access through its own `/api/artifacts/[id]` route.
 
 ### `DELETE /sessions/{session_id}`
 
 Authenticated. Shuts down the worker process for that session.
 
-Used by the thread delete flow in `chat-ui`.
+Used by the thread delete flow in `ui`.
 
 ### `GET /health`
 
@@ -177,7 +177,7 @@ This service should stay on an internal network and should not be exposed direct
 
 - `code-executor` returns raw `stdout`, `images`, and `plotly`
 - `copilot` converts that to a smaller `stdout + artifacts` tool result
-- `chat-ui` renders artifacts below the `run_code` tool call
+- `ui` renders artifacts below the `run_code` tool call
 - artifact placement is controlled by the UI/tool renderer, not by model-written markers
 
 ## Relevant Files

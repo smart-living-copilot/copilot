@@ -47,16 +47,16 @@ services:
       PYTHONPATH: "/app/src"
     command: ["copilot", "thing-indexer"]
 
-  chat-ui:
+  ui:
     build:
-      context: ../apps/chat-ui
+      context: ../apps/ui
       dockerfile: Dockerfile
       target: dev
       args:
         APP_VERSION: ${APP_VERSION:-}
     volumes:
-      - ../apps/chat-ui/src:/app/src:cached
-      - ../apps/chat-ui/public:/app/public:cached
+      - ../apps/ui/src:/app/src:cached
+      - ../apps/ui/public:/app/public:cached
     environment:
       NEXT_TELEMETRY_DISABLED: "1"
       NEXT_POLL_INTERVAL_MS: "1000"

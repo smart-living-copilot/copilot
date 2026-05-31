@@ -4,24 +4,24 @@
 
 ## Current Role In The Stack
 
-- `chat-ui` owns the browser experience and the authenticated edge.
+- `ui` owns the browser experience and the authenticated edge.
 - `copilot` owns agent orchestration, prompts, tool use, the WoT registry API, LangGraph checkpoint state, and thread metadata.
 - `code-executor` runs stateful Python for the `run_code` tool.
 - `job-worker` and `job-scheduler` run automation jobs through Taskiq.
 
-At runtime, the browser talks to `chat-ui`, `chat-ui` proxies agent traffic to `copilot`, and `copilot` uses local LangGraph tools for registry/runtime access and `code-executor` for Python execution. `copilot` owns the job API and result SSE stream, `job-worker` executes jobs and bridges WoT runtime events into Taskiq jobs, and `job-scheduler` sends time-triggered runs. Prompt jobs use a stateless background graph and store results on the job record instead of visible chat threads.
+At runtime, the browser talks to `ui`, `ui` proxies agent traffic to `copilot`, and `copilot` uses local LangGraph tools for registry/runtime access and `code-executor` for Python execution. `copilot` owns the job API and result SSE stream, `job-worker` executes jobs and bridges WoT runtime events into Taskiq jobs, and `job-scheduler` sends time-triggered runs. Prompt jobs use a stateless background graph and store results on the job record instead of visible chat threads.
 
 ## Request Lifecycle
 
 ```text
-/chat/[chatId] in chat-ui
+/chat/[chatId] in ui
   -> CopilotKit threadId = chatId
-  -> chat-ui /api/copilotkit
+  -> ui /api/copilotkit
   -> copilot POST /ag-ui
   -> LangGraphAGUIAgent
   -> router branch
   -> registry/runtime tools and local tools
-  -> AG-UI stream back to chat-ui
+  -> AG-UI stream back to ui
 ```
 
 The frontend `chatId`, CopilotKit `threadId`, LangGraph `thread_id`, and `run_code` session id are intentionally the same value so chat continuity stays aligned across services.
@@ -32,10 +32,10 @@ The frontend `chatId`, CopilotKit `threadId`, LangGraph `thread_id`, and `run_co
 
 AG-UI endpoint registered through `add_langgraph_fastapi_endpoint(...)`.
 
-- Used by: `chat-ui /api/copilotkit`
+- Used by: `ui /api/copilotkit`
 - Input: CopilotKit `RunAgentInput`
 - Output: AG-UI SSE stream
-- Auth: none in-app today; expected to stay on the internal network behind `chat-ui`
+- Auth: none in-app today; expected to stay on the internal network behind `ui`
 
 ### `GET /ag-ui/health`
 
@@ -67,7 +67,7 @@ Deletes LangGraph checkpoint rows and thread metadata for one thread.
 
 - Auth: `Authorization: Bearer <INTERNAL_API_KEY>` when configured
 - Deletes from both `writes` and `checkpoints`
-- Used by: thread deletion flow in `chat-ui`
+- Used by: thread deletion flow in `ui`
 
 ## Graph Architecture
 
@@ -137,7 +137,7 @@ Current flow:
 2. `copilot` sends `POST /execute` to `code-executor` with `session_id = thread_id`.
 3. `code-executor` returns `stdout`, `images`, and `plotly`.
 4. `copilot` normalizes that into structured tool output with `stdout` plus `artifacts`.
-5. `chat-ui` renders those artifacts below the tool call.
+5. `ui` renders those artifacts below the tool call.
 
 This is the current structured-artifact flow. The older marker-based `[IMAGE:...]` / `[CHART:...]` approach is no longer used.
 
@@ -164,9 +164,9 @@ This service currently assumes an internal-service deployment model.
 
 - `POST /ag-ui` is not protected by an in-app API key today
 - `DELETE /threads/{thread_id}` is protected by `INTERNAL_API_KEY` when configured
-- the intended boundary is: public traffic terminates at `chat-ui`, while `copilot` stays on the internal network
+- the intended boundary is: public traffic terminates at `ui`, while `copilot` stays on the internal network
 
-If the stack is deployed publicly through Kubernetes ingress, keep `copilot` internal-only and let ingress or `chat-ui` enforce user authentication.
+If the stack is deployed publicly through Kubernetes ingress, keep `copilot` internal-only and let ingress or `ui` enforce user authentication.
 
 External API keys are intended for registry management, not direct device
 control. The currently valid API-key scopes are:

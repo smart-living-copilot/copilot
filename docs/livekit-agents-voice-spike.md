@@ -119,7 +119,7 @@ Likely replace or retire:
 - `apps/copilot/src/copilot/media:create_media_stream`
 - FastRTC as the browser media ingress path
 - The manual WebRTC offer flow in
-  `apps/chat-ui/src/hooks/use-media-ingress-session.ts`
+  `apps/ui/src/hooks/use-media-ingress-session.ts`
 - `/media/rtc-configuration`
 - `/media/webrtc/offer`
 - Most of the custom speech stack under `apps/copilot/src/copilot/media`, including VAD,
