@@ -17,6 +17,10 @@ from copilot.agent.nodes import (
 from copilot.agent.tool_groups import group_local_tools, partition_registry_tools
 
 
+def _tool_error_message(error: Exception) -> str:
+    return f"Tool error: {error}"
+
+
 def build_graph(
     llm: ChatOpenAI,
     registry_tools: list[Any],
@@ -62,7 +66,10 @@ def build_graph(
             parallel_tool_calls=parallel_tool_calls,
         ),
     )
-    graph.add_node("respond_tools", ToolNode(respond_tools))
+    graph.add_node(
+        "respond_tools",
+        ToolNode(respond_tools, handle_tool_errors=_tool_error_message),
+    )
     graph.add_node(
         "control_llm",
         make_control_node(
@@ -72,7 +79,10 @@ def build_graph(
             parallel_tool_calls=parallel_tool_calls,
         ),
     )
-    graph.add_node("control_tools", ToolNode(control_tools))
+    graph.add_node(
+        "control_tools",
+        ToolNode(control_tools, handle_tool_errors=_tool_error_message),
+    )
     graph.add_node(
         "analysis_llm",
         make_analysis_node(
@@ -82,7 +92,10 @@ def build_graph(
             parallel_tool_calls=parallel_tool_calls,
         ),
     )
-    graph.add_node("analysis_tools", ToolNode(analysis_tools))
+    graph.add_node(
+        "analysis_tools",
+        ToolNode(analysis_tools, handle_tool_errors=_tool_error_message),
+    )
 
     graph.add_edge(START, "router")
 

@@ -71,6 +71,35 @@ def test_things_search_uses_active_search_service():
 
     assert response == {
         "items": [{"id": "thing-a", "score": 0.9}],
+        "k": 2,
         "query": "light",
     }
     assert service.calls == [("light", 2)]
+
+
+def test_things_search_clamps_out_of_range_k():
+    class FakeSearchService:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, int]] = []
+
+        async def search(self, *, query: str, k: int):
+            self.calls.append((query, k))
+            return []
+
+    service = FakeSearchService()
+    set_active_search_service(service)  # type: ignore[arg-type]
+    try:
+        high = asyncio.run(things_search.ainvoke({"query": "temperature", "k": 50}))
+        low = asyncio.run(things_search.ainvoke({"query": "temperature", "k": 0}))
+    finally:
+        set_active_search_service(None)
+
+    assert high["k"] == 20
+    assert low["k"] == 1
+    assert service.calls == [("temperature", 20), ("temperature", 1)]
+
+
+def test_things_search_returns_tool_error_for_empty_query():
+    response = asyncio.run(things_search.ainvoke({"query": "   ", "k": 5}))
+
+    assert response == {"error": "query must not be empty", "items": [], "query": ""}

@@ -53,6 +53,12 @@ def _thing_summary(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _bounded_int(value: int | None, *, default: int, minimum: int, maximum: int) -> int:
+    if value is None:
+        return default
+    return min(max(value, minimum), maximum)
+
+
 async def _get_affordance(
     thing_id: str,
     affordance_type: str,
@@ -90,16 +96,14 @@ async def things_list(
     per_page: int = 25,
 ) -> dict[str, Any]:
     """List stored Thing Descriptions from the registry catalog."""
-    if page < 1:
-        raise ValueError("page must be at least 1")
-    if per_page < 1 or per_page > 200:
-        raise ValueError("per_page must be between 1 and 200")
+    normalized_page = _bounded_int(page, default=1, minimum=1, maximum=1_000_000)
+    normalized_per_page = _bounded_int(per_page, default=25, minimum=1, maximum=200)
 
     return await _run_with_session(
         lambda session: ThingCatalogQueryService(session).list_owned_things(
             query=query,
-            page=page,
-            per_page=per_page,
+            page=normalized_page,
+            per_page=normalized_per_page,
         )
     )
 
@@ -109,15 +113,14 @@ async def things_search(query: str, k: int = 5) -> dict[str, Any]:
     """Run semantic Thing search across the catalog."""
     normalized_query = query.strip()
     if not normalized_query:
-        raise ValueError("query must not be empty")
-    if k < 1 or k > 20:
-        raise ValueError("k must be between 1 and 20")
+        return {"error": "query must not be empty", "items": [], "query": normalized_query}
+    normalized_k = _bounded_int(k, default=5, minimum=1, maximum=20)
     search_service = get_active_search_service()
     if search_service is None:
-        raise ValueError("Search service is not ready")
+        return {"error": "Search service is not ready", "items": [], "query": normalized_query}
 
-    items = await search_service.search(query=normalized_query, k=k)
-    return {"items": items, "query": normalized_query}
+    items = await search_service.search(query=normalized_query, k=normalized_k)
+    return {"items": items, "query": normalized_query, "k": normalized_k}
 
 
 @tool
