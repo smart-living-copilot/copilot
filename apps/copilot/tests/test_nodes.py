@@ -1,8 +1,44 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from copilot.agent.nodes import _make_router_messages, _sanitize_message_sequence, _strip_wot_calls
+from copilot.agent.nodes import (
+    _make_llm_node,
+    _make_router_messages,
+    _sanitize_message_sequence,
+    _strip_wot_calls,
+)
+
+
+def _tool(name: str) -> SimpleNamespace:
+    return SimpleNamespace(name=name)
+
+
+class _FakeBoundLLM:
+    def __init__(self, parent: "_FakeLLM") -> None:
+        self._parent = parent
+
+    async def ainvoke(self, messages):
+        self._parent.invocations.append(("bound", messages))
+        return AIMessage(content="ok")
+
+
+class _FakeLLM:
+    def __init__(self) -> None:
+        self.bound_tools: list[list[str]] = []
+        self.bound_kwargs: list[dict] = []
+        self.invocations: list[tuple[str, object]] = []
+
+    def bind_tools(self, tools, **kwargs):
+        self.bound_tools.append([tool.name for tool in tools])
+        self.bound_kwargs.append(kwargs)
+        return _FakeBoundLLM(self)
+
+    async def ainvoke(self, messages):
+        self.invocations.append(("plain", messages))
+        return AIMessage(content="ok")
 
 
 class NodeMessageSanitizationTestCase(unittest.TestCase):
@@ -194,6 +230,62 @@ class StripWotCallsTestCase(unittest.TestCase):
         msg = ToolMessage(content=original, tool_call_id="call_1")
         _strip_wot_calls(msg)
         self.assertIn("wot_calls", msg.content)
+
+
+class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_llm_node_filters_camera_tool_when_camera_is_inactive(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[_tool("get_current_time"), _tool("look_at_camera")],
+            system_text="system",
+            max_tokens=4000,
+        )
+
+        with patch("copilot.agent.nodes.is_look_at_camera_available", return_value=False):
+            await node(
+                {"messages": [HumanMessage(content="what is this?")]},
+                {"configurable": {"thread_id": "thread-1"}},
+            )
+
+        self.assertEqual(llm.bound_tools, [["get_current_time"]])
+        self.assertEqual(llm.invocations[0][0], "bound")
+
+    async def test_llm_node_keeps_camera_tool_when_camera_is_active(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[_tool("get_current_time"), _tool("look_at_camera")],
+            system_text="system",
+            max_tokens=4000,
+        )
+
+        with patch("copilot.agent.nodes.is_look_at_camera_available", return_value=True):
+            await node(
+                {"messages": [HumanMessage(content="what is this?")]},
+                {"configurable": {"thread_id": "thread-1"}},
+            )
+
+        self.assertEqual(llm.bound_tools, [["get_current_time", "look_at_camera"]])
+        self.assertEqual(llm.invocations[0][0], "bound")
+
+    async def test_llm_node_uses_plain_llm_when_camera_was_the_only_tool(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[_tool("look_at_camera")],
+            system_text="system",
+            max_tokens=4000,
+        )
+
+        with patch("copilot.agent.nodes.is_look_at_camera_available", return_value=False):
+            await node(
+                {"messages": [HumanMessage(content="what is this?")]},
+                {"configurable": {"thread_id": "thread-1"}},
+            )
+
+        self.assertEqual(llm.bound_tools, [])
+        self.assertEqual(llm.invocations[0][0], "plain")
 
 
 if __name__ == "__main__":

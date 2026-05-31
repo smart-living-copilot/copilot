@@ -1,5 +1,7 @@
 """Node helpers for the Smart Living Copilot agent graph."""
 
+from __future__ import annotations
+
 import json
 import logging
 from collections.abc import Sequence
@@ -15,10 +17,12 @@ from langchain_core.messages import (
     ToolMessage,
     trim_messages,
 )
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END
 from pydantic import BaseModel, Field
 
+from copilot.agent.tools.look_at_camera import is_look_at_camera_available
 from copilot.agent.prompts import (
     ANALYSIS_PROMPT,
     CONTROL_PROMPT,
@@ -191,6 +195,18 @@ def _make_node_prompt(system_text: str, max_tokens: int):
     return prompt
 
 
+def _active_tools_for_config(tools: list[Any], config: RunnableConfig | None) -> list[Any]:
+    if not tools:
+        return []
+
+    return [
+        tool
+        for tool in tools
+        if getattr(tool, "name", None) != "look_at_camera"
+        or is_look_at_camera_available(config)
+    ]
+
+
 def make_router_node(llm: ChatOpenAI, max_tokens: int):
     """Classify the current request into a single graph branch."""
     structured_llm = llm.with_structured_output(IntentClassification)
@@ -217,12 +233,15 @@ def _make_llm_node(
     parallel_tool_calls: bool = True,
 ):
     prompt = _make_node_prompt(system_text, max_tokens)
-    llm_with_tools = (
-        llm.bind_tools(tools, parallel_tool_calls=parallel_tool_calls) if tools else llm
-    )
 
-    async def node(state: CopilotState):
-        response = await llm_with_tools.ainvoke(prompt(state))
+    async def node(state: CopilotState, config: RunnableConfig | None = None):
+        active_tools = _active_tools_for_config(tools, config)
+        runnable = (
+            llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
+            if active_tools
+            else llm
+        )
+        response = await runnable.ainvoke(prompt(state))
         return {"messages": [response]}
 
     return node
@@ -267,13 +286,17 @@ def make_analysis_node(
     *,
     parallel_tool_calls: bool = True,
 ):
-    llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=parallel_tool_calls)
-
-    async def node(state: CopilotState):
+    async def node(state: CopilotState, config: RunnableConfig | None = None):
         system_message = SystemMessage(content=ANALYSIS_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
-        response = await llm_with_tools.ainvoke(messages)
+        active_tools = _active_tools_for_config(tools, config)
+        runnable = (
+            llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
+            if active_tools
+            else llm
+        )
+        response = await runnable.ainvoke(messages)
         return {"messages": [response]}
 
     return node

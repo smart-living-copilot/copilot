@@ -90,6 +90,23 @@ def _frame_to_message(jpeg_bytes: bytes, user_hint: str | None) -> HumanMessage:
     )
 
 
+def _thread_id_from_config(config: RunnableConfig | None) -> str | None:
+    value = (config or {}).get("configurable", {}).get("thread_id")
+    return value if isinstance(value, str) and value else None
+
+
+def is_look_at_camera_available(config: RunnableConfig | None) -> bool:
+    """Return whether the current agent turn has a usable live camera frame."""
+    if not _settings.vision_enabled or not _settings.vision_model:
+        return False
+
+    thread_id = _thread_id_from_config(config)
+    if not thread_id:
+        return False
+
+    return media_sessions.latest_video_frame_for_thread(thread_id) is not None
+
+
 @tool
 async def look_at_camera(
     user_hint: str | None = None,
@@ -116,7 +133,7 @@ async def look_at_camera(
     if not _settings.vision_model:
         return {"error": "VISION_MODEL is not configured."}
 
-    thread_id = config.get("configurable", {}).get("thread_id")
+    thread_id = _thread_id_from_config(config)
     if not thread_id:
         return {"error": "No thread_id in context; cannot locate camera session."}
 
