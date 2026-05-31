@@ -40,7 +40,6 @@ from copilot.api_keys.router import router as api_keys_router
 from copilot.auth.router import router as me_router
 from copilot.jobs import JobService, router as jobs_router
 from copilot.jobs.active import set_active_job_service
-from copilot.api.wot_runtime import router as wot_operations_router
 from copilot.search.router import router as search_router
 from copilot.catalog.router import router as things_router
 
@@ -385,7 +384,6 @@ app.include_router(me_router)
 app.include_router(search_router)
 app.include_router(things_router)
 app.include_router(api_keys_router)
-app.include_router(wot_operations_router)
 app.include_router(jobs_router)
 _media_stream = create_media_stream()
 

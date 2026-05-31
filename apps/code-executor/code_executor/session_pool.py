@@ -1,5 +1,7 @@
 """Manages a pool of isolated Python processes, one per chat session."""
 
+from __future__ import annotations
+
 import asyncio
 import io
 import logging
@@ -22,8 +24,11 @@ _MAX_STDOUT_CHARS = 2000
 
 
 _SENSITIVE_ENV_VARS = [
+    "INIT_ADMIN_TOKEN",
     "INTERNAL_API_KEY",
-    "WOT_REGISTRY_TOKEN",
+    "OPENAI_EMBEDDING_API_KEY",
+    "WOT_RUNTIME_API_TOKEN",
+    "WOT_RUNTIME_REGISTRY_TOKEN",
     "OPENAI_API_KEY",
 ]
 
@@ -64,8 +69,8 @@ def _terminate_pid(pid: int) -> None:
 def _worker_loop(
     conn: mp.connection.Connection,
     artifacts_dir: str,
-    registry_url: str,
-    registry_token: str,
+    runtime_url: str,
+    runtime_api_token: str,
     execution_timeout_seconds: int,
 ):
     """The entry point for the isolated background process."""
@@ -263,7 +268,7 @@ def _worker_loop(
         def read_property(self, thing_id, property_name, uri_variables=None):
             """Read a property value from a thing."""
             return self._execute(
-                path="/api/wot/read-property",
+                path="/runtime/read-property",
                 body={
                     "thing_id": thing_id,
                     "property_name": property_name,
@@ -278,7 +283,7 @@ def _worker_loop(
         def write_property(self, thing_id, property_name, value, uri_variables=None):
             """Write a property value to a thing."""
             return self._execute(
-                path="/api/wot/write-property",
+                path="/runtime/write-property",
                 body={
                     "thing_id": thing_id,
                     "property_name": property_name,
@@ -306,7 +311,7 @@ def _worker_loop(
                         pass
 
             return self._execute(
-                path="/api/wot/invoke-action",
+                path="/runtime/invoke-action",
                 body={
                     "thing_id": thing_id,
                     "action_name": action_name,
@@ -320,7 +325,7 @@ def _worker_loop(
                 uri_variables=uri_variables or {},
             )
 
-    _wot = _WotClient(registry_url, registry_token)
+    _wot = _WotClient(runtime_url, runtime_api_token)
 
     # Register wot as an importable module so `import wot` works too
     import sys
@@ -606,8 +611,8 @@ class SessionPool:
             args=(
                 child_conn,
                 self._artifacts_dir,
-                self._settings.wot_registry_url,
-                self._settings.wot_registry_token,
+                self._settings.wot_runtime_url,
+                self._settings.wot_runtime_api_token,
                 self._settings.execution_timeout_seconds,
             ),
             daemon=True,

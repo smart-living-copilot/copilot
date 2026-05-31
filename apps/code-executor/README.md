@@ -149,8 +149,11 @@ Current protections:
 
 - code runs in a separate process per session
 - selected sensitive environment variables are removed before execution:
+  - `INIT_ADMIN_TOKEN`
   - `INTERNAL_API_KEY`
-  - `WOT_REGISTRY_TOKEN`
+  - `OPENAI_EMBEDDING_API_KEY`
+  - `WOT_RUNTIME_API_TOKEN`
+  - `WOT_RUNTIME_REGISTRY_TOKEN`
   - `OPENAI_API_KEY`
 - production Docker runs the container as a non-root user
 - the production Compose service uses:
@@ -222,8 +225,8 @@ Defined in [`code_executor/models/settings.py`](./code_executor/models/settings.
 - `ARTIFACTS_DIR`
 - `ARTIFACTS_TTL_SECONDS`
 - `INTERNAL_API_KEY`
-- `WOT_REGISTRY_URL`
-- `WOT_REGISTRY_TOKEN`
+- `WOT_RUNTIME_URL`
+- `WOT_RUNTIME_API_TOKEN`
 
 ## Current Gaps
 

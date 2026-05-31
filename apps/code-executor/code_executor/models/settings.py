@@ -1,4 +1,3 @@
-from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,9 +14,6 @@ class Settings(BaseSettings):
     # Security
     internal_api_key: str = ""
 
-    # WoT registry access for sandbox WoT client
-    wot_registry_url: str = "http://copilot:8123"
-    wot_registry_token: str = Field(
-        default="",
-        validation_alias=AliasChoices("WOT_REGISTRY_TOKEN", "INIT_ADMIN_TOKEN"),
-    )
+    # WoT runtime access for sandbox WoT client
+    wot_runtime_url: str = "http://localhost:3003"
+    wot_runtime_api_token: str = ""
