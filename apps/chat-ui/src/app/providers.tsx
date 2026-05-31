@@ -10,8 +10,6 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider defaultTheme="system">
-      <TooltipProvider>{children}</TooltipProvider>
-      <Toaster />
       <JobDetailProvider>
         <JobTriggerToasts />
         <TooltipProvider>{children}</TooltipProvider>

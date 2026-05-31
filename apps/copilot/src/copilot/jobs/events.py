@@ -10,7 +10,7 @@ from copilot.core.settings import Settings
 from copilot.jobs.store import JobStore
 from copilot.jobs.stream import StreamConfig, ensure_stream_group, parse_runtime_stream_fields
 from copilot.jobs.subscriptions import subscription_id_from_response
-from copilot.workers.job_worker import run_job_task
+from copilot.jobs.taskiq_app import run_job_task
 from copilot.clients.wot_runtime import WotRuntimeClient
 
 logger = logging.getLogger(__name__)

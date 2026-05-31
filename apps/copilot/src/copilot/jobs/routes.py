@@ -98,12 +98,14 @@ async def delete_job(job_id: str, request: Request):
     return {"ok": True, "job": job.model_dump()}
 
 
-@router.post("/jobs/{job_id}/run")
+@router.post("/jobs/{job_id}/run", status_code=202)
 async def run_job(job_id: str, request: Request):
     _verify_internal_api_key(request)
     service = _service(request)
     try:
-        result = await service.run_job_now(job_id)
+        result = await service.trigger_job_now(job_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="job not found")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return result

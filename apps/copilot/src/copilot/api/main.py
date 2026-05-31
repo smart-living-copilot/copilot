@@ -38,8 +38,9 @@ from copilot.threads.routes import create_threads_router
 from copilot.agent.tools import LOCAL_TOOLS, REGISTRY_TOOLS
 from copilot.api_keys.router import router as api_keys_router
 from copilot.auth.router import router as me_router
-from copilot.jobs import JobService, router as jobs_router
 from copilot.jobs.active import set_active_job_service
+from copilot.jobs.routes import router as jobs_router
+from copilot.jobs.service import JobService
 from copilot.search.router import router as search_router
 from copilot.catalog.router import router as things_router
 

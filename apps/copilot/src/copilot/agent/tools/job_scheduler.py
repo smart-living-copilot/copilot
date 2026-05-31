@@ -35,7 +35,7 @@ async def _run_job(service: JobService, job_id: str) -> dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
-async def _create_and_validate(
+async def _create_job(
     service: JobService,
     request: CreateJobRequest,
 ) -> dict[str, Any]:
@@ -46,38 +46,7 @@ async def _create_and_validate(
     except Exception as exc:
         return {"error": str(exc)}
 
-    created_job = job.model_dump(mode="json")
-    job_id = created_job.get("id")
-    if not job_id:
-        return created_job
-
-    run_result = await _run_job(service, str(job_id))
-    if isinstance(run_result, dict) and run_result.get("ok"):
-        created_job["test_run"] = run_result
-        return created_job
-
-    deleted_failed_job = False
-    delete_error = None
-    try:
-        await service.delete_job(str(job_id))
-        deleted_failed_job = True
-    except KeyError:
-        delete_error = "Job not found during cleanup."
-    except Exception as exc:
-        delete_error = str(exc)
-
-    error_message = "Newly created job failed validation and was deleted."
-    if isinstance(run_result, dict) and run_result.get("error"):
-        error_message = f"{error_message} Validation error: {run_result['error']}"
-    if delete_error:
-        error_message = f"{error_message} Cleanup error: {delete_error}"
-
-    return {
-        "error": error_message,
-        "job": created_job,
-        "test_run": run_result,
-        "deleted_failed_job": deleted_failed_job,
-    }
+    return job.model_dump(mode="json")
 
 
 @tool
@@ -116,7 +85,7 @@ async def create_job(
         )
     except ValidationError as exc:
         return {"error": str(exc)}
-    return await _create_and_validate(service, request)
+    return await _create_job(service, request)
 
 
 @tool
@@ -156,7 +125,7 @@ async def create_analysis_job(
         )
     except ValidationError as exc:
         return {"error": str(exc)}
-    return await _create_and_validate(service, request)
+    return await _create_job(service, request)
 
 
 @tool

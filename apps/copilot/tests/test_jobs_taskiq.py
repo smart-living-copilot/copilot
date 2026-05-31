@@ -319,6 +319,16 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"ok": False, "error": "Job task timed out."})
 
+    async def test_trigger_job_now_enqueues_without_waiting_for_result(self) -> None:
+        service = JobService(Settings(), repo=_FakeRepo(_job()))
+        task = SimpleNamespace(task_id="task-1", wait_result=AsyncMock())
+
+        with patch("copilot.jobs.service.run_job_task.kiq", AsyncMock(return_value=task)):
+            result = await service.trigger_job_now("job-1")
+
+        self.assertEqual(result, {"ok": True, "job_id": "job-1", "task_id": "task-1"})
+        task.wait_result.assert_not_called()
+
     async def test_create_time_job_registers_schedule(self) -> None:
         schedule = _FakeScheduleManager()
         service = JobService(
@@ -743,6 +753,27 @@ class JobEventConsumerTestCase(unittest.IsolatedAsyncioTestCase):
 
 
 class JobsEventsRouteTestCase(unittest.TestCase):
+    def test_run_route_enqueues_job_and_returns_accepted(self) -> None:
+        class FakeService:
+            def __init__(self) -> None:
+                self.triggered: list[str] = []
+
+            async def trigger_job_now(self, job_id):
+                self.triggered.append(job_id)
+                return {"ok": True, "job_id": job_id}
+
+        fake_service = FakeService()
+        app = FastAPI()
+        app.state.service = fake_service
+        app.include_router(jobs_router)
+
+        with TestClient(app) as client:
+            response = client.post("/jobs/job-1/run")
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"ok": True, "job_id": "job-1"})
+        self.assertEqual(fake_service.triggered, ["job-1"])
+
     def test_sse_events_include_redis_stream_id(self) -> None:
         class FakeService:
             async def subscribe_run_events(self, *, last_event_id=None):

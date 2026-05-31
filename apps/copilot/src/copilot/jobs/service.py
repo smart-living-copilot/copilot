@@ -13,8 +13,8 @@ from copilot.jobs.results import JobRunEventStream
 from copilot.jobs.schedule import JobScheduleManager, build_schedule_source
 from copilot.jobs.store import JobStore, utc_now
 from copilot.jobs.subscriptions import subscription_id_from_response
-from copilot.workers.job_worker import broker, run_job_task
 from copilot.clients.wot_runtime import WotRuntimeClient
+from copilot.jobs.taskiq_app import broker, run_job_task
 
 logger = logging.getLogger(__name__)
 
@@ -135,10 +135,7 @@ class JobService:
     async def run_job_now(self, job_id: str) -> dict[str, Any]:
         await self._repo.get_job(job_id)
         try:
-            task = await run_job_task.kiq(
-                job_id=job_id,
-                trigger={"source": "manual"},
-            )
+            task = await self._enqueue_manual_run(job_id)
             task_result = await task.wait_result(
                 timeout=float(self._settings.job_task_timeout_seconds),
             )
@@ -156,6 +153,26 @@ class JobService:
         if isinstance(value, dict):
             return value
         return {"ok": True, "response": value}
+
+    async def trigger_job_now(self, job_id: str) -> dict[str, Any]:
+        await self._repo.get_job(job_id)
+        try:
+            task = await self._enqueue_manual_run(job_id)
+        except Exception as exc:
+            logger.error("Failed to enqueue job task %s: %s", job_id, exc)
+            raise RuntimeError(str(exc)) from exc
+
+        task_id = getattr(task, "task_id", None)
+        result: dict[str, Any] = {"ok": True, "job_id": job_id}
+        if task_id is not None:
+            result["task_id"] = str(task_id)
+        return result
+
+    async def _enqueue_manual_run(self, job_id: str) -> Any:
+        return await run_job_task.kiq(
+            job_id=job_id,
+            trigger={"source": "manual"},
+        )
 
     def _validate_request(self, request: CreateJobRequest) -> None:
         if request.job_type == "analysis":

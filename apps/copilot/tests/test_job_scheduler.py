@@ -53,7 +53,7 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
     def tearDown(self) -> None:
         set_active_job_service(None)
 
-    async def test_create_analysis_job_deletes_failed_job_after_validation(self) -> None:
+    async def test_create_analysis_job_returns_created_job_without_running(self) -> None:
         service = _FakeService(run_result={"ok": False, "error": "boom"})
         set_active_job_service(service)
 
@@ -66,14 +66,13 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
             config={"configurable": {"thread_id": "thread-1"}},
         )
 
-        self.assertIn("error", result)
-        self.assertTrue(result["deleted_failed_job"])
-        self.assertEqual(result["job"]["id"], "job-123")
-        self.assertEqual(result["test_run"]["error"], "boom")
-        self.assertEqual(service.deleted, ["job-123"])
+        self.assertEqual(result["id"], "job-123")
+        self.assertNotIn("test_run", result)
+        self.assertEqual(service.ran, [])
+        self.assertEqual(service.deleted, [])
         self.assertEqual(service.created_requests[0].job_type, "analysis")
 
-    async def test_create_job_returns_test_run_on_success(self) -> None:
+    async def test_create_job_returns_created_job_without_running(self) -> None:
         service = _FakeService(run_result={"ok": True, "response": "ran"})
         set_active_job_service(service)
 
@@ -88,9 +87,10 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["id"], "job-123")
-        self.assertTrue(result["test_run"]["ok"])
+        self.assertNotIn("test_run", result)
         self.assertEqual(service.created_requests[0].thread_id, "thread-1")
         self.assertEqual(service.created_requests[0].interval_seconds, 10)
+        self.assertEqual(service.ran, [])
         self.assertEqual(service.deleted, [])
 
     async def test_create_job_reports_validation_error(self) -> None:

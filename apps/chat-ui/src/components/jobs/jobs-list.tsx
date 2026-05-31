@@ -310,7 +310,7 @@ export function JobsList() {
       setRunningJobId(jobId);
       try {
         await runJobNow(jobId);
-        toast.success('Job run started.');
+        toast.success('Job run queued.');
         await loadJobs();
       } catch (error) {
         toast.error(
