@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from copilot.core.api_dependencies import verify_internal_api_key
-from copilot.jobs.models import CreateJobRequest
+from copilot.jobs.models import CreateJobRequest, ReplyJobRequest
+from copilot.jobs.store import JobNotWaitingForInput
+from copilot.threads.messages import checkpoint_thread_messages
+from copilot.threads.store import get_thread
 
 router = APIRouter()
 
@@ -58,6 +62,52 @@ async def stream_job_events(request: Request):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/jobs/{job_id}/runs")
+async def list_job_runs(job_id: str, request: Request):
+    verify_internal_api_key(request)
+    service = request.app.state.service
+    try:
+        runs = await service.list_job_runs(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="job not found")
+    return {"runs": [run.model_dump() for run in runs]}
+
+
+@router.get("/jobs/{job_id}/thread")
+async def get_job_thread(job_id: str, request: Request):
+    verify_internal_api_key(request)
+    service = request.app.state.service
+    try:
+        job = await service.get_job(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    record = await asyncio.to_thread(get_thread, job.job_thread_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="job thread not found")
+
+    checkpointer = getattr(request.app.state, "checkpointer", None)
+    if checkpointer is None:
+        raise HTTPException(status_code=503, detail="Checkpointer not ready")
+
+    messages = await checkpoint_thread_messages(checkpointer, job.job_thread_id)
+    return {**record, "job": job.model_dump(), "messages": messages}
+
+
+@router.post("/jobs/{job_id}/reply")
+async def reply_to_job(job_id: str, payload: ReplyJobRequest, request: Request):
+    verify_internal_api_key(request)
+    service = request.app.state.service
+    try:
+        return await service.reply_to_job(job_id, payload.message)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="job not found")
+    except JobNotWaitingForInput as exc:
+        raise HTTPException(status_code=409, detail="job is not waiting for input") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.get("/jobs/{job_id}")

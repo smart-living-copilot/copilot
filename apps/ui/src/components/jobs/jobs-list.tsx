@@ -7,12 +7,14 @@ import {
   useMemo,
   useState,
 } from 'react';
+import Link from 'next/link';
 import {
   Activity,
   Bot,
   CalendarClock,
   Eye,
   Loader2,
+  MessagesSquare,
   Plus,
   Play,
   RefreshCw,
@@ -58,6 +60,13 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  formatDateTime,
+  getJobStatus,
+  getPurposePreview,
+  getScheduleLabel,
+  getStatusBadgeVariant,
+} from '@/lib/job-formatters';
+import {
   type CreateJobPayload,
   type JobRecord,
   createJob,
@@ -96,69 +105,6 @@ const INITIAL_CREATE_FORM: CreateJobFormState = {
   subscriptionInput: '',
 };
 
-function getJobStatus(job: JobRecord, now: Date): string {
-  if (!job.enabled) {
-    return 'disabled';
-  }
-  if (job.trigger_kind === 'event') {
-    return 'waiting-event';
-  }
-  if (!job.next_run_at) {
-    return 'queued';
-  }
-
-  const nextRunAt = new Date(job.next_run_at);
-  if (Number.isNaN(nextRunAt.getTime()) || nextRunAt <= now) {
-    return 'queued';
-  }
-  return 'scheduled';
-}
-
-function formatDateTime(value: string | null): string {
-  if (!value) {
-    return 'Not available';
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date);
-}
-
-function getScheduleLabel(job: JobRecord): string {
-  if (job.trigger_kind === 'event') {
-    return job.event_name
-      ? `On event: ${job.event_name}`
-      : 'On subscribed event';
-  }
-  if (job.interval_seconds) {
-    return `Every ${job.interval_seconds}s`;
-  }
-  if (job.run_at) {
-    return `Once at ${formatDateTime(job.run_at)}`;
-  }
-  return 'Manual or pending schedule';
-}
-
-function getPurposePreview(job: JobRecord): { label: string; content: string } {
-  if (job.action_kind === 'analysis') {
-    return {
-      label: 'Analysis code',
-      content: job.analysis_code?.trim() || '(empty analysis code)',
-    };
-  }
-
-  return {
-    label: 'Prompt',
-    content: job.prompt?.trim() || '(empty prompt)',
-  };
-}
-
 function getSearchableText(job: JobRecord): string {
   return [
     job.name,
@@ -172,22 +118,14 @@ function getSearchableText(job: JobRecord): string {
     job.event_name,
     job.last_error,
     job.last_response,
-    job.last_fetch_value,
+    job.last_run_status,
+    job.waiting_question,
     job.prompt,
     job.analysis_code,
   ]
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
-}
-
-function getStatusBadgeVariant(
-  status: string,
-): 'default' | 'secondary' | 'destructive' | 'outline' {
-  if (status === 'queued') return 'default';
-  if (status === 'waiting-event' || status === 'scheduled') return 'secondary';
-  if (status === 'disabled') return 'outline';
-  return 'outline';
 }
 
 function toCreatePayload(form: CreateJobFormState): CreateJobPayload {
@@ -542,6 +480,16 @@ export function JobsList() {
                             <Badge variant={getStatusBadgeVariant(status)}>
                               {status}
                             </Badge>
+                            {job.last_run_status ? (
+                              <p className="text-xs text-muted-foreground">
+                                Last run: {job.last_run_status}
+                              </p>
+                            ) : null}
+                            {job.waiting_question ? (
+                              <p className="line-clamp-3 text-xs text-primary">
+                                {job.waiting_question}
+                              </p>
+                            ) : null}
                             {job.last_error ? (
                               <p className="line-clamp-3 text-xs text-destructive">
                                 {job.last_error}
@@ -585,10 +533,6 @@ export function JobsList() {
                             <div className="text-xs">
                               Last run: {renderDateTime(job.last_run_at)}
                             </div>
-                            <div className="line-clamp-2 text-xs">
-                              Last fetch:{' '}
-                              {job.last_fetch_value || 'No fetched value yet'}
-                            </div>
                           </div>
                         </TableCell>
                         <TableCell className="align-top text-sm text-muted-foreground">
@@ -609,6 +553,12 @@ export function JobsList() {
                             >
                               <Eye className="h-3.5 w-3.5" />
                               Details
+                            </Button>
+                            <Button size="sm" variant="outline" asChild>
+                              <Link href={`/jobs/${job.id}/thread`}>
+                                <MessagesSquare className="h-3.5 w-3.5" />
+                                Thread
+                              </Link>
                             </Button>
                             <Button
                               size="sm"

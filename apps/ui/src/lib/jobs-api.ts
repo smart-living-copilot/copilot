@@ -28,15 +28,64 @@ export interface JobRecord {
     | 'failed'
     | 'waiting_for_input'
     | 'cancelled'
+    | 'skipped'
     | null;
   last_error: string | null;
   last_response: string | null;
   run_count: number;
-  last_fetch_value: string | null;
+  active_run_id: string | null;
+  active_run_started_at: string | null;
+  active_run_source: 'manual' | 'time' | 'event' | null;
+  waiting_question: string | null;
+}
+
+export interface JobRunRecord {
+  id: string;
+  job_id: string;
+  job_thread_id: string;
+  source: 'manual' | 'time' | 'event';
+  status:
+    | 'running'
+    | 'succeeded'
+    | 'failed'
+    | 'waiting_for_input'
+    | 'cancelled'
+    | 'skipped';
+  trigger_payload: unknown;
+  result: unknown | null;
+  error: string | null;
+  response_text: string | null;
+  started_at: string;
+  finished_at: string | null;
+  created_at: string;
+}
+
+export interface JobThreadMessage {
+  id?: string;
+  role?: string;
+  content?: unknown;
+  type?: string;
+  name?: string;
+}
+
+export interface JobThreadRecord {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  kind?: 'chat' | 'job';
+  visible?: boolean;
+  jobId?: string | null;
+  job: JobRecord;
+  messages: JobThreadMessage[];
 }
 
 interface ListJobsResponse {
   jobs: JobRecord[];
+}
+
+interface ListJobRunsResponse {
+  runs: JobRunRecord[];
 }
 
 export interface CreateJobPayload {
@@ -86,5 +135,27 @@ export async function deleteJob(jobId: string): Promise<void> {
 export async function runJobNow(jobId: string): Promise<unknown> {
   return httpJson(`/jobs/${encodeURIComponent(jobId)}/run`, {
     method: 'POST',
+  });
+}
+
+export async function fetchJobRuns(jobId: string): Promise<JobRunRecord[]> {
+  const json = await httpJson<ListJobRunsResponse>(
+    `/jobs/${encodeURIComponent(jobId)}/runs`,
+  );
+  return json.runs;
+}
+
+export async function fetchJobThread(jobId: string): Promise<JobThreadRecord> {
+  return httpJson<JobThreadRecord>(`/jobs/${encodeURIComponent(jobId)}/thread`);
+}
+
+export async function replyToJob(
+  jobId: string,
+  message: string,
+): Promise<unknown> {
+  return httpJson(`/jobs/${encodeURIComponent(jobId)}/reply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
   });
 }

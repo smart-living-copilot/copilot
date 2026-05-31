@@ -6,8 +6,8 @@ The graph is handed two flat lists of LangChain tools (see ``agent.tools``):
   ``wot_runtime`` service (live device reads, writes, action invocations,
   subscriptions).
 * **local tools** are the copilot's own first-party tools: ``get_current_time``
-  (in-process), ``run_code`` (code-executor), ``look_at_camera`` (vision model)
-  and the job API tools.
+  (in-process), ``run_code`` (code-executor), ``look_at_camera`` (vision model),
+  the worker-only ``ask_job_user`` tool, and the job API tools.
 
 Each graph node only gets a subset of these (e.g. the chat ``respond`` node has
 no device-write tools). This module is the single place that maps tool *names*
@@ -46,12 +46,13 @@ _RUNTIME_WRITE_NAMES = {
 _RUNTIME_NAMES = _RUNTIME_READ_NAMES | _RUNTIME_WRITE_NAMES
 
 # Local tools that are referenced individually by the graph. Every other local
-# tool is treated as a job API tool, so adding a new job tool in
-# ``agent.tools`` needs no change here.
+# tool is treated as a job API tool for the dedicated jobs branch, so adding a
+# new job-management tool in ``agent.tools`` needs no change here.
 _GET_CURRENT_TIME = "get_current_time"
 _RUN_CODE = "run_code"
 _LOOK_AT_CAMERA = "look_at_camera"
-_NAMED_LOCAL_NAMES = {_GET_CURRENT_TIME, _RUN_CODE, _LOOK_AT_CAMERA}
+_ASK_JOB_USER = "ask_job_user"
+_NAMED_LOCAL_NAMES = {_GET_CURRENT_TIME, _RUN_CODE, _LOOK_AT_CAMERA, _ASK_JOB_USER}
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,7 @@ class LocalToolGroups:
     get_current_time: Any
     run_code: Any
     look_at_camera: Any | None
+    ask_job_user: Any | None
     job_tools: list[Any]
 
 
@@ -117,5 +119,6 @@ def group_local_tools(
         get_current_time=tools_by_name[_GET_CURRENT_TIME],
         run_code=tools_by_name[_RUN_CODE],
         look_at_camera=tools_by_name.get(_LOOK_AT_CAMERA) if vision_enabled else None,
+        ask_job_user=tools_by_name.get(_ASK_JOB_USER),
         job_tools=[tool for tool in local_tools if tool.name not in _NAMED_LOCAL_NAMES],
     )

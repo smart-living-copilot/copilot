@@ -5,6 +5,7 @@ from unittest.mock import patch
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from copilot.agent.nodes import (
+    IntentClassification,
     _make_llm_node,
     _make_router_messages,
     _sanitize_message_sequence,
@@ -42,6 +43,9 @@ class _FakeLLM:
 
 
 class NodeMessageSanitizationTestCase(unittest.TestCase):
+    def test_router_schema_accepts_jobs_intent(self) -> None:
+        self.assertEqual(IntentClassification(intent="jobs").intent, "jobs")
+
     def test_sanitize_message_sequence_drops_orphan_tool_messages(self) -> None:
         messages = [
             HumanMessage(content="First request"),

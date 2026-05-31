@@ -5,7 +5,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 try:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -13,6 +13,7 @@ except ImportError:  # pragma: no cover - dependency is installed in the app ima
     AsyncPostgresSaver = None  # type: ignore[assignment]
 
 from copilot.agent import build_graph
+from copilot.agent.tools.ask_job_user import ask_job_user
 from copilot.agent.tools.get_current_time import get_current_time
 from copilot.agent.tools.look_at_camera import look_at_camera
 from copilot.agent.tools.run_code import run_code
@@ -79,7 +80,7 @@ class BackgroundAgentRunner:
         graph = build_graph(
             llm=llm,
             registry_tools=REGISTRY_TOOLS,
-            local_tools=[run_code, get_current_time, look_at_camera],
+            local_tools=[run_code, get_current_time, look_at_camera, ask_job_user],
             max_tokens=self._settings.max_context_tokens,
             checkpointer=self._checkpointer,
             parallel_tool_calls=self._settings.parallel_tool_calls,
@@ -88,12 +89,35 @@ class BackgroundAgentRunner:
         self._graph = graph.with_config(recursion_limit=self._settings.recursion_limit)
         return self._graph
 
-    async def run(self, job: Job, *, trigger: dict[str, Any]) -> dict[str, Any]:
+    async def run(
+        self,
+        job: Job,
+        *,
+        run_id: str,
+        trigger: dict[str, Any],
+    ) -> dict[str, Any]:
         graph = await self._ensure_graph()
+        message = trigger.get("message") if trigger.get("source") == "user_reply" else None
         result = await graph.ainvoke(
-            {"messages": [HumanMessage(content=job.prompt or "")]},
-            config={"configurable": {"thread_id": job.job_thread_id}},
+            {"messages": [HumanMessage(content=message or job.prompt or "")]},
+            config={
+                "configurable": {
+                    "thread_id": job.job_thread_id,
+                    "job_id": job.id,
+                    "run_id": run_id,
+                }
+            },
         )
+        waiting_question = _waiting_question_from_graph_result(result)
+        if waiting_question:
+            return {
+                "ok": True,
+                "status": JobRunStatus.WAITING_FOR_INPUT.value,
+                "response": result,
+                "assistant": waiting_question,
+                "waiting_question": waiting_question,
+                "metadata": {"trigger": trigger},
+            }
         assistant = _assistant_text_from_graph_result(result)
         if not assistant:
             assistant = json.dumps(result, ensure_ascii=True, default=str)[:2000]
@@ -124,21 +148,57 @@ class JobExecutor:
     async def close(self) -> None:
         await self._agent_runner.close()
 
-    async def run_job(self, job_id: str, trigger: dict[str, Any]) -> dict[str, Any]:
-        job = await self._repo.get_job(job_id)
-        now = utc_now()
-        run_source = _run_source_from_trigger(trigger)
-        run = await self._repo.create_job_run(
-            job=job,
-            source=run_source,
-            trigger_payload=trigger,
-            now=now,
+    async def reconcile_stale_running_runs(self) -> int:
+        stale_after_seconds = getattr(
+            self._settings,
+            "job_run_stale_after_seconds",
+            max(self._settings.job_task_timeout_seconds * 2, 600),
         )
+        cutoff = utc_now() - timedelta(seconds=stale_after_seconds)
+        stale_count = await self._repo.mark_stale_running_runs_failed(cutoff=cutoff)
+        if stale_count:
+            logger.warning("Marked %d stale job run(s) failed on worker startup", stale_count)
+        return stale_count
+
+    async def run_job(self, job_id: str, trigger: dict[str, Any]) -> dict[str, Any]:
+        now = utc_now()
+        if trigger.get("source") == "user_reply":
+            run_source = JobRunSource.MANUAL
+            run = await self._repo.start_reply_job_run(
+                job_id=job_id,
+                message=str(trigger.get("message") or ""),
+                previous_run_id=trigger.get("previous_run_id"),
+                now=now,
+            )
+        else:
+            run_source = _run_source_from_trigger(trigger)
+            run = await self._repo.try_start_job_run(
+                job_id=job_id,
+                source=run_source,
+                trigger_payload=trigger,
+                now=now,
+            )
+
+        if run is None:
+            return {"ok": False, "error": "Job run was not started."}
+
+        if run.status == JobRunStatus.SKIPPED:
+            await self._event_publisher.publish_job_run(job_id, run_id=run.id)
+            return {
+                "ok": False,
+                "status": JobRunStatus.SKIPPED.value,
+                "job_id": job_id,
+                "run_id": run.id,
+                "error": run.error or "Job run skipped.",
+                "assistant": run.response_text,
+            }
+
+        job = await self._repo.get_job(job_id)
 
         if job.action_kind == JobActionKind.ANALYSIS:
             result = await self._run_analysis_job(job, trigger=trigger)
         else:
-            result = await self._run_prompt_job(job, trigger=trigger)
+            result = await self._run_prompt_job(job, run_id=run.id, trigger=trigger)
 
         now = utc_now()
         is_scheduled_time_run = run_source == JobRunSource.TIME
@@ -149,7 +209,7 @@ class JobExecutor:
         )
         status = _job_run_status_from_result(result)
 
-        await self._repo.record_job_result(
+        await self._repo.finish_job_run(
             run_id=run.id,
             job_id=job.id,
             now=now,
@@ -157,20 +217,26 @@ class JobExecutor:
             error=result.get("error"),
             response_text=result.get("assistant"),
             result=result,
-            last_fetch_value=result.get("last_fetch_value"),
             next_run_at=next_run_at,
+            waiting_question=result.get("waiting_question"),
         )
         # A one-shot time job has fired its only run; disable it so startup
         # reconciliation does not re-create a schedule for it. The Redis schedule
         # itself is removed automatically by the source's post_send.
         if is_scheduled_time_run and job.schedule_kind == TimeTriggerKind.ONCE:
             await self._repo.disable_job(job.id)
-        await self._event_publisher.publish_job_run(job.id)
+        await self._event_publisher.publish_job_run(job.id, run_id=run.id)
         return result
 
-    async def _run_prompt_job(self, job: Job, *, trigger: dict[str, Any]) -> dict[str, Any]:
+    async def _run_prompt_job(
+        self,
+        job: Job,
+        *,
+        run_id: str,
+        trigger: dict[str, Any],
+    ) -> dict[str, Any]:
         try:
-            return await self._agent_runner.run(job, trigger=trigger)
+            return await self._agent_runner.run(job, run_id=run_id, trigger=trigger)
         except Exception as exc:
             logger.error("Failed prompt job %s: %s", job.id, exc, exc_info=exc)
             return {"ok": False, "error": str(exc), "metadata": {"trigger": trigger}}
@@ -184,7 +250,6 @@ class JobExecutor:
             stdout = str(response.get("stdout", "")).strip()
             images = response.get("images", [])
             plotly = response.get("plotly", [])
-            last_fetch_value = _extract_last_fetch_value(response)
 
             parts: list[str] = []
             if stdout:
@@ -200,7 +265,6 @@ class JobExecutor:
                 "ok": True,
                 "response": response,
                 "assistant": "\n".join(parts)[:4000],
-                "last_fetch_value": last_fetch_value,
                 "metadata": {"trigger": trigger},
             }
         except Exception as exc:
@@ -221,6 +285,30 @@ def _assistant_text_from_graph_result(result: Any) -> str:
     return ""
 
 
+def _waiting_question_from_graph_result(result: Any) -> str | None:
+    if not isinstance(result, dict):
+        return None
+    messages = result.get("messages")
+    if not isinstance(messages, list):
+        return None
+    for message in reversed(messages):
+        if not isinstance(message, ToolMessage):
+            continue
+        if message.name != "ask_job_user":
+            continue
+        content = message.content
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except json.JSONDecodeError:
+                return content.strip() or None
+        if isinstance(content, dict):
+            question = content.get("question")
+            if isinstance(question, str) and question.strip():
+                return question.strip()
+    return None
+
+
 def _text_from_message_content(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -235,32 +323,6 @@ def _text_from_message_content(content: Any) -> str:
     return "".join(text_parts)
 
 
-def _extract_last_fetch_value(response: dict[str, Any]) -> str | None:
-    stdout = str(response.get("stdout", "") or "").strip()
-    if not stdout:
-        return None
-
-    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-    if not lines:
-        return None
-
-    last_line = lines[-1]
-    marker = "WOT_LAST_VALUE="
-    if last_line.startswith(marker):
-        return last_line[len(marker) :][:500]
-
-    try:
-        payload = json.loads(last_line)
-        if isinstance(payload, dict):
-            for key in ("last_fetch_value", "last_value", "value", "wot_value"):
-                if key in payload:
-                    return str(payload[key])[:500]
-    except Exception:
-        pass
-
-    return last_line[:500]
-
-
 def _run_source_from_trigger(trigger: dict[str, Any]) -> JobRunSource:
     source = trigger.get("source")
     if source == "time":
@@ -273,6 +335,8 @@ def _run_source_from_trigger(trigger: dict[str, Any]) -> JobRunSource:
 def _job_run_status_from_result(result: dict[str, Any]) -> JobRunStatus:
     if result.get("status") == JobRunStatus.WAITING_FOR_INPUT:
         return JobRunStatus.WAITING_FOR_INPUT
+    if result.get("status") == JobRunStatus.SKIPPED:
+        return JobRunStatus.SKIPPED
     if result.get("ok"):
         return JobRunStatus.SUCCEEDED
     return JobRunStatus.FAILED

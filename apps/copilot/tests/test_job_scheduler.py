@@ -98,11 +98,11 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.deleted, [])
         self.assertEqual(service.created_requests[0].action_kind, JobActionKind.ANALYSIS)
 
-    async def test_create_job_returns_created_job_without_running(self) -> None:
+    async def test_create_prompt_job_returns_created_job_without_running(self) -> None:
         service = _FakeService(run_result={"ok": True, "response": "ran"})
         set_active_job_service(service)
 
-        result = await job_scheduler.create_job.ainvoke(
+        result = await job_scheduler.create_prompt_job.ainvoke(
             {
                 "name": "demo job",
                 "prompt": "check the house",
@@ -120,11 +120,11 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.ran, [])
         self.assertEqual(service.deleted, [])
 
-    async def test_create_job_reports_validation_error(self) -> None:
+    async def test_create_prompt_job_reports_validation_error(self) -> None:
         service = _FakeService(create_error=ValueError("time jobs require run_at or interval_seconds"))
         set_active_job_service(service)
 
-        result = await job_scheduler.create_job.ainvoke(
+        result = await job_scheduler.create_prompt_job.ainvoke(
             {
                 "name": "demo job",
                 "prompt": "check",
@@ -140,7 +140,7 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
 
         result = await job_scheduler.list_jobs.ainvoke({})
 
-        self.assertEqual(result, {"error": "Job runner is not enabled"})
+        self.assertEqual(result, {"error": "Job service is not ready"})
 
     async def test_list_delete_run_delegate_to_service(self) -> None:
         service = _FakeService(run_result={"ok": True})

@@ -4,7 +4,7 @@ from copilot.agent.tools.look_at_camera import look_at_camera
 from copilot.agent.tools.wot_registry import REGISTRY_TOOLS as REGISTRY_TOOLS
 from copilot.agent.tools.job_scheduler import (
     create_analysis_job,
-    create_job,
+    create_prompt_job,
     delete_job,
     list_jobs,
     run_job_now,
@@ -14,7 +14,7 @@ LOCAL_TOOLS = [
     run_code,
     get_current_time,
     look_at_camera,
-    create_job,
+    create_prompt_job,
     create_analysis_job,
     list_jobs,
     run_job_now,
@@ -25,7 +25,7 @@ __all__ = [
     "LOCAL_TOOLS",
     "REGISTRY_TOOLS",
     "create_analysis_job",
-    "create_job",
+    "create_prompt_job",
     "delete_job",
     "get_current_time",
     "list_jobs",

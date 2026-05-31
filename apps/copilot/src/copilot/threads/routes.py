@@ -7,9 +7,8 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
-from fastapi.encoders import jsonable_encoder
 
-from copilot.core.agui_messages import strip_none_fields
+from copilot.threads.messages import checkpoint_thread_messages
 from copilot.threads.models import (
     CreateThreadRequest,
     DEFAULT_THREAD_TITLE,
@@ -23,6 +22,7 @@ from copilot.threads.store import (
     update_thread_title,
 )
 
+
 def create_threads_router(
     *,
     get_checkpointer: Callable[[], Any | None],
@@ -35,19 +35,7 @@ def create_threads_router(
         if checkpointer is None:
             raise HTTPException(status_code=503, detail="Checkpointer not ready")
 
-        state = await checkpointer.aget_tuple({"configurable": {"thread_id": thread_id}})
-        if state is None or state.checkpoint is None:
-            return []
-
-        from ag_ui_langgraph.utils import langchain_messages_to_agui  # type: ignore[import-untyped]
-
-        channel_values = state.checkpoint.get("channel_values", {})
-        messages = channel_values.get("messages", [])
-        if not isinstance(messages, list):
-            return []
-
-        agui_messages = jsonable_encoder(langchain_messages_to_agui(messages))
-        return strip_none_fields(agui_messages)
+        return await checkpoint_thread_messages(checkpointer, thread_id)
 
     @router.get("")
     async def get_threads(request: Request):

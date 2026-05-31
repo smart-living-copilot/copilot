@@ -328,6 +328,7 @@ async def lifespan(app: FastAPI):
             logger.info("Using LangGraph Postgres saver for checkpoints")
             _checkpointer = saver
             checkpointer = _checkpointer
+            app.state.checkpointer = checkpointer
             graph = build_graph(
                 llm=llm,
                 registry_tools=REGISTRY_TOOLS,
@@ -372,6 +373,7 @@ async def lifespan(app: FastAPI):
             if _job_service is not None:
                 await _job_service.stop()
             await speech_pipelines.stop_all()
+            app.state.checkpointer = None
     finally:
         await shutdown_backend_runtime(app)
 

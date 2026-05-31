@@ -31,6 +31,7 @@ from copilot.jobs.schedule import (
     scheduled_task_for_job,
 )
 from copilot.jobs.service import JobService
+from copilot.jobs.store import JobNotWaitingForInput
 
 
 def _job(**overrides) -> Job:
@@ -61,7 +62,6 @@ def _job(**overrides) -> Job:
         "last_error": None,
         "last_response": None,
         "run_count": 0,
-        "last_fetch_value": None,
     }
     values.update(overrides)
     return Job(**values)
@@ -122,7 +122,11 @@ class BackgroundAgentRunnerTestCase(unittest.IsolatedAsyncioTestCase):
             patch("copilot.jobs.executor.make_llm", return_value=object()),
             patch("copilot.jobs.executor.build_graph", return_value=graph) as build_graph,
         ):
-            result = await runner.run(_job(), trigger={"source": "manual"})
+            result = await runner.run(
+                _job(),
+                run_id="run-1",
+                trigger={"source": "manual"},
+            )
             await runner.close()
 
         self.assertEqual(result["assistant"], "background result")
@@ -131,18 +135,27 @@ class BackgroundAgentRunnerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIs(build_graph.call_args.kwargs["checkpointer"], saver)
         self.assertTrue(saver_context.closed)
         local_tool_names = {tool.name for tool in build_graph.call_args.kwargs["local_tools"]}
-        self.assertEqual(local_tool_names, {"get_current_time", "look_at_camera", "run_code"})
+        self.assertEqual(
+            local_tool_names,
+            {"ask_job_user", "get_current_time", "look_at_camera", "run_code"},
+        )
         self.assertEqual(
             graph.invocations[0][1],
-            {"configurable": {"thread_id": "job:job-1"}},
+            {
+                "configurable": {
+                    "thread_id": "job:job-1",
+                    "job_id": "job-1",
+                    "run_id": "run-1",
+                }
+            },
         )
 
 
 class _FakeRepo:
     def __init__(self, job: Job) -> None:
         self.job = job
-        self.created_runs = []
-        self.recorded_results = []
+        self.started_runs = []
+        self.finished_runs = []
         self.disabled = []
 
     async def get_job(self, job_id: str) -> Job:
@@ -150,17 +163,17 @@ class _FakeRepo:
             raise KeyError(job_id)
         return self.job
 
-    async def create_job_run(
+    async def try_start_job_run(
         self,
         *,
-        job: Job,
+        job_id: str,
         source: JobRunSource,
         trigger_payload: dict,
         now: datetime,
-    ) -> JobRun:
-        self.created_runs.append(
+    ) -> JobRun | None:
+        self.started_runs.append(
             {
-                "job": job,
+                "job_id": job_id,
                 "source": source,
                 "trigger_payload": trigger_payload,
                 "now": now,
@@ -168,8 +181,8 @@ class _FakeRepo:
         )
         return JobRun(
             id="run-1",
-            job_id=job.id,
-            job_thread_id=job.job_thread_id,
+            job_id=self.job.id,
+            job_thread_id=self.job.job_thread_id,
             source=source,
             status=JobRunStatus.RUNNING,
             trigger_payload=trigger_payload,
@@ -177,8 +190,39 @@ class _FakeRepo:
             created_at=now,
         )
 
-    async def record_job_result(self, **kwargs) -> None:
-        self.recorded_results.append(kwargs)
+    async def start_reply_job_run(
+        self,
+        *,
+        job_id: str,
+        message: str,
+        previous_run_id: str | None,
+        now: datetime,
+    ) -> JobRun:
+        self.started_runs.append(
+            {
+                "job_id": job_id,
+                "source": JobRunSource.MANUAL,
+                "trigger_payload": {
+                    "source": "user_reply",
+                    "message": message,
+                    "previous_run_id": previous_run_id,
+                },
+                "now": now,
+            }
+        )
+        return JobRun(
+            id="run-2",
+            job_id=self.job.id,
+            job_thread_id=self.job.job_thread_id,
+            source=JobRunSource.MANUAL,
+            status=JobRunStatus.RUNNING,
+            trigger_payload={"source": "user_reply", "message": message},
+            started_at=now,
+            created_at=now,
+        )
+
+    async def finish_job_run(self, **kwargs) -> None:
+        self.finished_runs.append(kwargs)
 
     async def disable_job(self, job_id: str) -> None:
         self.disabled.append(job_id)
@@ -188,8 +232,8 @@ class _FakePublisher:
     def __init__(self) -> None:
         self.published = []
 
-    async def publish_job_run(self, job_id: str) -> None:
-        self.published.append(job_id)
+    async def publish_job_run(self, job_id: str, *, run_id: str | None = None) -> None:
+        self.published.append((job_id, run_id))
 
 
 class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
@@ -208,11 +252,11 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
         result = await executor.run_job("job-1", {"source": "manual"})
 
         self.assertEqual(result["assistant"], "done")
-        self.assertEqual(repo.created_runs[0]["source"], JobRunSource.MANUAL)
-        self.assertEqual(repo.recorded_results[0]["response_text"], "done")
-        self.assertEqual(repo.recorded_results[0]["status"], JobRunStatus.SUCCEEDED)
-        self.assertEqual(repo.recorded_results[0]["run_id"], "run-1")
-        self.assertEqual(publisher.published, ["job-1"])
+        self.assertEqual(repo.started_runs[0]["source"], JobRunSource.MANUAL)
+        self.assertEqual(repo.finished_runs[0]["response_text"], "done")
+        self.assertEqual(repo.finished_runs[0]["status"], JobRunStatus.SUCCEEDED)
+        self.assertEqual(repo.finished_runs[0]["run_id"], "run-1")
+        self.assertEqual(publisher.published, [("job-1", "run-1")])
 
     async def test_prompt_job_failure_records_last_error(self) -> None:
         repo = _FakeRepo(_job())
@@ -229,8 +273,32 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
         result = await executor.run_job("job-1", {"source": "manual"})
 
         self.assertFalse(result["ok"])
-        self.assertEqual(repo.recorded_results[0]["error"], "boom")
-        self.assertEqual(repo.recorded_results[0]["status"], JobRunStatus.FAILED)
+        self.assertEqual(repo.finished_runs[0]["error"], "boom")
+        self.assertEqual(repo.finished_runs[0]["status"], JobRunStatus.FAILED)
+
+    async def test_prompt_job_waiting_result_records_waiting_question(self) -> None:
+        repo = _FakeRepo(_job())
+        agent_runner = AsyncMock()
+        agent_runner.run.return_value = {
+            "ok": True,
+            "status": "waiting_for_input",
+            "assistant": "Which temperature?",
+            "waiting_question": "Which temperature?",
+        }
+        executor = JobExecutor(
+            Settings(),
+            repo=repo,
+            agent_runner=agent_runner,
+            event_publisher=_FakePublisher(),
+        )
+
+        await executor.run_job("job-1", {"source": "manual"})
+
+        self.assertEqual(
+            repo.finished_runs[0]["status"],
+            JobRunStatus.WAITING_FOR_INPUT,
+        )
+        self.assertEqual(repo.finished_runs[0]["waiting_question"], "Which temperature?")
 
     async def test_analysis_job_uses_code_executor(self) -> None:
         repo = _FakeRepo(
@@ -242,7 +310,9 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
         )
         publisher = _FakePublisher()
         code_executor = AsyncMock()
-        code_executor.execute.return_value = {"stdout": "WOT_LAST_VALUE=42\n"}
+        code_executor.execute.return_value = {
+            "stdout": '{"observed_value": 42, "summary": "ok"}\n',
+        }
         agent_runner = AsyncMock()
         executor = JobExecutor(
             Settings(),
@@ -255,7 +325,10 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
         result = await executor.run_job("job-1", {"source": "manual"})
 
         self.assertTrue(result["ok"])
-        self.assertEqual(result["last_fetch_value"], "42")
+        self.assertEqual(
+            result["response"]["stdout"],
+            '{"observed_value": 42, "summary": "ok"}\n',
+        )
         agent_runner.run.assert_not_called()
 
     async def test_one_shot_time_job_disabled_after_scheduled_run(self) -> None:
@@ -298,7 +371,7 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(repo.disabled, [])
         self.assertEqual(
-            repo.recorded_results[0]["next_run_at"],
+            repo.finished_runs[0]["next_run_at"],
             now + timedelta(seconds=60),
         )
 
@@ -315,7 +388,7 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
 
         await executor.run_job("job-1", {"source": "manual"})
 
-        self.assertIsNone(repo.recorded_results[0]["next_run_at"])
+        self.assertIsNone(repo.finished_runs[0]["next_run_at"])
 
 
 class _FakeScheduleManager:
@@ -911,6 +984,49 @@ class JobsEventsRouteTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json(), {"ok": True, "job_id": "job-1"})
         self.assertEqual(fake_service.triggered, ["job-1"])
+
+    def test_reply_route_returns_conflict_when_job_is_not_waiting(self) -> None:
+        class FakeService:
+            async def reply_to_job(self, job_id, message):
+                raise JobNotWaitingForInput(job_id)
+
+        app = FastAPI()
+        app.state.service = FakeService()
+        app.include_router(jobs_router)
+
+        with TestClient(app) as client:
+            response = client.post("/jobs/job-1/reply", json={"message": "continue"})
+
+        self.assertEqual(response.status_code, 409)
+
+    def test_runs_route_returns_job_run_history(self) -> None:
+        now = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
+
+        class FakeService:
+            async def list_job_runs(self, job_id):
+                return [
+                    JobRun(
+                        id="run-1",
+                        job_id=job_id,
+                        job_thread_id="job:job-1",
+                        source=JobRunSource.MANUAL,
+                        status=JobRunStatus.SKIPPED,
+                        trigger_payload={"source": "manual"},
+                        started_at=now,
+                        finished_at=now,
+                        created_at=now,
+                    )
+                ]
+
+        app = FastAPI()
+        app.state.service = FakeService()
+        app.include_router(jobs_router)
+
+        with TestClient(app) as client:
+            response = client.get("/jobs/job-1/runs")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["runs"][0]["status"], "skipped")
 
     def test_sse_events_include_redis_stream_id(self) -> None:
         class FakeService:

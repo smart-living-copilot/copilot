@@ -26,6 +26,7 @@ from copilot.agent.tools.look_at_camera import is_look_at_camera_available
 from copilot.agent.prompts import (
     ANALYSIS_PROMPT,
     CONTROL_PROMPT,
+    JOBS_PROMPT,
     RESPOND_PROMPT,
     ROUTER_PROMPT,
 )
@@ -38,7 +39,9 @@ class CopilotState(CopilotKitState):
 
 
 class IntentClassification(BaseModel):
-    intent: Literal["chat", "control", "analysis"] = Field(description="The classified intent")
+    intent: Literal["chat", "control", "analysis", "jobs"] = Field(
+        description="The classified intent"
+    )
 
 
 def _strip_wot_calls(message: BaseMessage) -> BaseMessage:
@@ -288,6 +291,29 @@ def make_analysis_node(
 ):
     async def node(state: CopilotState, config: RunnableConfig | None = None):
         system_message = SystemMessage(content=ANALYSIS_PROMPT + _current_time_block())
+        trimmed = _trim_conversation(state["messages"], max_tokens)
+        messages = [system_message, *trimmed]
+        active_tools = _active_tools_for_config(tools, config)
+        runnable = (
+            llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
+            if active_tools
+            else llm
+        )
+        response = await runnable.ainvoke(messages)
+        return {"messages": [response]}
+
+    return node
+
+
+def make_jobs_node(
+    llm: ChatOpenAI,
+    tools: list[Any],
+    max_tokens: int,
+    *,
+    parallel_tool_calls: bool = True,
+):
+    async def node(state: CopilotState, config: RunnableConfig | None = None):
+        system_message = SystemMessage(content=JOBS_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)

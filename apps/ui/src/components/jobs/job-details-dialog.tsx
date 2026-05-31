@@ -1,5 +1,10 @@
 'use client';
 
+import Link from 'next/link';
+import { MessagesSquare } from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -14,37 +19,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  formatDateTime,
+  getJobStatus,
+  getPurposePreview,
+  getScheduleLabel,
+  getStatusBadgeVariant,
+} from '@/lib/job-formatters';
 import { type JobRecord } from '@/lib/jobs-api';
-
-function formatDateTime(value: string | null): string {
-  if (!value) return 'Not available';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date);
-}
-
-function getJobStatus(job: JobRecord, now: Date): string {
-  if (!job.enabled) return 'disabled';
-  if (job.trigger_kind === 'event') return 'waiting-event';
-  if (!job.next_run_at) return 'queued';
-  const nextRunAt = new Date(job.next_run_at);
-  if (Number.isNaN(nextRunAt.getTime()) || nextRunAt <= now) return 'queued';
-  return 'scheduled';
-}
-
-function getScheduleLabel(job: JobRecord): string {
-  if (job.trigger_kind === 'event') {
-    return job.event_name
-      ? `On event: ${job.event_name}`
-      : 'On subscribed event';
-  }
-  if (job.interval_seconds) return `Every ${job.interval_seconds}s`;
-  if (job.run_at) return `Once at ${formatDateTime(job.run_at)}`;
-  return 'Manual or pending schedule';
-}
 
 function formatJson(value: unknown): string {
   if (value == null) return 'Not available';
@@ -62,13 +44,10 @@ interface JobDetailsDialogProps {
 }
 
 export function JobDetailsDialog({ job, onOpenChange }: JobDetailsDialogProps) {
-  const purposeLabel =
-    job?.action_kind === 'analysis'
-      ? {
-          label: 'Analysis code',
-          content: job.analysis_code?.trim() || '(empty analysis code)',
-        }
-      : { label: 'Prompt', content: job?.prompt?.trim() || '(empty prompt)' };
+  const purposeLabel = job
+    ? getPurposePreview(job)
+    : { label: 'Prompt', content: '(empty prompt)' };
+  const status = job ? getJobStatus(job, new Date()) : null;
 
   return (
     <Dialog open={job !== null} onOpenChange={onOpenChange}>
@@ -81,6 +60,20 @@ export function JobDetailsDialog({ job, onOpenChange }: JobDetailsDialogProps) {
                 Full execution detail for {job.id}
               </DialogDescription>
             </DialogHeader>
+            <div className="flex flex-wrap items-center gap-2">
+              {status ? (
+                <Badge variant={getStatusBadgeVariant(status)}>{status}</Badge>
+              ) : null}
+              {job.last_run_status ? (
+                <Badge variant="outline">last run {job.last_run_status}</Badge>
+              ) : null}
+              <Button size="sm" variant="outline" asChild>
+                <Link href={`/jobs/${job.id}/thread`}>
+                  <MessagesSquare className="h-3.5 w-3.5" />
+                  Open job thread
+                </Link>
+              </Button>
+            </div>
 
             <div className="grid gap-4">
               <div className="grid gap-4 md:grid-cols-2">
@@ -106,8 +99,11 @@ export function JobDetailsDialog({ job, onOpenChange }: JobDetailsDialogProps) {
                       {job.trigger_kind}
                     </div>
                     <div>
-                      <span className="font-medium">Status:</span>{' '}
-                      {getJobStatus(job, new Date())}
+                      <span className="font-medium">Status:</span> {status}
+                    </div>
+                    <div>
+                      <span className="font-medium">Active run:</span>{' '}
+                      {job.active_run_id || 'None'}
                     </div>
                   </CardContent>
                 </Card>
@@ -127,6 +123,10 @@ export function JobDetailsDialog({ job, onOpenChange }: JobDetailsDialogProps) {
                     <div>
                       <span className="font-medium">Last run:</span>{' '}
                       {formatDateTime(job.last_run_at)}
+                    </div>
+                    <div>
+                      <span className="font-medium">Active since:</span>{' '}
+                      {formatDateTime(job.active_run_started_at)}
                     </div>
                     <div>
                       <span className="font-medium">Created:</span>{' '}
@@ -178,12 +178,12 @@ export function JobDetailsDialog({ job, onOpenChange }: JobDetailsDialogProps) {
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
                     <div>
-                      <span className="font-medium">Last fetch value:</span>{' '}
-                      {job.last_fetch_value || 'Not captured'}
-                    </div>
-                    <div>
                       <span className="font-medium">Last error:</span>{' '}
                       {job.last_error || 'No recent error'}
+                    </div>
+                    <div>
+                      <span className="font-medium">Waiting question:</span>{' '}
+                      {job.waiting_question || 'Not waiting'}
                     </div>
                     <div>
                       <span className="font-medium">Updated:</span>{' '}

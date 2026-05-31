@@ -122,15 +122,16 @@ def test_job_run_event_publisher_writes_current_job_snapshot_to_redis_stream(
         )
     )
     run = _run(
-        repo.create_job_run(
-            job=job,
+        repo.try_start_job_run(
+            job_id=job.id,
             source=JobRunSource.TIME,
             trigger_payload={"source": "time"},
             now=now + timedelta(seconds=1),
         )
     )
+    assert run is not None
     _run(
-        repo.record_job_result(
+        repo.finish_job_run(
             run_id=run.id,
             job_id=job.id,
             now=now + timedelta(seconds=1),
@@ -144,7 +145,9 @@ def test_job_run_event_publisher_writes_current_job_snapshot_to_redis_stream(
     runs = _run(repo.list_job_runs(job.id))
     assert [job_run.id for job_run in runs] == [run.id]
 
-    event_id = _run(JobRunEventPublisher(settings, repo=repo).publish_job_run(job.id))
+    event_id = _run(
+        JobRunEventPublisher(settings, repo=repo).publish_job_run(job.id, run_id=run.id)
+    )
 
     assert event_id is not None
     redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
@@ -159,3 +162,5 @@ def test_job_run_event_publisher_writes_current_job_snapshot_to_redis_stream(
     assert payload["job"]["id"] == job.id
     assert payload["job"]["last_response"] == "all clear"
     assert payload["job"]["run_count"] == 1
+    assert payload["run"]["id"] == run.id
+    assert payload["run"]["status"] == "succeeded"

@@ -74,6 +74,7 @@ class Settings(BaseSettings):
 
     # Jobs
     job_task_timeout_seconds: int = 300
+    job_run_stale_after_seconds: int = 900
     redis_url: str = "redis://valkey:6379"
     wot_runtime_url: str = "http://wot-runtime:3003"
     wot_runtime_api_token: str = ""

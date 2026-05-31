@@ -24,7 +24,7 @@ class JobRunEventPublisher:
         self._settings = settings
         self._repo = repo or JobStore()
 
-    async def publish_job_run(self, job_id: str) -> str | None:
+    async def publish_job_run(self, job_id: str, *, run_id: str | None = None) -> str | None:
         try:
             job = await self._repo.get_job(job_id)
         except Exception as exc:
@@ -35,6 +35,12 @@ class JobRunEventPublisher:
             "type": "job_run",
             "job": job.model_dump(mode="json"),
         }
+        if run_id is not None:
+            try:
+                run = await self._repo.get_job_run(run_id)
+                payload["run"] = run.model_dump(mode="json")
+            except Exception as exc:
+                logger.warning("Failed to load job run %s for run event: %s", run_id, exc)
         client = redis.from_url(self._settings.redis_url, decode_responses=True)
         try:
             return await client.xadd(

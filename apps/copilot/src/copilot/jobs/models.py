@@ -39,6 +39,7 @@ class JobRunStatus(StrEnum):
     FAILED = "failed"
     WAITING_FOR_INPUT = "waiting_for_input"
     CANCELLED = "cancelled"
+    SKIPPED = "skipped"
 
 
 class JobRecord(Base):
@@ -60,8 +61,13 @@ class JobRecord(Base):
         ),
         CheckConstraint(
             "last_run_status IS NULL OR last_run_status IN "
-            "('running', 'succeeded', 'failed', 'waiting_for_input', 'cancelled')",
+            "('running', 'succeeded', 'failed', 'waiting_for_input', 'cancelled', "
+            "'skipped')",
             name="ck_jobs_last_run_status",
+        ),
+        CheckConstraint(
+            "active_run_source IS NULL OR active_run_source IN ('manual', 'time', 'event')",
+            name="ck_jobs_active_run_source",
         ),
         Index("idx_jobs_due", "trigger_kind", "enabled", "next_run_at"),
         Index("idx_jobs_created_from_thread", "created_from_thread_id"),
@@ -97,7 +103,10 @@ class JobRecord(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     last_response: Mapped[str | None] = mapped_column(Text)
     run_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    last_fetch_value: Mapped[str | None] = mapped_column(Text)
+    active_run_id: Mapped[str | None] = mapped_column(Text)
+    active_run_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    active_run_source: Mapped[str | None] = mapped_column(Text)
+    waiting_question: Mapped[str | None] = mapped_column(Text)
 
 
 class JobRunRecord(Base):
@@ -110,7 +119,8 @@ class JobRunRecord(Base):
             name="ck_job_runs_source",
         ),
         CheckConstraint(
-            "status IN ('running', 'succeeded', 'failed', 'waiting_for_input', 'cancelled')",
+            "status IN ('running', 'succeeded', 'failed', 'waiting_for_input', "
+            "'cancelled', 'skipped')",
             name="ck_job_runs_status",
         ),
         Index("idx_job_runs_job_started", "job_id", "started_at"),
@@ -129,7 +139,6 @@ class JobRunRecord(Base):
     result: Mapped[Any | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
     response_text: Mapped[str | None] = mapped_column(Text)
-    last_fetch_value: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -161,7 +170,10 @@ class Job(BaseModel):
     last_error: str | None = None
     last_response: str | None = None
     run_count: int = 0
-    last_fetch_value: str | None = None
+    active_run_id: str | None = None
+    active_run_started_at: datetime | None = None
+    active_run_source: JobRunSource | None = None
+    waiting_question: str | None = None
 
 
 class JobRun(BaseModel):
@@ -174,7 +186,6 @@ class JobRun(BaseModel):
     result: Any | None = None
     error: str | None = None
     response_text: str | None = None
-    last_fetch_value: str | None = None
     started_at: datetime
     finished_at: datetime | None = None
     created_at: datetime
@@ -195,3 +206,7 @@ class CreateJobRequest(BaseModel):
     thing_id: str | None = None
     event_name: str | None = None
     subscription_input: Any | None = None
+
+
+class ReplyJobRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=8000)

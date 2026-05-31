@@ -12,12 +12,14 @@ from copilot.jobs.models import (
     CreateJobRequest,
     Job,
     JobActionKind,
+    JobRun,
+    JobRunStatus,
     JobTriggerKind,
     TimeTriggerKind,
 )
 from copilot.jobs.results import JobRunEventStream
 from copilot.jobs.schedule import JobScheduleManager, build_schedule_source
-from copilot.jobs.store import JobStore, utc_now
+from copilot.jobs.store import JobNotWaitingForInput, JobStore, utc_now
 from copilot.jobs.subscriptions import subscription_id_from_response
 from copilot.clients.wot_runtime import WotRuntimeClient
 from copilot.jobs.taskiq_app import broker, run_job_task
@@ -46,6 +48,15 @@ class JobService:
 
     async def start(self) -> None:
         await broker.startup()
+        stale_after_seconds = getattr(
+            self._settings,
+            "job_run_stale_after_seconds",
+            max(self._settings.job_task_timeout_seconds * 2, 600),
+        )
+        cutoff = utc_now() - timedelta(seconds=stale_after_seconds)
+        stale_count = await self._repo.mark_stale_running_runs_failed(cutoff=cutoff)
+        if stale_count:
+            logger.warning("Marked %d stale job run(s) failed on startup", stale_count)
         await self._schedule_manager.sync()
 
     async def stop(self) -> None:
@@ -104,6 +115,10 @@ class JobService:
     async def list_jobs(self, created_from_thread_id: str | None = None) -> list[Job]:
         return await self._repo.list_jobs(created_from_thread_id)
 
+    async def list_job_runs(self, job_id: str) -> list[JobRun]:
+        await self._repo.get_job(job_id)
+        return await self._repo.list_job_runs(job_id)
+
     async def delete_job(self, job_id: str) -> Job:
         job = await self._repo.get_job(job_id)
         await self._remove_job_resources(job)
@@ -153,6 +168,42 @@ class JobService:
 
         if task_result.is_err:
             error = task_result.error
+            return {"ok": False, "error": str(error) if error else "Job task failed."}
+
+        value = task_result.return_value
+        if isinstance(value, dict):
+            return value
+        return {"ok": True, "response": value}
+
+    async def reply_to_job(self, job_id: str, message: str) -> dict[str, Any]:
+        job = await self._repo.get_job(job_id)
+        if job.last_run_status != JobRunStatus.WAITING_FOR_INPUT:
+            raise JobNotWaitingForInput(job_id)
+
+        try:
+            task = await run_job_task.kiq(
+                job_id=job_id,
+                trigger={
+                    "source": "user_reply",
+                    "message": message,
+                    "previous_run_id": job.active_run_id or job.last_run_id,
+                },
+            )
+            task_result = await task.wait_result(
+                timeout=float(self._settings.job_task_timeout_seconds),
+            )
+        except TaskiqResultTimeoutError:
+            return {"ok": False, "error": "Job task timed out."}
+        except JobNotWaitingForInput:
+            raise
+        except Exception as exc:
+            logger.error("Failed to enqueue or await job reply task %s: %s", job_id, exc)
+            return {"ok": False, "error": str(exc)}
+
+        if task_result.is_err:
+            error = task_result.error
+            if isinstance(error, JobNotWaitingForInput):
+                raise error
             return {"ok": False, "error": str(error) if error else "Job task failed."}
 
         value = task_result.return_value

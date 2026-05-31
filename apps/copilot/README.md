@@ -9,7 +9,7 @@
 - `code-executor` runs stateful Python for the `run_code` tool.
 - `job-worker` and `job-scheduler` run automation jobs through Taskiq.
 
-At runtime, the browser talks to `ui`, `ui` proxies agent traffic to `copilot`, and `copilot` uses local LangGraph tools for registry/runtime access and `code-executor` for Python execution. `copilot` owns the job API and result SSE stream, `job-worker` executes jobs and bridges WoT runtime events into Taskiq jobs, and `job-scheduler` sends time-triggered runs. Prompt jobs use a stateless background graph and store results on the job record instead of visible chat threads.
+At runtime, the browser talks to `ui`, `ui` proxies agent traffic to `copilot`, and `copilot` uses local LangGraph tools for registry/runtime access and `code-executor` for Python execution. `copilot` owns the job API and result SSE stream, `job-worker` executes jobs and bridges WoT runtime events into Taskiq jobs, and `job-scheduler` sends time-triggered runs. Prompt jobs use hidden per-job LangGraph checkpoint threads, so they can pause for user input without showing those threads in the default sidebar.
 
 ## Request Lifecycle
 
@@ -88,6 +88,7 @@ START
      -> respond -> respond_tools -> respond -> END
      -> control_llm -> control_tools -> control_llm -> END
      -> analysis_llm -> analysis_tools -> analysis_llm -> END
+     -> jobs_llm -> jobs_tools -> jobs_llm -> END
 ```
 
 ### Branches
@@ -95,6 +96,7 @@ START
 - `chat`: lightweight conversational responses, with `get_current_time`
 - `control`: device control flows with discovery, schema inspection, and runtime write/read tools
 - `analysis`: device/data analysis with discovery/inspection tools plus `run_code`
+- `jobs`: automation job creation, inspection, debugging, manual runs, and deletion
 
 ### Tool Grouping
 
@@ -102,16 +104,16 @@ Tool grouping lives in [`copilot/agent/tool_groups.py`](./src/copilot/agent/tool
 
 | Group | Tools | Used by |
 |-------|-------|---------|
-| `discovery` | `things_list`, `things_search` | control, analysis |
-| `inspect` | `things_get`, `wot_get_action`, `wot_get_property`, `wot_get_event` | control, analysis |
-| `runtime_read` | `wot_read_property`, `wot_observe_property` | analysis |
+| `discovery` | `things_list`, `things_search` | control, analysis, jobs |
+| `inspect` | `things_get`, `wot_get_action`, `wot_get_property`, `wot_get_event` | control, analysis, jobs |
+| `runtime_read` | `wot_read_property`, `wot_observe_property` | analysis, jobs |
 | `runtime` | `wot_invoke_action`, `wot_write_property`, `wot_subscribe_event`, `wot_remove_subscription`, plus the read tools above | control |
 
 Local tools are grouped separately:
 
 - [`get_current_time`](./src/copilot/agent/tools/get_current_time.py)
 - [`run_code`](./src/copilot/agent/tools/run_code.py)
-- [`create_job`, `create_analysis_job`, `list_jobs`, `run_job_now`, `delete_job`](./src/copilot/agent/tools/job_scheduler.py)
+- [`create_prompt_job`, `create_analysis_job`, `list_jobs`, `run_job_now`, `delete_job`](./src/copilot/agent/tools/job_scheduler.py)
 - registry/runtime tools live in [`copilot/agent/tools/wot_registry.py`](./src/copilot/agent/tools/wot_registry.py)
 
 ## Prompts And Few-Shots
@@ -124,7 +126,7 @@ Local tools are grouped separately:
 Current behavior worth knowing:
 
 - tool calls are bound with `parallel_tool_calls=False`
-- analysis gets a current-time block injected into its system prompt
+- analysis and jobs get a current-time block injected into their system prompts
 - prompts are shaped and trimmed in [`copilot/agent/nodes.py`](./src/copilot/agent/nodes.py) before they are fed to the model
 
 ## `run_code` Integration
@@ -217,14 +219,17 @@ Valkey services through Docker Compose:
   apps/copilot/tests/integration -m integration
 ```
 
+The jobs schema is intentionally fresh-reset during rapid development. If a
+local database has an older `jobs` or `job_runs` table shape, reset that dev/test
+database before running the app or integration tests.
+
 ## Environment Variables
 
 Defined in [`src/copilot/core/settings.py`](./src/copilot/core/settings.py):
 
 - `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL`
 - `CODE_EXECUTOR_URL`, `CODE_EXECUTOR_TIMEOUT_SECONDS`
-- `JOB_RUNNER_URL`, `JOB_RUNNER_TIMEOUT_SECONDS` (the job tools call copilot's own `/jobs` API)
-- `JOBS_ENABLED`, `JOB_TASK_TIMEOUT_SECONDS`, `JOBS_RUN_EVENTS_STREAM`, `JOB_SCHEDULER_UPDATE_INTERVAL_SECONDS`
+- `JOB_TASK_TIMEOUT_SECONDS`, `JOB_RUN_STALE_AFTER_SECONDS`, `JOBS_RUN_EVENTS_STREAM`
 - `REDIS_URL`, `WOT_RUNTIME_URL`, `WOT_RUNTIME_API_TOKEN`, `WOT_RUNTIME_STREAM`
 - `JOBS_EVENTS_GROUP`, `JOBS_EVENTS_CONSUMER`, `JOBS_STREAM_BATCH_SIZE`, `JOBS_STREAM_POLL_BLOCK_MS`, `JOBS_STREAM_CLAIM_IDLE_MS`
 - `INTERNAL_API_KEY`

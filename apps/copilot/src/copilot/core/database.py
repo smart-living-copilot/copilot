@@ -165,7 +165,10 @@ def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
                     last_error TEXT,
                     last_response TEXT,
                     run_count INTEGER NOT NULL DEFAULT 0,
-                    last_fetch_value TEXT,
+                    active_run_id TEXT,
+                    active_run_started_at TIMESTAMPTZ,
+                    active_run_source TEXT,
+                    waiting_question TEXT,
                     CONSTRAINT ck_jobs_action_kind
                         CHECK (action_kind IN ('prompt', 'analysis')),
                     CONSTRAINT ck_jobs_trigger_kind
@@ -180,8 +183,14 @@ def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
                                 'succeeded',
                                 'failed',
                                 'waiting_for_input',
-                                'cancelled'
+                                'cancelled',
+                                'skipped'
                             )
+                        ),
+                    CONSTRAINT ck_jobs_active_run_source
+                        CHECK (
+                            active_run_source IS NULL
+                            OR active_run_source IN ('manual', 'time', 'event')
                         )
                 );
 
@@ -195,7 +204,6 @@ def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
                     result JSONB,
                     error TEXT,
                     response_text TEXT,
-                    last_fetch_value TEXT,
                     started_at TIMESTAMPTZ NOT NULL,
                     finished_at TIMESTAMPTZ,
                     created_at TIMESTAMPTZ NOT NULL,
@@ -208,7 +216,8 @@ def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
                                 'succeeded',
                                 'failed',
                                 'waiting_for_input',
-                                'cancelled'
+                                'cancelled',
+                                'skipped'
                             )
                         )
                 );

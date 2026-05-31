@@ -25,7 +25,8 @@ _event_task: asyncio.Task[None] | None = None
 
 @broker.on_event(TaskiqEvents.WORKER_STARTUP)
 async def _worker_startup(_state: object) -> None:
-    get_job_executor()
+    executor = get_job_executor()
+    await executor.reconcile_stale_running_runs()
 
     from copilot.jobs.events import JobEventConsumer  # lazy: avoids import cycle
 

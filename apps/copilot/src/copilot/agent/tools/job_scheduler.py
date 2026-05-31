@@ -19,7 +19,7 @@ from copilot.jobs.models import CreateJobRequest, JobActionKind
 if TYPE_CHECKING:
     from copilot.jobs.service import JobService
 
-_SERVICE_UNAVAILABLE = {"error": "Job runner is not enabled"}
+_SERVICE_UNAVAILABLE = {"error": "Job service is not ready"}
 
 
 def _thread_id_from_config(
@@ -53,7 +53,7 @@ async def _create_job(
 
 
 @tool
-async def create_job(
+async def create_prompt_job(
     name: str,
     prompt: str,
     trigger_kind: str,
@@ -66,7 +66,7 @@ async def create_job(
     event_name: str | None = None,
     subscription_input: Any = None,
 ) -> dict[str, Any]:
-    """Create an automation job.
+    """Create a prompt automation job that runs natural-language instructions.
 
     trigger_kind:
     - "time": use run_at (ISO datetime) or interval_seconds
