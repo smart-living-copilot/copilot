@@ -10,4 +10,12 @@ node_modules/
 .ruff_cache/
 .pytest_cache/
 wot_registry.db
-thing_descriptions
+examples/thing-descriptions
+/chat-ui/
+/code-executor/
+/copilot/
+/docker/
+/wot_runtime/
+.next/
+*.tsbuildinfo
+next-env.d.ts

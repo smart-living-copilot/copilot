@@ -12,10 +12,10 @@ browser
   -> wot-runtime
 ```
 
-- [`chat-ui`](./chat-ui/README.md): Next.js frontend, chat UX, sidebar thread index, and internal API proxying.
-- [`copilot`](./copilot/README.md): FastAPI + LangGraph agent service behind the chat experience.
-- [`code-executor`](./code-executor/README.md): internal Python execution service used by `run_code`.
-- [`thing_descriptions`](./thing_descriptions): local Thing Description assets used for integration scenarios.
+- [`apps/chat-ui`](./apps/chat-ui/README.md): Next.js frontend, chat UX, sidebar thread index, and internal API proxying.
+- [`apps/copilot`](./apps/copilot/README.md): FastAPI + LangGraph agent service behind the chat experience.
+- [`apps/code-executor`](./apps/code-executor/README.md): internal Python execution service used by `run_code`.
+- [`examples/thing-descriptions`](./examples/thing-descriptions): local Thing Description assets used for integration scenarios.
 
 ## Getting Started
 
@@ -28,16 +28,17 @@ docker compose up -d
 
 3. Open `http://localhost:3000`.
 
-For local development, [docker-compose.override.yaml](./docker-compose.override.yaml) is picked up automatically by `docker compose` and enables live-reload setups for the main services.
+For local development, [docker-compose.override.yaml](./docker-compose.override.yaml) is picked up automatically by `docker compose` and includes the canonical override in [`deploy/compose.override.yaml`](./deploy/compose.override.yaml).
 
 ## Documentation
 
-- [Chat UI README](./chat-ui/README.md)
-- [Copilot README](./copilot/README.md)
-- [Code Executor README](./code-executor/README.md)
+- [Chat UI README](./apps/chat-ui/README.md)
+- [Copilot README](./apps/copilot/README.md)
+- [Code Executor README](./apps/code-executor/README.md)
 
 ## Top-Level Files
 
-- [`docker-compose.yaml`](./docker-compose.yaml): default multi-service stack definition.
-- [`docker-compose.override.yaml`](./docker-compose.override.yaml): local development overrides.
+- [`docker-compose.yaml`](./docker-compose.yaml): root compatibility wrapper for the default stack.
+- [`docker-compose.override.yaml`](./docker-compose.override.yaml): root compatibility wrapper for local development overrides.
+- [`deploy/compose.yaml`](./deploy/compose.yaml): canonical multi-service stack definition.
 - [`LICENSE`](./LICENSE): project license.
