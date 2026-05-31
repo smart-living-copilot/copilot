@@ -208,6 +208,15 @@ Postgres-backed tests require `COPILOT_TEST_DATABASE_URL` to point at a
 disposable Postgres database. Tests that need database access are skipped when
 that variable is not set.
 
+Container-backed integration tests start disposable pgvector Postgres and
+Valkey services through Docker Compose:
+
+```bash
+.venv/bin/python -m pip install -e "apps/copilot[test]"
+.venv/bin/python -m pytest -c apps/copilot/pyproject.toml \
+  apps/copilot/tests/integration -m integration
+```
+
 ## Environment Variables
 
 Defined in [`src/copilot/core/settings.py`](./src/copilot/core/settings.py):

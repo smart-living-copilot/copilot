@@ -32,7 +32,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff", "mypy", "pytest>=8,<10"]
-test = ["pytest>=8,<10", "httpx>=0.27,<1", "anyio>=4,<5"]
+test = [
+    "pytest>=8,<10",
+    "httpx>=0.27,<1",
+    "anyio>=4,<5",
+    "pytest-docker>=3.2,<4",
+]
 
 [project.scripts]
 copilot = "copilot.cli:main"
@@ -53,3 +58,6 @@ line-length = 100
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+markers = [
+    "integration: tests that start containerized service dependencies",
+]
