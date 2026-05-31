@@ -222,6 +222,7 @@ class JobStore:
         error: str | None,
         response_text: str | None,
         last_fetch_value: str | None = None,
+        next_run_at: datetime | None = None,
     ) -> None:
         await asyncio.to_thread(
             self._record_job_result_sync,
@@ -231,6 +232,7 @@ class JobStore:
             error,
             response_text,
             last_fetch_value,
+            next_run_at,
         )
 
     def _record_job_result_sync(
@@ -241,6 +243,7 @@ class JobStore:
         error: str | None,
         response_text: str | None,
         last_fetch_value: str | None,
+        next_run_at: datetime | None,
     ) -> None:
         now_iso = iso(now)
         with self._session_factory() as session:
@@ -253,5 +256,7 @@ class JobStore:
             row.updated_at = now_iso
             if last_fetch_value is not None:
                 row.last_fetch_value = last_fetch_value
+            if next_run_at is not None:
+                row.next_run_at = dt_to_iso(next_run_at)
             row.run_count = (row.run_count or 0) + 1
             session.commit()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -205,40 +205,96 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
             agent_runner=agent_runner,
             event_publisher=_FakePublisher(),
         )
+        now = datetime(2026, 5, 31, 12, 30, tzinfo=timezone.utc)
 
-        await executor.run_job("job-1", {"source": "time"})
+        with patch("copilot.jobs.executor.utc_now", return_value=now):
+            await executor.run_job("job-1", {"source": "time"})
 
         self.assertEqual(repo.disabled, [])
+        self.assertEqual(
+            repo.recorded_results[0]["next_run_at"],
+            now + timedelta(seconds=60),
+        )
+
+    async def test_manual_interval_run_does_not_advance_next_run_at(self) -> None:
+        repo = _FakeRepo(_job(interval_seconds=60))
+        agent_runner = AsyncMock()
+        agent_runner.run.return_value = {"ok": True, "assistant": "done"}
+        executor = JobExecutor(
+            Settings(),
+            repo=repo,
+            agent_runner=agent_runner,
+            event_publisher=_FakePublisher(),
+        )
+
+        await executor.run_job("job-1", {"source": "manual"})
+
+        self.assertIsNone(repo.recorded_results[0]["next_run_at"])
 
 
 class _FakeScheduleManager:
-    def __init__(self) -> None:
+    def __init__(self, *, add_error=None, remove_error=None) -> None:
         self.added: list[str] = []
         self.removed: list[str] = []
         self.synced = 0
+        self.add_error = add_error
+        self.remove_error = remove_error
 
     async def add_job(self, job: Job) -> None:
         self.added.append(job.id)
+        if self.add_error is not None:
+            raise self.add_error
 
     async def remove_job(self, job_id: str) -> None:
         self.removed.append(job_id)
+        if self.remove_error is not None:
+            raise self.remove_error
 
     async def sync(self) -> None:
         self.synced += 1
 
 
 class _FakeServiceRepo:
-    def __init__(self, job: Job) -> None:
+    def __init__(self, job: Job, *, create_error=None, delete_error=None) -> None:
         self.job = job
+        self.created = []
+        self.deleted: list[str] = []
+        self.loaded: list[str] = []
+        self.create_error = create_error
+        self.delete_error = delete_error
 
     async def create_job(self, request, *, next_run_at, subscription_id) -> Job:
+        if self.create_error is not None:
+            raise self.create_error
+        self.created.append((request, next_run_at, subscription_id))
         return self.job
 
     async def get_job(self, job_id: str) -> Job:
+        self.loaded.append(job_id)
         return self.job
 
     async def delete_job(self, job_id: str) -> Job:
+        self.deleted.append(job_id)
+        if self.delete_error is not None:
+            raise self.delete_error
         return self.job
+
+
+class _FakeServiceRuntimeClient:
+    def __init__(self, *, subscribe_response=None, remove_error=None) -> None:
+        self.subscribe_response = subscribe_response or {"subscription": {"subscriptionId": "sub-1"}}
+        self.remove_error = remove_error
+        self.subscribed = []
+        self.removed: list[str] = []
+
+    async def subscribe_event(self, **kwargs):
+        self.subscribed.append(kwargs)
+        return self.subscribe_response
+
+    async def remove_subscription(self, *, subscription_id: str) -> None:
+        self.removed.append(subscription_id)
+        if self.remove_error is not None:
+            raise self.remove_error
 
 
 class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
@@ -283,6 +339,56 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(created.id, "job-1")
         self.assertEqual(schedule.added, ["job-1"])
 
+    async def test_create_time_job_deletes_record_when_schedule_registration_fails(self) -> None:
+        repo = _FakeServiceRepo(_job(interval_seconds=60))
+        schedule = _FakeScheduleManager(add_error=RuntimeError("redis down"))
+        service = JobService(
+            Settings(),
+            repo=repo,
+            schedule_manager=schedule,
+        )
+        request = CreateJobRequest(
+            name="recurring",
+            thread_id="thread-1",
+            prompt="check",
+            trigger_type="time",
+            interval_seconds=60,
+        )
+
+        with self.assertRaises(RuntimeError):
+            await service.create_job(request)
+
+        self.assertEqual(schedule.added, ["job-1"])
+        self.assertEqual(schedule.removed, ["job-1"])
+        self.assertEqual(repo.deleted, ["job-1"])
+
+    async def test_create_event_job_removes_subscription_when_insert_fails(self) -> None:
+        repo = _FakeServiceRepo(
+            _job(trigger_type="event", subscription_id="sub-1"),
+            create_error=RuntimeError("db down"),
+        )
+        runtime_client = _FakeServiceRuntimeClient()
+        service = JobService(
+            Settings(),
+            repo=repo,
+            runtime_client=runtime_client,
+            schedule_manager=_FakeScheduleManager(),
+        )
+        request = CreateJobRequest(
+            name="event check",
+            thread_id="thread-1",
+            prompt="check",
+            trigger_type="event",
+            thing_id="thing-1",
+            event_name="changed",
+        )
+
+        with self.assertRaises(RuntimeError):
+            await service.create_job(request)
+
+        self.assertEqual(runtime_client.subscribed[0]["thing_id"], "thing-1")
+        self.assertEqual(runtime_client.removed, ["sub-1"])
+
     async def test_delete_time_job_removes_schedule(self) -> None:
         schedule = _FakeScheduleManager()
         service = JobService(
@@ -294,6 +400,45 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
         await service.delete_job("job-1")
 
         self.assertEqual(schedule.removed, ["job-1"])
+
+    async def test_delete_time_job_keeps_record_when_schedule_cleanup_fails(self) -> None:
+        repo = _FakeServiceRepo(_job(interval_seconds=60))
+        schedule = _FakeScheduleManager(remove_error=RuntimeError("redis down"))
+        service = JobService(
+            Settings(),
+            repo=repo,
+            schedule_manager=schedule,
+        )
+
+        with self.assertRaises(RuntimeError):
+            await service.delete_job("job-1")
+
+        self.assertEqual(schedule.removed, ["job-1"])
+        self.assertEqual(repo.deleted, [])
+
+    async def test_delete_event_job_keeps_record_when_subscription_cleanup_fails(self) -> None:
+        repo = _FakeServiceRepo(
+            _job(
+                trigger_type="event",
+                interval_seconds=None,
+                subscription_id="sub-1",
+                thing_id="thing-1",
+                event_name="changed",
+            )
+        )
+        runtime_client = _FakeServiceRuntimeClient(remove_error=RuntimeError("runtime down"))
+        service = JobService(
+            Settings(),
+            repo=repo,
+            runtime_client=runtime_client,
+            schedule_manager=_FakeScheduleManager(),
+        )
+
+        with self.assertRaises(RuntimeError):
+            await service.delete_job("job-1")
+
+        self.assertEqual(runtime_client.removed, ["sub-1"])
+        self.assertEqual(repo.deleted, [])
 
 
 class _FakeScheduleRepo:
@@ -408,12 +553,36 @@ class _FakeRuntimeClient:
         return {"subscription": {"subscriptionId": "new-sub"}}
 
 
+class _FailingEventRepo:
+    async def list_enabled_event_jobs(self) -> list[Job]:
+        raise RuntimeError("db down")
+
+
 class _FakeRedis:
     def __init__(self) -> None:
         self.acked = []
 
     async def xack(self, stream: str, group: str, entry_id: str) -> None:
         self.acked.append((stream, group, entry_id))
+
+
+class _FakeLockRedis:
+    def __init__(self, *, acquired: bool) -> None:
+        self.acquired = acquired
+        self.set_calls = []
+        self.eval_calls = []
+        self.closed = False
+
+    async def set(self, *args, **kwargs):
+        self.set_calls.append((args, kwargs))
+        return self.acquired
+
+    async def eval(self, *args):
+        self.eval_calls.append(args)
+        return 1
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class JobEventConsumerTestCase(unittest.IsolatedAsyncioTestCase):
@@ -441,6 +610,82 @@ class JobEventConsumerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime_client.subscribed[0]["thing_id"], "thing-1")
         self.assertEqual(repo.subscription_updates, [("job-1", "new-sub")])
 
+    async def test_startup_sync_runs_when_lock_is_acquired(self) -> None:
+        repo = _FakeEventRepo(
+            [
+                _job(
+                    trigger_type="event",
+                    thing_id="thing-1",
+                    event_name="overheated",
+                    subscription_id="old-sub",
+                )
+            ]
+        )
+        runtime_client = _FakeRuntimeClient()
+        consumer = JobEventConsumer(
+            Settings(),
+            repo=repo,
+            runtime_client=runtime_client,
+        )
+        redis_client = _FakeLockRedis(acquired=True)
+
+        with patch("copilot.jobs.events.redis.from_url", return_value=redis_client):
+            await consumer.start()
+
+        self.assertTrue(redis_client.set_calls)
+        self.assertEqual(redis_client.set_calls[0][1]["nx"], True)
+        self.assertEqual(redis_client.set_calls[0][1]["ex"], 300)
+        self.assertEqual(len(redis_client.eval_calls), 1)
+        self.assertTrue(redis_client.closed)
+        self.assertEqual(runtime_client.removed, ["old-sub"])
+        self.assertEqual(repo.subscription_updates, [("job-1", "new-sub")])
+
+    async def test_startup_sync_is_skipped_when_lock_is_held(self) -> None:
+        repo = _FakeEventRepo(
+            [
+                _job(
+                    trigger_type="event",
+                    thing_id="thing-1",
+                    event_name="overheated",
+                    subscription_id="old-sub",
+                )
+            ]
+        )
+        runtime_client = _FakeRuntimeClient()
+        consumer = JobEventConsumer(
+            Settings(),
+            repo=repo,
+            runtime_client=runtime_client,
+        )
+        redis_client = _FakeLockRedis(acquired=False)
+
+        with patch("copilot.jobs.events.redis.from_url", return_value=redis_client):
+            await consumer.start()
+
+        self.assertTrue(redis_client.set_calls)
+        self.assertEqual(redis_client.eval_calls, [])
+        self.assertTrue(redis_client.closed)
+        self.assertEqual(runtime_client.removed, [])
+        self.assertEqual(runtime_client.subscribed, [])
+        self.assertEqual(repo.subscription_updates, [])
+
+    async def test_startup_sync_releases_lock_when_sync_fails(self) -> None:
+        consumer = JobEventConsumer(
+            Settings(),
+            repo=_FailingEventRepo(),
+            runtime_client=_FakeRuntimeClient(),
+        )
+        redis_client = _FakeLockRedis(acquired=True)
+
+        with (
+            patch("copilot.jobs.events.redis.from_url", return_value=redis_client),
+            self.assertRaises(RuntimeError),
+        ):
+            await consumer.start()
+
+        self.assertEqual(len(redis_client.eval_calls), 1)
+        self.assertTrue(redis_client.closed)
+
     async def test_matching_event_enqueues_task_for_subscribed_job(self) -> None:
         consumer = JobEventConsumer(
             Settings(),
@@ -454,13 +699,18 @@ class JobEventConsumerTestCase(unittest.IsolatedAsyncioTestCase):
                     "thing_id": "thing-1",
                     "name": "overheated",
                     "subscription_id": "sub-1",
+                    "payload_base64": "eyJ0ZW1wZXJhdHVyZSI6NDJ9",
+                    "content_type": "application/json",
                     "timestamp": "2026-05-31T12:00:00+00:00",
                 }
             )
 
         kiq.assert_awaited_once()
         self.assertEqual(kiq.call_args.kwargs["job_id"], "job-1")
-        self.assertEqual(kiq.call_args.kwargs["trigger"]["source"], "wot_event")
+        trigger = kiq.call_args.kwargs["trigger"]
+        self.assertEqual(trigger["source"], "wot_event")
+        self.assertEqual(trigger["payload_base64"], "eyJ0ZW1wZXJhdHVyZSI6NDJ9")
+        self.assertEqual(trigger["content_type"], "application/json")
 
     async def test_stream_entry_is_not_acked_when_enqueue_fails(self) -> None:
         redis_client = _FakeRedis()

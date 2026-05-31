@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from uuid import uuid4
 
 import redis.asyncio as redis
 
@@ -13,6 +14,16 @@ from copilot.jobs.taskiq_app import run_job_task
 from copilot.wot_runtime.client import WotRuntimeClient
 
 logger = logging.getLogger(__name__)
+
+EVENT_SUBSCRIPTION_SYNC_LOCK_KEY = "copilot:jobs:event-subscriptions:sync"
+EVENT_SUBSCRIPTION_SYNC_LOCK_TTL_SECONDS = 300
+
+_RELEASE_SYNC_LOCK_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+end
+return 0
+"""
 
 
 class JobEventConsumer:
@@ -37,7 +48,7 @@ class JobEventConsumer:
         )
 
     async def start(self) -> None:
-        await self._sync_event_subscriptions()
+        await self._sync_event_subscriptions_with_lock()
 
     async def close(self) -> None:
         if self._redis is not None:
@@ -84,6 +95,32 @@ class JobEventConsumer:
                 await self._repo.set_subscription_id(job.id, subscription_id)
             except Exception as exc:
                 logger.error("Failed to sync subscription for job %s: %s", job.id, exc)
+
+    async def _sync_event_subscriptions_with_lock(self) -> None:
+        token = str(uuid4())
+        client = redis.from_url(self._settings.redis_url, decode_responses=True)
+        try:
+            acquired = await client.set(
+                EVENT_SUBSCRIPTION_SYNC_LOCK_KEY,
+                token,
+                ex=EVENT_SUBSCRIPTION_SYNC_LOCK_TTL_SECONDS,
+                nx=True,
+            )
+            if not acquired:
+                logger.info("Skipping event subscription sync; another worker owns the lock.")
+                return
+
+            try:
+                await self._sync_event_subscriptions()
+            finally:
+                await client.eval(
+                    _RELEASE_SYNC_LOCK_SCRIPT,
+                    1,
+                    EVENT_SUBSCRIPTION_SYNC_LOCK_KEY,
+                    token,
+                )
+        finally:
+            await client.aclose()
 
     async def _connect_redis(self) -> None:
         self._redis = redis.from_url(
@@ -177,6 +214,8 @@ class JobEventConsumer:
                     "source": "wot_event",
                     "thing_id": event.get("thing_id"),
                     "event_name": event.get("name"),
+                    "payload_base64": event.get("payload_base64"),
+                    "content_type": event.get("content_type"),
                     "timestamp": event.get("timestamp"),
                 },
             )

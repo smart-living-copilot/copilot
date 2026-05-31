@@ -93,6 +93,8 @@ async def delete_job(job_id: str, request: Request):
         job = await service.delete_job(job_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="job not found")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": True, "job": job.model_dump()}
 
 

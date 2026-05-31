@@ -63,13 +63,23 @@ class JobService:
             )
             subscription_id = subscription_id_from_response(subscription_response)
 
-        job = await self._repo.create_job(
-            request,
-            next_run_at=next_run_at,
-            subscription_id=subscription_id,
-        )
+        try:
+            job = await self._repo.create_job(
+                request,
+                next_run_at=next_run_at,
+                subscription_id=subscription_id,
+            )
+        except Exception:
+            if subscription_id:
+                await self._remove_subscription_after_create_failure(subscription_id)
+            raise
+
         if job.trigger_type == "time":
-            await self._schedule_manager.add_job(job)
+            try:
+                await self._schedule_manager.add_job(job)
+            except Exception:
+                await self._cleanup_created_job_after_create_failure(job)
+                raise
         return job
 
     async def get_job(self, job_id: str) -> Job:
@@ -89,17 +99,38 @@ class JobService:
         return await self._repo.list_jobs(thread_id)
 
     async def delete_job(self, job_id: str) -> Job:
+        job = await self._repo.get_job(job_id)
+        await self._remove_job_resources(job)
         job = await self._repo.delete_job(job_id)
+        return job
+
+    async def _remove_job_resources(self, job: Job) -> None:
         if job.trigger_type == "time":
             await self._schedule_manager.remove_job(job.id)
         if job.subscription_id:
-            try:
-                await self._runtime_client.remove_subscription(
-                    subscription_id=job.subscription_id,
-                )
-            except Exception as exc:
-                logger.warning("Failed to remove runtime subscription for job %s: %s", job_id, exc)
-        return job
+            await self._runtime_client.remove_subscription(
+                subscription_id=job.subscription_id,
+            )
+
+    async def _remove_subscription_after_create_failure(self, subscription_id: str) -> None:
+        try:
+            await self._runtime_client.remove_subscription(subscription_id=subscription_id)
+        except Exception as exc:
+            logger.warning(
+                "Failed to remove runtime subscription %s after job creation failed: %s",
+                subscription_id,
+                exc,
+            )
+
+    async def _cleanup_created_job_after_create_failure(self, job: Job) -> None:
+        try:
+            await self._remove_job_resources(job)
+        except Exception as exc:
+            logger.warning("Failed to clean external resources for job %s: %s", job.id, exc)
+        try:
+            await self._repo.delete_job(job.id)
+        except Exception as exc:
+            logger.warning("Failed to delete job %s after creation failed: %s", job.id, exc)
 
     async def run_job_now(self, job_id: str) -> dict[str, Any]:
         await self._repo.get_job(job_id)

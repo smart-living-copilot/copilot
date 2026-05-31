@@ -60,12 +60,14 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
             error=None,
             response_text="all good",
             last_fetch_value="42",
+            next_run_at=now + timedelta(seconds=61),
         )
 
         updated = await self.repo.get_job(job.id)
         self.assertEqual(updated.run_count, 1)
         self.assertEqual(updated.last_response, "all good")
         self.assertEqual(updated.last_fetch_value, "42")
+        self.assertEqual(updated.next_run_at, now + timedelta(seconds=61))
 
     async def test_event_job_subscription_lifecycle(self):
         job = await self.repo.create_job(

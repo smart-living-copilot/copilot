@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import timedelta
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -102,18 +103,27 @@ class JobExecutor:
         else:
             result = await self._run_prompt_job(job, trigger=trigger)
 
+        now = utc_now()
+        is_scheduled_time_run = trigger.get("source") == "time"
+        next_run_at = (
+            now + timedelta(seconds=job.interval_seconds)
+            if is_scheduled_time_run and job.interval_seconds is not None
+            else None
+        )
+
         await self._repo.record_job_result(
             job_id=job.id,
-            now=utc_now(),
+            now=now,
             success=bool(result.get("ok")),
             error=result.get("error"),
             response_text=result.get("assistant"),
             last_fetch_value=result.get("last_fetch_value"),
+            next_run_at=next_run_at,
         )
         # A one-shot time job has fired its only run; disable it so startup
         # reconciliation does not re-create a schedule for it. The Redis schedule
         # itself is removed automatically by the source's post_send.
-        if trigger.get("source") == "time" and job.interval_seconds is None:
+        if is_scheduled_time_run and job.interval_seconds is None:
             await self._repo.disable_job(job.id)
         await self._event_publisher.publish_job_run(job.id)
         return result
