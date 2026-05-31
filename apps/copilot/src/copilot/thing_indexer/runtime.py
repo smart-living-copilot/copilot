@@ -6,7 +6,7 @@ from copilot.core.config import Settings
 
 
 @dataclass(frozen=True)
-class SearchIndexerStreamConfig:
+class ThingIndexerStreamConfig:
     stream: str
     group: str
     consumer: str
@@ -16,7 +16,7 @@ class SearchIndexerStreamConfig:
     retry_seconds: int
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "SearchIndexerStreamConfig":
+    def from_settings(cls, settings: Settings) -> "ThingIndexerStreamConfig":
         return cls(
             stream=settings.THING_EVENTS_STREAM,
             group=settings.SEARCH_INDEXER_EVENTS_GROUP,

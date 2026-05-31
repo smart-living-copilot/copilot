@@ -7,10 +7,10 @@ from dataclasses import dataclass
 import redis.asyncio as redis
 
 from copilot.core.config import Settings
-from copilot.indexer.runtime import SearchIndexerStreamConfig
-from copilot.indexer.service import SearchIndexerService
+from copilot.thing_indexer.runtime import ThingIndexerStreamConfig
+from copilot.thing_indexer.service import ThingIndexerService
 from copilot.search.vector_store import SearchVectorStore
-from copilot.indexer.stream_utils import parse_stream_event
+from copilot.thing_indexer.stream_utils import parse_stream_event
 from copilot.core.stream_runtime import StreamConsumerState, ensure_stream_group
 
 
@@ -18,23 +18,23 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class SearchIndexerConsumerState(StreamConsumerState):
+class ThingIndexerConsumerState(StreamConsumerState):
     pass
 
 
-class SearchIndexerStreamConsumer:
+class ThingIndexerStreamConsumer:
     def __init__(
         self,
         *,
         settings: Settings,
-        state: SearchIndexerConsumerState,
+        state: ThingIndexerConsumerState,
         vector_store: SearchVectorStore | None = None,
     ) -> None:
         self._settings = settings
-        self._stream = SearchIndexerStreamConfig.from_settings(settings)
+        self._stream = ThingIndexerStreamConfig.from_settings(settings)
         self._state = state
         self._redis: redis.Redis | None = None
-        self._service = SearchIndexerService(settings, vector_store=vector_store)
+        self._service = ThingIndexerService(settings, vector_store=vector_store)
 
     async def start(self) -> None:
         await self._service.start()

@@ -4,9 +4,9 @@ import signal
 import sys
 
 from copilot.core.config import get_settings
-from copilot.indexer.consumer import (
-    SearchIndexerStreamConsumer,
-    SearchIndexerConsumerState,
+from copilot.thing_indexer.consumer import (
+    ThingIndexerStreamConsumer,
+    ThingIndexerConsumerState,
 )
 
 
@@ -18,10 +18,10 @@ logger = logging.getLogger("thing_indexer_consumer")
 
 async def main() -> None:
     settings = get_settings()
-    state = SearchIndexerConsumerState()
+    state = ThingIndexerConsumerState()
     stop_event = asyncio.Event()
 
-    consumer = SearchIndexerStreamConsumer(
+    consumer = ThingIndexerStreamConsumer(
         settings=settings,
         state=state,
     )

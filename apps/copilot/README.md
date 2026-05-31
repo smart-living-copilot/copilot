@@ -246,7 +246,7 @@ Also defined today but not currently wired into the graph execution path:
 
 - [`src/copilot/api/main.py`](./src/copilot/api/main.py): unified FastAPI app composition and AG-UI endpoint registration
 - [`src/copilot/catalog`](./src/copilot/catalog): Thing catalog, credentials, validation, and event outbox
-- [`src/copilot/indexer`](./src/copilot/indexer): Thing search indexing domain logic
+- [`src/copilot/thing_indexer`](./src/copilot/thing_indexer): Thing search indexing domain logic
 - [`src/copilot/workers`](./src/copilot/workers): process role entrypoints for jobs, scheduler, and indexing
 - [`src/copilot/media`](./src/copilot/media): browser media ingress, speech pipeline, live camera helpers, and media routes
 - [`src/copilot/threads`](./src/copilot/threads): thread metadata storage, title helpers, and thread routes

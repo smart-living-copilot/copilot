@@ -1,4 +1,4 @@
-from copilot.indexer.chunking import (
+from copilot.thing_indexer.chunking import (
     build_chunk_content,
     generate_chunk,
 )

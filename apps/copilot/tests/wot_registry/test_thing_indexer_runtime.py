@@ -1,9 +1,9 @@
 from types import SimpleNamespace
 
-from copilot.indexer.runtime import SearchIndexerStreamConfig
+from copilot.thing_indexer.runtime import ThingIndexerStreamConfig
 
 
-def test_search_indexer_stream_config_reads_settings_values():
+def test_thing_indexer_stream_config_reads_settings_values():
     settings = SimpleNamespace(
         THING_EVENTS_STREAM="thing_events",
         SEARCH_INDEXER_EVENTS_GROUP="search_group",
@@ -14,9 +14,9 @@ def test_search_indexer_stream_config_reads_settings_values():
         SEARCH_INDEXER_RETRY_SECONDS=7,
     )
 
-    config = SearchIndexerStreamConfig.from_settings(settings)
+    config = ThingIndexerStreamConfig.from_settings(settings)
 
-    assert config == SearchIndexerStreamConfig(
+    assert config == ThingIndexerStreamConfig(
         stream="thing_events",
         group="search_group",
         consumer="consumer_a",
