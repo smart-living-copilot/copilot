@@ -193,7 +193,7 @@ class JobRun(BaseModel):
 
 class CreateJobRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    created_from_thread_id: str = Field(min_length=1, max_length=120)
+    created_from_thread_id: str | None = Field(default=None, max_length=120)
     action_kind: JobActionKind = JobActionKind.PROMPT
     prompt: str | None = None
     analysis_code: str | None = None

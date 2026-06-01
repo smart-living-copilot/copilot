@@ -90,7 +90,7 @@ interface ListJobRunsResponse {
 
 export interface CreateJobPayload {
   name: string;
-  created_from_thread_id: string;
+  created_from_thread_id?: string;
   action_kind: 'prompt' | 'analysis';
   prompt?: string;
   analysis_code?: string;

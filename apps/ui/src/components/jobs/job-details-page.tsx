@@ -587,11 +587,6 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
 
             <TabsContent value="configuration" className="mt-0 space-y-4">
               <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                <FieldCard
-                  label="Created from"
-                  value={job.created_from_thread_id}
-                  mono
-                />
                 {hasJobThread ? (
                   <FieldCard
                     label="Job thread"

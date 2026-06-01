@@ -28,7 +28,6 @@ import { type CreateJobPayload, createJob } from '@/lib/jobs-api';
 
 type CreateJobFormState = {
   name: string;
-  threadId: string;
   actionKind: 'prompt' | 'analysis';
   triggerKind: 'time' | 'event';
   scheduleKind: 'once' | 'interval';
@@ -43,7 +42,6 @@ type CreateJobFormState = {
 
 const INITIAL_CREATE_FORM: CreateJobFormState = {
   name: '',
-  threadId: '',
   actionKind: 'prompt',
   triggerKind: 'time',
   scheduleKind: 'interval',
@@ -59,7 +57,6 @@ const INITIAL_CREATE_FORM: CreateJobFormState = {
 function toCreatePayload(form: CreateJobFormState): CreateJobPayload {
   const payload: CreateJobPayload = {
     name: form.name.trim(),
-    created_from_thread_id: form.threadId.trim(),
     action_kind: form.actionKind,
     trigger_kind: form.triggerKind,
   };
@@ -150,25 +147,15 @@ export function JobCreatePage() {
       <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
         <CardHeader className="border-b border-border/70">
           <CardTitle className="text-base">Identity</CardTitle>
-          <CardDescription>
-            Name the job and link it back to the originating chat thread.
-          </CardDescription>
+          <CardDescription>Name the background automation.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+        <CardContent>
           <div className="space-y-2">
             <label className="text-sm font-medium">Name</label>
             <Input
               value={form.name}
               onChange={(event) => setField('name', event.target.value)}
               placeholder="Morning energy summary"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Created from thread</label>
-            <Input
-              value={form.threadId}
-              onChange={(event) => setField('threadId', event.target.value)}
-              placeholder="chat-thread-123"
             />
           </div>
         </CardContent>

@@ -58,7 +58,6 @@ function getSearchableText(job: JobRecord): string {
   return [
     job.name,
     job.id,
-    job.created_from_thread_id,
     job.job_thread_id,
     job.action_kind,
     job.trigger_kind,
@@ -178,8 +177,6 @@ export function JobsList() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
-  const [threadFilter, setThreadFilter] = useState('');
-  const deferredThreadFilter = useDeferredValue(threadFilter);
   const [activeTab, setActiveTab] = useState<JobTabValue>('all');
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [isPending, setIsPending] = useState(true);
@@ -189,7 +186,7 @@ export function JobsList() {
   const loadJobs = useCallback(async () => {
     setIsPending(true);
     try {
-      setJobs(await fetchJobs(deferredThreadFilter));
+      setJobs(await fetchJobs());
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : 'Failed to load jobs',
@@ -197,7 +194,7 @@ export function JobsList() {
     } finally {
       setIsPending(false);
     }
-  }, [deferredThreadFilter]);
+  }, []);
 
   useEffect(() => {
     void loadJobs();
@@ -310,7 +307,7 @@ export function JobsList() {
             <h1 className="text-3xl font-semibold tracking-tight">Jobs</h1>
             <p className="max-w-3xl text-sm text-muted-foreground">
               Monitor background automations, review recent results, and manage
-              hidden job threads.
+              scheduled work.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -393,21 +390,13 @@ export function JobsList() {
               </Tabs>
 
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex w-full flex-col gap-2 sm:flex-row">
-                  <div className="relative w-full lg:max-w-xl">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Search jobs"
-                      className="pl-9"
-                    />
-                  </div>
+                <div className="relative w-full lg:max-w-xl">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    value={threadFilter}
-                    onChange={(event) => setThreadFilter(event.target.value)}
-                    placeholder="Created-from thread id"
-                    className="w-full sm:max-w-72"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search jobs"
+                    className="pl-9"
                   />
                 </div>
                 <div className="flex min-h-8 items-center gap-2 text-sm text-muted-foreground">
@@ -415,9 +404,6 @@ export function JobsList() {
                     {visibleJobs.length} visible
                   </Badge>
                   <Badge variant="outline">{activeTabLabel}</Badge>
-                  {deferredThreadFilter.trim() ? (
-                    <Badge variant="outline">Thread filter active</Badge>
-                  ) : null}
                 </div>
               </div>
 
@@ -556,27 +542,15 @@ export function JobsList() {
                   <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
                     {deferredSearch.trim()
                       ? `No jobs match "${deferredSearch.trim()}".`
-                      : deferredThreadFilter.trim()
-                        ? `No jobs were found for thread "${deferredThreadFilter.trim()}".`
-                        : activeTab !== 'all'
+                      : activeTab !== 'all'
                           ? `No jobs are currently in ${activeTabLabel.toLowerCase()}.`
                           : 'No automation jobs have been created yet.'}
                   </p>
-                  {deferredSearch.trim() ||
-                  deferredThreadFilter.trim() ||
-                  activeTab !== 'all' ? (
+                  {deferredSearch.trim() || activeTab !== 'all' ? (
                     <div className="mt-5 flex flex-wrap justify-center gap-2">
                       {deferredSearch.trim() ? (
                         <Button variant="outline" onClick={() => setSearch('')}>
                           Clear search
-                        </Button>
-                      ) : null}
-                      {deferredThreadFilter.trim() ? (
-                        <Button
-                          variant="outline"
-                          onClick={() => setThreadFilter('')}
-                        >
-                          Clear thread
                         </Button>
                       ) : null}
                       {activeTab !== 'all' ? (

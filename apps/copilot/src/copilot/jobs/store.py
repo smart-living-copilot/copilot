@@ -44,6 +44,13 @@ def job_thread_id_for_job(job_id: str) -> str:
     return f"job:{job_id}"
 
 
+def _source_thread_id_for_job(request: CreateJobRequest, job_id: str) -> str:
+    source_thread_id = (request.created_from_thread_id or "").strip()
+    if source_thread_id:
+        return source_thread_id
+    return f"manual:{job_id}"
+
+
 def _to_job(row: JobRecord) -> Job:
     return Job(
         id=row.id,
@@ -121,11 +128,12 @@ class JobStore:
         now = utc_now()
         job_id = str(uuid4())
         job_thread_id = job_thread_id_for_job(job_id)
+        created_from_thread_id = _source_thread_id_for_job(request, job_id)
         with self._session_factory() as session:
             row = JobRecord(
                 id=job_id,
                 name=request.name,
-                created_from_thread_id=request.created_from_thread_id,
+                created_from_thread_id=created_from_thread_id,
                 job_thread_id=job_thread_id,
                 action_kind=request.action_kind.value,
                 prompt=request.prompt,
