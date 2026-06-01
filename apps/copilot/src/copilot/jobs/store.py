@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -26,6 +26,13 @@ from copilot.threads.models import DEFAULT_THREAD_TITLE, Thread, ThreadKind
 
 class JobNotWaitingForInput(RuntimeError):
     """Raised when a job reply is submitted outside a waiting state."""
+
+
+class JobRunNotCancellable(RuntimeError):
+    """Raised when a job has no active run to cancel."""
+
+
+_UNSET: object = object()
 
 
 def utc_now() -> datetime:
@@ -286,6 +293,109 @@ class JobStore:
             row.subscription_id = subscription_id
             row.updated_at = utc_now()
             session.commit()
+
+    async def update_job(
+        self,
+        job_id: str,
+        *,
+        name: object = _UNSET,
+        prompt: object = _UNSET,
+        analysis_code: object = _UNSET,
+        interval_seconds: object = _UNSET,
+        run_at: object = _UNSET,
+        enabled: object = _UNSET,
+    ) -> Job:
+        return await asyncio.to_thread(
+            self._update_job_sync,
+            job_id,
+            name,
+            prompt,
+            analysis_code,
+            interval_seconds,
+            run_at,
+            enabled,
+        )
+
+    def _update_job_sync(
+        self,
+        job_id: str,
+        name: object,
+        prompt: object,
+        analysis_code: object,
+        interval_seconds: object,
+        run_at: object,
+        enabled: object,
+    ) -> Job:
+        now = utc_now()
+        with self._session_factory() as session:
+            statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
+            row = session.scalars(statement).one_or_none()
+            if row is None:
+                raise KeyError(job_id)
+
+            if name is not _UNSET:
+                row.name = name  # type: ignore[assignment]
+            if prompt is not _UNSET:
+                row.prompt = prompt  # type: ignore[assignment]
+            if analysis_code is not _UNSET:
+                row.analysis_code = analysis_code  # type: ignore[assignment]
+            if interval_seconds is not _UNSET:
+                row.interval_seconds = interval_seconds  # type: ignore[assignment]
+            if run_at is not _UNSET:
+                row.run_at = run_at  # type: ignore[assignment]
+            if enabled is not _UNSET:
+                row.enabled = bool(enabled)
+
+            row.next_run_at = self._compute_next_run_at(row, now)
+            row.updated_at = now
+            session.commit()
+            return _to_job(row)
+
+    @staticmethod
+    def _compute_next_run_at(row: JobRecord, now: datetime) -> datetime | None:
+        if row.trigger_kind != JobTriggerKind.TIME.value or not row.enabled:
+            return None
+        if row.schedule_kind == TimeTriggerKind.INTERVAL.value and row.interval_seconds:
+            return now + timedelta(seconds=row.interval_seconds)
+        if row.schedule_kind == TimeTriggerKind.ONCE.value and row.run_at is not None:
+            run_at = row.run_at
+            if run_at.tzinfo is None:
+                run_at = run_at.replace(tzinfo=timezone.utc)
+            return run_at if run_at > now else None
+        return None
+
+    async def cancel_active_run(self, job_id: str) -> Job:
+        return await asyncio.to_thread(self._cancel_active_run_sync, job_id)
+
+    def _cancel_active_run_sync(self, job_id: str) -> Job:
+        now = utc_now()
+        with self._session_factory() as session:
+            statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
+            row = session.scalars(statement).one_or_none()
+            if row is None:
+                raise KeyError(job_id)
+            if row.active_run_id is None or row.last_run_status not in (
+                JobRunStatus.RUNNING.value,
+                JobRunStatus.WAITING_FOR_INPUT.value,
+            ):
+                raise JobRunNotCancellable(job_id)
+
+            run_row = session.get(JobRunRecord, row.active_run_id)
+            if run_row is not None:
+                run_row.status = JobRunStatus.CANCELLED.value
+                run_row.error = "Run cancelled by user."
+                run_row.finished_at = now
+
+            row.last_run_status = JobRunStatus.CANCELLED.value
+            row.last_error = None
+            row.active_run_id = None
+            row.active_run_started_at = None
+            row.active_run_source = None
+            row.waiting_question = None
+            row.run_count = (row.run_count or 0) + 1
+            row.updated_at = now
+            session.commit()
+            return _to_job(row)
 
     async def try_start_job_run(
         self,

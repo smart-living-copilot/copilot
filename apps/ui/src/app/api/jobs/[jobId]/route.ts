@@ -10,6 +10,17 @@ export async function GET(_req: NextRequest, context: RouteContext) {
   return NextResponse.json(await res.json(), { status: res.status });
 }
 
+export async function PATCH(req: NextRequest, context: RouteContext) {
+  const { jobId } = await context.params;
+  const body = await req.text();
+  const res = await jobRunnerFetch(`/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+  return NextResponse.json(await res.json(), { status: res.status });
+}
+
 export async function DELETE(_req: NextRequest, context: RouteContext) {
   const { jobId } = await context.params;
   const res = await jobRunnerFetch(`/jobs/${encodeURIComponent(jobId)}`, {

@@ -9,9 +9,21 @@ import {
 } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2, MessagesSquare, Play, RefreshCw, Trash2 } from 'lucide-react';
+import {
+  Ban,
+  Loader2,
+  MessagesSquare,
+  Pause,
+  Pencil,
+  Play,
+  Power,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
+import { ConfirmDialog } from '@/components/jobs/confirm-dialog';
+import { JobRunHistoryCard } from '@/components/jobs/job-run-history';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,14 +40,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   formatDateTime,
@@ -43,17 +47,21 @@ import {
   getPurposePreview,
   getScheduleLabel,
   getStatusBadgeVariant,
+  getStatusLabel,
   supportsEventFields,
   supportsJobThread,
   supportsTimeFields,
 } from '@/lib/job-formatters';
+import { useJobEvents } from '@/hooks/use-job-events';
 import {
   type JobRecord,
   type JobRunRecord,
+  cancelJobRun,
   deleteJob,
   fetchJob,
   fetchJobRuns,
   runJobNow,
+  setJobEnabled,
 } from '@/lib/jobs-api';
 
 interface JobDetailsPageProps {
@@ -173,70 +181,6 @@ function TextPanel({
   );
 }
 
-function RunStatusBadge({ status }: { status: string }) {
-  return <Badge variant={getStatusBadgeVariant(status)}>{status}</Badge>;
-}
-
-function RunHistoryCard({ runs }: { runs: JobRunRecord[] }) {
-  return (
-    <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
-      <CardHeader className="border-b border-border/70">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">Run history</CardTitle>
-            <CardDescription>
-              Recent starts, completion times, and captured outcomes.
-            </CardDescription>
-          </div>
-          <Badge variant="outline">{runs.length}</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        {runs.length ? (
-          <div className="overflow-x-auto">
-            <Table className="min-w-[860px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Finished</TableHead>
-                  <TableHead>Outcome</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {runs.map((run) => (
-                  <TableRow key={run.id}>
-                    <TableCell className="align-top">
-                      <RunStatusBadge status={run.status} />
-                    </TableCell>
-                    <TableCell className="align-top">{run.source}</TableCell>
-                    <TableCell className="align-top text-xs text-muted-foreground">
-                      {formatDateTime(run.started_at)}
-                    </TableCell>
-                    <TableCell className="align-top text-xs text-muted-foreground">
-                      {formatDateTime(run.finished_at)}
-                    </TableCell>
-                    <TableCell className="align-top text-sm text-muted-foreground">
-                      <p className="line-clamp-3 whitespace-pre-wrap break-words">
-                        {runOutcome(run)}
-                      </p>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        ) : (
-          <div className="p-4 text-sm text-muted-foreground">
-            No runs recorded yet.
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 function AnalysisOutputPanel({
   result,
   title = 'Analysis output',
@@ -309,31 +253,53 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    setLoadError(null);
-    try {
-      const [jobRecord, runRecords] = await Promise.all([
-        fetchJob(jobId),
-        fetchJobRuns(jobId),
-      ]);
-      setJob(jobRecord);
-      setRuns(runRecords);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to load job';
-      setLoadError(message);
-      toast.error(message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [jobId]);
+  const load = useCallback(
+    async ({ silent = false }: { silent?: boolean } = {}) => {
+      if (!silent) {
+        setIsLoading(true);
+      }
+      setLoadError(null);
+      try {
+        const [jobRecord, runRecords] = await Promise.all([
+          fetchJob(jobId),
+          fetchJobRuns(jobId),
+        ]);
+        setJob(jobRecord);
+        setRuns(runRecords);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to load job';
+        setLoadError(message);
+        if (!silent) {
+          toast.error(message);
+        }
+      } finally {
+        if (!silent) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [jobId],
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live refresh when this job emits a run event.
+  useJobEvents(
+    useCallback(
+      (incoming: JobRecord) => {
+        if (incoming.id === jobId) {
+          void load({ silent: true });
+        }
+      },
+      [jobId, load],
+    ),
+  );
 
   const status = useMemo(
     () => (job ? getJobStatus(job, new Date()) : null),
@@ -368,9 +334,41 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
     }
   }, [jobId, load]);
 
-  const handleDelete = useCallback(async () => {
-    if (!job || !window.confirm(`Delete job "${job.name}"?`)) return;
+  const handleToggleEnabled = useCallback(async () => {
+    if (!job) return;
+    setIsBusy(true);
+    try {
+      const updated = await setJobEnabled(job.id, !job.enabled);
+      setJob(updated);
+      toast.success(updated.enabled ? 'Job resumed.' : 'Job paused.');
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update job',
+      );
+    } finally {
+      setIsBusy(false);
+    }
+  }, [job]);
 
+  const handleCancel = useCallback(async () => {
+    if (!job) return;
+    setIsBusy(true);
+    try {
+      const updated = await cancelJobRun(job.id);
+      setJob(updated);
+      await load({ silent: true });
+      toast.success('Run cancelled.');
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to cancel run',
+      );
+    } finally {
+      setIsBusy(false);
+    }
+  }, [job, load]);
+
+  const handleDelete = useCallback(async () => {
+    if (!job) return;
     setIsDeleting(true);
     try {
       await deleteJob(job.id);
@@ -399,9 +397,11 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
           {job ? (
             <div className="flex flex-wrap items-center gap-2">
               {status ? (
-                <Badge variant={getStatusBadgeVariant(status)}>{status}</Badge>
+                <Badge variant={getStatusBadgeVariant(status)}>
+                  {getStatusLabel(status)}
+                </Badge>
               ) : null}
-              <Badge variant="outline">{job.action_kind}</Badge>
+              <Badge variant="outline">{getStatusLabel(job.action_kind)}</Badge>
               <Badge variant="outline">{getScheduleLabel(job)}</Badge>
             </div>
           ) : null}
@@ -410,7 +410,7 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
           <Button
             variant="outline"
             onClick={() => void load()}
-            disabled={isLoading || isRunning || isDeleting}
+            disabled={isLoading || isRunning || isDeleting || isBusy}
           >
             <RefreshCw
               className={isLoading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'}
@@ -425,9 +425,41 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
               </Link>
             </Button>
           ) : null}
+          {job ? (
+            <Button variant="outline" asChild>
+              <Link href={`/jobs/${jobId}/edit`}>
+                <Pencil className="h-4 w-4" />
+                Edit
+              </Link>
+            </Button>
+          ) : null}
+          {job?.active_run_id ? (
+            <Button
+              variant="outline"
+              onClick={() => void handleCancel()}
+              disabled={isLoading || isRunning || isDeleting || isBusy}
+            >
+              <Ban className="h-4 w-4" />
+              Cancel run
+            </Button>
+          ) : null}
+          {job ? (
+            <Button
+              variant="outline"
+              onClick={() => void handleToggleEnabled()}
+              disabled={isLoading || isRunning || isDeleting || isBusy}
+            >
+              {job.enabled ? (
+                <Pause className="h-4 w-4" />
+              ) : (
+                <Power className="h-4 w-4" />
+              )}
+              {job.enabled ? 'Pause' : 'Resume'}
+            </Button>
+          ) : null}
           <Button
             onClick={() => void handleRun()}
-            disabled={!job || isLoading || isRunning || isDeleting}
+            disabled={!job || isLoading || isRunning || isDeleting || isBusy}
           >
             {isRunning ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -436,18 +468,28 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
             )}
             Run
           </Button>
-          <Button
-            variant="destructive"
-            onClick={() => void handleDelete()}
-            disabled={!job || isLoading || isRunning || isDeleting}
-          >
-            {isDeleting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Trash2 className="h-4 w-4" />
-            )}
-            Delete
-          </Button>
+          <ConfirmDialog
+            title={job ? `Delete "${job.name}"?` : 'Delete job?'}
+            description="This permanently removes the job, its schedule, and its run history. This cannot be undone."
+            confirmLabel="Delete"
+            destructive
+            onConfirm={handleDelete}
+            trigger={
+              <Button
+                variant="destructive"
+                disabled={
+                  !job || isLoading || isRunning || isDeleting || isBusy
+                }
+              >
+                {isDeleting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                Delete
+              </Button>
+            }
+          />
         </div>
       </section>
 
@@ -522,15 +564,21 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                   value={
                     status ? (
                       <Badge variant={getStatusBadgeVariant(status)}>
-                        {status}
+                        {getStatusLabel(status)}
                       </Badge>
                     ) : (
                       'unknown'
                     )
                   }
                 />
-                <FieldCard label="Action" value={job.action_kind} />
-                <FieldCard label="Trigger" value={job.trigger_kind} />
+                <FieldCard
+                  label="Action"
+                  value={getStatusLabel(job.action_kind)}
+                />
+                <FieldCard
+                  label="Trigger"
+                  value={getStatusLabel(job.trigger_kind)}
+                />
                 {hasTimeFields ? (
                   <>
                     <FieldCard label="Schedule" value={getScheduleLabel(job)} />
@@ -574,7 +622,13 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
             </TabsContent>
 
             <TabsContent value="runs" className="mt-0">
-              <RunHistoryCard runs={runs} />
+              <JobRunHistoryCard
+                runs={runs}
+                description="Recent starts, completion times, and captured outcomes."
+                outcome={runOutcome}
+                showFinished
+                minWidthClassName="min-w-[860px]"
+              />
             </TabsContent>
 
             <TabsContent value="definition" className="mt-0">

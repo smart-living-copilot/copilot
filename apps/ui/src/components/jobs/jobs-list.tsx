@@ -10,20 +10,33 @@ import {
 } from 'react';
 import Link from 'next/link';
 import {
+  Ban,
   Eye,
   Loader2,
   MessagesSquare,
-  Plus,
+  MoreHorizontal,
+  Pause,
+  Pencil,
   Play,
+  Plus,
+  Power,
   RefreshCw,
   Search,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { ConfirmDialog } from '@/components/jobs/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
   Table,
@@ -40,18 +53,23 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useJobEvents } from '@/hooks/use-job-events';
 import {
-  formatDateTime,
+  formatInterval,
+  formatRelativeTime,
   getJobStatus,
   getStatusBadgeVariant,
+  getStatusLabel,
   supportsJobThread,
   supportsTimeFields,
 } from '@/lib/job-formatters';
 import {
   type JobRecord,
+  cancelJobRun,
   deleteJob,
   fetchJobs,
   runJobNow,
+  setJobEnabled,
 } from '@/lib/jobs-api';
 
 function getSearchableText(job: JobRecord): string {
@@ -76,8 +94,12 @@ function getSearchableText(job: JobRecord): string {
     .toLowerCase();
 }
 
-function renderDate(value: string | null, hydrated: boolean): string {
-  return hydrated ? formatDateTime(value) : (value ?? 'Not available');
+function renderRelative(
+  value: string | null,
+  hydrated: boolean,
+  now: Date,
+): string {
+  return hydrated ? formatRelativeTime(value, now) : (value ?? 'Not available');
 }
 
 function actionLabel(job: JobRecord): string {
@@ -87,7 +109,8 @@ function actionLabel(job: JobRecord): string {
 function triggerLabel(job: JobRecord): string {
   if (job.trigger_kind === 'event') return job.event_name || 'Event';
   if (job.schedule_kind === 'once') return 'Once';
-  if (job.interval_seconds) return `${job.interval_seconds}s interval`;
+  if (job.interval_seconds)
+    return `Every ${formatInterval(job.interval_seconds)}`;
   return 'Time';
 }
 
@@ -96,6 +119,10 @@ function targetLabel(job: JobRecord): string {
     return job.thing_id || 'Unbound event target';
   }
   return 'Time trigger';
+}
+
+function hasActiveRun(job: JobRecord): boolean {
+  return Boolean(job.active_run_id);
 }
 
 type JobTabValue =
@@ -117,7 +144,7 @@ const JOB_TABS: { value: JobTabValue; label: string }[] = [
   { value: 'failed', label: 'Failed' },
   { value: 'time', label: 'Time' },
   { value: 'event', label: 'Events' },
-  { value: 'disabled', label: 'Disabled' },
+  { value: 'disabled', label: 'Paused' },
 ];
 
 function jobMatchesTab(
@@ -173,6 +200,116 @@ function IconAction({
   );
 }
 
+interface JobRowActionsProps {
+  job: JobRecord;
+  busy: boolean;
+  running: boolean;
+  onRun: () => void;
+  onToggleEnabled: () => void;
+  onCancel: () => void;
+  onDelete: () => void;
+}
+
+function JobRowActions({
+  job,
+  busy,
+  running,
+  onRun,
+  onToggleEnabled,
+  onCancel,
+  onDelete,
+}: JobRowActionsProps) {
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
+  return (
+    <div className="flex justify-end gap-1.5">
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title={`Delete "${job.name}"?`}
+        description="This permanently removes the job, its schedule, and its run history. This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={onDelete}
+      />
+      <IconAction label="Run now" disabled={busy} onClick={onRun}>
+        {running ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Play className="h-3.5 w-3.5" />
+        )}
+      </IconAction>
+      <IconAction
+        label={job.enabled ? 'Pause' : 'Resume'}
+        disabled={busy}
+        onClick={onToggleEnabled}
+      >
+        {job.enabled ? (
+          <Pause className="h-3.5 w-3.5" />
+        ) : (
+          <Power className="h-3.5 w-3.5" />
+        )}
+      </IconAction>
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                aria-label="More actions"
+                size="icon-sm"
+                variant="outline"
+                disabled={busy}
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>More actions</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem asChild>
+            <Link href={`/jobs/${job.id}`}>
+              <Eye className="h-4 w-4" />
+              View details
+            </Link>
+          </DropdownMenuItem>
+          {supportsJobThread(job) ? (
+            <DropdownMenuItem asChild>
+              <Link href={`/jobs/${job.id}/thread`}>
+                <MessagesSquare className="h-4 w-4" />
+                Open thread
+              </Link>
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem asChild>
+            <Link href={`/jobs/${job.id}/edit`}>
+              <Pencil className="h-4 w-4" />
+              Edit
+            </Link>
+          </DropdownMenuItem>
+          {hasActiveRun(job) ? (
+            <DropdownMenuItem onSelect={() => onCancel()}>
+              <Ban className="h-4 w-4" />
+              Cancel run
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={(event) => {
+              event.preventDefault();
+              setConfirmDeleteOpen(true);
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
 export function JobsList() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [search, setSearch] = useState('');
@@ -180,8 +317,20 @@ export function JobsList() {
   const [activeTab, setActiveTab] = useState<JobTabValue>('all');
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [isPending, setIsPending] = useState(true);
+  const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [runningJobId, setRunningJobId] = useState<string | null>(null);
-  const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
+
+  const upsertJob = useCallback((updated: JobRecord) => {
+    setJobs((current) => {
+      const index = current.findIndex((job) => job.id === updated.id);
+      if (index === -1) {
+        return [updated, ...current];
+      }
+      const next = current.slice();
+      next[index] = updated;
+      return next;
+    });
+  }, []);
 
   const loadJobs = useCallback(async () => {
     setIsPending(true);
@@ -203,6 +352,9 @@ export function JobsList() {
   useEffect(() => {
     setIsHydrated(true);
   }, []);
+
+  // Live status updates from the job run event stream.
+  useJobEvents(upsertJob);
 
   const now = useMemo(
     () => (isHydrated ? new Date() : new Date(0)),
@@ -261,43 +413,70 @@ export function JobsList() {
   const activeTabLabel =
     JOB_TABS.find((tab) => tab.value === activeTab)?.label ?? 'All';
 
-  const handleRun = useCallback(
-    async (jobId: string) => {
-      setRunningJobId(jobId);
-      try {
-        await runJobNow(jobId);
-        toast.success('Job run queued.');
-        await loadJobs();
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : 'Failed to run job',
-        );
-      } finally {
-        setRunningJobId((current) => (current === jobId ? null : current));
-      }
-    },
-    [loadJobs],
-  );
+  const handleRun = useCallback(async (jobId: string) => {
+    setRunningJobId(jobId);
+    setBusyJobId(jobId);
+    try {
+      await runJobNow(jobId);
+      toast.success('Job run queued.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to run job');
+    } finally {
+      setRunningJobId((current) => (current === jobId ? null : current));
+      setBusyJobId((current) => (current === jobId ? null : current));
+    }
+  }, []);
 
-  const handleDelete = useCallback(
+  const handleToggleEnabled = useCallback(
     async (job: JobRecord) => {
-      if (!window.confirm(`Delete job "${job.name}"?`)) return;
-
-      setDeletingJobId(job.id);
+      setBusyJobId(job.id);
       try {
-        await deleteJob(job.id);
-        toast.success('Job deleted.');
-        await loadJobs();
+        const updated = await setJobEnabled(job.id, !job.enabled);
+        upsertJob(updated);
+        toast.success(updated.enabled ? 'Job resumed.' : 'Job paused.');
       } catch (error) {
         toast.error(
-          error instanceof Error ? error.message : 'Failed to delete job',
+          error instanceof Error ? error.message : 'Failed to update job',
         );
       } finally {
-        setDeletingJobId((current) => (current === job.id ? null : current));
+        setBusyJobId((current) => (current === job.id ? null : current));
       }
     },
-    [loadJobs],
+    [upsertJob],
   );
+
+  const handleCancel = useCallback(
+    async (jobId: string) => {
+      setBusyJobId(jobId);
+      try {
+        const updated = await cancelJobRun(jobId);
+        upsertJob(updated);
+        toast.success('Run cancelled.');
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to cancel run',
+        );
+      } finally {
+        setBusyJobId((current) => (current === jobId ? null : current));
+      }
+    },
+    [upsertJob],
+  );
+
+  const handleDelete = useCallback(async (job: JobRecord) => {
+    setBusyJobId(job.id);
+    try {
+      await deleteJob(job.id);
+      setJobs((current) => current.filter((item) => item.id !== job.id));
+      toast.success('Job deleted.');
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to delete job',
+      );
+    } finally {
+      setBusyJobId((current) => (current === job.id ? null : current));
+    }
+  }, []);
 
   return (
     <TooltipProvider>
@@ -328,31 +507,6 @@ export function JobsList() {
               Refresh
             </Button>
           </div>
-        </section>
-
-        <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
-          {[
-            ['Total', stats.total],
-            ['Active', stats.active],
-            ['Needs input', stats.waiting],
-            ['Failed', stats.failed],
-            ['Time', stats.time],
-            ['Events', stats.event],
-            ['Disabled', stats.disabled],
-          ].map(([label, value]) => (
-            <Card
-              key={label}
-              size="sm"
-              className="rounded-md border-border/70 shadow-sm shadow-black/5"
-            >
-              <CardContent className="flex min-h-14 items-center justify-between">
-                <span className="text-sm text-muted-foreground">{label}</span>
-                <span className="text-2xl font-semibold tabular-nums">
-                  {value}
-                </span>
-              </CardContent>
-            </Card>
-          ))}
         </section>
 
         <section>
@@ -428,8 +582,7 @@ export function JobsList() {
                     <TableBody>
                       {visibleJobs.map((job) => {
                         const status = getJobStatus(job, now);
-                        const busy =
-                          runningJobId === job.id || deletingJobId === job.id;
+                        const busy = busyJobId === job.id;
 
                         return (
                           <TableRow key={job.id}>
@@ -451,12 +604,8 @@ export function JobsList() {
                             <TableCell className="align-middle">
                               <div className="flex flex-wrap gap-1.5">
                                 <Badge variant={getStatusBadgeVariant(status)}>
-                                  {status}
+                                  {getStatusLabel(status)}
                                 </Badge>
-                                {supportsJobThread(job) &&
-                                job.waiting_question ? (
-                                  <Badge variant="outline">Needs input</Badge>
-                                ) : null}
                                 {job.last_error && status !== 'failed' ? (
                                   <Badge variant="destructive">Error</Badge>
                                 ) : null}
@@ -470,63 +619,46 @@ export function JobsList() {
                                 <div className="line-clamp-1 text-muted-foreground">
                                   {targetLabel(job)}
                                 </div>
-                                {supportsTimeFields(job) ? (
+                                {supportsTimeFields(job) && job.next_run_at ? (
                                   <div className="text-xs text-muted-foreground">
                                     Next{' '}
-                                    {renderDate(job.next_run_at, isHydrated)}
+                                    {renderRelative(
+                                      job.next_run_at,
+                                      isHydrated,
+                                      now,
+                                    )}
                                   </div>
                                 ) : null}
                               </div>
                             </TableCell>
                             <TableCell className="align-middle text-sm">
                               <div className="space-y-1">
-                                <div>{job.last_run_status || 'No runs'}</div>
+                                <div>
+                                  {job.last_run_status
+                                    ? getStatusLabel(job.last_run_status)
+                                    : 'No runs'}
+                                </div>
                                 <div className="text-xs text-muted-foreground">
-                                  {renderDate(job.last_run_at, isHydrated)}
+                                  {renderRelative(
+                                    job.last_run_at,
+                                    isHydrated,
+                                    now,
+                                  )}
                                 </div>
                               </div>
                             </TableCell>
                             <TableCell className="align-middle">
-                              <div className="flex justify-end gap-1.5">
-                                <IconAction
-                                  label="Details"
-                                  disabled={busy}
-                                  href={`/jobs/${job.id}`}
-                                >
-                                  <Eye className="h-3.5 w-3.5" />
-                                </IconAction>
-                                {supportsJobThread(job) ? (
-                                  <IconAction
-                                    label="Thread"
-                                    href={`/jobs/${job.id}/thread`}
-                                  >
-                                    <MessagesSquare className="h-3.5 w-3.5" />
-                                  </IconAction>
-                                ) : null}
-                                <IconAction
-                                  label="Run now"
-                                  disabled={busy}
-                                  onClick={() => void handleRun(job.id)}
-                                >
-                                  {runningJobId === job.id ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    <Play className="h-3.5 w-3.5" />
-                                  )}
-                                </IconAction>
-                                <IconAction
-                                  label="Delete"
-                                  destructive
-                                  disabled={busy}
-                                  onClick={() => void handleDelete(job)}
-                                >
-                                  {deletingJobId === job.id ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  )}
-                                </IconAction>
-                              </div>
+                              <JobRowActions
+                                job={job}
+                                busy={busy}
+                                running={runningJobId === job.id}
+                                onRun={() => void handleRun(job.id)}
+                                onToggleEnabled={() =>
+                                  void handleToggleEnabled(job)
+                                }
+                                onCancel={() => void handleCancel(job.id)}
+                                onDelete={() => void handleDelete(job)}
+                              />
                             </TableCell>
                           </TableRow>
                         );
@@ -543,8 +675,8 @@ export function JobsList() {
                     {deferredSearch.trim()
                       ? `No jobs match "${deferredSearch.trim()}".`
                       : activeTab !== 'all'
-                          ? `No jobs are currently in ${activeTabLabel.toLowerCase()}.`
-                          : 'No automation jobs have been created yet.'}
+                        ? `No jobs are currently in ${activeTabLabel.toLowerCase()}.`
+                        : 'No automation jobs have been created yet.'}
                   </p>
                   {deferredSearch.trim() || activeTab !== 'all' ? (
                     <div className="mt-5 flex flex-wrap justify-center gap-2">

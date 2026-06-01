@@ -16,6 +16,7 @@ from copilot.jobs.models import (
     JobRunStatus,
     JobTriggerKind,
     TimeTriggerKind,
+    UpdateJobRequest,
 )
 from copilot.jobs.results import JobRunEventStream
 from copilot.jobs.schedule import JobScheduleManager, build_schedule_source
@@ -121,6 +122,43 @@ class JobService:
     async def list_job_runs(self, job_id: str) -> list[JobRun]:
         await self._repo.get_job(job_id)
         return await self._repo.list_job_runs(job_id)
+
+    async def update_job(self, job_id: str, request: UpdateJobRequest) -> Job:
+        job = await self._repo.get_job(job_id)
+        fields = request.model_dump(exclude_unset=True)
+        self._validate_update(job, fields)
+
+        if not fields:
+            return job
+
+        updated = await self._repo.update_job(job_id, **fields)
+
+        if updated.trigger_kind == JobTriggerKind.TIME:
+            await self._schedule_manager.remove_job(updated.id)
+            if updated.enabled:
+                await self._schedule_manager.add_job(updated)
+        return updated
+
+    def _validate_update(self, job: Job, fields: dict[str, Any]) -> None:
+        if "prompt" in fields:
+            if job.action_kind != JobActionKind.PROMPT:
+                raise ValueError("prompt can only be set on prompt jobs")
+            if not fields["prompt"] or not str(fields["prompt"]).strip():
+                raise ValueError("prompt jobs require a non-empty prompt")
+        if "analysis_code" in fields:
+            if job.action_kind != JobActionKind.ANALYSIS:
+                raise ValueError("analysis_code can only be set on analysis jobs")
+            if not fields["analysis_code"] or not str(fields["analysis_code"]).strip():
+                raise ValueError("analysis jobs require non-empty analysis_code")
+        if "interval_seconds" in fields:
+            if job.trigger_kind != JobTriggerKind.TIME or job.schedule_kind != TimeTriggerKind.INTERVAL:
+                raise ValueError("interval_seconds can only be set on interval jobs")
+        if "run_at" in fields:
+            if job.trigger_kind != JobTriggerKind.TIME or job.schedule_kind != TimeTriggerKind.ONCE:
+                raise ValueError("run_at can only be set on one-time jobs")
+
+    async def cancel_job_run(self, job_id: str) -> Job:
+        return await self._repo.cancel_active_run(job_id)
 
     async def delete_job(self, job_id: str) -> Job:
         job = await self._repo.get_job(job_id)

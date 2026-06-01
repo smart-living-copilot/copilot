@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useState } from 'react';
+import { FormEvent, useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Loader2, Plus } from 'lucide-react';
@@ -91,6 +91,18 @@ export function JobCreatePage() {
   const [form, setForm] = useState<CreateJobFormState>(INITIAL_CREATE_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const subscriptionError = useMemo(() => {
+    if (form.triggerKind !== 'event' || !form.subscriptionInput.trim()) {
+      return null;
+    }
+    try {
+      JSON.parse(form.subscriptionInput);
+      return null;
+    } catch {
+      return 'Subscription input must be valid JSON.';
+    }
+  }, [form.subscriptionInput, form.triggerKind]);
+
   const setField = useCallback(
     <K extends keyof CreateJobFormState>(
       field: K,
@@ -133,7 +145,10 @@ export function JobCreatePage() {
           <Button type="button" variant="outline" asChild>
             <Link href="/jobs">Cancel</Link>
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button
+            type="submit"
+            disabled={isSubmitting || Boolean(subscriptionError)}
+          >
             {isSubmitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -309,7 +324,13 @@ export function JobCreatePage() {
                       setField('subscriptionInput', event.target.value)
                     }
                     placeholder='{"threshold": 30}'
+                    aria-invalid={Boolean(subscriptionError)}
                   />
+                  {subscriptionError ? (
+                    <p className="text-sm text-destructive">
+                      {subscriptionError}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </TabsContent>

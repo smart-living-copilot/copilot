@@ -128,6 +128,46 @@ export async function fetchJob(jobId: string): Promise<JobRecord> {
   return httpJson<JobRecord>(`/jobs/${encodeURIComponent(jobId)}`);
 }
 
+export interface UpdateJobPayload {
+  name?: string;
+  prompt?: string;
+  analysis_code?: string;
+  interval_seconds?: number;
+  run_at?: string;
+  enabled?: boolean;
+}
+
+export async function updateJob(
+  jobId: string,
+  payload: UpdateJobPayload,
+): Promise<JobRecord> {
+  return httpJson<JobRecord>(`/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function setJobEnabled(
+  jobId: string,
+  enabled: boolean,
+): Promise<JobRecord> {
+  return updateJob(jobId, { enabled });
+}
+
+interface CancelJobResponse {
+  ok: boolean;
+  job: JobRecord;
+}
+
+export async function cancelJobRun(jobId: string): Promise<JobRecord> {
+  const json = await httpJson<CancelJobResponse>(
+    `/jobs/${encodeURIComponent(jobId)}/cancel`,
+    { method: 'POST' },
+  );
+  return json.job;
+}
+
 export async function deleteJob(jobId: string): Promise<void> {
   await httpClient(`/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
 }

@@ -27,6 +27,96 @@ export function formatDateTime(value: string | null): string {
   }).format(date);
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  running: 'Running',
+  queued: 'Queued',
+  scheduled: 'Scheduled',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  skipped: 'Skipped',
+  cancelled: 'Cancelled',
+  disabled: 'Paused',
+  waiting_for_input: 'Needs input',
+  'waiting-event': 'Waiting for event',
+};
+
+/** Human-readable label for a job or run status enum value. */
+export function getStatusLabel(status: JobDisplayStatus | string): string {
+  return STATUS_LABELS[status] ?? status.replace(/[_-]/g, ' ');
+}
+
+/** Humanize an interval in seconds, e.g. 300 -> "5 min", 5400 -> "1 hr 30 min". */
+export function formatInterval(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return `${seconds}s`;
+  }
+  if (seconds < 60) {
+    return `${seconds} sec`;
+  }
+
+  const units: [label: string, size: number][] = [
+    ['day', 86400],
+    ['hr', 3600],
+    ['min', 60],
+  ];
+  const parts: string[] = [];
+  let remaining = Math.round(seconds);
+  for (const [label, size] of units) {
+    const count = Math.floor(remaining / size);
+    if (count > 0) {
+      parts.push(`${count} ${label}`);
+      remaining -= count * size;
+    }
+  }
+  return parts.slice(0, 2).join(' ');
+}
+
+const RELATIVE_THRESHOLDS: [
+  limit: number,
+  divisor: number,
+  unit: Intl.RelativeTimeFormatUnit,
+][] = [
+  [60, 1, 'second'],
+  [3600, 60, 'minute'],
+  [86400, 3600, 'hour'],
+  [604800, 86400, 'day'],
+];
+
+/**
+ * Relative time like "2 min ago" / "in 5 min", falling back to an absolute
+ * date for anything older than a week. Pass `now` from a hydrated context to
+ * avoid SSR mismatches.
+ */
+export function formatRelativeTime(
+  value: string | null,
+  now: Date = new Date(),
+): string {
+  if (!value) {
+    return 'Not available';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const diffSeconds = (date.getTime() - now.getTime()) / 1000;
+  const abs = Math.abs(diffSeconds);
+  if (abs < 10) {
+    return 'just now';
+  }
+  if (abs >= 604800) {
+    return formatDateTime(value);
+  }
+
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  for (const [limit, divisor, unit] of RELATIVE_THRESHOLDS) {
+    if (abs < limit) {
+      return formatter.format(Math.round(diffSeconds / divisor), unit);
+    }
+  }
+  return formatDateTime(value);
+}
+
 export function getJobStatus(job: JobRecord, now: Date): JobDisplayStatus {
   if (job.last_run_status === 'running') return 'running';
   if (job.last_run_status === 'waiting_for_input') return 'waiting_for_input';
@@ -51,7 +141,7 @@ export function getScheduleLabel(job: JobRecord): string {
       : 'On subscribed event';
   }
   if (job.interval_seconds) {
-    return `Every ${job.interval_seconds}s`;
+    return `Every ${formatInterval(job.interval_seconds)}`;
   }
   if (job.run_at) {
     return `Once at ${formatDateTime(job.run_at)}`;

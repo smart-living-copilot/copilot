@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { Eye, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { JobRunHistoryCard } from '@/components/jobs/job-run-history';
 import { LiveModePanel } from '@/components/copilot/live-mode-panel';
 import { MediaIngressControl } from '@/components/copilot/media-ingress-control';
 import { chatToolCallRenderers } from '@/components/copilot/chat-tool-call-renderer';
@@ -25,31 +26,19 @@ import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Card, CardContent } from '@/components/ui/card';
+import { useJobEvents } from '@/hooks/use-job-events';
 import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
 import {
-  formatDateTime,
   getJobStatus,
   getScheduleLabel,
   getStatusBadgeVariant,
+  getStatusLabel,
   supportsJobReply,
   supportsJobThread,
 } from '@/lib/job-formatters';
 import {
+  type JobRecord,
   type JobRunRecord,
   type JobThreadRecord,
   fetchJobRuns,
@@ -91,61 +80,6 @@ function runOutcome(run: JobRunRecord): string {
     }
   }
   return 'No output captured.';
-}
-
-function RunStatusBadge({ status }: { status: string }) {
-  return <Badge variant={getStatusBadgeVariant(status)}>{status}</Badge>;
-}
-
-function RunHistoryCard({ runs }: { runs: JobRunRecord[] }) {
-  return (
-    <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
-      <CardHeader className="border-b border-border/70">
-        <CardTitle className="text-base">Run history</CardTitle>
-        <CardDescription>
-          Execution attempts connected to this checkpoint thread.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="p-0">
-        {runs.length ? (
-          <div className="overflow-x-auto">
-            <Table className="min-w-[760px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Outcome</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {runs.map((run) => (
-                  <TableRow key={run.id}>
-                    <TableCell className="align-top">
-                      <RunStatusBadge status={run.status} />
-                    </TableCell>
-                    <TableCell className="align-top">{run.source}</TableCell>
-                    <TableCell className="align-top text-xs text-muted-foreground">
-                      {formatDateTime(run.started_at)}
-                    </TableCell>
-                    <TableCell className="align-top text-sm text-muted-foreground">
-                      <p className="line-clamp-3 whitespace-pre-wrap break-words">
-                        {runOutcome(run)}
-                      </p>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        ) : (
-          <div className="p-4 text-sm text-muted-foreground">
-            No runs recorded yet.
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
 }
 
 export function JobThreadPage({ jobId }: JobThreadPageProps) {
@@ -191,6 +125,18 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live refresh when this job emits a run event.
+  useJobEvents(
+    useCallback(
+      (incoming: JobRecord) => {
+        if (incoming.id === jobId) {
+          void load({ silent: true });
+        }
+      },
+      [jobId, load],
+    ),
+  );
 
   const job = thread?.job ?? null;
   const threadId = thread?.id ?? job?.job_thread_id ?? jobId;
@@ -298,7 +244,9 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
           {job ? (
             <div className="flex flex-wrap items-center gap-2">
               {status ? (
-                <Badge variant={getStatusBadgeVariant(status)}>{status}</Badge>
+                <Badge variant={getStatusBadgeVariant(status)}>
+                  {getStatusLabel(status)}
+                </Badge>
               ) : null}
               <Badge variant="outline">{getScheduleLabel(job)}</Badge>
               <Badge variant="outline">{runs.length} runs</Badge>
@@ -401,7 +349,13 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
         </>
       ) : null}
 
-      {job ? <RunHistoryCard runs={runs} /> : null}
+      {job ? (
+        <JobRunHistoryCard
+          runs={runs}
+          description="Execution attempts connected to this checkpoint thread."
+          outcome={runOutcome}
+        />
+      ) : null}
     </div>
   );
 }

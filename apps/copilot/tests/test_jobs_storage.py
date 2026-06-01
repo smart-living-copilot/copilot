@@ -19,7 +19,7 @@ from copilot.jobs.models import (
     JobTriggerKind,
     TimeTriggerKind,
 )
-from copilot.jobs.store import JobStore, utc_now
+from copilot.jobs.store import JobRunNotCancellable, JobStore, utc_now
 from copilot.threads.store import init_thread_store
 
 pytestmark = pytest.mark.skipif(
@@ -314,6 +314,75 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated.last_run_status, JobRunStatus.FAILED)
         self.assertEqual(updated.run_count, 1)
         self.assertIsNone(updated.active_run_id)
+
+    async def test_update_job_changes_payload_and_reschedules_interval(self):
+        now = utc_now()
+        job = await self.repo.create_job(
+            CreateJobRequest(
+                name="energy summary",
+                created_from_thread_id="thread-1",
+                prompt="summarize energy",
+                trigger_kind=JobTriggerKind.TIME,
+                schedule_kind=TimeTriggerKind.INTERVAL,
+                interval_seconds=60,
+            ),
+            next_run_at=now,
+            subscription_id=None,
+        )
+
+        updated = await self.repo.update_job(
+            job.id,
+            name="renamed",
+            prompt="summarize energy and water",
+            interval_seconds=120,
+        )
+        self.assertEqual(updated.name, "renamed")
+        self.assertEqual(updated.prompt, "summarize energy and water")
+        self.assertEqual(updated.interval_seconds, 120)
+        self.assertIsNotNone(updated.next_run_at)
+
+        # Disabling clears the next run; re-enabling recomputes it.
+        disabled = await self.repo.update_job(job.id, enabled=False)
+        self.assertFalse(disabled.enabled)
+        self.assertIsNone(disabled.next_run_at)
+
+        reenabled = await self.repo.update_job(job.id, enabled=True)
+        self.assertTrue(reenabled.enabled)
+        self.assertIsNotNone(reenabled.next_run_at)
+
+    async def test_cancel_active_run_releases_lease(self):
+        now = utc_now()
+        job = await self.repo.create_job(
+            CreateJobRequest(
+                name="cancellable",
+                created_from_thread_id="thread-1",
+                prompt="long running",
+                trigger_kind=JobTriggerKind.TIME,
+                schedule_kind=TimeTriggerKind.INTERVAL,
+                interval_seconds=60,
+            ),
+            next_run_at=now,
+            subscription_id=None,
+        )
+
+        with self.assertRaises(JobRunNotCancellable):
+            await self.repo.cancel_active_run(job.id)
+
+        run = await self.repo.try_start_job_run(
+            job_id=job.id,
+            source=JobRunSource.MANUAL,
+            trigger_payload={"source": "manual"},
+            now=now,
+        )
+        self.assertIsNotNone(run)
+
+        cancelled = await self.repo.cancel_active_run(job.id)
+        self.assertEqual(cancelled.last_run_status, JobRunStatus.CANCELLED)
+        self.assertIsNone(cancelled.active_run_id)
+
+        runs = await self.repo.list_job_runs(job.id)
+        self.assertEqual(runs[0].status, JobRunStatus.CANCELLED)
+        self.assertIsNotNone(runs[0].finished_at)
 
 
 if __name__ == "__main__":

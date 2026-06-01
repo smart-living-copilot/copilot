@@ -208,5 +208,21 @@ class CreateJobRequest(BaseModel):
     subscription_input: Any | None = None
 
 
+class UpdateJobRequest(BaseModel):
+    """Partial update for an existing job.
+
+    Only the editable surface is exposed: identity, action payload, the time
+    schedule, and the enabled flag. The trigger/action kind and any event binding
+    are immutable -- changing those requires recreating the job.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    prompt: str | None = None
+    analysis_code: str | None = None
+    interval_seconds: int | None = Field(default=None, ge=1)
+    run_at: datetime | None = None
+    enabled: bool | None = None
+
+
 class ReplyJobRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)

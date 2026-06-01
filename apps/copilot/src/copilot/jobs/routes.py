@@ -7,8 +7,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from copilot.core.api_dependencies import verify_internal_api_key
-from copilot.jobs.models import CreateJobRequest, ReplyJobRequest
-from copilot.jobs.store import JobNotWaitingForInput
+from copilot.jobs.models import CreateJobRequest, ReplyJobRequest, UpdateJobRequest
+from copilot.jobs.store import JobNotWaitingForInput, JobRunNotCancellable
 from copilot.threads.messages import checkpoint_thread_messages
 from copilot.threads.store import get_thread
 
@@ -119,6 +119,36 @@ async def get_job(job_id: str, request: Request):
     except KeyError:
         raise HTTPException(status_code=404, detail="job not found")
     return job.model_dump()
+
+
+@router.patch("/jobs/{job_id}")
+async def update_job(job_id: str, payload: UpdateJobRequest, request: Request):
+    verify_internal_api_key(request)
+    service = request.app.state.service
+    try:
+        job = await service.update_job(job_id, payload)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="job not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return job.model_dump()
+
+
+@router.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str, request: Request):
+    verify_internal_api_key(request)
+    service = request.app.state.service
+    try:
+        job = await service.cancel_job_run(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="job not found")
+    except JobRunNotCancellable as exc:
+        raise HTTPException(status_code=409, detail="job has no active run to cancel") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"ok": True, "job": job.model_dump()}
 
 
 @router.delete("/jobs/{job_id}")
