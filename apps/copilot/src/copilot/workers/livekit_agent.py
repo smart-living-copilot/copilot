@@ -15,6 +15,8 @@ try:
 except ImportError:  # pragma: no cover - optional dependency guard.
     AsyncPostgresSaver = None  # type: ignore[assignment]
 
+from langchain_core.messages import HumanMessage
+
 from copilot.agent import build_graph
 from copilot.agent.tools import LOCAL_TOOLS, REGISTRY_TOOLS
 from copilot.agent.voice import voice_stream_text_from_event
@@ -51,6 +53,31 @@ class CopilotVoiceAgent:
         )
 
 
+def _latest_user_turn_state(state: Any) -> Any:
+    """Reduce adapter input to just the newest user message.
+
+    The LiveKit ``LLMAdapter`` replays the entire ``chat_ctx`` as graph input on
+    every turn, but the graph already persists history through its checkpointer.
+    Feeding both duplicates every assistant message in state (the replayed
+    copies carry LiveKit ids that don't match the checkpointed ones, so
+    ``add_messages`` can't dedupe them), which eventually makes the model echo
+    its own answers. Keep only the latest human turn and let the checkpointer
+    own history.
+    """
+    if not isinstance(state, dict):
+        return state
+    messages = state.get("messages")
+    if not isinstance(messages, list):
+        return state
+    last_human = next(
+        (m for m in reversed(messages) if isinstance(m, HumanMessage)),
+        None,
+    )
+    if last_human is None:
+        return state
+    return {**state, "messages": [last_human]}
+
+
 class VoiceSafeGraphStream:
     """Filter LangGraph message streams to voice-safe assistant text chunks."""
 
@@ -61,6 +88,8 @@ class VoiceSafeGraphStream:
         return getattr(self._graph, name)
 
     def astream(self, *args: Any, **kwargs: Any):
+        if args:
+            args = (_latest_user_turn_state(args[0]), *args[1:])
         events = self._graph.astream(*args, **kwargs)
 
         async def filtered_events():
@@ -514,6 +543,10 @@ async def _run_livekit_session(ctx: Any, settings: Settings) -> None:
             ),
             tts=_make_tts(settings),
             vad=silero.VAD.load(),
+            # Preemptive generation speculatively runs the LLM on the interim
+            # transcript and cannot reuse a LangGraph adapter's output, so the
+            # graph runs (and the answer is spoken) twice per turn. Disable it.
+            preemptive_generation=False,
         )
         await session.start(
             room=ctx.room,
