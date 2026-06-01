@@ -6,7 +6,7 @@ import json
 import logging
 from collections.abc import Sequence
 from datetime import datetime, timezone
-from typing import Any, Literal, cast
+from typing import Any, Literal, Optional, cast
 
 from copilotkit import CopilotKitState
 from langchain_core.messages import (
@@ -237,7 +237,13 @@ def _make_llm_node(
 ):
     prompt = _make_node_prompt(system_text, max_tokens)
 
-    async def node(state: CopilotState, config: RunnableConfig | None = None):
+    # NOTE: keep ``config`` typed as ``Optional[RunnableConfig]``. With
+    # ``from __future__ import annotations`` the annotation is a string, and
+    # LangGraph only injects the runtime config when it reads as
+    # ``"RunnableConfig"`` or ``"Optional[RunnableConfig]"``. Writing it as
+    # ``RunnableConfig | None`` silently disables injection, so ``config`` (and
+    # the ``thread_id`` that look_at_camera needs) arrives as ``None``.
+    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
         active_tools = _active_tools_for_config(tools, config)
         runnable = (
             llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
@@ -289,7 +295,8 @@ def make_analysis_node(
     *,
     parallel_tool_calls: bool = True,
 ):
-    async def node(state: CopilotState, config: RunnableConfig | None = None):
+    # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
+    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(content=ANALYSIS_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
@@ -312,7 +319,8 @@ def make_jobs_node(
     *,
     parallel_tool_calls: bool = True,
 ):
-    async def node(state: CopilotState, config: RunnableConfig | None = None):
+    # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
+    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(content=JOBS_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
