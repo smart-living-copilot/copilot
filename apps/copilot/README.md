@@ -11,6 +11,12 @@
 
 At runtime, the browser talks to `ui`, `ui` proxies agent traffic to `copilot`, and `copilot` uses local LangGraph tools for registry/runtime access and `code-executor` for Python execution. `copilot` owns the job API and result SSE stream, `job-worker` executes jobs and bridges WoT runtime events into Taskiq jobs, and `job-scheduler` sends time-triggered runs. Prompt jobs use hidden per-job LangGraph checkpoint threads, so they can pause for user input without showing those threads in the default sidebar.
 
+Live voice can be run through a self-hosted LiveKit Server plus a separate
+`copilot livekit-agent` process. The local LiveKit worker owns realtime media,
+STT, VAD, TTS, interruption handling, and transcription forwarding, while
+wrapping the same compiled LangGraph graph with LiveKit's `LLMAdapter`. This
+does not require LiveKit Agent Cloud.
+
 ## Request Lifecycle
 
 ```text
@@ -44,6 +50,28 @@ Health endpoint added by the AG-UI FastAPI helper.
 ### `GET /health`
 
 Basic service health check.
+
+### `POST /media/livekit/token`
+
+Creates a short-lived LiveKit participant token for the current chat thread.
+Each token uses a fresh room for that live session; the chat thread id is kept
+in metadata for graph checkpointing.
+
+- Used by: `ui` live media hook
+- Input: `{ "threadId": "<chat id>" }`
+- Output: `{ "enabled": false }` when LiveKit is not configured, otherwise
+  LiveKit URL, token, room, participant identity, and agent name
+- Auth: `Authorization: Bearer <INTERNAL_API_KEY>` when configured
+
+### `POST /media/livekit/dispatch`
+
+Explicitly dispatches the self-hosted LiveKit agent into a room after the
+browser has joined.
+
+- Used by: `ui` live media hook
+- Input: `{ "room": "<room>", "threadId": "<chat id>", "participantIdentity": "<participant>" }`
+- Output: `{ "enabled": true, "dispatched": true }`
+- Auth: `Authorization: Bearer <INTERNAL_API_KEY>` when configured
 
 ### `GET /threads`
 
@@ -206,6 +234,30 @@ pip install -e ".[dev]"
 copilot serve --reload
 ```
 
+For a self-hosted local LiveKit stack through Docker Compose, the default
+compose file starts LiveKit Server and the local agent worker. These are the
+local defaults:
+
+```env
+LIVEKIT_URL=ws://livekit:7880
+LIVEKIT_PUBLIC_URL=ws://localhost:7880
+LIVEKIT_API_KEY=devkey
+LIVEKIT_API_SECRET=secret
+```
+
+```bash
+docker compose up
+```
+
+Run the LiveKit voice worker directly with the LiveKit Agent CLI subcommand you
+need:
+
+```bash
+copilot livekit-agent start
+copilot livekit-agent dev
+copilot livekit-agent connect --room copilot-demo
+```
+
 Postgres-backed tests require `COPILOT_TEST_DATABASE_URL` to point at a
 disposable Postgres database. Tests that need database access are skipped when
 that variable is not set.
@@ -236,32 +288,23 @@ Defined in [`src/copilot/core/settings.py`](./src/copilot/core/settings.py):
 - `REGISTRY_DATABASE_URL`, `AGENT_STATE_DATABASE_URL`
 - `MAX_CONTEXT_TOKENS`
 - `LOG_LEVEL`
-- `MEDIA_RTC_CONFIGURATION`, `MEDIA_SERVER_RTC_CONFIGURATION`
-- `MEDIA_ICE_GATHER_TIMEOUT_MS`
-- `STT_ENABLED`, `STT_TRANSCRIPTIONS_URL`, `STT_MODEL`, `STT_API_KEY`
-- `STT_LANGUAGE`, `STT_TIMEOUT_SECONDS`, `STT_SUBMIT_TO_CHAT`
-- `VAD_THRESHOLD`, `VAD_MIN_SPEECH_MS`, `VAD_MIN_SILENCE_MS`
-- `VAD_SPEECH_PAD_MS`, `VAD_MAX_UTTERANCE_MS`
-- `TTS_ENABLED`, `TTS_SPEECH_URL`, `TTS_MODEL`, `TTS_VOICE`
-- `TTS_API_KEY`, `TTS_RESPONSE_FORMAT`, `TTS_SPEED`, `TTS_TIMEOUT_SECONDS`
+- `LIVEKIT_URL`, `LIVEKIT_PUBLIC_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
+- `LIVEKIT_AGENT_NAME`, `LIVEKIT_ROOM_PREFIX`, `LIVEKIT_TOKEN_TTL_SECONDS`
+- `STT_TRANSCRIPTIONS_URL`, `STT_MODEL`, `STT_API_KEY`, `STT_LANGUAGE`
+- `TTS_SPEECH_URL`, `TTS_MODEL`, `TTS_VOICE`, `TTS_API_KEY`
+- `TTS_RESPONSE_FORMAT`, `TTS_SPEED`
 
-Live media speech-to-text uses backend Silero VAD and an OpenAI-compatible
-`/v1/audio/transcriptions` endpoint configured with `STT_TRANSCRIPTIONS_URL`.
-Assistant speech playback uses an external OpenAI-compatible `/v1/audio/speech`
-endpoint and returns audio over WebRTC.
-For local Kokoro-FastAPI playback, start `docker compose --profile tts up`, set
-`TTS_ENABLED=true`, and choose a `TTS_VOICE` returned by `GET /v1/audio/voices`.
+LiveKit setup is controlled by:
 
-Live media WebRTC setup is controlled by:
+- `LIVEKIT_URL`: internal LiveKit WebSocket URL used by the agent worker, for example `ws://livekit:7880` in Docker or `ws://localhost:7880` outside Docker.
+- `LIVEKIT_PUBLIC_URL`: browser-facing LiveKit WebSocket URL returned by `/media/livekit/token`, for example `ws://localhost:7880`.
+- `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET`: used by `copilot` to mint browser tokens and by `copilot livekit-agent` to register the worker.
+- `LIVEKIT_AGENT_NAME`: explicit dispatch name used by `/media/livekit/dispatch`.
+- `LIVEKIT_ROOM_PREFIX`: prefix for per-session room names.
 
-- `MEDIA_RTC_CONFIGURATION`: JSON passed to the browser `RTCPeerConnection`.
-- `MEDIA_SERVER_RTC_CONFIGURATION`: JSON passed to the backend aiortc peer.
-- `MEDIA_ICE_GATHER_TIMEOUT_MS`: browser-side non-trickle ICE gather wait before the offer is sent.
-
-For production, configure explicit STUN/TURN servers in both RTC configuration
-values and make sure UDP/TURN traffic reaches the media backend. For local
-development, keep `MEDIA_ICE_GATHER_TIMEOUT_MS` low, such as `750`, so Docker
-bridge candidate gathering does not add several seconds before the offer is sent.
+The LiveKit worker uses the existing `OPENAI_*`, `STT_*`, `TTS_*`, `VISION_*`,
+Redis, Postgres, WoT runtime, and code-executor settings. Live media is now
+handled only through LiveKit and the local LiveKit agent worker.
 
 Also defined today but not currently wired into the graph execution path:
 
@@ -274,7 +317,7 @@ Also defined today but not currently wired into the graph execution path:
 - [`src/copilot/catalog`](./src/copilot/catalog): Thing catalog, credentials, validation, and event outbox
 - [`src/copilot/thing_indexer`](./src/copilot/thing_indexer): Thing search indexing domain logic
 - [`src/copilot/workers`](./src/copilot/workers): process role entrypoints for jobs, scheduler, and indexing
-- [`src/copilot/media`](./src/copilot/media): browser media ingress, speech pipeline, live camera helpers, and media routes
+- [`src/copilot/media`](./src/copilot/media): LiveKit token helpers, live camera frame storage, and media routes
 - [`src/copilot/threads`](./src/copilot/threads): thread metadata storage, title helpers, and thread routes
 - [`src/copilot/core/llm.py`](./src/copilot/core/llm.py): model factory
 - [`src/copilot/agent/builder.py`](./src/copilot/agent/builder.py): graph assembly

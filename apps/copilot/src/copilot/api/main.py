@@ -2,14 +2,12 @@
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from ag_ui_langgraph import add_langgraph_fastapi_endpoint  # type: ignore[import-untyped]
 from copilotkit import LangGraphAGUIAgent
 from fastapi import FastAPI
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 
 try:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -23,11 +21,6 @@ from copilot.core.database import get_connection_pool, init_db, psycopg_conninfo
 from copilot.core.health import router as registry_health_router
 from copilot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
 from copilot.agent import build_graph
-from copilot.media import (
-    create_media_stream,
-    SemanticTextChunker,
-    speech_pipelines,
-)
 from copilot.media.routes import create_media_router
 from copilot.core.settings import Settings as AgentSettings
 from copilot.threads import (
@@ -47,11 +40,6 @@ from copilot.catalog.router import router as things_router
 
 logger = logging.getLogger(__name__)
 EMBED_EPHEMERAL_THREAD_PREFIX = "embed-ephemeral-"
-NOISY_MEDIA_LOGGERS = (
-    "aiortc",
-    "aioice",
-    "fastrtc",
-)
 
 # Module-level references kept alive for the process lifetime.
 _agent: LangGraphAGUIAgent | None = None
@@ -65,11 +53,6 @@ _thread_run_locks_guard = asyncio.Lock()
 
 def _is_embed_ephemeral_thread(thread_id: str | None) -> bool:
     return isinstance(thread_id, str) and thread_id.startswith(EMBED_EPHEMERAL_THREAD_PREFIX)
-
-
-def _quiet_noisy_media_loggers() -> None:
-    for logger_name in NOISY_MEDIA_LOGGERS:
-        logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
 def _checkpoint_database_url(
@@ -215,124 +198,6 @@ class _AGUIAgentProxy:
             await _finalize_thread_run(thread_id)
 
 
-def _assistant_text_from_graph_result(result: Any) -> str:
-    if not isinstance(result, dict):
-        return ""
-    messages = result.get("messages")
-    if not isinstance(messages, list):
-        return ""
-    for message in reversed(messages):
-        if not isinstance(message, AIMessage):
-            continue
-        return _text_from_message_content(message.content).strip()
-    return ""
-
-
-def _assistant_text_from_job_result(result: dict[str, Any]) -> str:
-    for key in ("assistant", "waiting_question", "error"):
-        value = result.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-
-    response = result.get("response")
-    if isinstance(response, str) and response.strip():
-        return response.strip()
-    return ""
-
-
-def _text_from_message_content(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return ""
-    text_parts = []
-    for item in content:
-        if isinstance(item, str):
-            text_parts.append(item)
-        elif isinstance(item, dict) and isinstance(item.get("text"), str):
-            text_parts.append(item["text"])
-    return "".join(text_parts)
-
-
-def _voice_stream_text_from_event(event: Any) -> str:
-    if not isinstance(event, tuple) or len(event) != 2:
-        return ""
-    message, metadata = event
-    if not isinstance(message, AIMessageChunk) or not isinstance(metadata, dict):
-        return ""
-    if metadata.get("langgraph_node") not in {"respond", "control_llm", "analysis_llm"}:
-        return ""
-    if getattr(message, "tool_call_chunks", None):
-        return ""
-    return _text_from_message_content(message.content)
-
-
-async def _reply_to_waiting_job_thread(thread_id: str, transcript: str) -> str | None:
-    if _job_service is None:
-        return None
-
-    result = await _job_service.reply_to_waiting_thread(thread_id, transcript)
-    if result is None:
-        return None
-    if result.get("ok") is False:
-        raise RuntimeError(str(result.get("error") or "Job reply failed."))
-
-    return _assistant_text_from_job_result(result) or "Reply submitted."
-
-
-async def _submit_voice_transcript_to_chat(thread_id: str, transcript: str) -> str:
-    if _graph is None:
-        raise RuntimeError("LangGraph is not ready")
-
-    lock = await _thread_run_lock(thread_id)
-    async with lock:
-        try:
-            job_reply = await _reply_to_waiting_job_thread(thread_id, transcript)
-            if job_reply is not None:
-                return job_reply
-
-            result = await _graph.ainvoke(
-                {"messages": [HumanMessage(content=transcript)]},
-                config={"configurable": {"thread_id": thread_id}},
-            )
-            return _assistant_text_from_graph_result(result)
-        finally:
-            await _finalize_thread_run(thread_id)
-
-
-async def _stream_voice_transcript_to_chat(
-    thread_id: str,
-    transcript: str,
-) -> AsyncIterator[str]:
-    if _graph is None:
-        raise RuntimeError("LangGraph is not ready")
-
-    chunker = SemanticTextChunker()
-    lock = await _thread_run_lock(thread_id)
-    async with lock:
-        try:
-            job_reply = await _reply_to_waiting_job_thread(thread_id, transcript)
-            if job_reply is not None:
-                yield job_reply
-                return
-
-            async for event in _graph.astream(
-                {"messages": [HumanMessage(content=transcript)]},
-                config={"configurable": {"thread_id": thread_id}},
-                stream_mode="messages",
-            ):
-                text = _voice_stream_text_from_event(event)
-                if not text:
-                    continue
-                for chunk in chunker.accept(text):
-                    yield chunk
-            final_chunk = chunker.flush()
-            if final_chunk:
-                yield final_chunk
-        finally:
-            await _finalize_thread_run(thread_id)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _agent, _graph, _checkpointer, _settings, _job_service
@@ -340,7 +205,6 @@ async def lifespan(app: FastAPI):
     settings = AgentSettings()
     _settings = settings
     logging.basicConfig(level=settings.log_level)
-    _quiet_noisy_media_loggers()
     await asyncio.to_thread(init_db)
     await asyncio.to_thread(init_thread_store)
 
@@ -374,11 +238,6 @@ async def lifespan(app: FastAPI):
             )
             graph = graph.with_config(recursion_limit=settings.recursion_limit)
             _graph = graph
-            speech_pipelines.configure(
-                settings,
-                _submit_voice_transcript_to_chat,
-                _stream_voice_transcript_to_chat,
-            )
 
             logger.info(
                 "Graph created with %d registry tools, model=%s, recursion_limit=%d",
@@ -406,7 +265,6 @@ async def lifespan(app: FastAPI):
             set_active_job_service(None)
             if _job_service is not None:
                 await _job_service.stop()
-            await speech_pipelines.stop_all()
             app.state.checkpointer = None
     finally:
         await shutdown_backend_runtime(app)
@@ -420,7 +278,6 @@ app.include_router(search_router)
 app.include_router(things_router)
 app.include_router(api_keys_router)
 app.include_router(jobs_router)
-_media_stream = create_media_stream()
 
 
 def _current_settings() -> AgentSettings | None:
@@ -503,8 +360,3 @@ app.include_router(
         verify_internal_api_key=verify_internal_api_key,
     )
 )
-
-if _media_stream is not None:
-    # Keep explicit /media routes above the mounted FastRTC app; Starlette
-    # matches routes in registration order.
-    _media_stream.mount(app, path="/media", tags=["media"])

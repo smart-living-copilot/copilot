@@ -57,6 +57,12 @@ def _thing_indexer(_args: argparse.Namespace) -> None:
     run()
 
 
+def _livekit_agent(_args: argparse.Namespace) -> None:
+    from copilot.workers.livekit_agent import run
+
+    run(_args.livekit_args)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="copilot")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -78,6 +84,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Run the thing search indexer worker",
     )
     thing_indexer.set_defaults(func=_thing_indexer)
+
+    livekit_agent = subparsers.add_parser(
+        "livekit-agent",
+        help="Run the LiveKit voice agent worker",
+    )
+    livekit_agent.add_argument("livekit_args", nargs=argparse.REMAINDER)
+    livekit_agent.set_defaults(func=_livekit_agent)
 
     args = parser.parse_args(argv)
     args.func(args)

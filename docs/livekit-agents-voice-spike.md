@@ -6,6 +6,10 @@ Replace the custom browser WebRTC, VAD, STT, TTS, and speech pipeline glue with
 LiveKit Agents, while keeping the existing LangGraph application as the core
 reasoning layer.
 
+Target deployment: self-hosted only. Run LiveKit Server and the LiveKit agent
+worker on our own infrastructure; do not use LiveKit Agent Cloud / Cloud Run as
+part of the default architecture.
+
 This is not a proposal to replace LangGraph. LiveKit should own realtime media
 transport and voice-agent session handling. LangGraph should remain the source
 of truth for prompts, tools, checkpointed thread state, and smart-home behavior.
@@ -22,6 +26,10 @@ of truth for prompts, tools, checkpointed thread state, and smart-home behavior.
   https://docs.livekit.io/agents/models/realtime/plugins/openai/
 - LiveKit access tokens and room grants:
   https://docs.livekit.io/frontends/authentication/tokens/
+- LiveKit self-hosted agent deployments:
+  https://docs.livekit.io/deploy/custom/deployments/
+- LiveKit local server:
+  https://docs.livekit.io/transport/self-hosting/local/
 - User-provided LangGraph example:
   https://github.com/livekit/agents/blob/1dcdb942571348ef7bb216de12b8058aa8b3f8f4/examples/voice_agents/langgraph_agent.py#L7
 
@@ -83,20 +91,26 @@ Browser:
 - Use `livekit-client` or LiveKit React components instead of manual
   `RTCPeerConnection` setup.
 - Request a short-lived LiveKit token from the backend.
-- Join a LiveKit room and publish microphone audio and, when enabled, camera
-  video.
+- Join a fresh LiveKit room, explicitly dispatch the self-hosted agent, and
+  publish microphone audio and, when enabled, camera video.
 
 Backend API:
 
 - Add a token endpoint, for example `/media/livekit/token`.
 - Generate a LiveKit access token with room join permissions.
+- Add an explicit dispatch endpoint, for example `/media/livekit/dispatch`, so
+  a missing worker fails visibly instead of leaving the browser in a room with
+  no STT agent.
 - Put the current `thread_id` into participant metadata, participant attributes,
-  or room-agent dispatch metadata.
+  and explicit agent dispatch metadata.
+- Return a browser-facing `LIVEKIT_PUBLIC_URL`; keep `LIVEKIT_URL` free to point
+  at the internal self-hosted LiveKit Server address used by the agent worker.
 - Keep the existing HTTP chat and thread APIs unchanged.
 
 LiveKit agent worker:
 
 - Join the same LiveKit room as an agent participant.
+- Register with the self-hosted LiveKit Server over WebSocket.
 - Configure LiveKit STT, turn detection, interruption handling, and TTS.
 - Use the compiled LangGraph graph through `langchain.LLMAdapter`, or call the
   existing graph streaming endpoint if shared graph ownership is needed.
@@ -112,31 +126,25 @@ LangGraph:
   those locks unless they move to a shared mechanism or the graph remains behind
   one FastAPI-owned endpoint.
 
-## What This Could Remove
+## Removed In The LiveKit-Only Path
 
-Likely replace or retire:
+The migration now removes the old browser-media fallback:
 
-- `apps/copilot/src/copilot/media:create_media_stream`
-- FastRTC as the browser media ingress path
-- The manual WebRTC offer flow in
-  `apps/ui/src/hooks/use-media-ingress-session.ts`
-- `/media/rtc-configuration`
-- `/media/webrtc/offer`
-- Most of the custom speech stack under `apps/copilot/src/copilot/media`, including VAD,
-  STT orchestration, TTS queuing, and playback interruption code
-- The direct `silero-vad` dependency if LiveKit's own VAD or turn detector is
-  used instead
+- The custom browser offer/answer media ingress path.
+- The manual offer flow in `apps/ui/src/hooks/use-media-ingress-session.ts`.
+- The old media setup and offer endpoints.
+- The custom backend speech stack under `apps/copilot/src/copilot/media`,
+  including local VAD, STT orchestration, TTS queuing, and playback
+  interruption code.
+- The direct local VAD dependency and Dockerfile preinstall step.
 
-Likely keep or adapt:
+The LiveKit-only path keeps:
 
-- `MediaSessionRegistry`, or a LiveKit-backed equivalent, if the UI still needs
-  session snapshots and text status
-- `/media/sessions/{id}/stream`, if the current UI should keep receiving
-  transcript and assistant text updates over SSE
-- The `look_at_camera` behavior, but the image source should become the LiveKit
-  video track instead of FastRTC frame capture
-- The LangGraph streaming semantics in `_stream_voice_transcript_to_chat`, unless
-  `LLMAdapter` gives enough streaming and UI event fidelity directly
+- The LiveKit token endpoint.
+- The explicit LiveKit agent dispatch endpoint.
+- A small in-process camera frame registry for `look_at_camera`.
+- LiveKit transcription streams for live transcript and assistant text UI.
+- LangGraph message filtering around `LLMAdapter`.
 
 ## Open Questions
 
@@ -155,19 +163,18 @@ Likely keep or adapt:
 
 ## Suggested Migration Plan
 
-1. Add optional LiveKit config and dependencies without removing FastRTC.
+1. Add optional LiveKit config and dependencies.
 2. Extract graph construction into a reusable function that both FastAPI and a
    worker can call.
 3. Add a minimal LiveKit voice worker that joins one room and uses
    `langchain.LLMAdapter(graph=compiled_graph)`.
 4. Add a backend token endpoint with `thread_id` propagation.
-5. Add a feature-flagged frontend path using LiveKit client connection instead
-   of manual WebRTC offer creation.
+5. Add a frontend path using LiveKit client connection.
 6. Verify end-to-end voice turn flow: user speech, transcript, LangGraph tool
    calls, assistant response, TTS, interruption.
 7. Verify camera-frame parity for `look_at_camera`.
-8. Once parity is good, remove the custom FastRTC/speech stack and simplify the
-   media API around LiveKit session state.
+8. Remove the custom speech stack and simplify the media API around LiveKit
+   session state.
 
 ## Recommendation
 

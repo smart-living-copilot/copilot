@@ -9,15 +9,16 @@ dependencies = [
     "langgraph>=0.4",
     "langgraph-prebuilt<1.0.8",
     "langgraph-checkpoint-postgres>=2.0",
+    "livekit-agents[langchain,openai,silero]~=1.5",
     "copilotkit>=0.1.31",
     "fastapi>=0.128,<1",
-    "fastrtc>=0.0.34",
     "uvicorn[standard]>=0.37,<1",
     "pydantic-settings>=2.7",
     "httpx>=0.27",
     "redis>=7,<8",
-    "silero-vad[onnx-cpu]>=6.2",
     "aiohttp>=3.10",
+    "numpy>=1.26",
+    "pillow>=10",
     "jsonschema>=4.25.1,<5",
     "langchain-core>=1.0,<2",
     "openai>=2.29,<3",
@@ -27,7 +28,6 @@ dependencies = [
     "taskiq>=0.12,<1",
     "taskiq-redis>=1.2,<2",
     "python-dotenv>=1.0",
-    "python-multipart>=0.0.20",
 ]
 
 [project.optional-dependencies]

@@ -23,6 +23,18 @@ services:
       PYTHONPATH: "/app/src"
     command: ["copilot", "job-worker"]
 
+  livekit-agent:
+    build:
+      context: ../apps/copilot
+      dockerfile: Dockerfile
+    volumes:
+      - ../apps/copilot/src:/app/src:cached
+      - ../apps/copilot/tests:/app/tests:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+      PYTHONPATH: "/app/src"
+    command: ["copilot", "livekit-agent", "start"]
+
   job-scheduler:
     build:
       context: ../apps/copilot

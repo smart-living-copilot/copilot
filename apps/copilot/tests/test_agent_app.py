@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage, AIMessageChunk
 
 import copilot.api.main as copilot_app
 from copilot.core.settings import Settings
@@ -65,7 +64,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
             },
         )
 
-    def test_lifespan_exposes_compiled_graph_to_voice_handlers(self) -> None:
+    def test_lifespan_exposes_compiled_graph(self) -> None:
         class FakeGraph:
             def __init__(self) -> None:
                 self.configs: list[dict] = []
@@ -101,8 +100,6 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 patch.object(copilot_app, "LangGraphAGUIAgent", return_value=object()),
                 patch.object(copilot_app, "JobService", return_value=fake_job_service),
                 patch.object(copilot_app, "set_active_job_service"),
-                patch.object(copilot_app.speech_pipelines, "configure"),
-                patch.object(copilot_app.speech_pipelines, "stop_all", AsyncMock()),
             ):
                 async with copilot_app.lifespan(copilot_app.app):
                     self.assertIs(copilot_app._graph, fake_graph)
@@ -112,25 +109,97 @@ class AgentAppRoutesTestCase(unittest.TestCase):
 
         asyncio.run(exercise())
 
-    def test_media_rtc_configuration_includes_ice_gather_timeout(self) -> None:
-        self._set_settings(Settings(
-            internal_api_key="test-internal-key",
-            media_rtc_configuration='{"iceServers":[]}',
-            media_ice_gather_timeout_ms=500,
-        ))
+    def test_livekit_token_endpoint_reports_disabled_when_unconfigured(self) -> None:
+        self._set_settings(Settings(internal_api_key="test-internal-key"))
 
-        response = self.client.get(
-            "/media/rtc-configuration",
+        response = self.client.post(
+            "/media/livekit/token",
+            json={"threadId": "thread-a"},
             headers={"Authorization": "Bearer test-internal-key"},
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            {
-                "iceServers": [],
-                "iceGatherTimeoutMs": 500,
-            },
+        self.assertEqual(response.json(), {"enabled": False})
+
+    def test_legacy_media_endpoints_are_removed(self) -> None:
+        self._set_settings(Settings(internal_api_key="test-internal-key"))
+
+        rtc_response = self.client.get(
+            "/media/rtc-configuration",
+            headers={"Authorization": "Bearer test-internal-key"},
+        )
+        offer_response = self.client.post(
+            "/media/webrtc/offer",
+            json={},
+            headers={"Authorization": "Bearer test-internal-key"},
+        )
+
+        self.assertEqual(rtc_response.status_code, 404)
+        self.assertEqual(offer_response.status_code, 404)
+
+    def test_livekit_token_endpoint_creates_connection_details(self) -> None:
+        class FakeLiveKitDetails:
+            def as_response(self):
+                return {
+                    "enabled": True,
+                    "url": "ws://livekit:7880",
+                    "token": "token-a",
+                    "room": "copilot-thread-a",
+                    "participantIdentity": "web-a",
+                    "agentName": "smart-living-copilot",
+                    "expiresInSeconds": 600,
+                }
+
+        settings = Settings(
+            internal_api_key="test-internal-key",
+            livekit_url="ws://livekit:7880",
+            livekit_public_url="ws://localhost:7880",
+            livekit_api_key="devkey",
+            livekit_api_secret="secret",
+        )
+        self._set_settings(settings)
+
+        with patch(
+            "copilot.media.routes.create_livekit_connection_details",
+            return_value=FakeLiveKitDetails(),
+        ) as create_details:
+            response = self.client.post(
+                "/media/livekit/token",
+                json={"threadId": "thread-a"},
+                headers={"Authorization": "Bearer test-internal-key"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["token"], "token-a")
+        create_details.assert_called_once_with(settings, thread_id="thread-a")
+
+    def test_livekit_dispatch_endpoint_dispatches_agent(self) -> None:
+        settings = Settings(
+            internal_api_key="test-internal-key",
+            livekit_url="ws://livekit:7880",
+            livekit_api_key="devkey",
+            livekit_api_secret="secret",
+        )
+        self._set_settings(settings)
+
+        with patch("copilot.media.routes.dispatch_livekit_agent") as dispatch_agent:
+            response = self.client.post(
+                "/media/livekit/dispatch",
+                json={
+                    "room": "copilot-thread-a-session-a",
+                    "threadId": "thread-a",
+                    "participantIdentity": "web-a",
+                },
+                headers={"Authorization": "Bearer test-internal-key"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"enabled": True, "dispatched": True})
+        dispatch_agent.assert_awaited_once_with(
+            settings,
+            room="copilot-thread-a-session-a",
+            thread_id="thread-a",
+            participant_identity="web-a",
         )
 
     def test_ag_ui_endpoint_validates_required_run_agent_input_fields(self) -> None:
@@ -184,153 +253,6 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         events = asyncio.run(collect_events())
 
         self.assertEqual(events, [{"event": "done"}])
-
-    def test_voice_transcript_submission_invokes_graph_with_thread_lock(self) -> None:
-        class FakeGraph:
-            def __init__(self) -> None:
-                self.calls: list[tuple[dict, dict]] = []
-
-            async def ainvoke(self, input_data, config):
-                self.calls.append((input_data, config))
-                await asyncio.sleep(0.01)
-                return {
-                    "messages": [AIMessage(content=f"reply to {input_data['messages'][0].content}")]
-                }
-
-        fake_graph = FakeGraph()
-        copilot_app._graph = fake_graph
-
-        async def submit_twice():
-            return await asyncio.gather(
-                copilot_app._submit_voice_transcript_to_chat("thread-a", "first"),
-                copilot_app._submit_voice_transcript_to_chat("thread-a", "second"),
-            )
-
-        results = asyncio.run(submit_twice())
-
-        self.assertEqual(len(fake_graph.calls), 2)
-        self.assertEqual(
-            [call[1] for call in fake_graph.calls],
-            [
-                {"configurable": {"thread_id": "thread-a"}},
-                {"configurable": {"thread_id": "thread-a"}},
-            ],
-        )
-        self.assertEqual(
-            [call[0]["messages"][0].content for call in fake_graph.calls],
-            ["first", "second"],
-        )
-        self.assertEqual(results, ["reply to first", "reply to second"])
-
-    def test_voice_transcript_submission_cancels_graph_invocation(self) -> None:
-        class FakeGraph:
-            def __init__(self) -> None:
-                self.started = asyncio.Event()
-                self.cancelled = asyncio.Event()
-
-            async def ainvoke(self, _input_data, config):
-                self.started.set()
-                try:
-                    await asyncio.Event().wait()
-                except asyncio.CancelledError:
-                    self.cancelled.set()
-                    raise
-
-        fake_graph = FakeGraph()
-        copilot_app._graph = fake_graph
-
-        async def exercise():
-            task = asyncio.create_task(
-                copilot_app._submit_voice_transcript_to_chat("thread-a", "cancel me")
-            )
-            await asyncio.wait_for(fake_graph.started.wait(), timeout=1)
-            task.cancel()
-            with self.assertRaises(asyncio.CancelledError):
-                await task
-            await asyncio.wait_for(fake_graph.cancelled.wait(), timeout=1)
-
-        asyncio.run(exercise())
-
-    def test_voice_transcript_streaming_yields_semantic_chunks(self) -> None:
-        class FakeGraph:
-            def __init__(self) -> None:
-                self.calls: list[tuple[dict, dict, str]] = []
-
-            async def astream(self, input_data, config, stream_mode):
-                self.calls.append((input_data, config, stream_mode))
-                yield (
-                    AIMessageChunk(content='{"intent":"chat"}'),
-                    {"langgraph_node": "router"},
-                )
-                yield (
-                    AIMessageChunk(content="The living room light is now on. "),
-                    {"langgraph_node": "respond"},
-                )
-                yield (
-                    AIMessageChunk(content="I left the hallway unchanged."),
-                    {"langgraph_node": "respond"},
-                )
-
-        fake_graph = FakeGraph()
-        copilot_app._graph = fake_graph
-
-        async def collect_chunks():
-            return [
-                chunk
-                async for chunk in copilot_app._stream_voice_transcript_to_chat(
-                    "thread-a",
-                    "turn on the light",
-                )
-            ]
-
-        chunks = asyncio.run(collect_chunks())
-
-        self.assertEqual(
-            chunks,
-            ["The living room light is now on.", "I left the hallway unchanged."],
-        )
-        self.assertEqual(len(fake_graph.calls), 1)
-        self.assertEqual(fake_graph.calls[0][2], "messages")
-
-    def test_voice_transcript_streaming_cancels_graph_stream(self) -> None:
-        class FakeGraph:
-            def __init__(self) -> None:
-                self.started = asyncio.Event()
-                self.cancelled = asyncio.Event()
-
-            async def astream(self, _input_data, config, stream_mode):
-                self.started.set()
-                try:
-                    await asyncio.Event().wait()
-                    yield (
-                        AIMessageChunk(content="unreachable"),
-                        {"langgraph_node": "respond"},
-                    )
-                except asyncio.CancelledError:
-                    self.cancelled.set()
-                    raise
-
-        fake_graph = FakeGraph()
-        copilot_app._graph = fake_graph
-
-        async def exercise():
-            async def collect():
-                return [
-                    chunk
-                    async for chunk in copilot_app._stream_voice_transcript_to_chat(
-                        "thread-a",
-                        "cancel me",
-                    )
-                ]
-
-            task = asyncio.create_task(collect())
-            await asyncio.wait_for(fake_graph.started.wait(), timeout=1)
-            task.cancel()
-            with self.assertRaises(asyncio.CancelledError):
-                await task
-            await asyncio.wait_for(fake_graph.cancelled.wait(), timeout=1)
-
-        asyncio.run(exercise())
 
     def test_ag_ui_proxy_cleans_up_embed_ephemeral_checkpoints(self) -> None:
         class FakeAgent:

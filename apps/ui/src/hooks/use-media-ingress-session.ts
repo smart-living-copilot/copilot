@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Room, RoomEvent, Track } from 'livekit-client';
 
 export type MediaIngressState =
   | 'idle'
@@ -25,34 +26,26 @@ export interface MediaIngressSession {
   stop: () => void;
 }
 
-type MediaRtcConfiguration = RTCConfiguration & {
-  iceGatherTimeoutMs?: number;
-};
-
-interface MediaSessionSnapshot {
-  assistant_response_pending?: boolean | null;
-  latest_assistant_text?: string | null;
-  latest_transcript_text?: string | null;
+interface LiveKitTokenResponse {
+  enabled?: boolean;
+  url?: string;
+  token?: string;
+  room?: string;
+  participantIdentity?: string;
+  agentName?: string;
 }
 
-interface IceGatherResult {
-  candidateCount: number;
-  durationMs: number;
-  state: RTCIceGatheringState;
-  timedOut: boolean;
+interface LiveKitTextStreamReader {
+  readAll: () => Promise<string>;
+  info?: {
+    attributes?: Record<string, string | undefined>;
+  };
 }
 
-const DEFAULT_ICE_GATHER_TIMEOUT_MS = 750;
-
-function createWebrtcId() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-  return `media-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function mediaTimestamp() {
-  return Math.round(performance.now());
+interface LiveKitParticipantInfo {
+  identity?: string;
+  kind?: string | number;
+  name?: string;
 }
 
 function logMediaConnectionStep(
@@ -68,64 +61,91 @@ function logMediaConnectionStep(
   });
 }
 
-function normalizeIceGatherTimeout(value: unknown) {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return DEFAULT_ICE_GATHER_TIMEOUT_MS;
-  }
-  return Math.max(0, Math.round(value));
+function cloneMediaStream(stream: MediaStream) {
+  return new MediaStream(stream.getTracks());
 }
 
-function waitForIceGatheringComplete(
-  peerConnection: RTCPeerConnection,
-  timeoutMs: number,
-): Promise<IceGatherResult> {
-  if (peerConnection.iceGatheringState === 'complete') {
-    return Promise.resolve({
-      candidateCount: 0,
-      durationMs: 0,
-      state: peerConnection.iceGatheringState,
-      timedOut: false,
-    });
+function liveKitParticipantLooksLikeAgent(
+  participantInfo: LiveKitParticipantInfo,
+) {
+  const identity = participantInfo.identity?.toLowerCase() || '';
+  const kind = String(participantInfo.kind ?? '').toLowerCase();
+  return (
+    kind.includes('agent') ||
+    identity.startsWith('agent-') ||
+    identity.includes('copilot')
+  );
+}
+
+function liveKitSourceForTrack(track: MediaStreamTrack) {
+  if (track.kind === 'audio') {
+    return Track.Source.Microphone;
+  }
+  if (track.kind === 'video') {
+    return Track.Source.Camera;
+  }
+  return Track.Source.Unknown;
+}
+
+async function requestLiveKitToken(
+  chatId: string,
+): Promise<LiveKitTokenResponse> {
+  const response = await fetch('/api/media/livekit/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ threadId: chatId }),
+  });
+
+  const body = (await response.json().catch(() => null)) as
+    | (LiveKitTokenResponse & { detail?: string })
+    | null;
+
+  if (!response.ok) {
+    throw new Error(
+      body?.detail || 'Could not load LiveKit connection settings',
+    );
   }
 
-  return new Promise<IceGatherResult>((resolve) => {
-    const startedAt = mediaTimestamp();
-    let candidateCount = 0;
-    const timeout = window.setTimeout(() => done(true), timeoutMs);
+  if (!body?.enabled) {
+    throw new Error('LiveKit is not configured');
+  }
 
-    function done(timedOut: boolean) {
-      window.clearTimeout(timeout);
-      peerConnection.removeEventListener(
-        'icegatheringstatechange',
-        handleStateChange,
-      );
-      peerConnection.removeEventListener('icecandidate', handleIceCandidate);
-      resolve({
-        candidateCount,
-        durationMs: mediaTimestamp() - startedAt,
-        state: peerConnection.iceGatheringState,
-        timedOut,
-      });
-    }
+  if (!body.url || !body.token) {
+    throw new Error('LiveKit connection settings are incomplete');
+  }
 
-    function handleIceCandidate(event: RTCPeerConnectionIceEvent) {
-      if (event.candidate) {
-        candidateCount += 1;
-      }
-    }
+  return body;
+}
 
-    function handleStateChange() {
-      if (peerConnection.iceGatheringState === 'complete') {
-        done(false);
-      }
-    }
+async function requestLiveKitAgentDispatch(
+  connection: LiveKitTokenResponse,
+  chatId: string,
+) {
+  if (!connection.room) {
+    throw new Error('LiveKit room is missing');
+  }
 
-    peerConnection.addEventListener('icecandidate', handleIceCandidate);
-    peerConnection.addEventListener(
-      'icegatheringstatechange',
-      handleStateChange,
-    );
+  const response = await fetch('/api/media/livekit/dispatch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      room: connection.room,
+      threadId: chatId,
+      participantIdentity: connection.participantIdentity || '',
+    }),
   });
+
+  const body = (await response.json().catch(() => null)) as
+    | { enabled?: boolean; dispatched?: boolean; detail?: string }
+    | null;
+
+  if (!response.ok) {
+    throw new Error(body?.detail || 'Could not start the LiveKit agent');
+  }
+
+  if (!body?.enabled || !body.dispatched) {
+    throw new Error('LiveKit agent dispatch is not available');
+  }
 }
 
 export function useMediaIngressSession(chatId: string): MediaIngressSession {
@@ -133,7 +153,6 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
   const [error, setError] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [webrtcId, setWebrtcId] = useState<string | null>(null);
   const [latestAssistantText, setLatestAssistantText] = useState<string | null>(
     null,
   );
@@ -144,9 +163,9 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     useState(false);
   const [isMicrophoneMuted, setMicrophoneMutedState] = useState(false);
   const [isCameraEnabled, setCameraEnabledState] = useState(true);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const liveKitRoomRef = useRef<Room | null>(null);
+  const liveKitRemoteStreamRef = useRef<MediaStream | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const webrtcIdRef = useRef<string | null>(null);
 
   const setMicrophoneMuted = useCallback((muted: boolean) => {
     setMicrophoneMutedState(muted);
@@ -162,11 +181,13 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     });
   }, []);
 
-  const cleanupMedia = useCallback((deleteSession: boolean) => {
-    const peerConnection = peerConnectionRef.current;
-    peerConnectionRef.current = null;
-    if (peerConnection) {
-      peerConnection.close();
+  const cleanupMedia = useCallback(() => {
+    const liveKitRoom = liveKitRoomRef.current;
+    liveKitRoomRef.current = null;
+    liveKitRemoteStreamRef.current = null;
+    if (liveKitRoom) {
+      liveKitRoom.removeAllListeners();
+      void liveKitRoom.disconnect();
     }
 
     const stream = streamRef.current;
@@ -179,33 +200,164 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     setAssistantResponsePending(false);
     setMicrophoneMutedState(false);
     setCameraEnabledState(true);
-
-    const currentWebrtcId = webrtcIdRef.current;
-    webrtcIdRef.current = null;
-    setWebrtcId(null);
-    if (deleteSession && currentWebrtcId) {
-      void fetch(`/api/media/sessions/${encodeURIComponent(currentWebrtcId)}`, {
-        method: 'DELETE',
-        keepalive: true,
-      }).catch(() => {
-        // Media cleanup is best-effort; WebRTC close also notifies the backend.
-      });
-    }
   }, []);
 
   const stop = useCallback(() => {
-    cleanupMedia(true);
+    cleanupMedia();
     setError(null);
     setState('idle');
   }, [cleanupMedia]);
 
   const fail = useCallback(
     (message: string) => {
-      cleanupMedia(true);
+      cleanupMedia();
       setError(message);
       setState('error');
     },
     [cleanupMedia],
+  );
+
+  const startLiveKitConnection = useCallback(
+    async (connection: LiveKitTokenResponse, startedAt: number) => {
+      if (!connection.url || !connection.token) {
+        throw new Error('LiveKit connection settings are incomplete');
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Media capture is not available in this browser');
+      }
+
+      const capturedStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 360 },
+          frameRate: { ideal: 15, max: 30 },
+        },
+      });
+      capturedStream.getAudioTracks().forEach((track) => {
+        track.enabled = true;
+      });
+      capturedStream.getVideoTracks().forEach((track) => {
+        track.enabled = true;
+      });
+      streamRef.current = capturedStream;
+      setLocalStream(capturedStream);
+
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
+      const nextRemoteStream = new MediaStream();
+      liveKitRoomRef.current = room;
+      liveKitRemoteStreamRef.current = nextRemoteStream;
+      setState('connecting');
+
+      const updateRemoteStream = () => {
+        const currentStream = liveKitRemoteStreamRef.current;
+        setRemoteStream(currentStream ? cloneMediaStream(currentStream) : null);
+      };
+
+      room.on(RoomEvent.Disconnected, () => {
+        if (liveKitRoomRef.current === room) {
+          fail('Media connection ended');
+        }
+      });
+
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (
+          track.kind !== Track.Kind.Audio &&
+          track.kind !== Track.Kind.Video
+        ) {
+          return;
+        }
+        const mediaTrack = track.mediaStreamTrack;
+        if (
+          nextRemoteStream
+            .getTracks()
+            .some((existingTrack) => existingTrack.id === mediaTrack.id)
+        ) {
+          return;
+        }
+        nextRemoteStream.addTrack(mediaTrack);
+        updateRemoteStream();
+      });
+
+      room.on(RoomEvent.TrackUnsubscribed, (track) => {
+        if (
+          track.kind !== Track.Kind.Audio &&
+          track.kind !== Track.Kind.Video
+        ) {
+          return;
+        }
+        nextRemoteStream.removeTrack(track.mediaStreamTrack);
+        updateRemoteStream();
+      });
+
+      room.registerTextStreamHandler(
+        'lk.transcription',
+        (reader, participantInfo) => {
+          void (async () => {
+            const message = (
+              await (reader as LiveKitTextStreamReader).readAll()
+            ).trim();
+            if (!message) {
+              return;
+            }
+
+            const typedParticipant = participantInfo as LiveKitParticipantInfo;
+            if (liveKitParticipantLooksLikeAgent(typedParticipant)) {
+              setLatestAssistantText(message);
+              setAssistantResponsePending(false);
+              return;
+            }
+
+            setLatestUserTranscript(message);
+            if (
+              (reader as LiveKitTextStreamReader).info?.attributes?.[
+                'lk.transcription_final'
+              ] === 'true'
+            ) {
+              setAssistantResponsePending(true);
+            }
+          })().catch((transcriptionError) => {
+            console.debug(
+              'Could not read LiveKit transcription',
+              transcriptionError,
+            );
+          });
+        },
+      );
+
+      await room.connect(connection.url, connection.token);
+      logMediaConnectionStep(startedAt, 'livekit room connected', {
+        room: room.name,
+      });
+
+      await requestLiveKitAgentDispatch(connection, chatId);
+      logMediaConnectionStep(startedAt, 'livekit agent dispatched', {
+        room: room.name,
+        agentName: connection.agentName,
+      });
+
+      for (const track of capturedStream.getTracks()) {
+        await room.localParticipant.publishTrack(track, {
+          source: liveKitSourceForTrack(track),
+        });
+      }
+      logMediaConnectionStep(startedAt, 'livekit local tracks published', {
+        audioTracks: capturedStream.getAudioTracks().length,
+        videoTracks: capturedStream.getVideoTracks().length,
+      });
+      void room.startAudio().catch(() => {
+        // Browser autoplay policy may require the existing audio element path.
+      });
+      setState('connected');
+    },
+    [chatId, fail],
   );
 
   const start = useCallback(async () => {
@@ -228,161 +380,13 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     logMediaConnectionStep(startedAt, 'start');
 
     try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Media capture is not available in this browser');
-      }
-
-      const capturedStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 360 },
-          frameRate: { ideal: 15, max: 30 },
-        },
+      const liveKitConnection = await requestLiveKitToken(chatId);
+      logMediaConnectionStep(startedAt, 'livekit token loaded', {
+        room: liveKitConnection.room,
+        participantIdentity: liveKitConnection.participantIdentity,
+        agentName: liveKitConnection.agentName,
       });
-      logMediaConnectionStep(startedAt, 'local media captured', {
-        audioTracks: capturedStream.getAudioTracks().length,
-        videoTracks: capturedStream.getVideoTracks().length,
-      });
-      capturedStream.getAudioTracks().forEach((track) => {
-        track.enabled = true;
-      });
-      capturedStream.getVideoTracks().forEach((track) => {
-        track.enabled = true;
-      });
-      streamRef.current = capturedStream;
-      setLocalStream(capturedStream);
-
-      setState('connecting');
-      const rtcConfigurationResponse = await fetch(
-        '/api/media/rtc-configuration',
-      );
-      if (!rtcConfigurationResponse.ok) {
-        throw new Error('Could not load media connection settings');
-      }
-      const rtcConfigurationResponseBody =
-        (await rtcConfigurationResponse.json()) as MediaRtcConfiguration;
-      const { iceGatherTimeoutMs: rawIceGatherTimeoutMs, ...rtcConfiguration } =
-        rtcConfigurationResponseBody;
-      const iceGatherTimeoutMs = normalizeIceGatherTimeout(
-        rawIceGatherTimeoutMs,
-      );
-      logMediaConnectionStep(startedAt, 'rtc configuration loaded', {
-        iceGatherTimeoutMs,
-        iceServers: rtcConfiguration.iceServers?.length ?? 0,
-      });
-      const peerConnection = new RTCPeerConnection(rtcConfiguration);
-      peerConnectionRef.current = peerConnection;
-      peerConnection.createDataChannel('events');
-
-      peerConnection.addEventListener('connectionstatechange', () => {
-        if (peerConnectionRef.current !== peerConnection) {
-          return;
-        }
-
-        if (peerConnection.connectionState === 'connected') {
-          logMediaConnectionStep(startedAt, 'peer connection connected', {
-            iceConnectionState: peerConnection.iceConnectionState,
-            iceGatheringState: peerConnection.iceGatheringState,
-          });
-          setState('connected');
-        }
-        if (peerConnection.connectionState === 'failed') {
-          fail('Media connection failed');
-        }
-        if (
-          peerConnection.connectionState === 'disconnected' ||
-          peerConnection.connectionState === 'closed'
-        ) {
-          fail('Media connection ended');
-        }
-      });
-
-      peerConnection.addEventListener('track', (event) => {
-        if (peerConnectionRef.current !== peerConnection) {
-          return;
-        }
-
-        const [stream] = event.streams;
-        if (stream) {
-          setRemoteStream(stream);
-          return;
-        }
-
-        setRemoteStream((currentStream) => {
-          const nextStream = currentStream ?? new MediaStream();
-          if (
-            !nextStream.getTracks().some((track) => track.id === event.track.id)
-          ) {
-            nextStream.addTrack(event.track);
-          }
-          return nextStream;
-        });
-      });
-
-      capturedStream.getTracks().forEach((track) => {
-        peerConnection.addTrack(track, capturedStream);
-      });
-
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      logMediaConnectionStep(startedAt, 'local offer created');
-      const iceGatherResult = await waitForIceGatheringComplete(
-        peerConnection,
-        iceGatherTimeoutMs,
-      );
-      logMediaConnectionStep(startedAt, 'ice gathering wait finished', {
-        ...iceGatherResult,
-      });
-
-      const nextWebrtcId = createWebrtcId();
-      webrtcIdRef.current = nextWebrtcId;
-      setWebrtcId(nextWebrtcId);
-
-      const response = await fetch('/api/media/webrtc/offer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sdp: peerConnection.localDescription?.sdp,
-          type: peerConnection.localDescription?.type,
-          webrtc_id: nextWebrtcId,
-        }),
-      });
-      logMediaConnectionStep(startedAt, 'offer posted', {
-        status: response.status,
-      });
-      const answer = (await response.json()) as
-        | RTCSessionDescriptionInit
-        | { status: 'failed'; meta?: { error?: string } };
-
-      if (!response.ok || 'status' in answer) {
-        throw new Error(
-          'meta' in answer && answer.meta?.error
-            ? answer.meta.error
-            : 'Media connection failed',
-        );
-      }
-
-      await peerConnection.setRemoteDescription(answer);
-      logMediaConnectionStep(startedAt, 'remote answer applied');
-      const metadataResponse = await fetch(
-        `/api/media/sessions/${encodeURIComponent(nextWebrtcId)}/metadata`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ threadId: chatId }),
-        },
-      );
-      logMediaConnectionStep(startedAt, 'metadata attached', {
-        status: metadataResponse.status,
-      });
-      if (!metadataResponse.ok) {
-        throw new Error('Could not attach media session to this chat');
-      }
+      await startLiveKitConnection(liveKitConnection, startedAt);
     } catch (startError) {
       logMediaConnectionStep(startedAt, 'failed', {
         error:
@@ -396,47 +400,9 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
           : 'Could not start media stream',
       );
     }
-  }, [chatId, fail, state]);
+  }, [chatId, fail, startLiveKitConnection, state]);
 
-  useEffect(() => {
-    if (!webrtcId || state !== 'connected') {
-      return;
-    }
-
-    const eventSource = new EventSource(
-      `/api/media/sessions/${encodeURIComponent(webrtcId)}/stream`,
-    );
-
-    const handleSnapshot = (event: MessageEvent) => {
-      try {
-        const snapshot = JSON.parse(event.data) as MediaSessionSnapshot;
-        setLatestAssistantText(snapshot.latest_assistant_text?.trim() || null);
-        setLatestUserTranscript(
-          snapshot.latest_transcript_text?.trim() || null,
-        );
-        setAssistantResponsePending(
-          Boolean(snapshot.assistant_response_pending),
-        );
-      } catch (parseError) {
-        console.debug('Could not parse media snapshot', parseError);
-      }
-    };
-
-    const handleEnd = () => {
-      eventSource.close();
-    };
-
-    eventSource.addEventListener('snapshot', handleSnapshot);
-    eventSource.addEventListener('end', handleEnd);
-
-    return () => {
-      eventSource.removeEventListener('snapshot', handleSnapshot);
-      eventSource.removeEventListener('end', handleEnd);
-      eventSource.close();
-    };
-  }, [state, webrtcId]);
-
-  useEffect(() => () => cleanupMedia(true), [cleanupMedia]);
+  useEffect(() => () => cleanupMedia(), [cleanupMedia]);
 
   return useMemo(
     () => ({

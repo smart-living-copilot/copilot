@@ -26,26 +26,20 @@ class Settings(BaseSettings):
     # Security
     internal_api_key: str = ""
 
-    # Browser media ingress
-    media_rtc_configuration: str = ""
-    media_server_rtc_configuration: str = ""
-    media_ice_gather_timeout_ms: int = 750
+    # LiveKit media ingress
+    livekit_url: str = ""
+    livekit_public_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
+    livekit_agent_name: str = "smart-living-copilot"
+    livekit_room_prefix: str = "copilot"
+    livekit_token_ttl_seconds: int = 600
 
     # Speech-to-text
-    stt_enabled: bool = False
     stt_transcriptions_url: str = ""
     stt_model: str = "whisper-large-turbo"
     stt_api_key: str = ""
     stt_language: str = ""
-    stt_timeout_seconds: int = 30
-    stt_submit_to_chat: bool = True
-
-    # Voice activity detection
-    vad_threshold: float = 0.5
-    vad_min_speech_ms: int = 250
-    vad_min_silence_ms: int = 700
-    vad_speech_pad_ms: int = 200
-    vad_max_utterance_ms: int = 20000
 
     # Vision (look-at-camera)
     vision_enabled: bool = False
@@ -57,14 +51,12 @@ class Settings(BaseSettings):
     vision_jpeg_quality: int = 85
 
     # Text-to-speech
-    tts_enabled: bool = False
     tts_speech_url: str = "http://kokoro-tts:8880/v1/audio/speech"
     tts_model: str = "kokoro"
     tts_voice: str = "af_heart"
     tts_api_key: str = ""
     tts_response_format: str = "pcm"
     tts_speed: float = 1.0
-    tts_timeout_seconds: int = 60
 
     # Code Executor
     code_executor_url: str = "http://localhost:8888"
