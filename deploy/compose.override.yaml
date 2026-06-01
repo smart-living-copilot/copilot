@@ -71,9 +71,11 @@ services:
       - ../apps/ui/public:/app/public:cached
     environment:
       NEXT_TELEMETRY_DISABLED: "1"
-      NEXT_POLL_INTERVAL_MS: "1000"
-      WATCHPACK_POLLING: "true"
-      CHOKIDAR_USEPOLLING: "1"
+    # Serve a production build instead of `next dev`: the Turbopack dev server's
+    # file watcher wedges on the macOS bind mount and starts 404ing every route.
+    # The build runs at container start, so it picks up the bind-mounted source
+    # (and NEXT_PUBLIC_* env). Restart this service to pick up UI source changes.
+    command: ["sh", "-lc", "npm run build && npm run start -- --hostname 0.0.0.0"]
 
   code-executor:
     build:
