@@ -58,7 +58,7 @@ def _thing_indexer(_args: argparse.Namespace) -> None:
 
 
 def _livekit_agent(_args: argparse.Namespace) -> None:
-    from copilot.workers.livekit_agent import run
+    from copilot.workers.livekit import run
 
     run(_args.livekit_args)
 
