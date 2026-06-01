@@ -170,6 +170,17 @@ class JobStore:
                 raise KeyError(job_id)
             return _to_job(row)
 
+    async def get_job_by_thread_id(self, job_thread_id: str) -> Job:
+        return await asyncio.to_thread(self._get_job_by_thread_id_sync, job_thread_id)
+
+    def _get_job_by_thread_id_sync(self, job_thread_id: str) -> Job:
+        statement = select(JobRecord).where(JobRecord.job_thread_id == job_thread_id)
+        with self._session_factory() as session:
+            row = session.scalars(statement).one_or_none()
+            if row is None:
+                raise KeyError(job_thread_id)
+            return _to_job(row)
+
     async def list_jobs(self, created_from_thread_id: str | None = None) -> list[Job]:
         return await asyncio.to_thread(self._list_jobs_sync, created_from_thread_id)
 

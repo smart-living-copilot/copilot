@@ -1,16 +1,27 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import {
-  ArrowLeft,
-  Loader2,
-  MessageSquareReply,
-  RefreshCw,
-  Send,
-} from 'lucide-react';
+  CopilotChatConfigurationProvider,
+  CopilotKitProvider,
+  CopilotChatView,
+  type Message,
+} from '@copilotkit/react-core/v2';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
+import Link from 'next/link';
+import { Eye, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { LiveModePanel } from '@/components/copilot/live-mode-panel';
+import { MediaIngressControl } from '@/components/copilot/media-ingress-control';
+import { chatToolCallRenderers } from '@/components/copilot/chat-tool-call-renderer';
+import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,16 +40,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Textarea } from '@/components/ui/textarea';
+import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
 import {
   formatDateTime,
   getJobStatus,
   getScheduleLabel,
   getStatusBadgeVariant,
+  supportsJobReply,
+  supportsJobThread,
 } from '@/lib/job-formatters';
 import {
   type JobRunRecord,
-  type JobThreadMessage,
   type JobThreadRecord,
   fetchJobRuns,
   fetchJobThread,
@@ -49,267 +61,347 @@ interface JobThreadPageProps {
   jobId: string;
 }
 
-function formatMessageContent(content: unknown): string {
-  if (content == null) return '';
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((item) => {
-        if (typeof item === 'string') return item;
-        if (item && typeof item === 'object' && 'text' in item) {
-          const text = (item as { text?: unknown }).text;
-          return typeof text === 'string' ? text : JSON.stringify(text);
-        }
-        return JSON.stringify(item);
-      })
-      .filter(Boolean)
-      .join('');
-  }
-  try {
-    return JSON.stringify(content, null, 2);
-  } catch {
-    return String(content);
-  }
+type LoadOptions = {
+  silent?: boolean;
+};
+
+type ChatInputChildren = {
+  textArea: ReactElement;
+  sendButton: ReactElement;
+  disclaimer: ReactElement;
+};
+
+function normalizeMessages(thread: JobThreadRecord | null): Message[] {
+  return (thread?.messages ?? []).map((message, index) => {
+    return {
+      ...message,
+      id: message.id ?? `job-message-${index}`,
+    } as Message;
+  });
 }
 
-function messageRole(message: JobThreadMessage): string {
-  return message.role || message.type || message.name || 'message';
+function runOutcome(run: JobRunRecord): string {
+  if (run.error?.trim()) return run.error.trim();
+  if (run.response_text?.trim()) return run.response_text.trim();
+  if (run.result != null) {
+    try {
+      return JSON.stringify(run.result, null, 2);
+    } catch {
+      return String(run.result);
+    }
+  }
+  return 'No output captured.';
+}
+
+function RunStatusBadge({ status }: { status: string }) {
+  return <Badge variant={getStatusBadgeVariant(status)}>{status}</Badge>;
+}
+
+function RunHistoryCard({ runs }: { runs: JobRunRecord[] }) {
+  return (
+    <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
+      <CardHeader className="border-b border-border/70">
+        <CardTitle className="text-base">Run history</CardTitle>
+        <CardDescription>
+          Execution attempts connected to this checkpoint thread.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        {runs.length ? (
+          <div className="overflow-x-auto">
+            <Table className="min-w-[760px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Started</TableHead>
+                  <TableHead>Outcome</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {runs.map((run) => (
+                  <TableRow key={run.id}>
+                    <TableCell className="align-top">
+                      <RunStatusBadge status={run.status} />
+                    </TableCell>
+                    <TableCell className="align-top">{run.source}</TableCell>
+                    <TableCell className="align-top text-xs text-muted-foreground">
+                      {formatDateTime(run.started_at)}
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      <p className="line-clamp-3 whitespace-pre-wrap break-words">
+                        {runOutcome(run)}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <div className="p-4 text-sm text-muted-foreground">
+            No runs recorded yet.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export function JobThreadPage({ jobId }: JobThreadPageProps) {
+  const enableInspector =
+    process.env.NEXT_PUBLIC_ENABLE_COPILOT_INSPECTOR === 'true';
   const [thread, setThread] = useState<JobThreadRecord | null>(null);
   const [runs, setRuns] = useState<JobRunRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [reply, setReply] = useState('');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState('');
   const [isReplying, setIsReplying] = useState(false);
+  const voiceTurnWasPendingRef = useRef(false);
 
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const [threadRecord, runRecords] = await Promise.all([
-        fetchJobThread(jobId),
-        fetchJobRuns(jobId),
-      ]);
-      setThread(threadRecord);
-      setRuns(runRecords);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to load job thread',
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [jobId]);
+  const load = useCallback(
+    async ({ silent = false }: LoadOptions = {}) => {
+      if (!silent) {
+        setIsLoading(true);
+      }
+      setLoadError(null);
+      try {
+        const [threadRecord, runRecords] = await Promise.all([
+          fetchJobThread(jobId),
+          fetchJobRuns(jobId),
+        ]);
+        setThread(threadRecord);
+        setRuns(runRecords);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to load job thread';
+        setLoadError(message);
+        if (!silent) {
+          toast.error(message);
+        }
+      } finally {
+        if (!silent) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [jobId],
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const job = thread?.job ?? null;
+  const threadId = thread?.id ?? job?.job_thread_id ?? jobId;
+  const mediaSession = useMediaIngressSession(threadId);
+  const showLiveMode = mediaSession.state !== 'idle';
   const status = useMemo(
     () => (job ? getJobStatus(job, new Date()) : null),
     [job],
   );
-  const isWaiting = job?.last_run_status === 'waiting_for_input';
+  const hasJobThread = job ? supportsJobThread(job) : false;
+  const isWaiting = job ? supportsJobReply(job) : false;
+  const messages = useMemo(() => normalizeMessages(thread), [thread]);
 
-  const submitReply = useCallback(async () => {
-    const message = reply.trim();
-    if (!message) return;
-    setIsReplying(true);
-    try {
-      await replyToJob(jobId, message);
-      toast.success('Reply submitted.');
-      setReply('');
-      await load();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to submit reply',
-      );
-    } finally {
-      setIsReplying(false);
+  useEffect(() => {
+    if (mediaSession.isAssistantResponsePending) {
+      voiceTurnWasPendingRef.current = true;
+      return;
     }
-  }, [jobId, load, reply]);
+
+    if (voiceTurnWasPendingRef.current) {
+      voiceTurnWasPendingRef.current = false;
+      void load({ silent: true });
+    }
+  }, [load, mediaSession.isAssistantResponsePending]);
+
+  useEffect(() => {
+    if (mediaSession.state === 'idle' || mediaSession.state === 'error') {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void load({ silent: true });
+    }, 2500);
+    return () => window.clearInterval(interval);
+  }, [load, mediaSession.state]);
+
+  const submitReply = useCallback(
+    async (value: string) => {
+      const message = value.trim();
+      if (!message) return;
+      if (!isWaiting) {
+        toast.error('This job is not waiting for input.');
+        return;
+      }
+
+      setIsReplying(true);
+      try {
+        await replyToJob(jobId, message);
+        toast.success('Reply submitted.');
+        setInputValue('');
+        await load();
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to submit reply',
+        );
+      } finally {
+        setIsReplying(false);
+      }
+    },
+    [isWaiting, jobId, load],
+  );
+
+  const chatInput = useMemo(
+    () => ({
+      children: ({ textArea, sendButton, disclaimer }: ChatInputChildren) => {
+        if (!isWaiting) {
+          return (
+            <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+              <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                This job is not waiting for input.
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+            <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
+              <div className="min-h-16">{textArea}</div>
+              <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
+                <MediaIngressControl session={mediaSession} />
+                {sendButton}
+              </div>
+            </div>
+            {disclaimer}
+          </div>
+        );
+      },
+    }),
+    [isWaiting, mediaSession],
+  );
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-[calc(100dvh-8rem)] flex-col gap-5">
       <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-3">
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/jobs">
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Jobs
-            </Link>
-          </Button>
-          <div>
+        <div className="space-y-2">
+          <div className="space-y-1">
             <h1 className="text-3xl font-semibold tracking-tight">
               {job?.name || 'Job thread'}
             </h1>
-            <p className="mt-1 font-mono text-xs text-muted-foreground">
-              {jobId}
+            <p className="break-all font-mono text-xs text-muted-foreground">
+              {threadId}
             </p>
           </div>
+          {job ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {status ? (
+                <Badge variant={getStatusBadgeVariant(status)}>{status}</Badge>
+              ) : null}
+              <Badge variant="outline">{getScheduleLabel(job)}</Badge>
+              <Badge variant="outline">{runs.length} runs</Badge>
+              {hasJobThread ? (
+                <Badge variant="outline">{messages.length} messages</Badge>
+              ) : null}
+            </div>
+          ) : null}
         </div>
-        <Button
-          variant="outline"
-          onClick={() => void load()}
-          disabled={isLoading || isReplying}
-        >
-          <RefreshCw
-            className={isLoading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'}
-          />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" asChild>
+            <Link href={`/jobs/${jobId}`}>
+              <Eye className="h-4 w-4" />
+              Details
+            </Link>
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void load()}
+            disabled={isLoading || isReplying}
+          >
+            <RefreshCw
+              className={isLoading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'}
+            />
+            Refresh
+          </Button>
+        </div>
       </section>
 
       {isLoading && !thread ? (
-        <div className="flex min-h-56 items-center justify-center rounded-md border">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        </div>
+        <Card className="rounded-md border-border/70">
+          <CardContent className="flex min-h-56 items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </CardContent>
+        </Card>
       ) : null}
 
-      {job ? (
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="space-y-4">
-            {isWaiting ? (
-              <Alert>
-                <MessageSquareReply className="h-4 w-4" />
-                <AlertTitle>Waiting for input</AlertTitle>
-                <AlertDescription>
-                  {job.waiting_question || 'The job is waiting for a reply.'}
-                </AlertDescription>
-              </Alert>
-            ) : null}
+      {loadError && !thread ? (
+        <Alert variant="destructive">
+          <AlertTitle>Unable to load job thread</AlertTitle>
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
+      ) : null}
 
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Hidden Thread</CardTitle>
-                <CardDescription>{thread?.id}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {thread?.messages.length ? (
-                  thread.messages.map((message, index) => (
-                    <div
-                      key={message.id || index}
-                      className="rounded-md border bg-muted/20 p-3"
-                    >
-                      <div className="mb-2 flex items-center gap-2">
-                        <Badge variant="outline">{messageRole(message)}</Badge>
-                      </div>
-                      <pre className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
-                        {formatMessageContent(message.content)}
-                      </pre>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-                    No checkpointed messages yet.
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+      {job && !hasJobThread ? (
+        <Alert>
+          <AlertTitle>No chat thread for this job type</AlertTitle>
+          <AlertDescription>
+            This job records runs, but it does not support conversational
+            replies.
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
-          <aside className="space-y-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Job</CardTitle>
-                <CardDescription>{getScheduleLabel(job)}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                {status ? (
-                  <Badge variant={getStatusBadgeVariant(status)}>
-                    {status}
-                  </Badge>
-                ) : null}
-                <div>
-                  <span className="font-medium">Last run:</span>{' '}
-                  {job.last_run_status || 'none'}
-                </div>
-                <div>
-                  <span className="font-medium">Active run:</span>{' '}
-                  {job.active_run_id || 'none'}
-                </div>
-                <div>
-                  <span className="font-medium">Updated:</span>{' '}
-                  {formatDateTime(job.updated_at)}
-                </div>
-              </CardContent>
-            </Card>
+      {job && hasJobThread ? (
+        <>
+          {isWaiting ? (
+            <Alert>
+              <AlertTitle>Waiting for input</AlertTitle>
+              <AlertDescription>
+                {job.waiting_question || 'The job is waiting for a reply.'}
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
-            {isWaiting ? (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Reply</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <Textarea
-                    value={reply}
-                    onChange={(event) => setReply(event.target.value)}
-                    rows={5}
-                    placeholder="Send the missing input for this job"
+          <div className="min-h-[34rem] flex-1 overflow-hidden rounded-md border border-border/70 bg-background shadow-sm shadow-black/5">
+            {showLiveMode ? (
+              <LiveModePanel artifacts={[]} session={mediaSession} />
+            ) : (
+              <CopilotKitProvider
+                runtimeUrl="/api/copilotkit"
+                showDevConsole={enableInspector}
+                renderToolCalls={chatToolCallRenderers}
+              >
+                <CopilotChatConfigurationProvider
+                  agentId="copilot"
+                  threadId={threadId}
+                  labels={{
+                    chatInputPlaceholder: isWaiting
+                      ? 'Answer this job...'
+                      : 'Job is not waiting for input',
+                  }}
+                >
+                  <CopilotChatView
+                    autoScroll
+                    className="smart-living-copilot-chat h-full"
+                    input={chatInput}
+                    inputValue={inputValue}
+                    isRunning={isReplying}
+                    messageView={MessageViewWithWotSummary}
+                    messages={messages}
+                    onInputChange={setInputValue}
+                    onSubmitMessage={isWaiting ? submitReply : undefined}
+                    welcomeScreen={false}
                   />
-                  <Button
-                    className="w-full"
-                    onClick={() => void submitReply()}
-                    disabled={isReplying || !reply.trim()}
-                  >
-                    {isReplying ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                    Submit reply
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : null}
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Run History</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Source</TableHead>
-                        <TableHead>Started</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {runs.map((run) => (
-                        <TableRow key={run.id}>
-                          <TableCell>
-                            <Badge variant={getStatusBadgeVariant(run.status)}>
-                              {run.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{run.source}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {formatDateTime(run.started_at)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {!runs.length ? (
-                        <TableRow>
-                          <TableCell
-                            colSpan={3}
-                            className="text-sm text-muted-foreground"
-                          >
-                            No runs recorded yet.
-                          </TableCell>
-                        </TableRow>
-                      ) : null}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </aside>
-        </section>
+                </CopilotChatConfigurationProvider>
+              </CopilotKitProvider>
+            )}
+          </div>
+        </>
       ) : null}
+
+      {job ? <RunHistoryCard runs={runs} /> : null}
     </div>
   );
 }

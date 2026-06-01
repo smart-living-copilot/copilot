@@ -62,7 +62,10 @@ export function JobTriggerToasts() {
               {detail}
             </button>
           ),
-          action: { label: 'View details', onClick: () => openJobDetail(job.id) },
+          action: {
+            label: 'View details',
+            onClick: () => openJobDetail(job.id),
+          },
         });
       } else {
         toast.success(`Job triggered: ${job.name}`, {
@@ -75,7 +78,10 @@ export function JobTriggerToasts() {
               {detail}
             </button>
           ),
-          action: { label: 'View details', onClick: () => openJobDetail(job.id) },
+          action: {
+            label: 'View details',
+            onClick: () => openJobDetail(job.id),
+          },
         });
       }
     };
@@ -103,6 +109,15 @@ export function JobTriggerToasts() {
               headers: { Accept: 'text/event-stream' },
               signal: controller.signal,
             });
+
+            const eventsUnavailable =
+              res.status === 204 ||
+              res.status === 404 ||
+              res.status === 501 ||
+              res.headers.get('x-jobs-events-unavailable') === '1';
+            if (eventsUnavailable) {
+              break;
+            }
 
             if (!res.ok || !res.body) {
               throw new Error(`SSE fetch failed (${res.status})`);
@@ -151,7 +166,10 @@ export function JobTriggerToasts() {
       return () => controller.abort();
     };
 
-    if (typeof window !== 'undefined' && typeof window.EventSource !== 'undefined') {
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.EventSource !== 'undefined'
+    ) {
       cleanup = subscribeWithEventSource();
     } else {
       cleanup = subscribeWithFetch();

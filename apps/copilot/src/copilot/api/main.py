@@ -228,6 +228,18 @@ def _assistant_text_from_graph_result(result: Any) -> str:
     return ""
 
 
+def _assistant_text_from_job_result(result: dict[str, Any]) -> str:
+    for key in ("assistant", "waiting_question", "error"):
+        value = result.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    response = result.get("response")
+    if isinstance(response, str) and response.strip():
+        return response.strip()
+    return ""
+
+
 def _text_from_message_content(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -255,6 +267,19 @@ def _voice_stream_text_from_event(event: Any) -> str:
     return _text_from_message_content(message.content)
 
 
+async def _reply_to_waiting_job_thread(thread_id: str, transcript: str) -> str | None:
+    if _job_service is None:
+        return None
+
+    result = await _job_service.reply_to_waiting_thread(thread_id, transcript)
+    if result is None:
+        return None
+    if result.get("ok") is False:
+        raise RuntimeError(str(result.get("error") or "Job reply failed."))
+
+    return _assistant_text_from_job_result(result) or "Reply submitted."
+
+
 async def _submit_voice_transcript_to_chat(thread_id: str, transcript: str) -> str:
     if _graph is None:
         raise RuntimeError("LangGraph is not ready")
@@ -262,6 +287,10 @@ async def _submit_voice_transcript_to_chat(thread_id: str, transcript: str) -> s
     lock = await _thread_run_lock(thread_id)
     async with lock:
         try:
+            job_reply = await _reply_to_waiting_job_thread(thread_id, transcript)
+            if job_reply is not None:
+                return job_reply
+
             result = await _graph.ainvoke(
                 {"messages": [HumanMessage(content=transcript)]},
                 config={"configurable": {"thread_id": thread_id}},
@@ -282,6 +311,11 @@ async def _stream_voice_transcript_to_chat(
     lock = await _thread_run_lock(thread_id)
     async with lock:
         try:
+            job_reply = await _reply_to_waiting_job_thread(thread_id, transcript)
+            if job_reply is not None:
+                yield job_reply
+                return
+
             async for event in _graph.astream(
                 {"messages": [HumanMessage(content=transcript)]},
                 config={"configurable": {"thread_id": thread_id}},

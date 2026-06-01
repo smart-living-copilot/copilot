@@ -312,6 +312,8 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
         code_executor = AsyncMock()
         code_executor.execute.return_value = {
             "stdout": '{"observed_value": 42, "summary": "ok"}\n',
+            "images": ["image-1.png"],
+            "plotly": ["chart-1.json"],
         }
         agent_runner = AsyncMock()
         executor = JobExecutor(
@@ -329,6 +331,24 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
             result["response"]["stdout"],
             '{"observed_value": 42, "summary": "ok"}\n',
         )
+        self.assertEqual(result["stdout"], '{"observed_value": 42, "summary": "ok"}')
+        self.assertEqual(
+            result["artifacts"],
+            [
+                {
+                    "ref": "image_1",
+                    "kind": "image",
+                    "filename": "image-1.png",
+                },
+                {
+                    "ref": "chart_1",
+                    "kind": "plotly",
+                    "filename": "chart-1.json",
+                },
+            ],
+        )
+        self.assertIn("1 chart", result["assistant"])
+        self.assertIn("1 image", result["assistant"])
         agent_runner.run.assert_not_called()
 
     async def test_one_shot_time_job_disabled_after_scheduled_run(self) -> None:
@@ -419,6 +439,7 @@ class _FakeServiceRepo:
         self.created = []
         self.deleted: list[str] = []
         self.loaded: list[str] = []
+        self.loaded_by_thread: list[str] = []
         self.create_error = create_error
         self.delete_error = delete_error
 
@@ -430,6 +451,14 @@ class _FakeServiceRepo:
 
     async def get_job(self, job_id: str) -> Job:
         self.loaded.append(job_id)
+        if job_id != self.job.id:
+            raise KeyError(job_id)
+        return self.job
+
+    async def get_job_by_thread_id(self, job_thread_id: str) -> Job:
+        self.loaded_by_thread.append(job_thread_id)
+        if job_thread_id != self.job.job_thread_id:
+            raise KeyError(job_thread_id)
         return self.job
 
     async def delete_job(self, job_id: str) -> Job:
@@ -477,6 +506,51 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             result = await service.run_job_now("job-1")
 
         self.assertEqual(result, {"ok": False, "error": "Job task timed out."})
+
+    async def test_reply_to_waiting_thread_routes_to_matching_waiting_job(self) -> None:
+        repo = _FakeServiceRepo(
+            _job(
+                last_run_id="run-1",
+                active_run_id="run-1",
+                last_run_status=JobRunStatus.WAITING_FOR_INPUT,
+                waiting_question="Which room?",
+            )
+        )
+        service = JobService(Settings(), repo=repo)
+        task_result = SimpleNamespace(
+            is_err=False,
+            return_value={"ok": True, "assistant": "continued"},
+            error=None,
+        )
+        task = AsyncMock()
+        task.wait_result.return_value = task_result
+
+        with patch(
+            "copilot.jobs.service.run_job_task.kiq",
+            AsyncMock(return_value=task),
+        ) as enqueue:
+            result = await service.reply_to_waiting_thread("job:job-1", "kitchen")
+
+        self.assertEqual(result, {"ok": True, "assistant": "continued"})
+        self.assertEqual(repo.loaded_by_thread, ["job:job-1"])
+        enqueue.assert_awaited_once_with(
+            job_id="job-1",
+            trigger={
+                "source": "user_reply",
+                "message": "kitchen",
+                "previous_run_id": "run-1",
+            },
+        )
+
+    async def test_reply_to_waiting_thread_ignores_non_waiting_thread(self) -> None:
+        repo = _FakeServiceRepo(_job(last_run_status=JobRunStatus.SUCCEEDED))
+        service = JobService(Settings(), repo=repo)
+
+        with patch("copilot.jobs.service.run_job_task.kiq", AsyncMock()) as enqueue:
+            result = await service.reply_to_waiting_thread("job:job-1", "kitchen")
+
+        self.assertIsNone(result)
+        enqueue.assert_not_awaited()
 
     async def test_trigger_job_now_enqueues_without_waiting_for_result(self) -> None:
         service = JobService(Settings(), repo=_FakeRepo(_job()))

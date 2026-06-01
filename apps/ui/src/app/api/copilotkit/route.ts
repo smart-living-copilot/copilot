@@ -6,8 +6,9 @@ import {
 import { LangGraphHttpAgent } from '@copilotkit/runtime/langgraph';
 
 import { filterCopilotEventStream } from '@/lib/copilot-stream';
+import { getCopilotUrl } from '@/lib/backend-env';
 
-const copilotUrl = process.env.COPILOT_URL || 'http://copilot:8123';
+const copilotUrl = getCopilotUrl();
 
 const runtime = new CopilotRuntime({
   agents: {

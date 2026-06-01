@@ -76,6 +76,30 @@ export function getPurposePreview(job: JobRecord): {
   };
 }
 
+export function supportsJobThread(
+  job: Pick<JobRecord, 'action_kind'>,
+): boolean {
+  return job.action_kind === 'prompt';
+}
+
+export function supportsJobReply(
+  job: Pick<JobRecord, 'action_kind' | 'last_run_status'>,
+): boolean {
+  return supportsJobThread(job) && job.last_run_status === 'waiting_for_input';
+}
+
+export function supportsTimeFields(
+  job: Pick<JobRecord, 'trigger_kind'>,
+): boolean {
+  return job.trigger_kind === 'time';
+}
+
+export function supportsEventFields(
+  job: Pick<JobRecord, 'trigger_kind'>,
+): boolean {
+  return job.trigger_kind === 'event';
+}
+
 export function getStatusBadgeVariant(
   status: JobDisplayStatus | string,
 ): 'default' | 'secondary' | 'destructive' | 'outline' {

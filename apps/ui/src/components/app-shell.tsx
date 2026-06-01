@@ -21,6 +21,20 @@ function useBreadcrumbs(): BreadcrumbSegment[] {
     } else if (pathname !== '/things') {
       segments.push({ label: 'Detail' });
     }
+  } else if (pathname.startsWith('/jobs')) {
+    segments.push({ label: 'Jobs', href: '/jobs' });
+
+    if (pathname === '/jobs/new') {
+      segments.push({ label: 'Create' });
+    } else if (pathname.endsWith('/thread')) {
+      segments.push({
+        label: 'Detail',
+        href: pathname.replace(/\/thread$/, ''),
+      });
+      segments.push({ label: 'Thread' });
+    } else if (pathname !== '/jobs') {
+      segments.push({ label: 'Detail' });
+    }
   } else if (pathname.startsWith('/settings')) {
     segments.push({ label: 'Settings' });
   }

@@ -12,6 +12,57 @@ from copilot.core.settings import Settings
 logger = logging.getLogger(__name__)
 
 
+def build_code_artifacts(images: list[str], plotly: list[str]) -> list[dict[str, str]]:
+    artifacts: list[dict[str, str]] = []
+
+    for index, filename in enumerate(images, start=1):
+        if not isinstance(filename, str) or not filename:
+            continue
+        artifacts.append(
+            {
+                "ref": f"image_{index}",
+                "kind": "image",
+                "filename": filename,
+            }
+        )
+
+    for index, filename in enumerate(plotly, start=1):
+        if not isinstance(filename, str) or not filename:
+            continue
+        artifacts.append(
+            {
+                "ref": f"chart_{index}",
+                "kind": "plotly",
+                "filename": filename,
+            }
+        )
+
+    return artifacts
+
+
+def format_code_execution_result(data: dict[str, Any]) -> dict[str, object]:
+    stdout = str(data.get("stdout", "")).rstrip()
+    raw_images = data.get("images", [])
+    raw_plotly = data.get("plotly", [])
+    artifacts = build_code_artifacts(
+        raw_images if isinstance(raw_images, list) else [],
+        raw_plotly if isinstance(raw_plotly, list) else [],
+    )
+    wot_calls = data.get("wot_calls", [])
+
+    result: dict[str, object] = {}
+    if stdout:
+        result["stdout"] = stdout
+    if artifacts:
+        result["artifacts"] = artifacts
+    if wot_calls:
+        result["wot_calls"] = wot_calls
+    if not result:
+        result["stdout"] = "(no output)"
+
+    return result
+
+
 class CodeExecutorClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings

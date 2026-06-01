@@ -102,6 +102,9 @@ class JobService:
     async def get_job(self, job_id: str) -> Job:
         return await self._repo.get_job(job_id)
 
+    async def get_job_by_thread_id(self, job_thread_id: str) -> Job:
+        return await self._repo.get_job_by_thread_id(job_thread_id)
+
     async def subscribe_run_events(
         self,
         *,
@@ -210,6 +213,20 @@ class JobService:
         if isinstance(value, dict):
             return value
         return {"ok": True, "response": value}
+
+    async def reply_to_waiting_thread(
+        self,
+        thread_id: str,
+        message: str,
+    ) -> dict[str, Any] | None:
+        try:
+            job = await self._repo.get_job_by_thread_id(thread_id)
+        except KeyError:
+            return None
+
+        if job.last_run_status != JobRunStatus.WAITING_FOR_INPUT:
+            return None
+        return await self.reply_to_job(job.id, message)
 
     async def trigger_job_now(self, job_id: str) -> dict[str, Any]:
         await self._repo.get_job(job_id)

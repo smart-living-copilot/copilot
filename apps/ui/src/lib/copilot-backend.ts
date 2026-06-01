@@ -1,4 +1,5 @@
-const copilotUrl = process.env.COPILOT_URL || 'http://copilot:8123';
+import { backendUnavailableResponse, getCopilotUrl } from '@/lib/backend-env';
+
 const internalApiKey = process.env.INTERNAL_API_KEY || '';
 
 function buildHeaders(headers?: HeadersInit) {
@@ -10,11 +11,20 @@ function buildHeaders(headers?: HeadersInit) {
 }
 
 export async function fetchCopilot(path: string, init: RequestInit = {}) {
-  return fetch(`${copilotUrl}${path}`, {
-    ...init,
-    cache: init.cache ?? 'no-store',
-    headers: buildHeaders(init.headers),
-  });
+  const copilotUrl = getCopilotUrl();
+
+  try {
+    return await fetch(`${copilotUrl}${path}`, {
+      ...init,
+      cache: init.cache ?? 'no-store',
+      headers: buildHeaders(init.headers),
+    });
+  } catch (error) {
+    if (init.signal?.aborted) {
+      throw error;
+    }
+    return backendUnavailableResponse('Copilot backend', copilotUrl, error);
+  }
 }
 
 export async function proxyCopilotJson(path: string, init: RequestInit = {}) {

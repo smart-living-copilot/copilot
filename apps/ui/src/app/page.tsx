@@ -4,6 +4,32 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LoaderCircle } from 'lucide-react';
 
+async function readErrorMessage(res: Response, fallback: string) {
+  try {
+    const contentType = res.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      const body = (await res.json()) as {
+        detail?: unknown;
+        error?: unknown;
+        message?: unknown;
+      };
+      const detail = body.detail ?? body.error ?? body.message;
+      if (typeof detail === 'string' && detail.trim()) {
+        return `${fallback} (${res.status}: ${detail.trim()})`;
+      }
+    } else {
+      const text = (await res.text()).trim();
+      if (text) {
+        return `${fallback} (${res.status}: ${text.slice(0, 180)})`;
+      }
+    }
+  } catch {
+    // Keep the page calm if an upstream error body cannot be parsed.
+  }
+
+  return `${fallback} (${res.status})`;
+}
+
 export default function RootPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -15,26 +41,38 @@ export default function RootPage() {
       try {
         // Try to find the most recent chat
         const listRes = await fetch('/api/chats');
-        if (listRes.ok) {
-          const chats: { id: string }[] = await listRes.json();
-          if (chats.length > 0 && !cancelled) {
-            router.replace(`/chat/${chats[0].id}`);
-            return;
-          }
+        if (!listRes.ok) {
+          throw new Error(
+            await readErrorMessage(listRes, 'Could not load chats'),
+          );
+        }
+
+        const chats: { id: string }[] = await listRes.json();
+        if (chats.length > 0 && !cancelled) {
+          router.replace(`/chat/${chats[0].id}`);
+          return;
         }
 
         // No chats exist — create one
         const createRes = await fetch('/api/chats', { method: 'POST' });
-        if (!createRes.ok) throw new Error('Failed to create chat');
+        if (!createRes.ok) {
+          throw new Error(
+            await readErrorMessage(createRes, 'Could not create chat'),
+          );
+        }
         const chat: { id: string } = await createRes.json();
 
         if (!cancelled) {
           router.replace(`/chat/${chat.id}`);
         }
       } catch (err) {
-        console.error('Failed to resolve chat', err);
-        if (!cancelled)
-          setError('Could not load or create a chat. Please try again.');
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Could not load or create a chat. Please try again.',
+          );
+        }
       }
     };
 

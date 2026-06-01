@@ -22,7 +22,10 @@ from copilot.core.config import get_settings as get_registry_settings
 from copilot.core.database import init_db, psycopg_conninfo
 from copilot.core.llm import make_llm
 from copilot.core.settings import Settings
-from copilot.clients.code_executor import CodeExecutorClient
+from copilot.clients.code_executor import (
+    CodeExecutorClient,
+    format_code_execution_result,
+)
 from copilot.jobs.models import (
     Job,
     JobActionKind,
@@ -247,29 +250,47 @@ class JobExecutor:
                 session_id=f"job-analysis:{job.id}",
                 code=job.analysis_code or "",
             )
-            stdout = str(response.get("stdout", "")).strip()
-            images = response.get("images", [])
-            plotly = response.get("plotly", [])
+            formatted = format_code_execution_result(response)
+            stdout = str(formatted.get("stdout", "")).strip()
+            artifacts = formatted.get("artifacts", [])
 
             parts: list[str] = []
-            if stdout:
+            if stdout and stdout != "(no output)":
                 parts.append(stdout)
-            if images:
-                parts.append(f"images={len(images)}")
-            if plotly:
-                parts.append(f"plotly={len(plotly)}")
+            if isinstance(artifacts, list) and artifacts:
+                parts.append(_artifact_summary(artifacts))
             if not parts:
                 parts.append("(no output)")
 
             return {
                 "ok": True,
                 "response": response,
+                **formatted,
                 "assistant": "\n".join(parts)[:4000],
                 "metadata": {"trigger": trigger},
             }
         except Exception as exc:
             logger.error("Failed analysis job %s: %s", job.id, exc, exc_info=exc)
             return {"ok": False, "error": str(exc), "metadata": {"trigger": trigger}}
+
+
+def _artifact_summary(artifacts: list[Any]) -> str:
+    images = 0
+    charts = 0
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        if artifact.get("kind") == "image":
+            images += 1
+        elif artifact.get("kind") == "plotly":
+            charts += 1
+
+    parts: list[str] = []
+    if charts:
+        parts.append(f"{charts} chart{'s' if charts != 1 else ''}")
+    if images:
+        parts.append(f"{images} image{'s' if images != 1 else ''}")
+    return ", ".join(parts)
 
 
 def _assistant_text_from_graph_result(result: Any) -> str:

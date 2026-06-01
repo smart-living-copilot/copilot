@@ -1,20 +1,26 @@
+import { backendUnavailableResponse, getWotApiUrl } from '@/lib/backend-env';
+
 export async function wotFetch(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  const base = process.env.WOT_API_URL || 'http://localhost:8000/api';
-  const token = process.env.WOT_REGISTRY_TOKEN || process.env.INIT_ADMIN_TOKEN || '';
-  const res = await fetch(`${base}${path}`, {
-    ...init,
-    headers: {
-      Accept: 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init.headers instanceof Headers
-        ? Object.fromEntries(init.headers.entries())
-        : (init.headers ?? {})),
-    },
-  });
-  return res;
+  const base = getWotApiUrl();
+  const token =
+    process.env.WOT_REGISTRY_TOKEN || process.env.INIT_ADMIN_TOKEN || '';
+  try {
+    return await fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init.headers instanceof Headers
+          ? Object.fromEntries(init.headers.entries())
+          : (init.headers ?? {})),
+      },
+    });
+  } catch (error) {
+    return backendUnavailableResponse('WoT API', base, error);
+  }
 }
 
 export async function wotJson<T = unknown>(

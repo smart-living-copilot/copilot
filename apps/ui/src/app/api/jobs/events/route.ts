@@ -12,6 +12,16 @@ export async function GET() {
   });
 
   if (!res.ok) {
+    if (res.status === 404 || res.status === 501) {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Cache-Control': 'no-store',
+          'X-Jobs-Events-Unavailable': '1',
+        },
+      });
+    }
+
     const body = await res.json().catch(() => ({}));
     return NextResponse.json(body, { status: res.status });
   }

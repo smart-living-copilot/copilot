@@ -1,9 +1,9 @@
 'use client';
 
-import { createContext, useCallback, useContext, useState } from 'react';
+import { createContext, useCallback, useContext } from 'react';
+import { useRouter } from 'next/navigation';
 
-import { JobDetailsDialog } from '@/components/jobs/job-details-dialog';
-import { fetchJob, type JobRecord } from '@/lib/jobs-api';
+import { type JobRecord } from '@/lib/jobs-api';
 
 interface JobDetailContextValue {
   openJobDetail: (jobOrId: JobRecord | string) => void;
@@ -20,25 +20,19 @@ export function useJobDetail(): JobDetailContextValue {
 }
 
 export function JobDetailProvider({ children }: { children: React.ReactNode }) {
-  const [job, setJob] = useState<JobRecord | null>(null);
+  const router = useRouter();
 
-  const openJobDetail = useCallback(async (jobOrId: JobRecord | string) => {
-    if (typeof jobOrId === 'string') {
-      try {
-        const fetched = await fetchJob(jobOrId);
-        setJob(fetched);
-      } catch {
-        // If the fetch fails, silently ignore — no stale dialog shown.
-      }
-    } else {
-      setJob(jobOrId);
-    }
-  }, []);
+  const openJobDetail = useCallback(
+    (jobOrId: JobRecord | string) => {
+      const jobId = typeof jobOrId === 'string' ? jobOrId : jobOrId.id;
+      router.push(`/jobs/${encodeURIComponent(jobId)}`);
+    },
+    [router],
+  );
 
   return (
     <JobDetailContext.Provider value={{ openJobDetail }}>
       {children}
-      <JobDetailsDialog job={job} onOpenChange={(open) => { if (!open) setJob(null); }} />
     </JobDetailContext.Provider>
   );
 }

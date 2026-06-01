@@ -4,53 +4,14 @@ import httpx
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from copilot.clients.code_executor import CodeExecutorClient
+from copilot.clients.code_executor import (
+    CodeExecutorClient,
+    format_code_execution_result,
+)
 from copilot.core.settings import Settings
 
 _settings = Settings()
 _code_executor_client = CodeExecutorClient(_settings)
-
-
-def _build_artifacts(images: list[str], plotly: list[str]) -> list[dict[str, str]]:
-    artifacts: list[dict[str, str]] = []
-
-    for index, filename in enumerate(images, start=1):
-        artifacts.append(
-            {
-                "ref": f"image_{index}",
-                "kind": "image",
-                "filename": filename,
-            }
-        )
-
-    for index, filename in enumerate(plotly, start=1):
-        artifacts.append(
-            {
-                "ref": f"chart_{index}",
-                "kind": "plotly",
-                "filename": filename,
-            }
-        )
-
-    return artifacts
-
-
-def _format_run_code_result(data: dict) -> dict:
-    stdout = data.get("stdout", "").rstrip()
-    artifacts = _build_artifacts(data.get("images", []), data.get("plotly", []))
-    wot_calls = data.get("wot_calls", [])
-
-    result: dict[str, object] = {}
-    if stdout:
-        result["stdout"] = stdout
-    if artifacts:
-        result["artifacts"] = artifacts
-    if wot_calls:
-        result["wot_calls"] = wot_calls
-    if not result:
-        result["stdout"] = "(no output)"
-
-    return result
 
 
 @tool
@@ -69,7 +30,7 @@ async def run_code(code: str, config: RunnableConfig) -> dict:
     chat_id = config.get("configurable", {}).get("thread_id", "default")
     try:
         response = await _code_executor_client.execute(session_id=chat_id, code=code)
-        return _format_run_code_result(response)
+        return format_code_execution_result(response)
     except httpx.ConnectError:
         return {"error": "Code executor service is unavailable. Please try again later."}
     except httpx.TimeoutException:

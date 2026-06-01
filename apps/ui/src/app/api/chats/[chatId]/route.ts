@@ -1,5 +1,6 @@
 import { proxyCopilotJson } from '@/lib/copilot-backend';
 import { cleanupChatResources } from '@/lib/chat-deletion';
+import { getCodeExecutorUrl, getCopilotUrl } from '@/lib/backend-env';
 
 export async function GET(
   _req: Request,
@@ -16,8 +17,8 @@ export async function DELETE(
   const { chatId } = await params;
   const failures = await cleanupChatResources({
     chatId,
-    copilotUrl: process.env.COPILOT_URL,
-    executorUrl: process.env.CODE_EXECUTOR_URL,
+    copilotUrl: getCopilotUrl(),
+    executorUrl: getCodeExecutorUrl(),
     internalApiKey: process.env.INTERNAL_API_KEY,
   });
 

@@ -203,7 +203,7 @@ function ToolCardHeader({
   );
 }
 
-const RunCodeArtifactCard = memo(function RunCodeArtifactCard({
+export const RunCodeArtifactCard = memo(function RunCodeArtifactCard({
   artifact,
 }: {
   artifact: RunCodeArtifact;
