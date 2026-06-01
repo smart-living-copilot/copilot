@@ -180,10 +180,9 @@ async def _livekit_camera_capture(ctx: Any, thread_id: str):
     def ensure_subscribed(publication: Any) -> None:
         """Explicitly subscribe to a remote video publication.
 
-        The AgentSession's RoomIO subscribes the camera track for its own
-        video input pipeline, which does not reliably surface a
-        ``track_subscribed`` event to this handler. Requesting the
-        subscription ourselves makes the capture independent of RoomIO.
+        RoomIO only subscribes to the audio it needs, so the camera track is
+        never subscribed unless we ask for it. Requesting the subscription here
+        is what drives the ``track_subscribed`` event that starts capture.
         """
         if not is_video_publication(publication):
             return
@@ -520,9 +519,8 @@ async def _run_livekit_session(ctx: Any, settings: Settings) -> None:
             room=ctx.room,
             agent=CopilotVoiceAgent.create(),
             room_options=room_io.RoomOptions(
-                # Subscribe to the participant's camera track so look_at_camera
-                # has live frames; defaults to disabled in livekit-agents.
-                video_input=True,
+                # Camera frames for look_at_camera are captured directly by
+                # _livekit_camera_capture, so RoomIO's own video input stays off.
                 text_output=room_io.TextOutputOptions(sync_transcription=False),
             ),
         )
