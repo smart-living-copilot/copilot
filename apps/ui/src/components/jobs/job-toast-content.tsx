@@ -1,7 +1,13 @@
 'use client';
 
-import { useCallback, useRef, useState, type FormEvent } from 'react';
-import { Send } from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react';
+import { BarChart3, Send } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -12,7 +18,13 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  formatArtifactSummary,
+  type RunCodeArtifact,
+} from '@/components/copilot/chat-tool-call-model';
+import { hasCodeOutput, normalizeJobCodeResult } from '@/lib/job-code-result';
+import {
   createClientReplyId,
+  fetchJobRuns,
   replyToJob,
   type JobRecord,
 } from '@/lib/jobs-api';
@@ -50,8 +62,73 @@ export function JobToastContent({
       </div>
       {isWaiting ? (
         <JobToastAnswerForm job={job} onAnswered={onAnswered} />
-      ) : null}
+      ) : (
+        <JobToastArtifacts job={job} onOpen={onOpen} />
+      )}
     </div>
+  );
+}
+
+/**
+ * Lazily fetch the latest run for a finished job and, when it produced chart or
+ * image artifacts, surface a compact preview in the toast. Image artifacts get
+ * an inline thumbnail; charts fall back to a summary line. Clicking opens the
+ * job detail page where the full interactive artifacts live.
+ */
+function JobToastArtifacts({
+  job,
+  onOpen,
+}: {
+  job: JobRecord;
+  onOpen: () => void;
+}) {
+  const [artifacts, setArtifacts] = useState<RunCodeArtifact[]>([]);
+
+  useEffect(() => {
+    if (job.last_run_status !== 'succeeded' || !job.last_run_id) return;
+
+    let active = true;
+    void fetchJobRuns(job.id)
+      .then((runs) => {
+        if (!active) return;
+        const latest = runs.find((run) =>
+          hasCodeOutput(normalizeJobCodeResult(run.result)),
+        );
+        const result = latest ? normalizeJobCodeResult(latest.result) : null;
+        setArtifacts(result?.artifacts ?? []);
+      })
+      .catch(() => {
+        // Best-effort enrichment; the toast is still useful without it.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [job.id, job.last_run_id, job.last_run_status]);
+
+  if (artifacts.length === 0) return null;
+
+  const imageArtifact = artifacts.find((artifact) => artifact.kind === 'image');
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group block w-full space-y-1.5 text-left"
+    >
+      {imageArtifact ? (
+        // eslint-disable-next-line @next/next/no-img-element -- generated artifacts are proxied files and skip Next image optimization
+        <img
+          alt={imageArtifact.ref}
+          src={`/api/artifacts/${encodeURIComponent(imageArtifact.filename)}`}
+          className="max-h-44 w-full rounded-md border border-border/60 bg-muted/20 object-contain transition group-hover:border-border"
+        />
+      ) : null}
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <BarChart3 className="size-3.5" />
+        {formatArtifactSummary(artifacts)} · View details
+      </span>
+    </button>
   );
 }
 

@@ -38,9 +38,9 @@ import { Spinner } from '@/components/ui/spinner';
 import { RunCodeArtifactCard } from '@/components/copilot/chat-tool-call-cards';
 import {
   formatArtifactSummary,
-  normalizeRunCodeResult,
   type RunCodeResult,
 } from '@/components/copilot/chat-tool-call-model';
+import { hasCodeOutput, normalizeJobCodeResult } from '@/lib/job-code-result';
 import {
   Card,
   CardContent,
@@ -111,27 +111,6 @@ function runOutcome(run: JobRunRecord): string {
   if (run.response_text?.trim()) return run.response_text.trim();
   if (run.result != null) return formatJson(run.result);
   return 'No output captured.';
-}
-
-function hasCodeOutput(result: RunCodeResult): boolean {
-  return Boolean(
-    result.error?.trim() ||
-    result.stdout?.trim() ||
-    (result.artifacts?.length ?? 0) > 0,
-  );
-}
-
-function normalizeJobCodeResult(value: unknown): RunCodeResult {
-  const direct = normalizeRunCodeResult(value);
-  if (hasCodeOutput(direct)) {
-    return direct;
-  }
-
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return direct;
-  }
-
-  return normalizeRunCodeResult((value as { response?: unknown }).response);
 }
 
 function resourceHealthLabel(status: string | undefined): string {
