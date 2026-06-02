@@ -417,6 +417,9 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
   const isWaitingForReply = job ? supportsJobReply(job) : false;
   const hasTimeFields = job ? supportsTimeFields(job) : false;
   const hasEventFields = job ? supportsEventFields(job) : false;
+  const showSchemaTab = Boolean(
+    job && (job.output_kind === 'structured_record' || hasEventFields),
+  );
   const latestCodeResult = useMemo(() => {
     const latestRun = runs.find((run) =>
       hasCodeOutput(normalizeJobCodeResult(run.result)),
@@ -741,12 +744,16 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                 >
                   {job.action_kind === 'analysis' ? 'Code' : 'Prompt'}
                 </TabsTrigger>
-                <TabsTrigger
-                  value="configuration"
-                  className={JOB_TABS_TRIGGER_CLASSNAME}
-                >
-                  Configuration
-                </TabsTrigger>
+                {showSchemaTab ? (
+                  <TabsTrigger
+                    value="schema"
+                    className={JOB_TABS_TRIGGER_CLASSNAME}
+                  >
+                    {job.output_kind === 'structured_record'
+                      ? 'Schema'
+                      : 'Subscription'}
+                  </TabsTrigger>
+                ) : null}
               </TabsList>
             </div>
 
@@ -829,6 +836,57 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                 ) : null}
               </section>
 
+              <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                {hasJobThread ? (
+                  <FieldCard
+                    label="Job thread"
+                    value={job.job_thread_id}
+                    mono
+                  />
+                ) : null}
+                {hasTimeFields ? (
+                  <>
+                    <FieldCard
+                      label="Schedule kind"
+                      value={job.schedule_kind || 'Time trigger'}
+                    />
+                    {job.interval_seconds ? (
+                      <FieldCard
+                        label="Interval"
+                        value={`${job.interval_seconds}s`}
+                      />
+                    ) : null}
+                    {job.run_at ? (
+                      <FieldCard
+                        label="Run once at"
+                        value={formatDateTime(job.run_at)}
+                      />
+                    ) : null}
+                  </>
+                ) : null}
+                {hasEventFields && job.subscription_id ? (
+                  <FieldCard
+                    label="Subscription"
+                    value={job.subscription_id}
+                    mono
+                  />
+                ) : null}
+                <FieldCard
+                  label="Active run"
+                  value={job.active_run_id || 'None'}
+                  mono
+                />
+                <FieldCard label="Run count" value={job.run_count} />
+                <FieldCard
+                  label="Last run at"
+                  value={formatDateTime(job.last_run_at)}
+                />
+                <FieldCard
+                  label="Updated"
+                  value={formatDateTime(job.updated_at)}
+                />
+              </section>
+
               {job.action_kind === 'analysis' ? (
                 <CodeOutputPanel
                   result={latestCodeResult ?? {}}
@@ -881,89 +939,27 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
               />
             </TabsContent>
 
-            <TabsContent value="configuration" className="mt-0 space-y-4">
-              <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                {hasJobThread ? (
-                  <FieldCard
-                    label="Job thread"
-                    value={job.job_thread_id}
-                    mono
+            {showSchemaTab ? (
+              <TabsContent value="schema" className="mt-0 space-y-4">
+                {job.output_kind === 'structured_record' ? (
+                  <TextPanel
+                    title="Record schema"
+                    description="JSON Schema used to parse and validate submitted records."
+                    value={formatJson(job.record_schema)}
+                    compact
                   />
                 ) : null}
-                {hasTimeFields ? (
-                  <>
-                    <FieldCard
-                      label="Schedule kind"
-                      value={job.schedule_kind || 'Time trigger'}
-                    />
-                    {job.interval_seconds ? (
-                      <FieldCard
-                        label="Interval"
-                        value={`${job.interval_seconds}s`}
-                      />
-                    ) : null}
-                    {job.run_at ? (
-                      <FieldCard
-                        label="Run once at"
-                        value={formatDateTime(job.run_at)}
-                      />
-                    ) : null}
-                  </>
-                ) : null}
+
                 {hasEventFields ? (
-                  <>
-                    <FieldCard
-                      label="Thing"
-                      value={job.thing_id || 'Unbound'}
-                      mono
-                    />
-                    <FieldCard
-                      label="Event"
-                      value={job.event_name || 'Unbound'}
-                    />
-                    {job.subscription_id ? (
-                      <FieldCard
-                        label="Subscription"
-                        value={job.subscription_id}
-                        mono
-                      />
-                    ) : null}
-                  </>
+                  <TextPanel
+                    title="Subscription input"
+                    description="Stored event subscription payload for event-triggered jobs."
+                    value={formatJson(job.subscription_input)}
+                    compact
+                  />
                 ) : null}
-                <FieldCard
-                  label="Active run"
-                  value={job.active_run_id || 'None'}
-                  mono
-                />
-                <FieldCard label="Run count" value={job.run_count} />
-                <FieldCard
-                  label="Last run at"
-                  value={formatDateTime(job.last_run_at)}
-                />
-                <FieldCard
-                  label="Updated"
-                  value={formatDateTime(job.updated_at)}
-                />
-              </section>
-
-              {job.output_kind === 'structured_record' ? (
-                <TextPanel
-                  title="Record schema"
-                  description="JSON Schema used to parse and validate submitted records."
-                  value={formatJson(job.record_schema)}
-                  compact
-                />
-              ) : null}
-
-              {hasEventFields ? (
-                <TextPanel
-                  title="Subscription input"
-                  description="Stored event subscription payload for event-triggered jobs."
-                  value={formatJson(job.subscription_input)}
-                  compact
-                />
-              ) : null}
-            </TabsContent>
+              </TabsContent>
+            ) : null}
           </Tabs>
         </>
       ) : null}
