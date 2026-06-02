@@ -25,10 +25,12 @@ export function ReadAloudButton({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
 
-  const stop = useCallback(() => {
+  const cleanupAudio = useCallback(() => {
     if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
       audioRef.current.pause();
-      audioRef.current.src = '';
+      audioRef.current.removeAttribute('src');
       audioRef.current = null;
     }
     if (audioUrlRef.current) {
@@ -39,11 +41,11 @@ export function ReadAloudButton({
     setIsLoading(false);
   }, []);
 
-  useEffect(() => stop, [stop]);
+  useEffect(() => cleanupAudio, [cleanupAudio]);
 
   const handleClick = useCallback(async () => {
     if (isPlaying || isLoading) {
-      stop();
+      cleanupAudio();
       return;
     }
 
@@ -60,15 +62,13 @@ export function ReadAloudButton({
       const audio = new Audio(url);
       audioUrlRef.current = url;
       audioRef.current = audio;
-      audio.addEventListener('ended', stop, { once: true });
-      audio.addEventListener(
-        'error',
-        () => {
+      audio.onended = cleanupAudio;
+      audio.onerror = () => {
+        if (audioRef.current === audio) {
           toast.error('Failed to play speech audio.');
-          stop();
-        },
-        { once: true },
-      );
+          cleanupAudio();
+        }
+      };
       setIsPlaying(true);
       setIsLoading(false);
       await audio.play();
@@ -76,9 +76,9 @@ export function ReadAloudButton({
       toast.error(
         error instanceof Error ? error.message : 'Failed to create speech.',
       );
-      stop();
+      cleanupAudio();
     }
-  }, [isLoading, isPlaying, stop, text]);
+  }, [cleanupAudio, isLoading, isPlaying, text]);
 
   const size: ButtonSize = compact ? 'icon-sm' : 'sm';
   const buttonLabel = isPlaying || isLoading ? 'Stop audio' : label;
