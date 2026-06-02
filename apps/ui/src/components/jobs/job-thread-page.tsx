@@ -44,6 +44,7 @@ import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
 import {
   getJobStatus,
   getScheduleLabel,
+  getSubmittedRecordResultSummary,
   getStatusBadgeVariant,
   getStatusLabel,
   supportsJobReply,
@@ -80,6 +81,8 @@ function normalizeMessages(thread: JobThreadRecord | null): Message[] {
 
 function runOutcome(run: JobRunRecord): string {
   if (run.error?.trim()) return run.error.trim();
+  const submittedRecordSummary = getSubmittedRecordResultSummary(run.result);
+  if (submittedRecordSummary) return submittedRecordSummary;
   if (run.response_text?.trim()) return run.response_text.trim();
   if (run.result != null) {
     try {
@@ -444,7 +447,8 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
                 {isWaiting ? (
                   <>
                     <div className="font-medium text-foreground">
-                      {job?.waiting_question || 'The job is waiting for a reply.'}
+                      {job?.waiting_question ||
+                        'The job is waiting for a reply.'}
                     </div>
                     <div>Answer this question from the job detail page.</div>
                   </>
@@ -548,7 +552,9 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
           {isWaiting ? (
             <div className="space-y-5">
               <WaitingReplyCard
-                question={job.waiting_question || 'The job is waiting for a reply.'}
+                question={
+                  job.waiting_question || 'The job is waiting for a reply.'
+                }
                 value={inputValue}
                 isSubmitting={isReplying}
                 detailsHref={`/jobs/${jobId}`}

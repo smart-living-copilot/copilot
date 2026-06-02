@@ -47,6 +47,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import {
   formatDateTime,
+  getSubmittedRecordResultSummary,
   getJobStatus,
   getPurposePreview,
   getScheduleLabel,
@@ -100,6 +101,8 @@ function runOutcome(run: JobRunRecord): string {
   if (codeResult.stdout?.trim()) return codeResult.stdout.trim();
   if (codeResult.error?.trim()) return codeResult.error.trim();
   if (run.error?.trim()) return run.error.trim();
+  const submittedRecordSummary = getSubmittedRecordResultSummary(run.result);
+  if (submittedRecordSummary) return submittedRecordSummary;
   if (run.response_text?.trim()) return run.response_text.trim();
   if (run.result != null) return formatJson(run.result);
   return 'No output captured.';
@@ -295,7 +298,9 @@ function JobReplyPanel({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
             <CardTitle className="text-base">Waiting for input</CardTitle>
-            <CardDescription>Reply to the pending job question.</CardDescription>
+            <CardDescription>
+              Reply to the pending job question.
+            </CardDescription>
           </div>
           <Badge variant="secondary">Needs input</Badge>
         </div>
@@ -431,6 +436,13 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
         message: resource.message || 'Resource check failed.',
       }));
   }, [job?.resource_health]);
+  const latestSubmittedRecordSummary = useMemo(() => {
+    for (const run of runs) {
+      const summary = getSubmittedRecordResultSummary(run.result);
+      if (summary) return summary;
+    }
+    return null;
+  }, [runs]);
 
   const handleRun = useCallback(async () => {
     setIsRunning(true);
@@ -669,7 +681,9 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
         <>
           {isWaitingForReply ? (
             <JobReplyPanel
-              question={job.waiting_question || 'The job is waiting for a reply.'}
+              question={
+                job.waiting_question || 'The job is waiting for a reply.'
+              }
               value={replyText}
               isSubmitting={isReplying}
               transcriptHref={`/jobs/${jobId}/thread`}
@@ -819,9 +833,21 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                 />
               ) : (
                 <TextPanel
-                  title="Last result"
-                  description="The latest response captured from an execution."
-                  value={job.last_response || 'No result captured yet.'}
+                  title={
+                    job.output_kind === 'structured_record'
+                      ? 'Latest record'
+                      : 'Last result'
+                  }
+                  description={
+                    job.output_kind === 'structured_record'
+                      ? 'The latest structured record captured from an execution.'
+                      : 'The latest response captured from an execution.'
+                  }
+                  value={
+                    latestSubmittedRecordSummary ||
+                    job.last_response ||
+                    'No result captured yet.'
+                  }
                 />
               )}
             </TabsContent>

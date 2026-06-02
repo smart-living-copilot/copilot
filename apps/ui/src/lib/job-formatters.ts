@@ -166,6 +166,32 @@ export function getPurposePreview(job: JobRecord): {
   };
 }
 
+export function getSubmittedRecordResultSummary(
+  result: unknown,
+): string | null {
+  const submittedRecord =
+    isRecord(result) && isRecord(result.submitted_record)
+      ? result.submitted_record
+      : null;
+  const data = submittedRecord?.data;
+  if (!isRecord(data)) return null;
+
+  const parts = Object.entries(data).map(([key, value]) => {
+    const valueText =
+      typeof value === 'string'
+        ? value
+        : JSON.stringify(value) || String(value);
+    return `${key}=${truncateText(valueText, 80)}`;
+  });
+  if (!parts.length) return null;
+
+  const preview =
+    parts.length > 5
+      ? `${parts.slice(0, 5).join(', ')}, ...`
+      : parts.join(', ');
+  return `Structured record: ${truncateText(preview, 320)}`;
+}
+
 export function supportsJobThread(
   job: Pick<JobRecord, 'action_kind'>,
 ): boolean {
@@ -209,4 +235,13 @@ export function getStatusBadgeVariant(
   if (status === 'failed') return 'destructive';
   if (status === 'disabled' || status === 'skipped') return 'outline';
   return 'outline';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3)}...`;
 }
