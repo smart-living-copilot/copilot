@@ -8,17 +8,20 @@ from datetime import datetime, timedelta
 
 from copilot.clients.wot_runtime import WotRuntimeClient
 from copilot.jobs.enums import JobOutputKind, JobTriggerKind, TimeTriggerKind
-from copilot.jobs.schemas import CreateJobRequest, Job
 from copilot.jobs.records import VirtualRecordStore
+from copilot.jobs.resources.constants import (
+    RESOURCE_EVENT_SUBSCRIPTION,
+    RESOURCE_SCHEDULE,
+    RESOURCE_VIRTUAL_RECORD_THING,
+)
+from copilot.jobs.resources.event_subscriptions import EventSubscriptionReconciler
+from copilot.jobs.resources.health import mark_resource_health
 from copilot.jobs.schedule import JobScheduleManager
+from copilot.jobs.schemas import CreateJobRequest, Job
 from copilot.jobs.store import JobStore, utc_now
 from copilot.jobs.subscriptions import subscription_id_from_response
 
 logger = logging.getLogger(__name__)
-
-RESOURCE_EVENT_SUBSCRIPTION = "event_subscription"
-RESOURCE_SCHEDULE = "schedule"
-RESOURCE_VIRTUAL_RECORD_THING = "virtual_record_thing"
 
 
 @dataclass(frozen=True)
@@ -74,7 +77,8 @@ class JobResourceManager:
                 job.virtual_thing_id,
             )
             if exists:
-                await self._mark_resource_health(
+                await mark_resource_health(
+                    self._repo,
                     job.id,
                     RESOURCE_VIRTUAL_RECORD_THING,
                     "healthy",
@@ -84,7 +88,8 @@ class JobResourceManager:
                 await self._create_or_update_record_thing(job, request=None)
                 repaired += 1
             except Exception as exc:
-                await self._mark_resource_health(
+                await mark_resource_health(
+                    self._repo,
                     job.id,
                     RESOURCE_VIRTUAL_RECORD_THING,
                     "degraded",
@@ -149,14 +154,15 @@ class JobResourceManager:
             try:
                 await self._schedule_manager.add_job(job)
             except Exception as exc:
-                await self._mark_resource_health(
+                await mark_resource_health(
+                    self._repo,
                     job.id,
                     RESOURCE_SCHEDULE,
                     "degraded",
                     str(exc),
                 )
                 raise
-            await self._mark_resource_health(job.id, RESOURCE_SCHEDULE, "healthy")
+            await mark_resource_health(self._repo, job.id, RESOURCE_SCHEDULE, "healthy")
 
     async def update_job_resources(self, previous: Job, updated: Job) -> Job:
         if updated.trigger_kind == JobTriggerKind.TIME:
@@ -165,14 +171,20 @@ class JobResourceManager:
                 if updated.enabled:
                     await self._schedule_manager.add_job(updated)
             except Exception as exc:
-                await self._mark_resource_health(
+                await mark_resource_health(
+                    self._repo,
                     updated.id,
                     RESOURCE_SCHEDULE,
                     "degraded",
                     str(exc),
                 )
                 raise
-            await self._mark_resource_health(updated.id, RESOURCE_SCHEDULE, "healthy")
+            await mark_resource_health(
+                self._repo,
+                updated.id,
+                RESOURCE_SCHEDULE,
+                "healthy",
+            )
             return updated
 
         if updated.trigger_kind == JobTriggerKind.EVENT:
@@ -189,20 +201,23 @@ class JobResourceManager:
                     )
                     await self._repo.set_subscription_id(updated.id, None)
                 except Exception as exc:
-                    await self._mark_resource_health(
+                    await mark_resource_health(
+                        self._repo,
                         updated.id,
                         RESOURCE_EVENT_SUBSCRIPTION,
                         "degraded",
                         str(exc),
                     )
                     raise
-                await self._mark_resource_health(
+                await mark_resource_health(
+                    self._repo,
                     updated.id,
                     RESOURCE_EVENT_SUBSCRIPTION,
                     "healthy",
                 )
                 return await self._repo.get_job(updated.id)
-            await self._mark_resource_health(
+            await mark_resource_health(
+                self._repo,
                 updated.id,
                 RESOURCE_EVENT_SUBSCRIPTION,
                 "healthy",
@@ -222,14 +237,16 @@ class JobResourceManager:
             subscription_id = subscription_id_from_response(subscription_response)
             await self._repo.set_subscription_id(updated.id, subscription_id)
         except Exception as exc:
-            await self._mark_resource_health(
+            await mark_resource_health(
+                self._repo,
                 updated.id,
                 RESOURCE_EVENT_SUBSCRIPTION,
                 "degraded",
                 str(exc),
             )
             raise
-        await self._mark_resource_health(
+        await mark_resource_health(
+            self._repo,
             updated.id,
             RESOURCE_EVENT_SUBSCRIPTION,
             "healthy",
@@ -293,88 +310,11 @@ class JobResourceManager:
             description=description
             or f"Structured records collected by the {job.name} job.",
         )
-        await self._mark_resource_health(
+        await mark_resource_health(
+            self._repo,
             job.id,
             RESOURCE_VIRTUAL_RECORD_THING,
             "healthy",
-        )
-
-    async def _mark_resource_health(
-        self,
-        job_id: str,
-        resource: str,
-        status: str,
-        message: str | None = None,
-    ) -> None:
-        if hasattr(self._repo, "set_job_resource_health"):
-            await self._repo.set_job_resource_health(
-                job_id,
-                resource=resource,
-                status=status,
-                message=message,
-            )
-
-
-class EventSubscriptionReconciler:
-    def __init__(
-        self,
-        *,
-        repo: JobStore,
-        runtime_client: WotRuntimeClient,
-    ) -> None:
-        self._repo = repo
-        self._runtime_client = runtime_client
-
-    async def sync(self) -> int:
-        jobs = await self._repo.list_enabled_event_jobs()
-        synced = 0
-        for job in jobs:
-            if job.subscription_id:
-                try:
-                    await self._runtime_client.remove_subscription(
-                        subscription_id=job.subscription_id,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to remove stale runtime subscription for job %s: %s",
-                        job.id,
-                        exc,
-                    )
-
-            try:
-                subscription_response = await self.subscribe_event_job(job)
-                subscription_id = subscription_id_from_response(subscription_response)
-                await self._repo.set_subscription_id(job.id, subscription_id)
-                if hasattr(self._repo, "set_job_resource_health"):
-                    await self._repo.set_job_resource_health(
-                        job.id,
-                        resource=RESOURCE_EVENT_SUBSCRIPTION,
-                        status="healthy",
-                    )
-                synced += 1
-            except Exception as exc:
-                if hasattr(self._repo, "set_job_resource_health"):
-                    await self._repo.set_job_resource_health(
-                        job.id,
-                        resource=RESOURCE_EVENT_SUBSCRIPTION,
-                        status="degraded",
-                        message=str(exc),
-                    )
-                logger.error("Failed to sync subscription for job %s: %s", job.id, exc)
-        return synced
-
-    async def subscribe_event_request(self, request: CreateJobRequest) -> dict:
-        return await self._runtime_client.subscribe_event(
-            thing_id=request.thing_id or "",
-            event_name=request.event_name or "",
-            subscription_input=request.subscription_input,
-        )
-
-    async def subscribe_event_job(self, job: Job) -> dict:
-        return await self._runtime_client.subscribe_event(
-            thing_id=job.thing_id or "",
-            event_name=job.event_name or "",
-            subscription_input=job.subscription_input,
         )
 
 
