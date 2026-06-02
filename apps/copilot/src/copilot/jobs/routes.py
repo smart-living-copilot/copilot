@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
@@ -18,6 +17,7 @@ from copilot.jobs.schemas import (
     ReplyJobRequest,
     UpdateJobRequest,
 )
+from copilot.jobs.record_summary import submitted_record_event_message
 from copilot.jobs.records import VirtualRecordStore, virtual_record_http_error
 from copilot.jobs.store import JobNotWaitingForInput, JobRunNotCancellable
 from copilot.threads.messages import checkpoint_thread_messages
@@ -299,12 +299,9 @@ def _message_role_from_event(event_type: JobRunEventType) -> str:
 
 def _message_content_from_event(event: JobRunEvent) -> str:
     if event.event_type == JobRunEventType.RECORD_SUBMITTED:
-        summary = _record_submission_summary(event.payload)
-        if summary:
-            return f"Structured record submitted: {summary}"
-        if event.message:
+        if event.message and event.message != "Structured record submitted.":
             return event.message
-        return "Structured record submitted."
+        return submitted_record_event_message(event.payload)
     if event.message:
         return event.message
     if event.event_type == JobRunEventType.RUN_STARTED:
@@ -318,27 +315,3 @@ def _message_content_from_event(event: JobRunEvent) -> str:
     if event.event_type == JobRunEventType.RUN_SKIPPED:
         return "Run skipped."
     return ""
-
-
-def _record_submission_summary(payload: Any) -> str:
-    if not isinstance(payload, dict):
-        return ""
-    data = payload.get("data")
-    if not isinstance(data, dict):
-        return ""
-
-    parts: list[str] = []
-    for key, value in data.items():
-        if len(parts) >= 5:
-            parts.append("...")
-            break
-        value_text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=True)
-        parts.append(f"{key}={_truncate_text(str(value_text), max_length=80)}")
-
-    return _truncate_text(", ".join(parts), max_length=320)
-
-
-def _truncate_text(value: str, *, max_length: int) -> str:
-    if len(value) <= max_length:
-        return value
-    return f"{value[: max_length - 3]}..."

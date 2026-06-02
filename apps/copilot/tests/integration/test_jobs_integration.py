@@ -560,6 +560,10 @@ def test_structured_record_reply_replay_writes_one_reply_event_and_record(
         "Good mood, energy 4. I cooked dinner."
     ]
     assert events[2].payload["client_reply_id"] == "reply-evening-1"
+    assert (
+        events[3].message
+        == "Structured record submitted: mood=good, energy=4, note=cooked dinner"
+    )
     assert events[3].payload["data"]["mood"] == "good"
 
 

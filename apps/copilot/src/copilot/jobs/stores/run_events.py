@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from copilot.jobs.db import JobRunEventRecord
 from copilot.jobs.enums import JobRunEventType, JobRunStatus
+from copilot.jobs.record_summary import submitted_record_event_message
 from copilot.jobs.stores.base import _json_safe
 
 
@@ -41,7 +42,7 @@ def _add_finish_events(
             run_id=run_id,
             event_type=JobRunEventType.RECORD_SUBMITTED,
             now=now,
-            message="Structured record submitted.",
+            message=submitted_record_event_message(submitted_record),
             payload=submitted_record,
         )
 

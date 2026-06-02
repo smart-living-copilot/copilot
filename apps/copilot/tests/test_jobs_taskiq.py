@@ -45,6 +45,7 @@ from copilot.jobs.schedule import (
     schedule_id_for_job,
     scheduled_task_for_job,
 )
+from copilot.jobs.record_summary import submitted_record_event_message
 from copilot.jobs.service import JobService
 from copilot.jobs.store import JobNotWaitingForInput
 from copilot.agent.tools.submit_job_record import submit_job_record
@@ -529,6 +530,14 @@ class JobRunEventMessageTestCase(unittest.TestCase):
         self.assertEqual(
             messages[3]["content"],
             "Structured record submitted: mood=good, energy=4",
+        )
+
+    def test_submitted_record_event_message_summarizes_record_data(self) -> None:
+        self.assertEqual(
+            submitted_record_event_message(
+                {"data": {"mood": "good", "energy": 4, "note": "slept well"}}
+            ),
+            "Structured record submitted: mood=good, energy=4, note=slept well",
         )
 
 
