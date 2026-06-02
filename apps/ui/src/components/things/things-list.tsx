@@ -2,7 +2,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Eye, Loader2, Plus, Search, Upload } from 'lucide-react';
+import { Eye, Plus, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { type ThingRecord, fetchThings } from '@/lib/things-api';
@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -83,20 +84,16 @@ export function ThingsList() {
   const hasSearch = deferredSearch.trim().length > 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="w-full space-y-8">
-          <div className="flex items-center gap-3">
-            <div className="space-y-1">
-              <h1 className="text-3xl font-semibold tracking-tight">Things</h1>
-              <p className="text-sm text-muted-foreground">
-                Browse and manage Thing Descriptions. View any thing to inspect
-                or edit the full document.
-              </p>
-            </div>
-          </div>
+        <div className="space-y-1">
+          <h1 className="text-3xl font-semibold tracking-tight">Things</h1>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            Browse and manage Thing Descriptions. View any thing to inspect or
+            edit the full document.
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <Button variant="outline" asChild>
             <Link href="/things/upload">
               <Upload className="h-4 w-4" />
@@ -109,39 +106,49 @@ export function ThingsList() {
               Create
             </Link>
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => void loadData()}
+            disabled={isPending}
+          >
+            <RefreshCw
+              className={isPending ? 'h-4 w-4 animate-spin' : 'h-4 w-4'}
+            />
+            Refresh
+          </Button>
         </div>
       </section>
 
-      <Card className="overflow-hidden">
-        <CardContent className="space-y-4 p-6">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div className="relative w-full max-w-xl">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
+        <CardContent className="space-y-4 p-4 md:p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative w-full lg:max-w-xl">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by name, id, description, tags, or JSON..."
-                className="pl-11"
+                placeholder="Search things"
+                className="pl-9"
               />
             </div>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-              <Badge variant="secondary" className="font-medium">
-                {total} total
-              </Badge>
-              <span>
+            <div className="flex min-h-8 items-center gap-2 text-sm text-muted-foreground">
+              <Badge variant="secondary">{total} total</Badge>
+              <Badge variant="outline">
                 Page {page} of {totalPages}
-              </span>
+              </Badge>
             </div>
           </div>
 
           {isPending ? (
-            <div className="flex min-h-48 items-center justify-center rounded-md border">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <div className="space-y-2 rounded-md border p-3">
+              {['r1', 'r2', 'r3', 'r4', 'r5'].map((key) => (
+                <Skeleton key={key} className="h-12 w-full rounded-md" />
+              ))}
             </div>
           ) : data.length > 0 ? (
             <>
-              <div className="rounded-md border">
-                <Table className="min-w-[980px]">
+              <div className="overflow-x-auto rounded-md border">
+                <Table className="min-w-[980px] table-fixed">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[42%]">Thing</TableHead>
@@ -192,7 +199,7 @@ export function ThingsList() {
                 </Table>
               </div>
 
-              <div className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 rounded-md border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-muted-foreground">
                   Showing {data.length} of {total} things
                 </p>
@@ -217,16 +224,16 @@ export function ThingsList() {
               </div>
             </>
           ) : (
-            <div className="rounded-lg border border-dashed px-6 py-12 text-center">
-              <h2 className="text-2xl font-semibold tracking-tight">
+            <div className="rounded-md border border-dashed px-6 py-12 text-center">
+              <h2 className="text-xl font-semibold tracking-tight">
                 No things found
               </h2>
-              <p className="mx-auto mt-2 max-w-md text-base text-muted-foreground">
+              <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
                 {hasSearch
-                  ? `No things match "${deferredSearch.trim()}". Try another search or clear the filter.`
+                  ? `No things match "${deferredSearch.trim()}".`
                   : 'Create the first Thing Description to get started.'}
               </p>
-              <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
                 {hasSearch && (
                   <Button variant="outline" onClick={() => setSearch('')}>
                     Clear search
