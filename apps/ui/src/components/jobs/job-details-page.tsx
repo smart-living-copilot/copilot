@@ -160,7 +160,7 @@ function FieldCard({
   return (
     <Card
       size="sm"
-      className="rounded-md border-border/70 shadow-sm shadow-black/5"
+      className="rounded-md border-border/70 shadow-sm shadow-black/5 xl:min-w-0 xl:flex-1 xl:basis-0"
     >
       <CardContent>
         <div className="text-xs text-muted-foreground">{label}</div>
@@ -751,7 +751,7 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
             </div>
 
             <TabsContent value="overview" className="mt-0 space-y-4">
-              <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+              <section className="grid gap-2 sm:grid-cols-2 xl:flex xl:flex-nowrap">
                 <FieldCard
                   label="Status"
                   value={
