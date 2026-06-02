@@ -6,8 +6,17 @@ export interface JobRecord {
   created_from_thread_id: string;
   job_thread_id: string;
   action_kind: 'prompt' | 'analysis';
+  interaction_mode:
+    | 'autonomous'
+    | 'ask_when_needed'
+    | 'required_checkin'
+    | 'approval_gate';
+  output_kind: 'narrative' | 'structured_record';
   prompt: string | null;
   analysis_code: string | null;
+  record_schema: unknown | null;
+  record_schema_version: number | null;
+  virtual_thing_id: string | null;
   enabled: boolean;
   trigger_kind: 'time' | 'event';
   schedule_kind: 'once' | 'interval' | null;
@@ -77,6 +86,7 @@ export interface JobThreadRecord {
   visible?: boolean;
   jobId?: string | null;
   job: JobRecord;
+  run?: JobRunRecord | null;
   messages: JobThreadMessage[];
 }
 
@@ -92,8 +102,15 @@ export interface CreateJobPayload {
   name: string;
   created_from_thread_id?: string;
   action_kind: 'prompt' | 'analysis';
+  interaction_mode?: 'autonomous' | 'ask_when_needed' | 'required_checkin' | 'approval_gate';
+  output_kind?: 'narrative' | 'structured_record';
   prompt?: string;
   analysis_code?: string;
+  record_schema?: unknown;
+  record_schema_version?: number;
+  virtual_thing_id?: string;
+  virtual_thing_title?: string;
+  virtual_thing_description?: string;
   trigger_kind: 'time' | 'event';
   schedule_kind?: 'once' | 'interval';
   run_at?: string;

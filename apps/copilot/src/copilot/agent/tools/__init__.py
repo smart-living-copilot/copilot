@@ -5,6 +5,7 @@ from copilot.agent.tools.wot_registry import REGISTRY_TOOLS as REGISTRY_TOOLS
 from copilot.agent.tools.job_scheduler import (
     create_analysis_job,
     create_prompt_job,
+    create_record_prompt_job,
     delete_job,
     list_jobs,
     run_job_now,
@@ -17,6 +18,7 @@ LOCAL_TOOLS = [
     create_prompt_job,
     create_analysis_job,
     list_jobs,
+    create_record_prompt_job,
     run_job_now,
     delete_job,
 ]
@@ -26,6 +28,7 @@ __all__ = [
     "REGISTRY_TOOLS",
     "create_analysis_job",
     "create_prompt_job",
+    "create_record_prompt_job",
     "delete_job",
     "get_current_time",
     "list_jobs",

@@ -13,6 +13,8 @@ from copilot.jobs.models import (
     CreateJobRequest,
     Job,
     JobActionKind,
+    JobInteractionMode,
+    JobOutputKind,
     JobRecord,
     JobRun,
     JobRunRecord,
@@ -51,6 +53,10 @@ def job_thread_id_for_job(job_id: str) -> str:
     return f"job:{job_id}"
 
 
+def job_run_thread_id_for_run(job_id: str, run_id: str) -> str:
+    return f"job:{job_id}:run:{run_id}"
+
+
 def _source_thread_id_for_job(request: CreateJobRequest, job_id: str) -> str:
     source_thread_id = (request.created_from_thread_id or "").strip()
     if source_thread_id:
@@ -65,8 +71,13 @@ def _to_job(row: JobRecord) -> Job:
         created_from_thread_id=row.created_from_thread_id,
         job_thread_id=row.job_thread_id,
         action_kind=JobActionKind(row.action_kind),
+        interaction_mode=JobInteractionMode(row.interaction_mode),
+        output_kind=JobOutputKind(row.output_kind),
         prompt=row.prompt,
         analysis_code=row.analysis_code,
+        record_schema=row.record_schema,
+        record_schema_version=row.record_schema_version,
+        virtual_thing_id=row.virtual_thing_id,
         enabled=row.enabled,
         trigger_kind=JobTriggerKind(row.trigger_kind),
         schedule_kind=TimeTriggerKind(row.schedule_kind) if row.schedule_kind else None,
@@ -143,8 +154,15 @@ class JobStore:
                 created_from_thread_id=created_from_thread_id,
                 job_thread_id=job_thread_id,
                 action_kind=request.action_kind.value,
+                interaction_mode=request.interaction_mode.value,
+                output_kind=request.output_kind.value,
                 prompt=request.prompt,
                 analysis_code=request.analysis_code,
+                record_schema=_json_safe(request.record_schema)
+                if request.record_schema is not None
+                else None,
+                record_schema_version=request.record_schema_version,
+                virtual_thing_id=request.virtual_thing_id,
                 enabled=True,
                 trigger_kind=request.trigger_kind.value,
                 schedule_kind=request.schedule_kind.value if request.schedule_kind else None,
@@ -454,10 +472,11 @@ class JobStore:
                 session.commit()
                 return _to_job_run(run)
 
+            run_id = str(uuid4())
             run = JobRunRecord(
-                id=str(uuid4()),
+                id=run_id,
                 job_id=row.id,
-                job_thread_id=row.job_thread_id,
+                job_thread_id=_job_thread_id_for_run_row(row, run_id),
                 source=source.value,
                 status=JobRunStatus.RUNNING.value,
                 trigger_payload=_json_safe(trigger_payload),
@@ -506,33 +525,126 @@ class JobStore:
                 raise KeyError(job_id)
             if row.last_run_status != JobRunStatus.WAITING_FOR_INPUT.value:
                 raise JobNotWaitingForInput(job_id)
+            run_id = row.active_run_id or row.last_run_id
+            if not run_id:
+                raise KeyError(job_id)
+            run_row = session.get(JobRunRecord, run_id)
+            if run_row is None:
+                raise KeyError(run_id)
 
-            trigger_payload = {
-                "source": "user_reply",
-                "message": message,
-                "previous_run_id": previous_run_id or row.active_run_id or row.last_run_id,
-            }
-            run = JobRunRecord(
-                id=str(uuid4()),
-                job_id=row.id,
-                job_thread_id=row.job_thread_id,
-                source=JobRunSource.MANUAL.value,
-                status=JobRunStatus.RUNNING.value,
-                trigger_payload=_json_safe(trigger_payload),
-                started_at=now,
-                created_at=now,
+            trigger_payload = _json_safe(
+                {
+                    **(run_row.trigger_payload if isinstance(run_row.trigger_payload, dict) else {}),
+                    "latest_reply": message,
+                    "latest_reply_at": iso(now),
+                    "replies": [
+                        *(
+                            run_row.trigger_payload.get("replies", [])
+                            if run_row is not None
+                            and isinstance(run_row.trigger_payload, dict)
+                            and isinstance(run_row.trigger_payload.get("replies"), list)
+                            else []
+                        ),
+                        {
+                            "message": message,
+                            "received_at": iso(now),
+                            "previous_run_id": previous_run_id
+                            or row.active_run_id
+                            or row.last_run_id,
+                        },
+                    ],
+                }
             )
-            session.add(run)
-            row.active_run_id = run.id
+
+            run_row.status = JobRunStatus.RUNNING.value
+            run_row.trigger_payload = trigger_payload
+            run_row.finished_at = None
+
+            row.active_run_id = run_row.id
             row.active_run_started_at = now
-            row.active_run_source = JobRunSource.MANUAL.value
-            row.last_run_id = run.id
+            row.active_run_source = run_row.source
+            row.last_run_id = run_row.id
             row.last_run_at = now
             row.last_run_status = JobRunStatus.RUNNING.value
             row.last_error = None
+            row.waiting_question = None
             row.updated_at = now
             session.commit()
+            return _to_job_run(run_row)
+
+    async def get_active_or_last_job_run(self, job_id: str) -> JobRun:
+        return await asyncio.to_thread(self._get_active_or_last_job_run_sync, job_id)
+
+    def _get_active_or_last_job_run_sync(self, job_id: str) -> JobRun:
+        with self._session_factory() as session:
+            row = session.get(JobRecord, job_id)
+            if row is None:
+                raise KeyError(job_id)
+            run_id = row.active_run_id or row.last_run_id
+            if not run_id:
+                raise KeyError(job_id)
+            run = session.get(JobRunRecord, run_id)
+            if run is None:
+                raise KeyError(run_id)
             return _to_job_run(run)
+
+    async def get_job_by_active_run_thread_id(self, job_thread_id: str) -> Job:
+        return await asyncio.to_thread(
+            self._get_job_by_active_run_thread_id_sync, job_thread_id
+        )
+
+    def _get_job_by_active_run_thread_id_sync(self, job_thread_id: str) -> Job:
+        with self._session_factory() as session:
+            statement = (
+                select(JobRecord)
+                .join(JobRunRecord, JobRunRecord.id == JobRecord.active_run_id)
+                .where(JobRunRecord.job_thread_id == job_thread_id)
+            )
+            row = session.scalars(statement).one_or_none()
+            if row is None:
+                raise KeyError(job_thread_id)
+            return _to_job(row)
+
+    async def get_job_run(self, run_id: str) -> JobRun:
+        return await asyncio.to_thread(self._get_job_run_sync, run_id)
+
+    def _get_job_run_sync(self, run_id: str) -> JobRun:
+        with self._session_factory() as session:
+            row = session.get(JobRunRecord, run_id)
+            if row is None:
+                raise KeyError(run_id)
+            return _to_job_run(row)
+
+    async def get_latest_job_run(self, job_id: str) -> JobRun | None:
+        return await asyncio.to_thread(self._get_latest_job_run_sync, job_id)
+
+    def _get_latest_job_run_sync(self, job_id: str) -> JobRun | None:
+        statement = (
+            select(JobRunRecord)
+            .where(JobRunRecord.job_id == job_id)
+            .order_by(JobRunRecord.started_at.desc())
+            .limit(1)
+        )
+        with self._session_factory() as session:
+            row = session.scalars(statement).one_or_none()
+            return _to_job_run(row) if row is not None else None
+
+    async def get_job_by_thread_id_any(self, job_thread_id: str) -> Job:
+        try:
+            return await self.get_job_by_thread_id(job_thread_id)
+        except KeyError:
+            return await self.get_job_by_active_run_thread_id(job_thread_id)
+
+    async def get_job_run_by_thread_id(self, job_thread_id: str) -> JobRun:
+        return await asyncio.to_thread(self._get_job_run_by_thread_id_sync, job_thread_id)
+
+    def _get_job_run_by_thread_id_sync(self, job_thread_id: str) -> JobRun:
+        statement = select(JobRunRecord).where(JobRunRecord.job_thread_id == job_thread_id)
+        with self._session_factory() as session:
+            row = session.scalars(statement).one_or_none()
+            if row is None:
+                raise KeyError(job_thread_id)
+            return _to_job_run(row)
 
     async def finish_job_run(
         self,
@@ -573,14 +685,16 @@ class JobStore:
         waiting_question: str | None,
     ) -> None:
         with self._session_factory() as session:
-            run_statement = select(JobRunRecord).where(JobRunRecord.id == run_id).with_for_update()
+            run_statement = (
+                select(JobRunRecord).where(JobRunRecord.id == run_id).with_for_update()
+            )
             run_row = session.scalars(run_statement).one_or_none()
             if run_row is not None:
                 run_row.status = status.value
                 run_row.error = error
                 run_row.response_text = response_text
                 run_row.result = _json_safe(result) if result is not None else None
-                run_row.finished_at = now
+                run_row.finished_at = None if status == JobRunStatus.WAITING_FOR_INPUT else now
 
             job_statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
             job_row = session.scalars(job_statement).one_or_none()
@@ -596,13 +710,13 @@ class JobStore:
             job_row.updated_at = now
             if next_run_at is not None:
                 job_row.next_run_at = next_run_at
-            job_row.run_count = (job_row.run_count or 0) + 1
             if status == JobRunStatus.WAITING_FOR_INPUT:
                 job_row.active_run_id = run_id
                 job_row.active_run_started_at = run_row.started_at if run_row is not None else now
                 job_row.active_run_source = run_row.source if run_row is not None else None
                 job_row.waiting_question = waiting_question or response_text
             else:
+                job_row.run_count = (job_row.run_count or 0) + 1
                 if job_row.active_run_id == run_id:
                     job_row.active_run_id = None
                     job_row.active_run_started_at = None
@@ -668,16 +782,6 @@ class JobStore:
             rows = session.scalars(statement).all()
             return [_to_job_run(row) for row in rows]
 
-    async def get_job_run(self, run_id: str) -> JobRun:
-        return await asyncio.to_thread(self._get_job_run_sync, run_id)
-
-    def _get_job_run_sync(self, run_id: str) -> JobRun:
-        with self._session_factory() as session:
-            row = session.get(JobRunRecord, run_id)
-            if row is None:
-                raise KeyError(run_id)
-            return _to_job_run(row)
-
     def _create_skipped_run(
         self,
         session: Session,
@@ -690,10 +794,11 @@ class JobStore:
         response_text: str,
         update_job_snapshot: bool,
     ) -> JobRunRecord:
+        run_id = str(uuid4())
         run = JobRunRecord(
-            id=str(uuid4()),
+            id=run_id,
             job_id=job_row.id,
-            job_thread_id=job_row.job_thread_id,
+            job_thread_id=_job_thread_id_for_run_row(job_row, run_id),
             source=source.value,
             status=JobRunStatus.SKIPPED.value,
             trigger_payload=_json_safe(trigger_payload),
@@ -721,3 +826,9 @@ def _has_active_run(row: JobRecord) -> bool:
         JobRunStatus.RUNNING.value,
         JobRunStatus.WAITING_FOR_INPUT.value,
     }
+
+
+def _job_thread_id_for_run_row(row: JobRecord, run_id: str) -> str:
+    if row.action_kind == JobActionKind.PROMPT.value:
+        return job_run_thread_id_for_run(row.id, run_id)
+    return row.job_thread_id

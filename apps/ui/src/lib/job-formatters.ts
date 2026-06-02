@@ -173,9 +173,13 @@ export function supportsJobThread(
 }
 
 export function supportsJobReply(
-  job: Pick<JobRecord, 'action_kind' | 'last_run_status'>,
+  job: Pick<JobRecord, 'action_kind' | 'last_run_status' | 'waiting_question'>,
 ): boolean {
-  return supportsJobThread(job) && job.last_run_status === 'waiting_for_input';
+  return (
+    supportsJobThread(job) &&
+    (job.last_run_status === 'waiting_for_input' ||
+      Boolean(job.waiting_question?.trim()))
+  );
 }
 
 export function supportsTimeFields(

@@ -6,6 +6,7 @@ from copilot.jobs.models import (
     CreateJobRequest,
     Job,
     JobActionKind,
+    JobOutputKind,
     JobTriggerKind,
     TimeTriggerKind,
 )
@@ -52,8 +53,13 @@ class _FakeService:
             name=request.name,
             created_from_thread_id=request.created_from_thread_id,
             action_kind=request.action_kind,
+            interaction_mode=request.interaction_mode,
+            output_kind=request.output_kind,
             prompt=request.prompt,
             analysis_code=request.analysis_code,
+            record_schema=request.record_schema,
+            record_schema_version=request.record_schema_version,
+            virtual_thing_id=request.virtual_thing_id,
             trigger_kind=request.trigger_kind,
             schedule_kind=request.schedule_kind,
             run_at=request.run_at,
@@ -76,6 +82,12 @@ class _FakeService:
 class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
     def tearDown(self) -> None:
         set_active_job_service(None)
+
+    async def test_prompt_job_tools_expose_runtime_instructions_argument(self) -> None:
+        self.assertIn("run_instructions", job_scheduler.create_prompt_job.args)
+        self.assertNotIn("prompt", job_scheduler.create_prompt_job.args)
+        self.assertIn("run_instructions", job_scheduler.create_record_prompt_job.args)
+        self.assertNotIn("prompt", job_scheduler.create_record_prompt_job.args)
 
     async def test_create_analysis_job_returns_created_job_without_running(self) -> None:
         service = _FakeService(run_result={"ok": False, "error": "boom"})
@@ -105,7 +117,7 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         result = await job_scheduler.create_prompt_job.ainvoke(
             {
                 "name": "demo job",
-                "prompt": "check the house",
+                "run_instructions": "check the house",
                 "trigger_kind": "time",
                 "schedule_kind": "interval",
                 "interval_seconds": 10,
@@ -120,6 +132,33 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.ran, [])
         self.assertEqual(service.deleted, [])
 
+    async def test_create_record_prompt_job_passes_schema_contract(self) -> None:
+        service = _FakeService()
+        set_active_job_service(service)
+
+        result = await job_scheduler.create_record_prompt_job.ainvoke(
+            {
+                "name": "morning check-in",
+                "run_instructions": "Ask how I feel and store mood.",
+                "record_schema": {
+                    "type": "object",
+                    "properties": {"mood": {"type": "string"}},
+                    "required": ["mood"],
+                },
+                "trigger_kind": "time",
+                "schedule_kind": "interval",
+                "interval_seconds": 86400,
+                "virtual_thing_title": "Morning Check-ins",
+            },
+            config={"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(result["output_kind"], "structured_record")
+        request = service.created_requests[0]
+        self.assertEqual(request.output_kind, JobOutputKind.STRUCTURED_RECORD)
+        self.assertEqual(request.record_schema["required"], ["mood"])
+        self.assertEqual(request.virtual_thing_title, "Morning Check-ins")
+
     async def test_create_prompt_job_reports_validation_error(self) -> None:
         service = _FakeService(create_error=ValueError("time jobs require run_at or interval_seconds"))
         set_active_job_service(service)
@@ -127,7 +166,7 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         result = await job_scheduler.create_prompt_job.ainvoke(
             {
                 "name": "demo job",
-                "prompt": "check",
+                "run_instructions": "check",
                 "trigger_kind": "time",
             },
             config={"configurable": {"thread_id": "thread-1"}},

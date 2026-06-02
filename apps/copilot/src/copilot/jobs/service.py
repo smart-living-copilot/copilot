@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+
 from collections.abc import AsyncIterator
 from datetime import timedelta
 from typing import Any
@@ -12,6 +14,8 @@ from copilot.jobs.models import (
     CreateJobRequest,
     Job,
     JobActionKind,
+    JobInteractionMode,
+    JobOutputKind,
     JobRun,
     JobRunStatus,
     JobTriggerKind,
@@ -19,6 +23,11 @@ from copilot.jobs.models import (
     UpdateJobRequest,
 )
 from copilot.jobs.results import JobRunEventStream
+from copilot.jobs.records import (
+    VirtualRecordStore,
+    make_virtual_record_thing_id,
+    validate_record_schema,
+)
 from copilot.jobs.schedule import JobScheduleManager, build_schedule_source
 from copilot.jobs.store import JobNotWaitingForInput, JobStore, utc_now
 from copilot.jobs.subscriptions import subscription_id_from_response
@@ -37,6 +46,7 @@ class JobService:
         runtime_client: WotRuntimeClient | None = None,
         run_event_stream: JobRunEventStream | None = None,
         schedule_manager: JobScheduleManager | None = None,
+        record_store: VirtualRecordStore | None = None,
     ) -> None:
         self._settings = settings
         self._repo = repo or JobStore()
@@ -46,6 +56,7 @@ class JobService:
             build_schedule_source(settings),
             repo=self._repo,
         )
+        self._record_store = record_store or VirtualRecordStore()
 
     async def start(self) -> None:
         await broker.startup()
@@ -64,6 +75,7 @@ class JobService:
         await broker.shutdown()
 
     async def create_job(self, request: CreateJobRequest) -> Job:
+        request = self._normalize_create_request(request)
         self._validate_request(request)
 
         next_run_at = None
@@ -92,6 +104,22 @@ class JobService:
                 await self._remove_subscription_after_create_failure(subscription_id)
             raise
 
+        if job.output_kind == JobOutputKind.STRUCTURED_RECORD:
+            try:
+                await asyncio.to_thread(
+                    self._record_store.create_or_update_thing,
+                    thing_id=job.virtual_thing_id or "",
+                    source_job_id=job.id,
+                    schema_version=job.record_schema_version or 1,
+                    record_schema=job.record_schema or {},
+                    title=request.virtual_thing_title or job.name,
+                    description=request.virtual_thing_description
+                    or f"Structured records collected by the {job.name} job.",
+                )
+            except Exception:
+                await self._cleanup_created_job_after_create_failure(job)
+                raise
+
         if job.trigger_kind == JobTriggerKind.TIME:
             try:
                 await self._schedule_manager.add_job(job)
@@ -104,7 +132,13 @@ class JobService:
         return await self._repo.get_job(job_id)
 
     async def get_job_by_thread_id(self, job_thread_id: str) -> Job:
-        return await self._repo.get_job_by_thread_id(job_thread_id)
+        return await self._repo.get_job_by_thread_id_any(job_thread_id)
+
+    async def get_active_or_last_job_run(self, job_id: str) -> JobRun:
+        return await self._repo.get_active_or_last_job_run(job_id)
+
+    async def get_latest_job_run(self, job_id: str) -> JobRun | None:
+        return await self._repo.get_latest_job_run(job_id)
 
     async def subscribe_run_events(
         self,
@@ -173,6 +207,8 @@ class JobService:
             await self._runtime_client.remove_subscription(
                 subscription_id=job.subscription_id,
             )
+        if job.virtual_thing_id:
+            await asyncio.to_thread(self._record_store.delete_thing, job.virtual_thing_id)
 
     async def _remove_subscription_after_create_failure(self, subscription_id: str) -> None:
         try:
@@ -258,7 +294,7 @@ class JobService:
         message: str,
     ) -> dict[str, Any] | None:
         try:
-            job = await self._repo.get_job_by_thread_id(thread_id)
+            job = await self._repo.get_job_by_thread_id_any(thread_id)
         except KeyError:
             return None
 
@@ -290,9 +326,27 @@ class JobService:
         if request.action_kind == JobActionKind.ANALYSIS:
             if not request.analysis_code or not request.analysis_code.strip():
                 raise ValueError("analysis jobs require analysis_code")
+            if request.output_kind != JobOutputKind.NARRATIVE:
+                raise ValueError("analysis jobs only support narrative output")
         else:
             if not request.prompt or not request.prompt.strip():
                 raise ValueError("prompt jobs require prompt")
+            if request.output_kind == JobOutputKind.STRUCTURED_RECORD:
+                if request.interaction_mode == JobInteractionMode.AUTONOMOUS:
+                    raise ValueError(
+                        "structured record prompt jobs require a non-autonomous interaction mode"
+                    )
+                if not request.virtual_thing_id:
+                    raise ValueError("structured record jobs require virtual_thing_id")
+                validate_record_schema(request.record_schema)
+            elif (
+                request.record_schema is not None
+                or request.record_schema_version is not None
+                or request.virtual_thing_id is not None
+                or request.virtual_thing_title is not None
+                or request.virtual_thing_description is not None
+            ):
+                raise ValueError("record fields require output_kind='structured_record'")
 
         if request.trigger_kind == JobTriggerKind.TIME:
             if request.schedule_kind is None:
@@ -312,3 +366,15 @@ class JobService:
             raise ValueError("event jobs require thing_id")
         if not request.event_name:
             raise ValueError("event jobs require event_name")
+
+    def _normalize_create_request(self, request: CreateJobRequest) -> CreateJobRequest:
+        fields: dict[str, Any] = {}
+        if request.output_kind == JobOutputKind.STRUCTURED_RECORD:
+            fields["record_schema"] = validate_record_schema(request.record_schema)
+            fields["record_schema_version"] = request.record_schema_version or 1
+            fields["virtual_thing_id"] = request.virtual_thing_id or make_virtual_record_thing_id(
+                request.virtual_thing_title or request.name
+            )
+            if request.interaction_mode == JobInteractionMode.AUTONOMOUS:
+                fields["interaction_mode"] = JobInteractionMode.REQUIRED_CHECKIN
+        return request.model_copy(update=fields) if fields else request

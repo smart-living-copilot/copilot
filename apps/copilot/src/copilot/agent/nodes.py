@@ -23,6 +23,7 @@ from langgraph.graph import END
 from pydantic import BaseModel, Field
 
 from copilot.agent.tools.look_at_camera import is_look_at_camera_available
+from copilot.jobs.models import JobOutputKind
 from copilot.agent.prompts import (
     ANALYSIS_PROMPT,
     CONTROL_PROMPT,
@@ -32,6 +33,25 @@ from copilot.agent.prompts import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+BACKGROUND_JOB_PROMPT = """\
+You are executing one background prompt job run for the Smart Living Copilot.
+
+Follow the runtime instructions in the user message. This is not a foreground
+conversation about creating or managing jobs; it is the job execution itself.
+
+If the run needs human input, call ask_job_user with one concise question and
+then stop. When the user has replied, use that answer to finish the same run.
+Do not ask the same question again unless the answer is unusable or required
+information is still missing.
+
+For structured record jobs, call submit_job_record once the available data
+matches the provided JSON Schema. Do not claim success before submit_job_record
+returns ok=true.
+
+Keep final responses concise and factual.
+"""
 
 
 class CopilotState(CopilotKitState):
@@ -202,11 +222,18 @@ def _active_tools_for_config(tools: list[Any], config: RunnableConfig | None) ->
     if not tools:
         return []
 
+    configurable = config.get("configurable", {}) if config else {}
     return [
         tool
         for tool in tools
-        if getattr(tool, "name", None) != "look_at_camera"
-        or is_look_at_camera_available(config)
+        if (
+            getattr(tool, "name", None) != "look_at_camera"
+            or is_look_at_camera_available(config)
+        )
+        and (
+            getattr(tool, "name", None) != "submit_job_record"
+            or configurable.get("job_output_kind") == JobOutputKind.STRUCTURED_RECORD.value
+        )
     ]
 
 
@@ -331,6 +358,29 @@ def make_jobs_node(
             else llm
         )
         response = await runnable.ainvoke(messages)
+        return {"messages": [response]}
+
+    return node
+
+
+def make_background_job_node(
+    llm: ChatOpenAI,
+    tools: list[Any],
+    max_tokens: int,
+    *,
+    parallel_tool_calls: bool = True,
+):
+    # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
+    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
+        system_message = SystemMessage(content=BACKGROUND_JOB_PROMPT + _current_time_block())
+        trimmed = _trim_conversation(state["messages"], max_tokens)
+        active_tools = _active_tools_for_config(tools, config)
+        runnable = (
+            llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
+            if active_tools
+            else llm
+        )
+        response = await runnable.ainvoke([system_message, *trimmed])
         return {"messages": [response]}
 
     return node

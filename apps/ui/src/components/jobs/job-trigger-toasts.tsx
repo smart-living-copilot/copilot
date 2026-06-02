@@ -8,6 +8,10 @@ import { useJobEvents } from '@/hooks/use-job-events';
 import { type JobRecord } from '@/lib/jobs-api';
 
 function summarizeResult(job: JobRecord): string {
+  if (job.last_run_status === 'waiting_for_input') {
+    return job.waiting_question?.trim() || 'The job is waiting for your answer.';
+  }
+
   if (job.last_error?.trim()) {
     return job.last_error.trim();
   }
@@ -26,7 +30,12 @@ export function JobTriggerToasts() {
 
   const handleJob = useCallback(
     (job: JobRecord) => {
-      const runKey = `${job.id}:${job.run_count}:${job.last_run_at ?? ''}`;
+      const runKey = [
+        job.id,
+        job.last_run_id ?? job.active_run_id ?? job.run_count,
+        job.last_run_status ?? '',
+        job.last_run_at ?? '',
+      ].join(':');
       if (seenRunsRef.current.has(runKey)) {
         return;
       }
@@ -43,11 +52,16 @@ export function JobTriggerToasts() {
         </button>
       );
       const action = {
-        label: 'View details',
+        label:
+          job.last_run_status === 'waiting_for_input'
+            ? 'Answer'
+            : 'View details',
         onClick: () => openJobDetail(job.id),
       };
 
-      if (job.last_error?.trim()) {
+      if (job.last_run_status === 'waiting_for_input') {
+        toast(`Job needs input: ${job.name}`, { description, action });
+      } else if (job.last_error?.trim()) {
         toast.error(`Job failed: ${job.name}`, { description, action });
       } else {
         toast.success(`Job triggered: ${job.name}`, { description, action });

@@ -12,11 +12,14 @@ from fastapi.testclient import TestClient
 from copilot.core.settings import Settings
 from copilot.jobs.models import (
     CreateJobRequest,
+    JobInteractionMode,
+    JobOutputKind,
     JobRunSource,
     JobRunStatus,
     JobTriggerKind,
     TimeTriggerKind,
 )
+from copilot.jobs.records import VirtualRecordStore, make_virtual_record_thing_id
 from copilot.jobs.results import JobRunEventPublisher
 from copilot.jobs.routes import router as jobs_router
 from copilot.jobs.schedule import build_schedule_source, schedule_id_for_job
@@ -164,3 +167,73 @@ def test_job_run_event_publisher_writes_current_job_snapshot_to_redis_stream(
     assert payload["job"]["run_count"] == 1
     assert payload["run"]["id"] == run.id
     assert payload["run"]["status"] == "succeeded"
+
+
+def test_virtual_record_store_persists_and_queries_generated_record_thing(
+    jobs_integration_environment,
+) -> None:
+    repo = JobStore()
+    records = VirtualRecordStore()
+    now = utc_now()
+    thing_id = make_virtual_record_thing_id("morning wellbeing")
+    schema = {
+        "type": "object",
+        "properties": {
+            "mood": {"type": "string", "enum": ["good", "stressed"]},
+            "energy": {"type": "integer", "minimum": 1, "maximum": 5},
+            "note": {"type": "string"},
+        },
+        "required": ["mood", "energy"],
+    }
+    job = _run(
+        repo.create_job(
+            CreateJobRequest(
+                name="morning wellbeing",
+                created_from_thread_id="thread-3",
+                interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+                output_kind=JobOutputKind.STRUCTURED_RECORD,
+                prompt="Ask how I feel.",
+                record_schema=schema,
+                record_schema_version=1,
+                virtual_thing_id=thing_id,
+                trigger_kind=JobTriggerKind.TIME,
+                schedule_kind=TimeTriggerKind.INTERVAL,
+                interval_seconds=86400,
+            ),
+            next_run_at=now,
+            subscription_id=None,
+        )
+    )
+    records.create_or_update_thing(
+        thing_id=thing_id,
+        source_job_id=job.id,
+        schema_version=1,
+        record_schema=schema,
+        title="Morning Wellbeing",
+        description="Daily wellbeing check-ins.",
+    )
+    run = _run(
+        repo.try_start_job_run(
+            job_id=job.id,
+            source=JobRunSource.TIME,
+            trigger_payload={"source": "time"},
+            now=now,
+        )
+    )
+    assert run is not None
+
+    stored = records.submit_record(
+        thing_id=thing_id,
+        source_job_id=job.id,
+        source_run_id=run.id,
+        data={"mood": "stressed", "energy": 2, "note": "slept badly"},
+    )
+
+    assert stored["data"]["mood"] == "stressed"
+    assert records.read_property(thing_id, "latest_mood") == "stressed"
+    assert records.read_property(thing_id, "record_count") == 1
+    assert records.invoke_action(
+        thing_id,
+        "query_property_history",
+        {"property": "energy"},
+    )[0]["value"] == 2

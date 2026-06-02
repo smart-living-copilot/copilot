@@ -7,17 +7,25 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.types import Command
 from taskiq import ScheduledTask
 from taskiq.exceptions import TaskiqResultTimeoutError
 
 from copilot.core.settings import Settings
 from copilot.jobs.events import JobEventConsumer
-from copilot.jobs.executor import BackgroundAgentRunner, JobExecutor
+from copilot.jobs.executor import (
+    BackgroundAgentRunner,
+    JobExecutor,
+    _assistant_text_from_graph_result,
+    _waiting_question_from_graph_result,
+)
 from copilot.jobs.models import (
     CreateJobRequest,
     Job,
     JobActionKind,
+    JobInteractionMode,
+    JobOutputKind,
     JobRun,
     JobRunSource,
     JobRunStatus,
@@ -32,6 +40,7 @@ from copilot.jobs.schedule import (
 )
 from copilot.jobs.service import JobService
 from copilot.jobs.store import JobNotWaitingForInput
+from copilot.agent.tools.submit_job_record import submit_job_record
 
 
 def _job(**overrides) -> Job:
@@ -71,14 +80,20 @@ class _FakeGraph:
     def __init__(self) -> None:
         self.configs = []
         self.invocations = []
+        self.state_updates = []
+        self.response = {"messages": [AIMessage(content="background result")]}
 
     def with_config(self, **config):
         self.configs.append(config)
         return self
 
+    async def aupdate_state(self, config, values):
+        self.state_updates.append((config, values))
+        return config
+
     async def ainvoke(self, input_data, config):
         self.invocations.append((input_data, config))
-        return {"messages": [AIMessage(content="background result")]}
+        return self.response
 
 
 class _FakeSaverContext:
@@ -99,7 +114,7 @@ class BackgroundAgentRunnerTestCase(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         graph = _FakeGraph()
         runner = BackgroundAgentRunner(Settings(openai_api_key="test"))
-        saver = SimpleNamespace(setup=AsyncMock())
+        saver = SimpleNamespace(setup=AsyncMock(), adelete_thread=AsyncMock())
         saver_context = _FakeSaverContext(saver)
         conninfo_values = []
 
@@ -120,11 +135,23 @@ class BackgroundAgentRunnerTestCase(unittest.IsolatedAsyncioTestCase):
             patch("copilot.jobs.executor.ThingSearchService", return_value=AsyncMock()),
             patch("copilot.jobs.executor.set_active_search_service"),
             patch("copilot.jobs.executor.make_llm", return_value=object()),
-            patch("copilot.jobs.executor.build_graph", return_value=graph) as build_graph,
+            patch(
+                "copilot.jobs.executor.build_background_job_graph",
+                return_value=graph,
+            ) as build_job_graph,
         ):
             result = await runner.run(
                 _job(),
-                run_id="run-1",
+                run=JobRun(
+                    id="run-1",
+                    job_id="job-1",
+                    job_thread_id="job:job-1:run:run-1",
+                    source=JobRunSource.MANUAL,
+                    status=JobRunStatus.RUNNING,
+                    trigger_payload={"source": "manual"},
+                    started_at=datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc),
+                ),
                 trigger={"source": "manual"},
             )
             await runner.close()
@@ -132,23 +159,317 @@ class BackgroundAgentRunnerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["assistant"], "background result")
         self.assertEqual(conninfo_values, ["conninfo"])
         saver.setup.assert_awaited_once()
-        self.assertIs(build_graph.call_args.kwargs["checkpointer"], saver)
+        self.assertIs(build_job_graph.call_args.kwargs["checkpointer"], saver)
         self.assertTrue(saver_context.closed)
-        local_tool_names = {tool.name for tool in build_graph.call_args.kwargs["local_tools"]}
+        self.assertEqual(graph.configs, [])
+        local_tool_names = {tool.name for tool in build_job_graph.call_args.kwargs["local_tools"]}
         self.assertEqual(
             local_tool_names,
-            {"ask_job_user", "get_current_time", "look_at_camera", "run_code"},
+            {
+                "ask_job_user",
+                "get_current_time",
+                "look_at_camera",
+                "run_code",
+                "submit_job_record",
+            },
         )
         self.assertEqual(
             graph.invocations[0][1],
             {
+                "recursion_limit": Settings().recursion_limit,
                 "configurable": {
-                    "thread_id": "job:job-1",
+                    "thread_id": "job:job-1:run:run-1",
                     "job_id": "job-1",
                     "run_id": "run-1",
+                    "job_output_kind": "narrative",
+                    "record_schema": None,
+                    "record_schema_version": None,
+                    "virtual_thing_id": None,
                 }
             },
         )
+        self.assertEqual(graph.state_updates, [])
+
+    async def test_legacy_user_reply_appends_to_existing_run_thread(self) -> None:
+        graph = _FakeGraph()
+        runner = BackgroundAgentRunner(Settings(openai_api_key="test"))
+        saver = SimpleNamespace(setup=AsyncMock(), adelete_thread=AsyncMock())
+        saver_context = _FakeSaverContext(saver)
+
+        class FakeAsyncPostgresSaver:
+            @staticmethod
+            def from_conn_string(_conninfo):
+                return saver_context
+
+        with (
+            patch("copilot.jobs.executor.init_db"),
+            patch(
+                "copilot.jobs.executor.get_registry_settings",
+                return_value=SimpleNamespace(DATABASE_URL="postgresql://test/db"),
+            ),
+            patch("copilot.jobs.executor.psycopg_conninfo", return_value="conninfo"),
+            patch("copilot.jobs.executor.AsyncPostgresSaver", FakeAsyncPostgresSaver),
+            patch("copilot.jobs.executor.ThingSearchService", return_value=AsyncMock()),
+            patch("copilot.jobs.executor.set_active_search_service"),
+            patch("copilot.jobs.executor.make_llm", return_value=object()),
+            patch("copilot.jobs.executor.build_background_job_graph", return_value=graph),
+        ):
+            await runner.run(
+                _job(active_run_id="run-1"),
+                run=JobRun(
+                    id="run-1",
+                    job_id="job-1",
+                    job_thread_id="job:job-1:run:run-1",
+                    source=JobRunSource.MANUAL,
+                    status=JobRunStatus.RUNNING,
+                    trigger_payload={"source": "user_reply", "message": "42"},
+                    started_at=datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc),
+                ),
+                trigger={"source": "user_reply", "message": "42", "previous_run_id": "run-1"},
+            )
+            await runner.close()
+
+        self.assertEqual(graph.state_updates, [])
+        invocation_messages = graph.invocations[0][0]["messages"]
+        self.assertEqual(len(invocation_messages), 1)
+        # The reply is appended verbatim; the checkpointer carries prior context.
+        self.assertEqual(invocation_messages[0].content, "42")
+        self.assertEqual(graph.invocations[0][1]["configurable"]["thread_id"], "job:job-1:run:run-1")
+        saver.adelete_thread.assert_not_awaited()
+
+    async def test_structured_record_reply_resumes_pending_interrupt(self) -> None:
+        graph = _FakeGraph()
+        graph.response = {
+            "messages": [
+                ToolMessage(
+                    content=(
+                        '{"ok": true, "record": {"data": {"feeling": "tired", '
+                        '"energy": 2, "note": "headache"}}}'
+                    ),
+                    name="submit_job_record",
+                    tool_call_id="call-1",
+                ),
+                AIMessage(content="Stored the wellbeing record."),
+            ]
+        }
+        runner = BackgroundAgentRunner(Settings(openai_api_key="test"))
+        saver = SimpleNamespace(setup=AsyncMock(), adelete_thread=AsyncMock())
+        saver_context = _FakeSaverContext(saver)
+
+        class FakeAsyncPostgresSaver:
+            @staticmethod
+            def from_conn_string(_conninfo):
+                return saver_context
+
+        schema = {
+            "type": "object",
+            "required": ["feeling", "energy"],
+            "properties": {
+                "feeling": {"type": "string"},
+                "energy": {"type": "integer", "minimum": 1, "maximum": 5},
+                "note": {"type": "string"},
+            },
+            "additionalProperties": False,
+        }
+
+        with (
+            patch("copilot.jobs.executor.init_db"),
+            patch(
+                "copilot.jobs.executor.get_registry_settings",
+                return_value=SimpleNamespace(DATABASE_URL="postgresql://test/db"),
+            ),
+            patch("copilot.jobs.executor.psycopg_conninfo", return_value="conninfo"),
+            patch("copilot.jobs.executor.AsyncPostgresSaver", FakeAsyncPostgresSaver),
+            patch("copilot.jobs.executor.ThingSearchService", return_value=AsyncMock()),
+            patch("copilot.jobs.executor.set_active_search_service"),
+            patch("copilot.jobs.executor.make_llm", return_value=object()),
+            patch("copilot.jobs.executor.build_background_job_graph", return_value=graph),
+        ):
+            result = await runner.run(
+                _job(
+                    active_run_id="run-1",
+                    interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+                    output_kind=JobOutputKind.STRUCTURED_RECORD,
+                    record_schema=schema,
+                    record_schema_version=1,
+                    virtual_thing_id="virtual:records:wellbeing",
+                ),
+                run=JobRun(
+                    id="run-1",
+                    job_id="job-1",
+                    job_thread_id="job:job-1:run:run-1",
+                    source=JobRunSource.TIME,
+                    status=JobRunStatus.RUNNING,
+                    trigger_payload={
+                        "source": "user_reply",
+                        "message": "2, tired and headache",
+                    },
+                    result={"metadata": {"pending_interrupt": True}},
+                    started_at=datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc),
+                ),
+                trigger={
+                    "source": "user_reply",
+                    "message": "2, tired and headache",
+                    "previous_run_id": "run-1",
+                },
+            )
+            await runner.close()
+
+        saver.adelete_thread.assert_not_awaited()
+        invocation_input = graph.invocations[0][0]
+        self.assertIsInstance(invocation_input, Command)
+        self.assertEqual(invocation_input.resume, "2, tired and headache")
+        self.assertEqual(
+            graph.invocations[0][1]["configurable"]["thread_id"],
+            "job:job-1:run:run-1",
+        )
+        self.assertEqual(
+            graph.invocations[0][1]["configurable"]["virtual_thing_id"],
+            "virtual:records:wellbeing",
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["submitted_record"]["data"]["energy"], 2)
+
+    async def test_interrupt_payload_is_waiting_result(self) -> None:
+        graph = _FakeGraph()
+        graph.response = {
+            "messages": [AIMessage(content="", tool_calls=[])],
+            "__interrupt__": [
+                SimpleNamespace(value={"kind": "job_user_input", "question": "Which number?"})
+            ],
+        }
+        runner = BackgroundAgentRunner(Settings(openai_api_key="test"))
+        saver = SimpleNamespace(setup=AsyncMock())
+        saver_context = _FakeSaverContext(saver)
+
+        class FakeAsyncPostgresSaver:
+            @staticmethod
+            def from_conn_string(_conninfo):
+                return saver_context
+
+        with (
+            patch("copilot.jobs.executor.init_db"),
+            patch(
+                "copilot.jobs.executor.get_registry_settings",
+                return_value=SimpleNamespace(DATABASE_URL="postgresql://test/db"),
+            ),
+            patch("copilot.jobs.executor.psycopg_conninfo", return_value="conninfo"),
+            patch("copilot.jobs.executor.AsyncPostgresSaver", FakeAsyncPostgresSaver),
+            patch("copilot.jobs.executor.ThingSearchService", return_value=AsyncMock()),
+            patch("copilot.jobs.executor.set_active_search_service"),
+            patch("copilot.jobs.executor.make_llm", return_value=object()),
+            patch("copilot.jobs.executor.build_background_job_graph", return_value=graph),
+        ):
+            result = await runner.run(
+                _job(),
+                run=JobRun(
+                    id="run-1",
+                    job_id="job-1",
+                    job_thread_id="job:job-1:run:run-1",
+                    source=JobRunSource.MANUAL,
+                    status=JobRunStatus.RUNNING,
+                    trigger_payload={"source": "manual"},
+                    started_at=datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc),
+                ),
+                trigger={"source": "manual"},
+            )
+            await runner.close()
+
+        self.assertEqual(result["status"], JobRunStatus.WAITING_FOR_INPUT.value)
+        self.assertEqual(result["waiting_question"], "Which number?")
+        self.assertTrue(result["metadata"]["pending_interrupt"])
+
+    async def test_required_checkin_plain_question_is_waiting(self) -> None:
+        graph = _FakeGraph()
+        graph.response = {"messages": [AIMessage(content="Which number?")]}
+        runner = BackgroundAgentRunner(Settings(openai_api_key="test"))
+        saver = SimpleNamespace(setup=AsyncMock())
+        saver_context = _FakeSaverContext(saver)
+
+        class FakeAsyncPostgresSaver:
+            @staticmethod
+            def from_conn_string(_conninfo):
+                return saver_context
+
+        with (
+            patch("copilot.jobs.executor.init_db"),
+            patch(
+                "copilot.jobs.executor.get_registry_settings",
+                return_value=SimpleNamespace(DATABASE_URL="postgresql://test/db"),
+            ),
+            patch("copilot.jobs.executor.psycopg_conninfo", return_value="conninfo"),
+            patch("copilot.jobs.executor.AsyncPostgresSaver", FakeAsyncPostgresSaver),
+            patch("copilot.jobs.executor.ThingSearchService", return_value=AsyncMock()),
+            patch("copilot.jobs.executor.set_active_search_service"),
+            patch("copilot.jobs.executor.make_llm", return_value=object()),
+            patch("copilot.jobs.executor.build_background_job_graph", return_value=graph),
+        ):
+            result = await runner.run(
+                _job(interaction_mode=JobInteractionMode.REQUIRED_CHECKIN),
+                run=JobRun(
+                    id="run-1",
+                    job_id="job-1",
+                    job_thread_id="job:job-1:run:run-1",
+                    source=JobRunSource.MANUAL,
+                    status=JobRunStatus.RUNNING,
+                    trigger_payload={"source": "manual"},
+                    started_at=datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc),
+                    created_at=datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc),
+                ),
+                trigger={"source": "manual"},
+            )
+            await runner.close()
+
+        self.assertEqual(result["status"], JobRunStatus.WAITING_FOR_INPUT.value)
+        self.assertEqual(result["waiting_question"], "Which number?")
+
+    async def test_waiting_detection_ignores_old_ask_after_user_reply(self) -> None:
+        result = {
+            "messages": [
+                HumanMessage(content="first run"),
+                ToolMessage(
+                    content='{"question": "Which room?"}',
+                    name="ask_job_user",
+                    tool_call_id="call-1",
+                ),
+                HumanMessage(content="kitchen"),
+                AIMessage(content="done"),
+            ]
+        }
+
+        self.assertIsNone(_waiting_question_from_graph_result(result))
+
+    async def test_waiting_detection_ignores_resumed_ask_tool_result(self) -> None:
+        result = {
+            "messages": [
+                HumanMessage(content="first run"),
+                ToolMessage(
+                    content=(
+                        '{"status": "input_received", "question": "Which room?", '
+                        '"answer": "kitchen"}'
+                    ),
+                    name="ask_job_user",
+                    tool_call_id="call-1",
+                ),
+                AIMessage(content="done"),
+            ]
+        }
+
+        self.assertIsNone(_waiting_question_from_graph_result(result))
+
+    async def test_assistant_text_ignores_old_answer_before_latest_user_reply(self) -> None:
+        result = {
+            "messages": [
+                HumanMessage(content="first run"),
+                AIMessage(content="Which room?"),
+                HumanMessage(content="kitchen"),
+            ]
+        }
+
+        self.assertEqual(_assistant_text_from_graph_result(result), "")
 
 
 class _FakeRepo:
@@ -182,7 +503,7 @@ class _FakeRepo:
         return JobRun(
             id="run-1",
             job_id=self.job.id,
-            job_thread_id=self.job.job_thread_id,
+            job_thread_id=f"{self.job.job_thread_id}:run:run-1",
             source=source,
             status=JobRunStatus.RUNNING,
             trigger_payload=trigger_payload,
@@ -211,10 +532,12 @@ class _FakeRepo:
             }
         )
         return JobRun(
-            id="run-2",
+            id=previous_run_id or self.job.active_run_id or "run-1",
             job_id=self.job.id,
-            job_thread_id=self.job.job_thread_id,
-            source=JobRunSource.MANUAL,
+            job_thread_id=(
+                f"{self.job.job_thread_id}:run:{previous_run_id or self.job.active_run_id or 'run-1'}"
+            ),
+            source=self.job.active_run_source or JobRunSource.MANUAL,
             status=JobRunStatus.RUNNING,
             trigger_payload={"source": "user_reply", "message": message},
             started_at=now,
@@ -410,6 +733,34 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(repo.finished_runs[0]["next_run_at"])
 
+    async def test_submit_job_record_tool_uses_runtime_config(self) -> None:
+        class FakeRecordStore:
+            def submit_record(self, **kwargs):
+                return {"id": "record-1", **kwargs}
+
+        with patch(
+            "copilot.agent.tools.submit_job_record.VirtualRecordStore",
+            return_value=FakeRecordStore(),
+        ):
+            result = await submit_job_record.ainvoke(
+                {
+                    "data": {"mood": "good"},
+                    "raw_input": "good",
+                    "confidence": 0.9,
+                },
+                config={
+                    "configurable": {
+                        "job_id": "job-1",
+                        "run_id": "run-1",
+                        "virtual_thing_id": "virtual:records:mood",
+                    }
+                },
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["record"]["thing_id"], "virtual:records:mood")
+        self.assertEqual(result["record"]["source_run_id"], "run-1")
+
 
 class _FakeScheduleManager:
     def __init__(self, *, add_error=None, remove_error=None) -> None:
@@ -461,6 +812,9 @@ class _FakeServiceRepo:
             raise KeyError(job_thread_id)
         return self.job
 
+    async def get_job_by_thread_id_any(self, job_thread_id: str) -> Job:
+        return await self.get_job_by_thread_id(job_thread_id)
+
     async def delete_job(self, job_id: str) -> Job:
         self.deleted.append(job_id)
         if self.delete_error is not None:
@@ -483,6 +837,19 @@ class _FakeServiceRuntimeClient:
         self.removed.append(subscription_id)
         if self.remove_error is not None:
             raise self.remove_error
+
+
+class _FakeRecordStore:
+    def __init__(self) -> None:
+        self.created = []
+        self.deleted = []
+
+    def create_or_update_thing(self, **kwargs):
+        self.created.append(kwargs)
+        return {"thing_id": kwargs["thing_id"]}
+
+    def delete_thing(self, thing_id: str) -> None:
+        self.deleted.append(thing_id)
 
 
 class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
@@ -582,6 +949,43 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(created.id, "job-1")
         self.assertEqual(schedule.added, ["job-1"])
+
+    async def test_create_record_prompt_job_creates_virtual_record_thing(self) -> None:
+        schedule = _FakeScheduleManager()
+        record_store = _FakeRecordStore()
+        service = JobService(
+            Settings(),
+            repo=_FakeServiceRepo(
+                _job(
+                    interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+                    output_kind=JobOutputKind.STRUCTURED_RECORD,
+                    record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+                    record_schema_version=1,
+                    virtual_thing_id="virtual:records:morning",
+                )
+            ),
+            schedule_manager=schedule,
+            record_store=record_store,
+        )
+        request = CreateJobRequest(
+            name="morning",
+            created_from_thread_id="thread-1",
+            interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+            output_kind=JobOutputKind.STRUCTURED_RECORD,
+            prompt="ask",
+            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+            virtual_thing_id="virtual:records:morning",
+            virtual_thing_title="Morning Check-in",
+            trigger_kind=JobTriggerKind.TIME,
+            schedule_kind=TimeTriggerKind.INTERVAL,
+            interval_seconds=60,
+        )
+
+        created = await service.create_job(request)
+
+        self.assertEqual(created.virtual_thing_id, "virtual:records:morning")
+        self.assertEqual(record_store.created[0]["thing_id"], "virtual:records:morning")
+        self.assertEqual(record_store.created[0]["title"], "Morning Check-in")
 
     async def test_create_time_job_deletes_record_when_schedule_registration_fails(self) -> None:
         repo = _FakeServiceRepo(_job(interval_seconds=60))

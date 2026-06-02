@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type FormEvent,
   type ReactNode,
 } from 'react';
 import Link from 'next/link';
@@ -18,6 +19,7 @@ import {
   Play,
   Power,
   RefreshCw,
+  Send,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -41,6 +43,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import {
   formatDateTime,
   getJobStatus,
@@ -48,6 +51,7 @@ import {
   getScheduleLabel,
   getStatusBadgeVariant,
   getStatusLabel,
+  supportsJobReply,
   supportsEventFields,
   supportsJobThread,
   supportsTimeFields,
@@ -60,6 +64,7 @@ import {
   deleteJob,
   fetchJob,
   fetchJobRuns,
+  replyToJob,
   runJobNow,
   setJobEnabled,
 } from '@/lib/jobs-api';
@@ -246,14 +251,84 @@ function AnalysisOutputPanel({
   );
 }
 
+function JobReplyPanel({
+  question,
+  value,
+  isSubmitting,
+  transcriptHref,
+  onChange,
+  onSubmit,
+}: {
+  question: string;
+  value: string;
+  isSubmitting: boolean;
+  transcriptHref: string;
+  onChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const canSubmit = value.trim().length > 0 && !isSubmitting;
+
+  return (
+    <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
+      <CardHeader className="border-b border-border/70">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <CardTitle className="text-base">Waiting for input</CardTitle>
+            <CardDescription>Reply to the pending job question.</CardDescription>
+          </div>
+          <Badge variant="secondary">Needs input</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-md border bg-muted/20 p-4">
+          <div className="text-xs font-medium text-muted-foreground">
+            Question
+          </div>
+          <p className="mt-2 whitespace-pre-wrap break-words text-base leading-7 text-foreground">
+            {question}
+          </p>
+        </div>
+        <form className="space-y-3" onSubmit={onSubmit}>
+          <Textarea
+            aria-label="Job answer"
+            className="min-h-28 resize-y"
+            placeholder="Answer..."
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            disabled={isSubmitting}
+          />
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" asChild>
+              <Link href={transcriptHref}>
+                <MessagesSquare className="h-4 w-4" />
+                View transcript
+              </Link>
+            </Button>
+            <Button type="submit" disabled={!canSubmit}>
+              {isSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              Submit answer
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
   const router = useRouter();
   const [job, setJob] = useState<JobRecord | null>(null);
   const [runs, setRuns] = useState<JobRunRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
+  const [isReplying, setIsReplying] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
+  const [replyText, setReplyText] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(
@@ -309,6 +384,7 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
     ? getPurposePreview(job)
     : { label: 'Prompt', content: '(empty prompt)' };
   const hasJobThread = job ? supportsJobThread(job) : false;
+  const isWaitingForReply = job ? supportsJobReply(job) : false;
   const hasTimeFields = job ? supportsTimeFields(job) : false;
   const hasEventFields = job ? supportsEventFields(job) : false;
   const latestAnalysisResult = useMemo(() => {
@@ -333,6 +409,35 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
       setIsRunning(false);
     }
   }, [jobId, load]);
+
+  useEffect(() => {
+    if (!isWaitingForReply) {
+      setReplyText('');
+    }
+  }, [isWaitingForReply]);
+
+  const handleReply = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const message = replyText.trim();
+      if (!job || !isWaitingForReply || !message) return;
+
+      setIsReplying(true);
+      try {
+        await replyToJob(job.id, message);
+        toast.success('Answer submitted.');
+        setReplyText('');
+        await load({ silent: true });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to submit answer',
+        );
+      } finally {
+        setIsReplying(false);
+      }
+    },
+    [isWaitingForReply, job, load, replyText],
+  );
 
   const handleToggleEnabled = useCallback(async () => {
     if (!job) return;
@@ -459,7 +564,14 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
           ) : null}
           <Button
             onClick={() => void handleRun()}
-            disabled={!job || isLoading || isRunning || isDeleting || isBusy}
+            disabled={
+              !job ||
+              isLoading ||
+              isRunning ||
+              isDeleting ||
+              isBusy ||
+              Boolean(job.active_run_id)
+            }
           >
             {isRunning ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -510,11 +622,15 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
 
       {job ? (
         <>
-          {hasJobThread && job.waiting_question ? (
-            <Alert>
-              <AlertTitle>Waiting for input</AlertTitle>
-              <AlertDescription>{job.waiting_question}</AlertDescription>
-            </Alert>
+          {isWaitingForReply ? (
+            <JobReplyPanel
+              question={job.waiting_question || 'The job is waiting for a reply.'}
+              value={replyText}
+              isSubmitting={isReplying}
+              transcriptHref={`/jobs/${jobId}/thread`}
+              onChange={setReplyText}
+              onSubmit={handleReply}
+            />
           ) : null}
 
           {job.last_error ? (
@@ -573,7 +689,11 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                 />
                 <FieldCard
                   label="Action"
-                  value={getStatusLabel(job.action_kind)}
+                  value={
+                    job.output_kind === 'structured_record'
+                      ? 'Record prompt'
+                      : getStatusLabel(job.action_kind)
+                  }
                 />
                 <FieldCard
                   label="Trigger"
@@ -605,6 +725,13 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                   label="Last run"
                   value={job.last_run_status || 'No runs'}
                 />
+                {job.virtual_thing_id ? (
+                  <FieldCard
+                    label="Virtual thing"
+                    value={job.virtual_thing_id}
+                    mono
+                  />
+                ) : null}
               </section>
 
               {job.action_kind === 'analysis' ? (

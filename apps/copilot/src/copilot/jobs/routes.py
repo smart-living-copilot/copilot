@@ -3,11 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from copilot.auth import User, require_service
+from copilot.catalog.ids import decode_thing_id
 from copilot.core.api_dependencies import verify_internal_api_key
 from copilot.jobs.models import CreateJobRequest, ReplyJobRequest, UpdateJobRequest
+from copilot.jobs.records import VirtualRecordStore, virtual_record_http_error
 from copilot.jobs.store import JobNotWaitingForInput, JobRunNotCancellable
 from copilot.threads.messages import checkpoint_thread_messages
 from copilot.threads.store import get_thread
@@ -84,16 +89,36 @@ async def get_job_thread(job_id: str, request: Request):
     except KeyError:
         raise HTTPException(status_code=404, detail="job not found")
 
-    record = await asyncio.to_thread(get_thread, job.job_thread_id)
+    run = None
+    try:
+        run = await service.get_active_or_last_job_run(job_id)
+    except KeyError:
+        pass
+
+    thread_id = run.job_thread_id if run is not None else job.job_thread_id
+    record = await asyncio.to_thread(get_thread, thread_id)
     if record is None:
-        raise HTTPException(status_code=404, detail="job thread not found")
+        record = {
+            "id": thread_id,
+            "title": f"Job: {job.name}",
+            "createdAt": job.created_at.isoformat(),
+            "updatedAt": job.updated_at.isoformat(),
+            "kind": "job",
+            "visible": False,
+            "jobId": job.id,
+        }
 
     checkpointer = getattr(request.app.state, "checkpointer", None)
     if checkpointer is None:
         raise HTTPException(status_code=503, detail="Checkpointer not ready")
 
-    messages = await checkpoint_thread_messages(checkpointer, job.job_thread_id)
-    return {**record, "job": job.model_dump(), "messages": messages}
+    messages = await checkpoint_thread_messages(checkpointer, thread_id)
+    return {
+        **record,
+        "job": job.model_dump(),
+        "run": run.model_dump() if run is not None else None,
+        "messages": messages,
+    }
 
 
 @router.post("/jobs/{job_id}/reply")
@@ -175,3 +200,45 @@ async def run_job(job_id: str, request: Request):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return result
+
+
+@router.get("/api/virtual-records/{thing_id:path}/properties/{property_name}")
+def read_virtual_record_property(
+    thing_id: str,
+    property_name: str,
+    _user: User = Depends(require_service(["wot_runtime"])),
+) -> dict[str, Any]:
+    try:
+        decoded_thing_id = decode_thing_id(thing_id)
+        return {
+            "thing_id": decoded_thing_id,
+            "property_name": property_name,
+            "value": VirtualRecordStore().read_property(
+                decoded_thing_id,
+                property_name,
+            ),
+        }
+    except Exception as exc:
+        raise virtual_record_http_error(exc) from exc
+
+
+@router.post("/api/virtual-records/{thing_id:path}/actions/{action_name}")
+def invoke_virtual_record_action(
+    thing_id: str,
+    action_name: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    _user: User = Depends(require_service(["wot_runtime"])),
+) -> dict[str, Any]:
+    try:
+        decoded_thing_id = decode_thing_id(thing_id)
+        return {
+            "thing_id": decoded_thing_id,
+            "action_name": action_name,
+            "value": VirtualRecordStore().invoke_action(
+                decoded_thing_id,
+                action_name,
+                payload.get("input"),
+            ),
+        }
+    except Exception as exc:
+        raise virtual_record_http_error(exc) from exc

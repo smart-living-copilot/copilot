@@ -7,14 +7,19 @@ it directly instead of round-tripping through the HTTP job API.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
 from copilot.jobs.active import get_active_job_service
-from copilot.jobs.models import CreateJobRequest, JobActionKind
+from copilot.jobs.models import (
+    CreateJobRequest,
+    JobActionKind,
+    JobInteractionMode,
+    JobOutputKind,
+)
 
 if TYPE_CHECKING:
     from copilot.jobs.service import JobService
@@ -55,9 +60,19 @@ async def _create_job(
 @tool
 async def create_prompt_job(
     name: str,
-    prompt: str,
+    run_instructions: Annotated[
+        str,
+        Field(
+            description=(
+                "Instruction the background worker should follow each time the job "
+                "runs. Convert the user's creation request into this runtime behavior; "
+                "put timing in trigger fields."
+            )
+        ),
+    ],
     trigger_kind: str,
     config: RunnableConfig,
+    interaction_mode: str = JobInteractionMode.AUTONOMOUS.value,
     schedule_kind: str | None = None,
     created_from_thread_id: str | None = None,
     run_at: str | None = None,
@@ -67,6 +82,10 @@ async def create_prompt_job(
     subscription_input: Any = None,
 ) -> dict[str, Any]:
     """Create a prompt automation job that runs natural-language instructions.
+
+    run_instructions is the instruction the background worker will execute later.
+    For example, if the user says "create a job to check the house every hour",
+    pass run_instructions="Check the house."
 
     trigger_kind:
     - "time": use run_at (ISO datetime) or interval_seconds
@@ -83,7 +102,70 @@ async def create_prompt_job(
         request = CreateJobRequest(
             name=name,
             created_from_thread_id=_thread_id_from_config(config, created_from_thread_id),
-            prompt=prompt,
+            interaction_mode=interaction_mode,
+            prompt=run_instructions,
+            trigger_kind=trigger_kind,
+            schedule_kind=schedule_kind,
+            run_at=run_at,
+            interval_seconds=interval_seconds,
+            thing_id=thing_id,
+            event_name=event_name,
+            subscription_input=subscription_input,
+        )
+    except ValidationError as exc:
+        return {"error": str(exc)}
+    return await _create_job(service, request)
+
+
+@tool
+async def create_record_prompt_job(
+    name: str,
+    run_instructions: Annotated[
+        str,
+        Field(
+            description=(
+                "Instruction the background worker should follow each time the job "
+                "runs. Describe what to ask or generate and when to submit_job_record; "
+                "put timing in trigger fields."
+            )
+        ),
+    ],
+    record_schema: dict[str, Any],
+    trigger_kind: str,
+    config: RunnableConfig,
+    interaction_mode: str = JobInteractionMode.REQUIRED_CHECKIN.value,
+    virtual_thing_title: str | None = None,
+    virtual_thing_description: str | None = None,
+    virtual_thing_id: str | None = None,
+    schedule_kind: str | None = None,
+    created_from_thread_id: str | None = None,
+    run_at: str | None = None,
+    interval_seconds: int | None = None,
+    thing_id: str | None = None,
+    event_name: str | None = None,
+    subscription_input: Any = None,
+) -> dict[str, Any]:
+    """Create a prompt job that stores user/model answers as queryable records.
+
+    The backend validates the JSON Schema and generates a virtual Thing Description
+    with latest-value properties and history query actions.
+    run_instructions is the future run instruction, not the user's request to create
+    this job.
+    """
+    service = get_active_job_service()
+    if service is None:
+        return dict(_SERVICE_UNAVAILABLE)
+    try:
+        request = CreateJobRequest(
+            name=name,
+            created_from_thread_id=_thread_id_from_config(config, created_from_thread_id),
+            interaction_mode=interaction_mode,
+            output_kind=JobOutputKind.STRUCTURED_RECORD,
+            prompt=run_instructions,
+            record_schema=record_schema,
+            virtual_thing_id=virtual_thing_id,
+            virtual_thing_title=virtual_thing_title,
+            virtual_thing_description=virtual_thing_description,
             trigger_kind=trigger_kind,
             schedule_kind=schedule_kind,
             run_at=run_at,

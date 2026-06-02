@@ -60,6 +60,7 @@ import {
   getJobStatus,
   getStatusBadgeVariant,
   getStatusLabel,
+  supportsJobReply,
   supportsJobThread,
   supportsTimeFields,
 } from '@/lib/job-formatters';
@@ -78,6 +79,8 @@ function getSearchableText(job: JobRecord): string {
     job.id,
     job.job_thread_id,
     job.action_kind,
+    job.interaction_mode,
+    job.output_kind,
     job.trigger_kind,
     job.schedule_kind,
     job.thing_id,
@@ -86,6 +89,7 @@ function getSearchableText(job: JobRecord): string {
     job.last_response,
     job.last_run_status,
     job.waiting_question,
+    job.virtual_thing_id,
     job.prompt,
     job.analysis_code,
   ]
@@ -103,6 +107,7 @@ function renderRelative(
 }
 
 function actionLabel(job: JobRecord): string {
+  if (job.output_kind === 'structured_record') return 'Record prompt';
   return job.action_kind === 'analysis' ? 'Analysis' : 'Prompt';
 }
 
@@ -267,6 +272,14 @@ function JobRowActions({
           <TooltipContent>More actions</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end">
+          {supportsJobReply(job) ? (
+            <DropdownMenuItem asChild>
+              <Link href={`/jobs/${job.id}`}>
+                <MessagesSquare className="h-4 w-4" />
+                Answer question
+              </Link>
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem asChild>
             <Link href={`/jobs/${job.id}`}>
               <Eye className="h-4 w-4" />
@@ -277,7 +290,7 @@ function JobRowActions({
             <DropdownMenuItem asChild>
               <Link href={`/jobs/${job.id}/thread`}>
                 <MessagesSquare className="h-4 w-4" />
-                Open thread
+                View transcript
               </Link>
             </DropdownMenuItem>
           ) : null}

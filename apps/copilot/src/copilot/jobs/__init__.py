@@ -14,10 +14,11 @@ state: job definitions, job run history, active-run leases, duplicate-run
 skips, waiting questions, and hidden per-job thread metadata.
 
 Prompt jobs run through ``JobExecutor`` using a normal Postgres LangGraph
-checkpointer and a hidden ``job:{job_id}`` thread. They can pause through the
-worker-only ``ask_job_user`` tool, which stores ``waiting_for_input`` state and
-lets ``POST /jobs/{job_id}/reply`` resume the same checkpoint thread. Analysis
-jobs bypass LangGraph and store their code-executor output in ``job_runs.result``.
+checkpointer and hidden per-run ``job:{job_id}:run:{run_id}`` threads. They can
+pause through the worker-only ``ask_job_user`` tool, which raises a LangGraph
+interrupt and lets ``POST /jobs/{job_id}/reply`` resume the same checkpoint
+thread. Analysis jobs bypass LangGraph and store their code-executor output in
+``job_runs.result``.
 
 Redis is used for Taskiq scheduling, Taskiq results, WoT event fan-out, and job
 run SSE notifications. The current schema is fresh-reset oriented for local

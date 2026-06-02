@@ -12,21 +12,21 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactElement,
+  type FormEvent,
 } from 'react';
 import Link from 'next/link';
-import { Eye, Loader2, RefreshCw } from 'lucide-react';
+import { Eye, Loader2, MessageSquareReply, RefreshCw, Send } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { JobRunHistoryCard } from '@/components/jobs/job-run-history';
 import { LiveModePanel } from '@/components/copilot/live-mode-panel';
-import { MediaIngressControl } from '@/components/copilot/media-ingress-control';
 import { chatToolCallRenderers } from '@/components/copilot/chat-tool-call-renderer';
 import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
 import { useJobEvents } from '@/hooks/use-job-events';
 import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
 import {
@@ -54,12 +54,6 @@ type LoadOptions = {
   silent?: boolean;
 };
 
-type ChatInputChildren = {
-  textArea: ReactElement;
-  sendButton: ReactElement;
-  disclaimer: ReactElement;
-};
-
 function normalizeMessages(thread: JobThreadRecord | null): Message[] {
   return (thread?.messages ?? []).map((message, index) => {
     return {
@@ -80,6 +74,76 @@ function runOutcome(run: JobRunRecord): string {
     }
   }
   return 'No output captured.';
+}
+
+function WaitingReplyCard({
+  question,
+  value,
+  isSubmitting,
+  detailsHref,
+  onChange,
+  onSubmit,
+}: {
+  question: string;
+  value: string;
+  isSubmitting: boolean;
+  detailsHref: string;
+  onChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const canSubmit = value.trim().length > 0 && !isSubmitting;
+
+  return (
+    <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
+      <CardContent className="space-y-4">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold tracking-tight">
+              Waiting for input
+            </h2>
+            <Badge variant="secondary">Needs input</Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            This job is paused until you answer its pending question.
+          </p>
+        </div>
+        <div className="rounded-md border bg-muted/20 p-4">
+          <div className="text-xs font-medium text-muted-foreground">
+            Question
+          </div>
+          <p className="mt-2 whitespace-pre-wrap break-words text-base leading-7 text-foreground">
+            {question}
+          </p>
+        </div>
+        <form className="space-y-3" onSubmit={onSubmit}>
+          <Textarea
+            aria-label="Job answer"
+            className="min-h-28 resize-y"
+            placeholder="Answer..."
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            disabled={isSubmitting}
+          />
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" asChild>
+              <Link href={detailsHref}>
+                <Eye className="h-4 w-4" />
+                Details
+              </Link>
+            </Button>
+            <Button type="submit" disabled={!canSubmit}>
+              {isSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              Submit answer
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
 }
 
 export function JobThreadPage({ jobId }: JobThreadPageProps) {
@@ -173,9 +237,16 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
     return () => window.clearInterval(interval);
   }, [load, mediaSession.state]);
 
+  useEffect(() => {
+    if (!isWaiting) {
+      setInputValue('');
+    }
+  }, [isWaiting]);
+
   const submitReply = useCallback(
-    async (value: string) => {
-      const message = value.trim();
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const message = inputValue.trim();
       if (!message) return;
       if (!isWaiting) {
         toast.error('This job is not waiting for input.');
@@ -185,48 +256,52 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
       setIsReplying(true);
       try {
         await replyToJob(jobId, message);
-        toast.success('Reply submitted.');
+        toast.success('Answer submitted.');
         setInputValue('');
         await load();
       } catch (error) {
         toast.error(
-          error instanceof Error ? error.message : 'Failed to submit reply',
+          error instanceof Error ? error.message : 'Failed to submit answer',
         );
       } finally {
         setIsReplying(false);
       }
     },
-    [isWaiting, jobId, load],
+    [inputValue, isWaiting, jobId, load],
   );
 
   const chatInput = useMemo(
     () => ({
-      children: ({ textArea, sendButton, disclaimer }: ChatInputChildren) => {
-        if (!isWaiting) {
-          return (
-            <div className="mx-auto w-full max-w-3xl px-4 pb-4">
-              <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                This job is not waiting for input.
-              </div>
-            </div>
-          );
-        }
-
+      children: () => {
         return (
           <div className="mx-auto w-full max-w-3xl px-4 pb-4">
-            <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
-              <div className="min-h-16">{textArea}</div>
-              <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
-                <MediaIngressControl session={mediaSession} />
-                {sendButton}
+            <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                {isWaiting ? (
+                  <>
+                    <div className="font-medium text-foreground">
+                      {job?.waiting_question || 'The job is waiting for a reply.'}
+                    </div>
+                    <div>Answer this question from the job detail page.</div>
+                  </>
+                ) : (
+                  <div>Transcript view</div>
+                )}
               </div>
+              {isWaiting ? (
+                <Button size="sm" asChild>
+                  <Link href={`/jobs/${jobId}`}>
+                    <MessageSquareReply className="h-4 w-4" />
+                    Answer
+                  </Link>
+                </Button>
+              ) : null}
             </div>
-            {disclaimer}
           </div>
         );
       },
     }),
-    [isWaiting, mediaSession],
+    [isWaiting, job?.waiting_question, jobId],
   );
 
   return (
@@ -304,48 +379,44 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
       {job && hasJobThread ? (
         <>
           {isWaiting ? (
-            <Alert>
-              <AlertTitle>Waiting for input</AlertTitle>
-              <AlertDescription>
-                {job.waiting_question || 'The job is waiting for a reply.'}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          <div className="min-h-[34rem] flex-1 overflow-hidden rounded-md border border-border/70 bg-background shadow-sm shadow-black/5">
-            {showLiveMode ? (
-              <LiveModePanel artifacts={[]} session={mediaSession} />
-            ) : (
-              <CopilotKitProvider
-                runtimeUrl="/api/copilotkit"
-                showDevConsole={enableInspector}
-                renderToolCalls={chatToolCallRenderers}
-              >
-                <CopilotChatConfigurationProvider
-                  agentId="copilot"
-                  threadId={threadId}
-                  labels={{
-                    chatInputPlaceholder: isWaiting
-                      ? 'Answer this job...'
-                      : 'Job is not waiting for input',
-                  }}
+            <WaitingReplyCard
+              question={job.waiting_question || 'The job is waiting for a reply.'}
+              value={inputValue}
+              isSubmitting={isReplying}
+              detailsHref={`/jobs/${jobId}`}
+              onChange={setInputValue}
+              onSubmit={submitReply}
+            />
+          ) : (
+            <div className="min-h-[34rem] flex-1 overflow-hidden rounded-md border border-border/70 bg-background shadow-sm shadow-black/5">
+              {showLiveMode ? (
+                <LiveModePanel artifacts={[]} session={mediaSession} />
+              ) : (
+                <CopilotKitProvider
+                  runtimeUrl="/api/copilotkit"
+                  showDevConsole={enableInspector}
+                  renderToolCalls={chatToolCallRenderers}
                 >
-                  <CopilotChatView
-                    autoScroll
-                    className="smart-living-copilot-chat h-full"
-                    input={chatInput}
-                    inputValue={inputValue}
-                    isRunning={isReplying}
-                    messageView={MessageViewWithWotSummary}
-                    messages={messages}
-                    onInputChange={setInputValue}
-                    onSubmitMessage={isWaiting ? submitReply : undefined}
-                    welcomeScreen={false}
-                  />
-                </CopilotChatConfigurationProvider>
-              </CopilotKitProvider>
-            )}
-          </div>
+                  <CopilotChatConfigurationProvider
+                    agentId="copilot"
+                    threadId={threadId}
+                    labels={{
+                      chatInputPlaceholder: 'Transcript view',
+                    }}
+                  >
+                    <CopilotChatView
+                      autoScroll
+                      className="smart-living-copilot-chat h-full"
+                      input={chatInput}
+                      messageView={MessageViewWithWotSummary}
+                      messages={messages}
+                      welcomeScreen={false}
+                    />
+                  </CopilotChatConfigurationProvider>
+                </CopilotKitProvider>
+              )}
+            </div>
+          )}
         </>
       ) : null}
 

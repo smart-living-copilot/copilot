@@ -14,12 +14,20 @@ from copilot.core.database import (
 from copilot.jobs.models import (
     CreateJobRequest,
     JobActionKind,
+    JobInteractionMode,
+    JobOutputKind,
     JobRunSource,
     JobRunStatus,
     JobTriggerKind,
     TimeTriggerKind,
 )
-from copilot.jobs.store import JobRunNotCancellable, JobStore, utc_now
+from copilot.jobs.records import VirtualRecordStore, make_virtual_record_thing_id
+from copilot.jobs.store import (
+    JobRunNotCancellable,
+    JobStore,
+    job_run_thread_id_for_run,
+    utc_now,
+)
 from copilot.threads.store import init_thread_store
 
 pytestmark = pytest.mark.skipif(
@@ -79,6 +87,7 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
             now=now + timedelta(seconds=1),
         )
         self.assertIsNotNone(run)
+        self.assertEqual(run.job_thread_id, job_run_thread_id_for_run(job.id, run.id))
         await self.repo.finish_job_run(
             run_id=run.id,
             job_id=job.id,
@@ -261,6 +270,7 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         waiting = await self.repo.get_job(job.id)
         self.assertEqual(waiting.active_run_id, run.id)
         self.assertEqual(waiting.waiting_question, "Which temperature?")
+        self.assertEqual(waiting.run_count, 0)
 
         reply_run = await self.repo.start_reply_job_run(
             job_id=job.id,
@@ -268,7 +278,8 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
             previous_run_id=run.id,
             now=now + timedelta(seconds=2),
         )
-        self.assertEqual(reply_run.job_thread_id, job.job_thread_id)
+        self.assertEqual(reply_run.id, run.id)
+        self.assertEqual(reply_run.job_thread_id, job_run_thread_id_for_run(job.id, run.id))
         await self.repo.finish_job_run(
             run_id=reply_run.id,
             job_id=job.id,
@@ -383,6 +394,69 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         runs = await self.repo.list_job_runs(job.id)
         self.assertEqual(runs[0].status, JobRunStatus.CANCELLED)
         self.assertIsNotNone(runs[0].finished_at)
+
+    async def test_virtual_record_store_validates_and_queries_records(self):
+        now = utc_now()
+        thing_id = make_virtual_record_thing_id("morning wellbeing")
+        schema = {
+            "type": "object",
+            "properties": {
+                "mood": {"type": "string", "enum": ["good", "stressed"]},
+                "energy": {"type": "integer", "minimum": 1, "maximum": 5},
+                "note": {"type": "string"},
+            },
+            "required": ["mood", "energy"],
+        }
+        job = await self.repo.create_job(
+            CreateJobRequest(
+                name="morning wellbeing",
+                created_from_thread_id="thread-1",
+                interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+                output_kind=JobOutputKind.STRUCTURED_RECORD,
+                prompt="Ask how I feel.",
+                record_schema=schema,
+                record_schema_version=1,
+                virtual_thing_id=thing_id,
+                trigger_kind=JobTriggerKind.TIME,
+                schedule_kind=TimeTriggerKind.INTERVAL,
+                interval_seconds=60,
+            ),
+            next_run_at=now,
+            subscription_id=None,
+        )
+        records = VirtualRecordStore()
+        records.create_or_update_thing(
+            thing_id=thing_id,
+            source_job_id=job.id,
+            schema_version=1,
+            record_schema=schema,
+            title="Morning Wellbeing",
+            description="Daily wellbeing check-ins.",
+        )
+        run = await self.repo.try_start_job_run(
+            job_id=job.id,
+            source=JobRunSource.TIME,
+            trigger_payload={"source": "time"},
+            now=now,
+        )
+        self.assertIsNotNone(run)
+
+        stored = records.submit_record(
+            thing_id=thing_id,
+            source_job_id=job.id,
+            source_run_id=run.id,
+            data={"mood": "stressed", "energy": 2, "note": "slept badly"},
+        )
+
+        self.assertEqual(stored["data"]["mood"], "stressed")
+        self.assertEqual(records.read_property(thing_id, "latest_mood"), "stressed")
+        self.assertEqual(records.read_property(thing_id, "record_count"), 1)
+        self.assertEqual(
+            records.invoke_action(thing_id, "query_property_history", {"property": "energy"})[
+                0
+            ]["value"],
+            2,
+        )
 
 
 if __name__ == "__main__":

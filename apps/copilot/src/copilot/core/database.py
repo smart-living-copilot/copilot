@@ -145,8 +145,13 @@ def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
                     created_from_thread_id TEXT NOT NULL,
                     job_thread_id TEXT NOT NULL UNIQUE,
                     action_kind TEXT NOT NULL DEFAULT 'prompt',
+                    interaction_mode TEXT NOT NULL DEFAULT 'autonomous',
+                    output_kind TEXT NOT NULL DEFAULT 'narrative',
                     prompt TEXT,
                     analysis_code TEXT,
+                    record_schema JSONB,
+                    record_schema_version INTEGER,
+                    virtual_thing_id TEXT,
                     enabled BOOLEAN NOT NULL DEFAULT true,
                     trigger_kind TEXT NOT NULL,
                     schedule_kind TEXT,
@@ -173,6 +178,10 @@ def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
                         CHECK (action_kind IN ('prompt', 'analysis')),
                     CONSTRAINT ck_jobs_trigger_kind
                         CHECK (trigger_kind IN ('time', 'event')),
+                    CONSTRAINT ck_jobs_interaction_mode
+                        CHECK (interaction_mode IN ('autonomous', 'required_checkin')),
+                    CONSTRAINT ck_jobs_output_kind
+                        CHECK (output_kind IN ('narrative', 'structured_record')),
                     CONSTRAINT ck_jobs_schedule_kind
                         CHECK (schedule_kind IS NULL OR schedule_kind IN ('once', 'interval')),
                     CONSTRAINT ck_jobs_last_run_status
@@ -222,6 +231,43 @@ def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
                         )
                 );
 
+                CREATE TABLE IF NOT EXISTS virtual_record_things (
+                    id TEXT PRIMARY KEY,
+                    source_job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                    schema_version INTEGER NOT NULL DEFAULT 1,
+                    record_schema JSONB NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+
+                CREATE TABLE IF NOT EXISTS virtual_records (
+                    id TEXT PRIMARY KEY,
+                    thing_id TEXT NOT NULL REFERENCES virtual_record_things(id) ON DELETE CASCADE,
+                    schema_version INTEGER NOT NULL,
+                    source_job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                    source_run_id TEXT NOT NULL,
+                    recorded_at TIMESTAMPTZ NOT NULL,
+                    data JSONB NOT NULL,
+                    raw_input TEXT,
+                    confidence DOUBLE PRECISION,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    CONSTRAINT uq_virtual_records_run UNIQUE (thing_id, source_run_id)
+                );
+
+                ALTER TABLE jobs
+                    ADD COLUMN IF NOT EXISTS interaction_mode TEXT NOT NULL DEFAULT 'autonomous';
+                ALTER TABLE jobs
+                    ADD COLUMN IF NOT EXISTS output_kind TEXT NOT NULL DEFAULT 'narrative';
+                ALTER TABLE jobs
+                    ADD COLUMN IF NOT EXISTS record_schema JSONB;
+                ALTER TABLE jobs
+                    ADD COLUMN IF NOT EXISTS record_schema_version INTEGER;
+                ALTER TABLE jobs
+                    ADD COLUMN IF NOT EXISTS virtual_thing_id TEXT;
+
                 CREATE INDEX IF NOT EXISTS idx_jobs_due
                     ON jobs(trigger_kind, enabled, next_run_at);
 
@@ -233,6 +279,12 @@ def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
 
                 CREATE INDEX IF NOT EXISTS idx_job_runs_job_started
                     ON job_runs(job_id, started_at);
+
+                CREATE INDEX IF NOT EXISTS idx_virtual_records_thing_recorded
+                    ON virtual_records(thing_id, recorded_at);
+
+                CREATE INDEX IF NOT EXISTS idx_virtual_records_source_run
+                    ON virtual_records(source_run_id);
                 """
             )
         connection.commit()

@@ -27,6 +27,16 @@ class JobActionKind(StrEnum):
     ANALYSIS = "analysis"
 
 
+class JobInteractionMode(StrEnum):
+    AUTONOMOUS = "autonomous"
+    REQUIRED_CHECKIN = "required_checkin"
+
+
+class JobOutputKind(StrEnum):
+    NARRATIVE = "narrative"
+    STRUCTURED_RECORD = "structured_record"
+
+
 class JobRunSource(StrEnum):
     MANUAL = "manual"
     TIME = "time"
@@ -56,6 +66,14 @@ class JobRecord(Base):
             name="ck_jobs_trigger_kind",
         ),
         CheckConstraint(
+            "interaction_mode IN ('autonomous', 'required_checkin')",
+            name="ck_jobs_interaction_mode",
+        ),
+        CheckConstraint(
+            "output_kind IN ('narrative', 'structured_record')",
+            name="ck_jobs_output_kind",
+        ),
+        CheckConstraint(
             "schedule_kind IS NULL OR schedule_kind IN ('once', 'interval')",
             name="ck_jobs_schedule_kind",
         ),
@@ -83,8 +101,21 @@ class JobRecord(Base):
         nullable=False,
         default=JobActionKind.PROMPT.value,
     )
+    interaction_mode: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default=JobInteractionMode.AUTONOMOUS.value,
+    )
+    output_kind: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default=JobOutputKind.NARRATIVE.value,
+    )
     prompt: Mapped[str | None] = mapped_column(Text)
     analysis_code: Mapped[str | None] = mapped_column(Text)
+    record_schema: Mapped[Any | None] = mapped_column(JSONB)
+    record_schema_version: Mapped[int | None] = mapped_column(Integer)
+    virtual_thing_id: Mapped[str | None] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     trigger_kind: Mapped[str] = mapped_column(Text, nullable=False)
     schedule_kind: Mapped[str | None] = mapped_column(Text)
@@ -150,8 +181,19 @@ class Job(BaseModel):
     created_from_thread_id: str
     job_thread_id: str
     action_kind: JobActionKind = JobActionKind.PROMPT
-    prompt: str | None = None
+    interaction_mode: JobInteractionMode = JobInteractionMode.AUTONOMOUS
+    output_kind: JobOutputKind = JobOutputKind.NARRATIVE
+    prompt: str | None = Field(
+        default=None,
+        description=(
+            "Runtime instructions for the job. This is saved verbatim and must not "
+            "include the user's request to create or schedule the job."
+        ),
+    )
     analysis_code: str | None = None
+    record_schema: Any | None = None
+    record_schema_version: int | None = None
+    virtual_thing_id: str | None = None
     enabled: bool
     trigger_kind: JobTriggerKind
     schedule_kind: TimeTriggerKind | None = None
@@ -195,8 +237,21 @@ class CreateJobRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     created_from_thread_id: str | None = Field(default=None, max_length=120)
     action_kind: JobActionKind = JobActionKind.PROMPT
-    prompt: str | None = None
+    interaction_mode: JobInteractionMode = JobInteractionMode.AUTONOMOUS
+    output_kind: JobOutputKind = JobOutputKind.NARRATIVE
+    prompt: str | None = Field(
+        default=None,
+        description=(
+            "Runtime instructions for the job. Do not include create/schedule job "
+            "meta text."
+        ),
+    )
     analysis_code: str | None = None
+    record_schema: Any | None = None
+    record_schema_version: int | None = Field(default=None, ge=1)
+    virtual_thing_id: str | None = Field(default=None, max_length=180)
+    virtual_thing_title: str | None = Field(default=None, max_length=120)
+    virtual_thing_description: str | None = None
     trigger_kind: JobTriggerKind
 
     schedule_kind: TimeTriggerKind | None = None
@@ -217,7 +272,13 @@ class UpdateJobRequest(BaseModel):
     """
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    prompt: str | None = None
+    prompt: str | None = Field(
+        default=None,
+        description=(
+            "Runtime instructions for the job. Do not include create/schedule job "
+            "meta text."
+        ),
+    )
     analysis_code: str | None = None
     interval_seconds: int | None = Field(default=None, ge=1)
     run_at: datetime | None = None
