@@ -178,10 +178,12 @@ def _to_job_run_event(row: JobRunEventRecord) -> JobRunEvent:
     )
 
 
-class JobStore:
+class _JobStoreBase:
     def __init__(self, session_factory: sessionmaker[Session] | None = None) -> None:
         self._session_factory = session_factory or get_session_factory()
 
+
+class JobDefinitionStore(_JobStoreBase):
     async def create_job(
         self,
         request: CreateJobRequest,
@@ -481,6 +483,8 @@ class JobStore:
             return run_at if run_at > now else None
         return None
 
+
+class JobRunStore(_JobStoreBase):
     async def cancel_active_run(self, job_id: str) -> Job:
         return await asyncio.to_thread(self._cancel_active_run_sync, job_id)
 
@@ -552,7 +556,7 @@ class JobStore:
                 raise KeyError(job_id)
 
             if source != JobRunSource.MANUAL and not row.enabled:
-                run = self._create_skipped_run(
+                run = _create_skipped_run(
                     session,
                     row,
                     source,
@@ -566,7 +570,7 @@ class JobStore:
                 return _to_job_run(run)
 
             if _has_active_run(row):
-                run = self._create_skipped_run(
+                run = _create_skipped_run(
                     session,
                     row,
                     source,
@@ -977,6 +981,8 @@ class JobStore:
             rows = session.scalars(statement).all()
             return [_to_job_run(row) for row in rows]
 
+
+class JobRunEventStore(_JobStoreBase):
     async def list_job_run_events(
         self,
         job_id: str,
@@ -1001,57 +1007,60 @@ class JobStore:
             rows = session.scalars(statement).all()
             return [_to_job_run_event(row) for row in rows]
 
-    def _create_skipped_run(
-        self,
-        session: Session,
-        job_row: JobRecord,
-        source: JobRunSource,
-        trigger_payload: dict,
-        now: datetime,
-        *,
-        error: str,
-        response_text: str,
-        update_job_snapshot: bool,
-    ) -> JobRunRecord:
-        run_id = str(uuid4())
-        run = JobRunRecord(
-            id=run_id,
-            job_id=job_row.id,
-            job_thread_id=_job_thread_id_for_run_row(job_row, run_id),
-            source=source.value,
-            status=JobRunStatus.SKIPPED.value,
-            trigger_payload=_json_safe(trigger_payload),
-            result=_json_safe({"ok": False, "status": JobRunStatus.SKIPPED.value}),
-            error=error,
-            response_text=response_text,
-            started_at=now,
-            finished_at=now,
-            created_at=now,
-        )
-        session.add(run)
-        session.flush()
-        _add_job_run_event(
-            session,
-            job_id=job_row.id,
-            run_id=run.id,
-            event_type=JobRunEventType.RUN_SKIPPED,
-            now=now,
-            message=response_text,
-            payload={
-                "source": source.value,
-                "trigger": trigger_payload,
-                "error": error,
-            },
-        )
-        job_row.run_count = (job_row.run_count or 0) + 1
-        job_row.updated_at = now
-        if update_job_snapshot:
-            job_row.last_run_id = run.id
-            job_row.last_run_at = now
-            job_row.last_run_status = JobRunStatus.SKIPPED.value
-            job_row.last_error = error
-            job_row.last_response = response_text
-        return run
+def _create_skipped_run(
+    session: Session,
+    job_row: JobRecord,
+    source: JobRunSource,
+    trigger_payload: dict,
+    now: datetime,
+    *,
+    error: str,
+    response_text: str,
+    update_job_snapshot: bool,
+) -> JobRunRecord:
+    run_id = str(uuid4())
+    run = JobRunRecord(
+        id=run_id,
+        job_id=job_row.id,
+        job_thread_id=_job_thread_id_for_run_row(job_row, run_id),
+        source=source.value,
+        status=JobRunStatus.SKIPPED.value,
+        trigger_payload=_json_safe(trigger_payload),
+        result=_json_safe({"ok": False, "status": JobRunStatus.SKIPPED.value}),
+        error=error,
+        response_text=response_text,
+        started_at=now,
+        finished_at=now,
+        created_at=now,
+    )
+    session.add(run)
+    session.flush()
+    _add_job_run_event(
+        session,
+        job_id=job_row.id,
+        run_id=run.id,
+        event_type=JobRunEventType.RUN_SKIPPED,
+        now=now,
+        message=response_text,
+        payload={
+            "source": source.value,
+            "trigger": trigger_payload,
+            "error": error,
+        },
+    )
+    job_row.run_count = (job_row.run_count or 0) + 1
+    job_row.updated_at = now
+    if update_job_snapshot:
+        job_row.last_run_id = run.id
+        job_row.last_run_at = now
+        job_row.last_run_status = JobRunStatus.SKIPPED.value
+        job_row.last_error = error
+        job_row.last_response = response_text
+    return run
+
+
+class JobStore(JobDefinitionStore, JobRunStore, JobRunEventStore):
+    """Compatibility facade over the narrower job persistence stores."""
 
 
 def _add_finish_events(
