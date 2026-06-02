@@ -1,155 +1,38 @@
 'use client';
 
-import { FormEvent, useCallback, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { type FormEvent, useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
-import { type CreateJobPayload, createJob } from '@/lib/jobs-api';
-
-type CreateJobFormState = {
-  name: string;
-  actionKind: 'prompt' | 'analysis';
-  triggerKind: 'time' | 'event';
-  scheduleKind: 'once' | 'interval' | 'cron';
-  prompt: string;
-  analysisCode: string;
-  intervalSeconds: string;
-  runAt: string;
-  cronExpression: string;
-  cronTimezone: string;
-  thingId: string;
-  eventName: string;
-  subscriptionInput: string;
-};
-
-function defaultCronTimezone(): string {
-  if (typeof Intl === 'undefined') return 'Europe/Berlin';
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin';
-}
-
-const INITIAL_CREATE_FORM: CreateJobFormState = {
-  name: '',
-  actionKind: 'prompt',
-  triggerKind: 'time',
-  scheduleKind: 'interval',
-  prompt: '',
-  analysisCode: '',
-  intervalSeconds: '',
-  runAt: '',
-  cronExpression: '',
-  cronTimezone: defaultCronTimezone(),
-  thingId: '',
-  eventName: '',
-  subscriptionInput: '',
-};
-
-function toCreatePayload(form: CreateJobFormState): CreateJobPayload {
-  const payload: CreateJobPayload = {
-    name: form.name.trim(),
-    action_kind: form.actionKind,
-    trigger_kind: form.triggerKind,
-  };
-
-  if (form.actionKind === 'analysis') {
-    payload.analysis_code = form.analysisCode.trim();
-  } else {
-    payload.prompt = form.prompt.trim();
-  }
-
-  if (payload.trigger_kind === 'time') {
-    payload.schedule_kind = form.scheduleKind;
-    if (form.scheduleKind === 'interval' && form.intervalSeconds.trim()) {
-      payload.interval_seconds = Number(form.intervalSeconds);
-    }
-    if (form.scheduleKind === 'once' && form.runAt.trim()) {
-      payload.run_at = new Date(form.runAt).toISOString();
-    }
-    if (form.scheduleKind === 'cron' && form.cronExpression.trim()) {
-      payload.cron_expression = form.cronExpression.trim();
-      if (form.cronTimezone.trim()) {
-        payload.cron_timezone = form.cronTimezone.trim();
-      }
-    }
-  } else {
-    payload.thing_id = form.thingId.trim();
-    payload.event_name = form.eventName.trim();
-    if (form.subscriptionInput.trim()) {
-      payload.subscription_input = JSON.parse(form.subscriptionInput);
-    }
-  }
-
-  return payload;
-}
+import { JobActionFields } from '@/components/jobs/form/job-action-fields';
+import { JobEventTriggerFields } from '@/components/jobs/form/job-event-trigger-fields';
+import { JobFormCard } from '@/components/jobs/form/job-form-card';
+import { JobFormHeader } from '@/components/jobs/form/job-form-header';
+import {
+  INITIAL_CREATE_JOB_FORM,
+  type CreateJobFormState,
+  type JobTriggerKind,
+  getSubscriptionInputError,
+  toCreateJobPayload,
+  validateCreateJobForm,
+} from '@/components/jobs/form/job-form-model';
+import { JobScheduleFields } from '@/components/jobs/form/job-schedule-fields';
+import { createJob } from '@/lib/jobs-api';
 
 export function JobCreatePage() {
   const router = useRouter();
-  const [form, setForm] = useState<CreateJobFormState>(INITIAL_CREATE_FORM);
+  const [form, setForm] = useState<CreateJobFormState>(INITIAL_CREATE_JOB_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const subscriptionError = useMemo(() => {
-    if (form.triggerKind !== 'event' || !form.subscriptionInput.trim()) {
-      return null;
-    }
-    try {
-      JSON.parse(form.subscriptionInput);
-      return null;
-    } catch {
-      return 'Subscription input must be valid JSON.';
-    }
-  }, [form.subscriptionInput, form.triggerKind]);
+  const subscriptionError = useMemo(
+    () => getSubscriptionInputError(form),
+    [form],
+  );
 
-  const validationError = useMemo(() => {
-    if (!form.name.trim()) return 'Name is required.';
-    if (form.actionKind === 'prompt' && !form.prompt.trim()) {
-      return 'Prompt is required.';
-    }
-    if (form.actionKind === 'analysis' && !form.analysisCode.trim()) {
-      return 'Analysis code is required.';
-    }
-    if (form.triggerKind === 'time') {
-      if (form.scheduleKind === 'interval') {
-        const seconds = Number(form.intervalSeconds);
-        if (
-          !form.intervalSeconds.trim() ||
-          !Number.isFinite(seconds) ||
-          seconds < 1
-        ) {
-          return 'Interval must be a positive number of seconds.';
-        }
-      }
-      if (form.scheduleKind === 'once' && !form.runAt.trim()) {
-        return 'Run time is required for one-time jobs.';
-      }
-      if (form.scheduleKind === 'cron' && !form.cronExpression.trim()) {
-        return 'Cron expression is required.';
-      }
-      return null;
-    }
-    if (!form.thingId.trim()) return 'Thing ID is required for event jobs.';
-    if (!form.eventName.trim()) return 'Event name is required for event jobs.';
-    return null;
-  }, [form]);
+  const validationError = useMemo(() => validateCreateJobForm(form), [form]);
 
   const setField = useCallback(
     <K extends keyof CreateJobFormState>(
@@ -167,7 +50,7 @@ export function JobCreatePage() {
       if (validationError || subscriptionError) return;
       setIsSubmitting(true);
       try {
-        const job = await createJob(toCreatePayload(form));
+        const job = await createJob(toCreateJobPayload(form));
         toast.success('Job created.');
         router.push(`/jobs/${job.id}`);
       } catch (error) {
@@ -183,246 +66,97 @@ export function JobCreatePage() {
 
   return (
     <form className="space-y-5" onSubmit={(event) => void handleSubmit(event)}>
-      <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-semibold tracking-tight">Create job</h1>
-          <p className="max-w-3xl text-sm text-muted-foreground">
-            Define one action and one trigger for a background automation.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" asChild>
-            <Link href="/jobs">Cancel</Link>
-          </Button>
-          <Button
-            type="submit"
-            disabled={
-              isSubmitting ||
-              Boolean(validationError) ||
-              Boolean(subscriptionError)
-            }
-          >
-            {isSubmitting ? (
-              <Spinner className="size-4" />
-            ) : (
-              <Plus className="h-4 w-4" />
-            )}
-            Create
-          </Button>
-        </div>
-      </section>
+      <JobFormHeader
+        title="Create job"
+        description="Define one action and one trigger for a background automation."
+        cancelHref="/jobs"
+        submitLabel="Create"
+        submitIcon={<Plus className="h-4 w-4" />}
+        isSubmitting={isSubmitting}
+        disabled={
+          isSubmitting || Boolean(validationError) || Boolean(subscriptionError)
+        }
+      />
 
-      <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
-        <CardHeader className="border-b border-border/70">
-          <CardTitle className="text-base">Identity</CardTitle>
-          <CardDescription>Name the background automation.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Name</label>
-            <Input
-              value={form.name}
-              onChange={(event) => setField('name', event.target.value)}
-              placeholder="Morning energy summary"
+      <JobFormCard
+        title="Identity"
+        description="Name the background automation."
+      >
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Name</label>
+          <Input
+            value={form.name}
+            onChange={(event) => setField('name', event.target.value)}
+            placeholder="Morning energy summary"
+          />
+        </div>
+      </JobFormCard>
+
+      <JobFormCard
+        title="Action"
+        description="Choose what the job should do each time it runs."
+      >
+        <JobActionFields
+          actionKind={form.actionKind}
+          prompt={form.prompt}
+          analysisCode={form.analysisCode}
+          onActionKindChange={(value) => setField('actionKind', value)}
+          onPromptChange={(value) => setField('prompt', value)}
+          onAnalysisCodeChange={(value) => setField('analysisCode', value)}
+        />
+      </JobFormCard>
+
+      <JobFormCard
+        title="Trigger"
+        description="Pick whether this job runs on a schedule or from a Thing event."
+      >
+        <Tabs
+          value={form.triggerKind}
+          onValueChange={(value) =>
+            setField('triggerKind', value as JobTriggerKind)
+          }
+          className="space-y-4"
+        >
+          <TabsList className="grid w-full grid-cols-2 sm:w-fit">
+            <TabsTrigger value="time">Time</TabsTrigger>
+            <TabsTrigger value="event">Event</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="time" className="mt-0">
+            <JobScheduleFields
+              scheduleKind={form.scheduleKind}
+              intervalSeconds={form.intervalSeconds}
+              runAt={form.runAt}
+              cronExpression={form.cronExpression}
+              cronTimezone={form.cronTimezone}
+              onScheduleKindChange={(value) => setField('scheduleKind', value)}
+              onIntervalSecondsChange={(value) =>
+                setField('intervalSeconds', value)
+              }
+              onRunAtChange={(value) => setField('runAt', value)}
+              onCronExpressionChange={(value) =>
+                setField('cronExpression', value)
+              }
+              onCronTimezoneChange={(value) => setField('cronTimezone', value)}
             />
-          </div>
-        </CardContent>
-      </Card>
+          </TabsContent>
 
-      <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
-        <CardHeader className="border-b border-border/70">
-          <CardTitle className="text-base">Action</CardTitle>
-          <CardDescription>
-            Choose what the job should do each time it runs.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Tabs
-            value={form.actionKind}
-            onValueChange={(value) =>
-              setField('actionKind', value as 'prompt' | 'analysis')
-            }
-            className="space-y-4"
-          >
-            <TabsList className="grid w-full grid-cols-2 sm:w-fit">
-              <TabsTrigger value="prompt">Prompt</TabsTrigger>
-              <TabsTrigger value="analysis">Analysis</TabsTrigger>
-            </TabsList>
+          <TabsContent value="event" className="mt-0">
+            <JobEventTriggerFields
+              thingId={form.thingId}
+              eventName={form.eventName}
+              subscriptionInput={form.subscriptionInput}
+              subscriptionError={subscriptionError}
+              onThingIdChange={(value) => setField('thingId', value)}
+              onEventNameChange={(value) => setField('eventName', value)}
+              onSubscriptionInputChange={(value) =>
+                setField('subscriptionInput', value)
+              }
+            />
+          </TabsContent>
+        </Tabs>
+      </JobFormCard>
 
-            <TabsContent value="prompt" className="mt-0">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Prompt</label>
-                <Textarea
-                  rows={9}
-                  value={form.prompt}
-                  onChange={(event) => setField('prompt', event.target.value)}
-                  placeholder="Summarize the latest occupancy and temperature changes."
-                />
-              </div>
-            </TabsContent>
-
-            <TabsContent value="analysis" className="mt-0">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Analysis code</label>
-                <Textarea
-                  rows={12}
-                  value={form.analysisCode}
-                  onChange={(event) =>
-                    setField('analysisCode', event.target.value)
-                  }
-                  placeholder="print({'summary': '...', 'value': 0.8})"
-                />
-              </div>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
-        <CardHeader className="border-b border-border/70">
-          <CardTitle className="text-base">Trigger</CardTitle>
-          <CardDescription>
-            Pick whether this job runs on a schedule or from a Thing event.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Tabs
-            value={form.triggerKind}
-            onValueChange={(value) =>
-              setField('triggerKind', value as 'time' | 'event')
-            }
-            className="space-y-4"
-          >
-            <TabsList className="grid w-full grid-cols-2 sm:w-fit">
-              <TabsTrigger value="time">Time</TabsTrigger>
-              <TabsTrigger value="event">Event</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="time" className="mt-0">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Schedule</label>
-                  <Select
-                    value={form.scheduleKind}
-                    onValueChange={(value: 'once' | 'interval' | 'cron') =>
-                      setField('scheduleKind', value)
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="interval">Interval</SelectItem>
-                      <SelectItem value="cron">Cron</SelectItem>
-                      <SelectItem value="once">Once</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {form.scheduleKind === 'interval' ? (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">
-                      Interval seconds
-                    </label>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={form.intervalSeconds}
-                      onChange={(event) =>
-                        setField('intervalSeconds', event.target.value)
-                      }
-                      placeholder="300"
-                    />
-                  </div>
-                ) : null}
-                {form.scheduleKind === 'once' ? (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Run once at</label>
-                    <Input
-                      type="datetime-local"
-                      value={form.runAt}
-                      onChange={(event) =>
-                        setField('runAt', event.target.value)
-                      }
-                    />
-                  </div>
-                ) : null}
-                {form.scheduleKind === 'cron' ? (
-                  <>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">
-                        Cron expression
-                      </label>
-                      <Input
-                        value={form.cronExpression}
-                        onChange={(event) =>
-                          setField('cronExpression', event.target.value)
-                        }
-                        placeholder="0 9 * * sun"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">
-                        Cron timezone
-                      </label>
-                      <Input
-                        value={form.cronTimezone}
-                        onChange={(event) =>
-                          setField('cronTimezone', event.target.value)
-                        }
-                        placeholder="Europe/Berlin"
-                      />
-                    </div>
-                  </>
-                ) : null}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="event" className="mt-0">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Thing ID</label>
-                  <Input
-                    value={form.thingId}
-                    onChange={(event) =>
-                      setField('thingId', event.target.value)
-                    }
-                    placeholder="urn:dev:ops:thermostat-1"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Event name</label>
-                  <Input
-                    value={form.eventName}
-                    onChange={(event) =>
-                      setField('eventName', event.target.value)
-                    }
-                    placeholder="overheat"
-                  />
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <label className="text-sm font-medium">
-                    Subscription input JSON
-                  </label>
-                  <Textarea
-                    rows={5}
-                    value={form.subscriptionInput}
-                    onChange={(event) =>
-                      setField('subscriptionInput', event.target.value)
-                    }
-                    placeholder='{"threshold": 30}'
-                    aria-invalid={Boolean(subscriptionError)}
-                  />
-                  {subscriptionError ? (
-                    <p className="text-sm text-destructive">
-                      {subscriptionError}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
       {validationError ? (
         <p className="text-sm text-destructive">{validationError}</p>
       ) : null}

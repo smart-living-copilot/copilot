@@ -1,29 +1,17 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Check,
   Clock3,
   HouseWifi,
   LayoutDashboard,
   MessageSquarePlus,
-  MoreHorizontal,
-  Pencil,
   Settings,
-  Trash2,
-  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { ChatHistoryList } from '@/components/chat-sidebar/chat-history-list';
 import {
   Sidebar,
   SidebarContent,
@@ -33,13 +21,8 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSkeleton,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarSeparator,
   useSidebar,
 } from '@/components/ui/sidebar';
@@ -54,84 +37,7 @@ import {
 } from '@/lib/chat-list-cache';
 import { Spinner } from '@/components/ui/spinner';
 
-const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
-  numeric: 'auto',
-});
-
-const shortDateFormatter = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
-  day: 'numeric',
-});
-
-function formatUpdatedAt(updatedAt: string): string {
-  const date = new Date(updatedAt);
-  if (Number.isNaN(date.getTime())) {
-    return 'Recently updated';
-  }
-
-  const diffMs = date.getTime() - Date.now();
-  const absDiffMs = Math.abs(diffMs);
-
-  if (absDiffMs < 60_000) {
-    return 'Updated just now';
-  }
-
-  if (absDiffMs < 3_600_000) {
-    return `Updated ${relativeTimeFormatter.format(
-      Math.round(diffMs / 60_000),
-      'minute',
-    )}`;
-  }
-
-  if (absDiffMs < 86_400_000) {
-    return `Updated ${relativeTimeFormatter.format(
-      Math.round(diffMs / 3_600_000),
-      'hour',
-    )}`;
-  }
-
-  if (absDiffMs < 604_800_000) {
-    return `Updated ${relativeTimeFormatter.format(
-      Math.round(diffMs / 86_400_000),
-      'day',
-    )}`;
-  }
-
-  return `Updated ${shortDateFormatter.format(date)}`;
-}
-
 type Chat = ChatSummary;
-
-function getHistoryGroupLabel(updatedAt: string): string {
-  const date = new Date(updatedAt);
-  if (Number.isNaN(date.getTime())) {
-    return 'Earlier';
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const updatedDay = new Date(date);
-  updatedDay.setHours(0, 0, 0, 0);
-
-  const diffDays = Math.floor(
-    (today.getTime() - updatedDay.getTime()) / 86_400_000,
-  );
-
-  if (diffDays <= 0) {
-    return 'Today';
-  }
-
-  if (diffDays === 1) {
-    return 'Yesterday';
-  }
-
-  if (diffDays < 7) {
-    return 'This week';
-  }
-
-  return 'Earlier';
-}
 
 interface AppSidebarProps {
   activeChatId?: string;
@@ -163,19 +69,6 @@ export function AppSidebar({
   const [editingTitle, setEditingTitle] = useState('');
   const [savingChatId, setSavingChatId] = useState<string | null>(null);
   const { isMobile, setOpenMobile } = useSidebar();
-
-  const groupedChats: Array<{ label: string; chats: Chat[] }> = [];
-
-  for (const chat of chatList) {
-    const label = getHistoryGroupLabel(chat.updatedAt);
-    const existingGroup = groupedChats.find((group) => group.label === label);
-
-    if (existingGroup) {
-      existingGroup.chats.push(chat);
-    } else {
-      groupedChats.push({ label, chats: [chat] });
-    }
-  }
 
   const fetchChats = useCallback(async (options: { force?: boolean } = {}) => {
     if (options.force || getCachedChatList() === null) {
@@ -424,156 +317,23 @@ export function AppSidebar({
         </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel>History</SidebarGroupLabel>
-          <SidebarMenuSub>
-            {isLoading ? (
-              Array.from({ length: 4 }).map((_, i) => (
-                <SidebarMenuSubItem key={i}>
-                  <SidebarMenuSkeleton />
-                </SidebarMenuSubItem>
-              ))
-            ) : chatList.length === 0 ? (
-              <SidebarMenuSubItem>
-                <SidebarMenuSubButton
-                  className="h-auto items-start py-2"
-                  onClick={() => void handleNewChat()}
-                >
-                  <div className="grid min-w-0 gap-0.5">
-                    <span className="truncate font-medium">
-                      Start your first chat
-                    </span>
-                    <span className="truncate text-[11px] text-muted-foreground">
-                      Threads you open here will stay easy to pick up later.
-                    </span>
-                  </div>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            ) : (
-              <>
-                {groupedChats.map((group, index) => (
-                  <Fragment key={group.label}>
-                    <SidebarMenuSubItem
-                      className={index === 0 ? 'px-2 pb-1' : 'px-2 pt-2 pb-1'}
-                    >
-                      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                        {group.label}
-                      </div>
-                    </SidebarMenuSubItem>
-                    {group.chats.map((chat) => (
-                      <SidebarMenuSubItem key={chat.id}>
-                        {editingChatId === chat.id ? (
-                          <form
-                            className="grid gap-2 rounded-md border border-sidebar-border bg-sidebar-accent/40 p-2"
-                            onSubmit={(event) => {
-                              event.preventDefault();
-                              void handleRename(chat.id);
-                            }}
-                          >
-                            <Input
-                              autoFocus
-                              disabled={savingChatId === chat.id}
-                              maxLength={50}
-                              onChange={(event) =>
-                                setEditingTitle(event.target.value)
-                              }
-                              onKeyDown={(event) => {
-                                if (event.key === 'Escape') {
-                                  event.preventDefault();
-                                  handleCancelRename();
-                                }
-                              }}
-                              placeholder="Chat title"
-                              value={editingTitle}
-                            />
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                disabled={savingChatId === chat.id}
-                                onClick={handleCancelRename}
-                                size="icon-xs"
-                                type="button"
-                                variant="ghost"
-                              >
-                                <X />
-                                <span className="sr-only">Cancel rename</span>
-                              </Button>
-                              <Button
-                                disabled={
-                                  savingChatId === chat.id ||
-                                  !editingTitle.trim()
-                                }
-                                size="icon-xs"
-                                type="submit"
-                                variant="outline"
-                              >
-                                {savingChatId === chat.id ? (
-                                  <Spinner />
-                                ) : (
-                                  <Check />
-                                )}
-                                <span className="sr-only">Save chat name</span>
-                              </Button>
-                            </div>
-                          </form>
-                        ) : (
-                          <>
-                            <SidebarMenuSubButton
-                              className="h-auto items-start py-2 pr-7"
-                              isActive={isOnChat && chat.id === activeChatId}
-                              onClick={() => handleSelectChat(chat.id)}
-                            >
-                              <div className="grid min-w-0 flex-1 gap-0.5">
-                                <span className="truncate font-medium">
-                                  {chat.title || 'New Chat'}
-                                </span>
-                                <span className="truncate text-[11px] text-muted-foreground">
-                                  {formatUpdatedAt(chat.updatedAt)}
-                                </span>
-                              </div>
-                            </SidebarMenuSubButton>
-
-                            {deletingChatId === chat.id ? (
-                              <SidebarMenuAction disabled>
-                                <Spinner className="size-3.5" />
-                                <span className="sr-only">Deleting chat</span>
-                              </SidebarMenuAction>
-                            ) : (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <SidebarMenuAction showOnHover>
-                                    <MoreHorizontal />
-                                    <span className="sr-only">More</span>
-                                  </SidebarMenuAction>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent side="right" align="start">
-                                  <DropdownMenuItem
-                                    onSelect={(event) => {
-                                      event.preventDefault();
-                                      handleStartRename(chat);
-                                    }}
-                                  >
-                                    <Pencil />
-                                    <span>Rename chat</span>
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onSelect={(event) => {
-                                      event.preventDefault();
-                                      void handleDelete(chat.id);
-                                    }}
-                                  >
-                                    <Trash2 />
-                                    <span>Delete chat</span>
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            )}
-                          </>
-                        )}
-                      </SidebarMenuSubItem>
-                    ))}
-                  </Fragment>
-                ))}
-              </>
-            )}
-          </SidebarMenuSub>
+          <ChatHistoryList
+            activeChatId={activeChatId}
+            chatList={chatList}
+            deletingChatId={deletingChatId}
+            editingChatId={editingChatId}
+            editingTitle={editingTitle}
+            isLoading={isLoading}
+            isOnChat={isOnChat}
+            savingChatId={savingChatId}
+            onCancelRename={handleCancelRename}
+            onDelete={(chatId) => void handleDelete(chatId)}
+            onEditingTitleChange={setEditingTitle}
+            onFirstChat={() => void handleNewChat()}
+            onRename={(chatId) => void handleRename(chatId)}
+            onSelectChat={handleSelectChat}
+            onStartRename={handleStartRename}
+          />
         </SidebarGroup>
 
         <SidebarSeparator />

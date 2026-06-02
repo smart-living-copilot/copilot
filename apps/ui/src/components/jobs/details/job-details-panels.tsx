@@ -3,6 +3,7 @@ import { Send } from 'lucide-react';
 
 import { RunCodeArtifactCard } from '@/components/copilot/chat-tool-call-cards';
 import { type RunCodeResult } from '@/components/copilot/chat-tool-call-model';
+import { PulseDot } from '@/components/jobs/details/pulse-dot';
 import {
   ReadAloudButton,
   VoiceAnswerButton,
@@ -184,20 +185,23 @@ export function JobReplyPanel({
   const canSubmit = value.trim().length > 0 && !isSubmitting;
 
   return (
-    <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
-      <CardHeader className="border-b border-border/70">
+    <Card className="rounded-md border-primary/40 bg-primary/5 shadow-sm shadow-black/5">
+      <CardHeader className="border-b border-primary/20">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
-            <CardTitle className="text-base">Waiting for input</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <PulseDot />
+              Waiting for your answer
+            </CardTitle>
             <CardDescription>
-              Reply to the pending job question.
+              Reply to the pending question to continue the run.
             </CardDescription>
           </div>
-          <Badge variant="secondary">Needs input</Badge>
+          <Badge>Needs input</Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="rounded-md border bg-muted/20 p-4">
+        <div className="rounded-md border border-primary/20 bg-background p-4">
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs font-medium text-muted-foreground">
               Question
