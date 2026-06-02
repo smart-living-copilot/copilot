@@ -8,8 +8,11 @@ import pytest
 import redis
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from copilot.core.settings import Settings
+from copilot.jobs.executor import JobExecutor
+from copilot.jobs.graph_results import job_result_from_graph_result
 from copilot.jobs.models import (
     CreateJobRequest,
     JobInteractionMode,
@@ -79,6 +82,14 @@ class _RecordingRuntimeClient:
 
     async def remove_subscription(self, *, subscription_id: str) -> None:
         self.removed.append(subscription_id)
+
+
+class _NoopJobRunPublisher:
+    def __init__(self) -> None:
+        self.published = []
+
+    async def publish_job_run(self, job_id: str, *, run_id: str | None = None) -> None:
+        self.published.append((job_id, run_id))
 
 
 def test_jobs_api_persists_time_job_and_syncs_redis_schedule(
@@ -550,3 +561,210 @@ def test_structured_record_reply_replay_writes_one_reply_event_and_record(
     ]
     assert events[2].payload["client_reply_id"] == "reply-evening-1"
     assert events[3].payload["data"]["mood"] == "good"
+
+
+def test_structured_record_bad_answer_waits_for_repair_then_completes(
+    jobs_integration_environment,
+) -> None:
+    repo = JobStore()
+    records = VirtualRecordStore()
+    now = utc_now() - timedelta(minutes=10)
+    thing_id = make_virtual_record_thing_id("repair wellbeing")
+    schema = {
+        "type": "object",
+        "required": ["mood", "energy"],
+        "properties": {
+            "mood": {"type": "string", "enum": ["good", "stressed"]},
+            "energy": {"type": "integer", "minimum": 1, "maximum": 5},
+            "note": {"type": "string"},
+        },
+        "additionalProperties": False,
+    }
+    job = _run(
+        repo.create_job(
+            CreateJobRequest(
+                name="repair wellbeing",
+                created_from_thread_id="thread-repair",
+                prompt="Ask for a short wellbeing check-in and store it.",
+                interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+                output_kind=JobOutputKind.STRUCTURED_RECORD,
+                record_schema=schema,
+                record_schema_version=1,
+                virtual_thing_id=thing_id,
+                trigger_kind=JobTriggerKind.TIME,
+                schedule_kind=TimeTriggerKind.INTERVAL,
+                interval_seconds=86400,
+            ),
+            next_run_at=now,
+            subscription_id=None,
+        )
+    )
+    records.create_or_update_thing(
+        thing_id=thing_id,
+        source_job_id=job.id,
+        schema_version=1,
+        record_schema=schema,
+        title="Repair Wellbeing",
+        description="Structured records collected during the repair-loop test.",
+    )
+    run = _run(
+        repo.try_start_job_run(
+            job_id=job.id,
+            source=JobRunSource.MANUAL,
+            trigger_payload={"source": "manual"},
+            now=now,
+        )
+    )
+    assert run is not None
+    _run(
+        repo.finish_job_run(
+            run_id=run.id,
+            job_id=job.id,
+            now=now + timedelta(seconds=1),
+            status=JobRunStatus.WAITING_FOR_INPUT,
+            error=None,
+            response_text="How was your wellbeing today?",
+            result={"ok": True, "status": "waiting_for_input"},
+            waiting_question="How was your wellbeing today?",
+        )
+    )
+
+    class _RepairLoopAgentRunner:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def run(self, job, *, run, trigger):
+            self.calls.append((job, run, trigger))
+            if len(self.calls) == 1:
+                graph_result = {
+                    "messages": [
+                        HumanMessage(content=str(trigger["message"])),
+                        ToolMessage(
+                            content=json.dumps(
+                                {
+                                    "ok": False,
+                                    "repairable": True,
+                                    "error": (
+                                        "record data failed schema validation at energy: "
+                                        "'high' is not of type 'integer'"
+                                    ),
+                                }
+                            ),
+                            name="submit_job_record",
+                            tool_call_id="call-bad",
+                        ),
+                        AIMessage(content="I could not store the record."),
+                    ]
+                }
+                return job_result_from_graph_result(
+                    graph_result,
+                    job=job,
+                    message=str(trigger["message"]),
+                    trigger=trigger,
+                )
+
+            submitted = records.submit_record(
+                thing_id=thing_id,
+                source_job_id=job.id,
+                source_run_id=run.id,
+                data={"mood": "good", "energy": 4, "note": "slept well"},
+                raw_input=str(trigger["message"]),
+                confidence=0.91,
+            )
+            graph_result = {
+                "messages": [
+                    HumanMessage(content=str(trigger["message"])),
+                    ToolMessage(
+                        content=json.dumps(
+                            {
+                                "ok": True,
+                                "record": submitted,
+                            }
+                        ),
+                        name="submit_job_record",
+                        tool_call_id="call-good",
+                    ),
+                    AIMessage(content="Recorded the corrected wellbeing check-in."),
+                ]
+            }
+            return job_result_from_graph_result(
+                graph_result,
+                job=job,
+                message=str(trigger["message"]),
+                trigger=trigger,
+            )
+
+        async def close(self) -> None:
+            return None
+
+    publisher = _NoopJobRunPublisher()
+    executor = JobExecutor(
+        Settings(redis_url=jobs_integration_environment.redis_url),
+        repo=repo,
+        agent_runner=_RepairLoopAgentRunner(),
+        event_publisher=publisher,
+    )
+
+    bad_reply = _run(
+        executor.run_job(
+            job.id,
+            {
+                "source": "user_reply",
+                "message": "Mood good and energy high.",
+                "client_reply_id": "repair-reply-1",
+                "previous_run_id": run.id,
+            },
+        )
+    )
+
+    after_bad_job = _run(repo.get_job(job.id))
+    after_bad_run = _run(repo.get_job_run(run.id))
+    assert bad_reply["status"] == JobRunStatus.WAITING_FOR_INPUT.value
+    assert "energy" in bad_reply["waiting_question"]
+    assert after_bad_job.active_run_id == run.id
+    assert after_bad_job.last_run_status == JobRunStatus.WAITING_FOR_INPUT
+    assert after_bad_job.waiting_question == bad_reply["waiting_question"]
+    assert after_bad_run.status == JobRunStatus.WAITING_FOR_INPUT
+    assert records.read_property(thing_id, "record_count") == 0
+
+    good_reply = _run(
+        executor.run_job(
+            job.id,
+            {
+                "source": "user_reply",
+                "message": "Mood good, energy 4, note slept well.",
+                "client_reply_id": "repair-reply-2",
+                "previous_run_id": run.id,
+            },
+        )
+    )
+
+    completed_job = _run(repo.get_job(job.id))
+    completed_run = _run(repo.get_job_run(run.id))
+    events = _run(repo.list_job_run_events(job.id))
+
+    assert good_reply["ok"] is True
+    assert good_reply["submitted_record"]["data"]["energy"] == 4
+    assert completed_job.active_run_id is None
+    assert completed_job.last_run_status == JobRunStatus.SUCCEEDED
+    assert completed_job.waiting_question is None
+    assert completed_job.run_count == 1
+    assert completed_run.status == JobRunStatus.SUCCEEDED
+    assert records.read_property(thing_id, "record_count") == 1
+    assert records.read_property(thing_id, "latest_energy") == 4
+    assert publisher.published == [(job.id, run.id), (job.id, run.id)]
+
+    event_types = [event.event_type for event in events]
+    assert event_types == [
+        JobRunEventType.RUN_STARTED,
+        JobRunEventType.WAITING_FOR_INPUT,
+        JobRunEventType.USER_REPLY,
+        JobRunEventType.WAITING_FOR_INPUT,
+        JobRunEventType.USER_REPLY,
+        JobRunEventType.RECORD_SUBMITTED,
+        JobRunEventType.ASSISTANT_MESSAGE,
+        JobRunEventType.RUN_SUCCEEDED,
+    ]
+    assert "energy" in events[3].message
+    assert events[4].message == "Mood good, energy 4, note slept well."
+    assert events[5].payload["data"]["energy"] == 4
