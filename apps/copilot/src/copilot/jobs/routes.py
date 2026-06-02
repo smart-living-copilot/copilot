@@ -298,12 +298,17 @@ def _message_role_from_event(event_type: JobRunEventType) -> str:
 
 
 def _message_content_from_event(event: JobRunEvent) -> str:
+    if event.event_type == JobRunEventType.RECORD_SUBMITTED:
+        summary = _record_submission_summary(event.payload)
+        if summary:
+            return f"Structured record submitted: {summary}"
+        if event.message:
+            return event.message
+        return "Structured record submitted."
     if event.message:
         return event.message
     if event.event_type == JobRunEventType.RUN_STARTED:
         return "Run started."
-    if event.event_type == JobRunEventType.RECORD_SUBMITTED:
-        return "Structured record submitted."
     if event.event_type == JobRunEventType.RUN_SUCCEEDED:
         return "Run succeeded."
     if event.event_type == JobRunEventType.RUN_FAILED:
@@ -313,3 +318,27 @@ def _message_content_from_event(event: JobRunEvent) -> str:
     if event.event_type == JobRunEventType.RUN_SKIPPED:
         return "Run skipped."
     return ""
+
+
+def _record_submission_summary(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return ""
+
+    parts: list[str] = []
+    for key, value in data.items():
+        if len(parts) >= 5:
+            parts.append("...")
+            break
+        value_text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=True)
+        parts.append(f"{key}={_truncate_text(str(value_text), max_length=80)}")
+
+    return _truncate_text(", ".join(parts), max_length=320)
+
+
+def _truncate_text(value: str, *, max_length: int) -> str:
+    if len(value) <= max_length:
+        return value
+    return f"{value[: max_length - 3]}..."

@@ -507,13 +507,29 @@ class JobRunEventMessageTestCase(unittest.TestCase):
                     message="Which temperature?",
                     created_at=created_at,
                 ),
+                JobRunEvent(
+                    id=4,
+                    job_id="job-1",
+                    run_id="run-1",
+                    event_type=JobRunEventType.RECORD_SUBMITTED,
+                    message="Structured record submitted.",
+                    payload={"data": {"mood": "good", "energy": 4}},
+                    created_at=created_at,
+                ),
             ]
         )
 
-        self.assertEqual([message["role"] for message in messages], ["system", "user", "assistant"])
+        self.assertEqual(
+            [message["role"] for message in messages],
+            ["system", "user", "assistant", "system"],
+        )
         self.assertEqual(messages[0]["content"], "Run started.")
         self.assertEqual(messages[1]["content"], "21 C")
         self.assertEqual(messages[2]["jobEventType"], "waiting_for_input")
+        self.assertEqual(
+            messages[3]["content"],
+            "Structured record submitted: mood=good, energy=4",
+        )
 
 
 class _FakeRepo:
