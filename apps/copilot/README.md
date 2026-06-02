@@ -144,11 +144,11 @@ Local tools are grouped separately:
 - [`create_prompt_job`, `create_analysis_job`, `list_jobs`, `run_job_now`, `delete_job`](./src/copilot/agent/tools/job_scheduler.py)
 - registry/runtime tools live in [`copilot/agent/tools/wot_registry.py`](./src/copilot/agent/tools/wot_registry.py)
 
-## Prompts And Few-Shots
+## Prompts
 
 - Branch prompts live in [`copilot/agent/prompts`](./src/copilot/agent/prompts).
-- Analysis examples live in [`copilot/few_shots/analysis.py`](./src/copilot/few_shots/analysis.py).
-- Control examples live in [`copilot/few_shots/control.py`](./src/copilot/few_shots/control.py).
+- Analysis, control, response, router, and jobs guidance are kept in the branch
+  prompt modules.
 - Registry/runtime tools are grouped explicitly in [`copilot/agent/tool_groups.py`](./src/copilot/agent/tool_groups.py).
 
 Current behavior worth knowing:

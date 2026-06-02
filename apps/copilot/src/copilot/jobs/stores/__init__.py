@@ -11,6 +11,11 @@ from copilot.jobs.stores.definitions import JobDefinitionStore
 from copilot.jobs.stores.events import JobRunEventStore
 from copilot.jobs.stores.runs import JobRunStore
 
+
+class JobStore(JobDefinitionStore, JobRunStore, JobRunEventStore):
+    """Aggregate store for job definitions, runs, and run events."""
+
+
 __all__ = [
     "_json_safe",
     "iso",
@@ -21,5 +26,6 @@ __all__ = [
     "JobRunEventStore",
     "JobRunNotCancellable",
     "JobRunStore",
+    "JobStore",
     "utc_now",
 ]

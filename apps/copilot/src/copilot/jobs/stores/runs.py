@@ -40,10 +40,7 @@ class JobRunStore(_JobStoreBase):
     def _cancel_active_run_sync(self, job_id: str) -> Job:
         now = utc_now()
         with self._session_factory() as session:
-            statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
-            row = session.scalars(statement).one_or_none()
-            if row is None:
-                raise KeyError(job_id)
+            row = _locked_job_row(session, job_id)
             if row.active_run_id is None or row.last_run_status not in (
                 JobRunStatus.RUNNING.value,
                 JobRunStatus.WAITING_FOR_INPUT.value,
@@ -99,10 +96,7 @@ class JobRunStore(_JobStoreBase):
         now: datetime,
     ) -> JobRun | None:
         with self._session_factory() as session:
-            statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
-            row = session.scalars(statement).one_or_none()
-            if row is None:
-                raise KeyError(job_id)
+            row = _locked_job_row(session, job_id)
 
             if source != JobRunSource.MANUAL and not row.enabled:
                 run = _create_skipped_run(
@@ -195,16 +189,9 @@ class JobRunStore(_JobStoreBase):
     ) -> JobRun:
         client_reply_id = _normalize_client_reply_id(client_reply_id)
         with self._session_factory() as session:
-            statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
-            row = session.scalars(statement).one_or_none()
-            if row is None:
-                raise KeyError(job_id)
-            run_id = row.active_run_id or row.last_run_id
-            if not run_id:
-                raise KeyError(job_id)
-            run_row = session.get(JobRunRecord, run_id)
-            if run_row is None:
-                raise KeyError(run_id)
+            row = _locked_job_row(session, job_id)
+            run_id = _active_or_last_run_id(row, missing_key=job_id)
+            run_row = _required_run_row(session, run_id)
 
             if client_reply_id and _reply_payload_has_client_reply_id(
                 run_row.trigger_payload,
@@ -215,31 +202,13 @@ class JobRunStore(_JobStoreBase):
             if row.last_run_status != JobRunStatus.WAITING_FOR_INPUT.value:
                 raise JobNotWaitingForInput(job_id)
 
-            trigger_payload = _json_safe(
-                {
-                    **(
-                        run_row.trigger_payload if isinstance(run_row.trigger_payload, dict) else {}
-                    ),
-                    "latest_reply": message,
-                    "latest_reply_at": iso(now),
-                    "replies": [
-                        *(
-                            run_row.trigger_payload.get("replies", [])
-                            if run_row is not None
-                            and isinstance(run_row.trigger_payload, dict)
-                            and isinstance(run_row.trigger_payload.get("replies"), list)
-                            else []
-                        ),
-                        {
-                            "message": message,
-                            "client_reply_id": client_reply_id,
-                            "received_at": iso(now),
-                            "previous_run_id": previous_run_id
-                            or row.active_run_id
-                            or row.last_run_id,
-                        },
-                    ],
-                }
+            previous_run_id = previous_run_id or row.active_run_id or row.last_run_id
+            trigger_payload = _reply_trigger_payload(
+                run_row,
+                message=message,
+                client_reply_id=client_reply_id,
+                previous_run_id=previous_run_id,
+                now=now,
             )
 
             run_row.status = JobRunStatus.RUNNING.value
@@ -254,7 +223,7 @@ class JobRunStore(_JobStoreBase):
                 message=message,
                 payload={
                     "client_reply_id": client_reply_id,
-                    "previous_run_id": previous_run_id or row.active_run_id or row.last_run_id,
+                    "previous_run_id": previous_run_id,
                 },
             )
 
@@ -278,13 +247,8 @@ class JobRunStore(_JobStoreBase):
             row = session.get(JobRecord, job_id)
             if row is None:
                 raise KeyError(job_id)
-            run_id = row.active_run_id or row.last_run_id
-            if not run_id:
-                raise KeyError(job_id)
-            run = session.get(JobRunRecord, run_id)
-            if run is None:
-                raise KeyError(run_id)
-            return _to_job_run(run)
+            run_id = _active_or_last_run_id(row, missing_key=job_id)
+            return _to_job_run(_required_run_row(session, run_id))
 
     async def get_job_by_active_run_thread_id(self, job_thread_id: str) -> Job:
         return await asyncio.to_thread(self._get_job_by_active_run_thread_id_sync, job_thread_id)
@@ -412,52 +376,33 @@ class JobRunStore(_JobStoreBase):
         waiting_question: str | None,
     ) -> None:
         with self._session_factory() as session:
-            run_statement = select(JobRunRecord).where(JobRunRecord.id == run_id).with_for_update()
-            run_row = session.scalars(run_statement).one_or_none()
-            if run_row is not None:
-                run_row.status = status.value
-                run_row.error = error
-                run_row.response_text = response_text
-                run_row.result = _json_safe(result) if result is not None else None
-                run_row.finished_at = None if status == JobRunStatus.WAITING_FOR_INPUT else now
-                _add_finish_events(
-                    session,
-                    job_id=job_id,
-                    run_id=run_id,
-                    now=now,
-                    status=status,
-                    error=error,
-                    response_text=response_text,
-                    result=result,
-                    waiting_question=waiting_question,
-                )
-
-            job_statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
-            job_row = session.scalars(job_statement).one_or_none()
+            run_row = _finish_run_row(
+                session,
+                run_id=run_id,
+                job_id=job_id,
+                now=now,
+                status=status,
+                error=error,
+                response_text=response_text,
+                result=result,
+                waiting_question=waiting_question,
+            )
+            job_row = _locked_job_row_or_none(session, job_id)
             if job_row is None:
                 session.commit()
                 return
 
-            job_row.last_run_id = run_id
-            job_row.last_run_at = now
-            job_row.last_run_status = status.value
-            job_row.last_error = error if status == JobRunStatus.FAILED else None
-            job_row.last_response = response_text if status != JobRunStatus.FAILED else None
-            job_row.updated_at = now
-            if next_run_at is not None:
-                job_row.next_run_at = next_run_at
-            if status == JobRunStatus.WAITING_FOR_INPUT:
-                job_row.active_run_id = run_id
-                job_row.active_run_started_at = run_row.started_at if run_row is not None else now
-                job_row.active_run_source = run_row.source if run_row is not None else None
-                job_row.waiting_question = waiting_question or response_text
-            else:
-                job_row.run_count = (job_row.run_count or 0) + 1
-                if job_row.active_run_id == run_id:
-                    job_row.active_run_id = None
-                    job_row.active_run_started_at = None
-                    job_row.active_run_source = None
-                job_row.waiting_question = None
+            _apply_finished_run_to_job(
+                job_row,
+                run_row=run_row,
+                run_id=run_id,
+                now=now,
+                status=status,
+                error=error,
+                response_text=response_text,
+                next_run_at=next_run_at,
+                waiting_question=waiting_question,
+            )
             session.commit()
 
     async def mark_stale_running_runs_failed(
@@ -577,3 +522,133 @@ def _create_skipped_run(
         job_row.last_error = error
         job_row.last_response = response_text
     return run
+
+
+def _locked_job_row(session: Session, job_id: str) -> JobRecord:
+    statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
+    row = session.scalars(statement).one_or_none()
+    if row is None:
+        raise KeyError(job_id)
+    return row
+
+
+def _locked_job_row_or_none(session: Session, job_id: str) -> JobRecord | None:
+    statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
+    return session.scalars(statement).one_or_none()
+
+
+def _active_or_last_run_id(row: JobRecord, *, missing_key: str) -> str:
+    run_id = row.active_run_id or row.last_run_id
+    if not run_id:
+        raise KeyError(missing_key)
+    return run_id
+
+
+def _required_run_row(session: Session, run_id: str) -> JobRunRecord:
+    run_row = session.get(JobRunRecord, run_id)
+    if run_row is None:
+        raise KeyError(run_id)
+    return run_row
+
+
+def _reply_trigger_payload(
+    run_row: JobRunRecord,
+    *,
+    message: str,
+    client_reply_id: str | None,
+    previous_run_id: str | None,
+    now: datetime,
+) -> dict:
+    current_payload = run_row.trigger_payload if isinstance(run_row.trigger_payload, dict) else {}
+    replies = current_payload.get("replies")
+    if not isinstance(replies, list):
+        replies = []
+
+    return _json_safe(
+        {
+            **current_payload,
+            "latest_reply": message,
+            "latest_reply_at": iso(now),
+            "replies": [
+                *replies,
+                {
+                    "message": message,
+                    "client_reply_id": client_reply_id,
+                    "received_at": iso(now),
+                    "previous_run_id": previous_run_id,
+                },
+            ],
+        }
+    )
+
+
+def _finish_run_row(
+    session: Session,
+    *,
+    run_id: str,
+    job_id: str,
+    now: datetime,
+    status: JobRunStatus,
+    error: str | None,
+    response_text: str | None,
+    result: dict | None,
+    waiting_question: str | None,
+) -> JobRunRecord | None:
+    run_statement = select(JobRunRecord).where(JobRunRecord.id == run_id).with_for_update()
+    run_row = session.scalars(run_statement).one_or_none()
+    if run_row is None:
+        return None
+
+    run_row.status = status.value
+    run_row.error = error
+    run_row.response_text = response_text
+    run_row.result = _json_safe(result) if result is not None else None
+    run_row.finished_at = None if status == JobRunStatus.WAITING_FOR_INPUT else now
+    _add_finish_events(
+        session,
+        job_id=job_id,
+        run_id=run_id,
+        now=now,
+        status=status,
+        error=error,
+        response_text=response_text,
+        result=result,
+        waiting_question=waiting_question,
+    )
+    return run_row
+
+
+def _apply_finished_run_to_job(
+    job_row: JobRecord,
+    *,
+    run_row: JobRunRecord | None,
+    run_id: str,
+    now: datetime,
+    status: JobRunStatus,
+    error: str | None,
+    response_text: str | None,
+    next_run_at: datetime | None,
+    waiting_question: str | None,
+) -> None:
+    job_row.last_run_id = run_id
+    job_row.last_run_at = now
+    job_row.last_run_status = status.value
+    job_row.last_error = error if status == JobRunStatus.FAILED else None
+    job_row.last_response = response_text if status != JobRunStatus.FAILED else None
+    job_row.updated_at = now
+    if next_run_at is not None:
+        job_row.next_run_at = next_run_at
+
+    if status == JobRunStatus.WAITING_FOR_INPUT:
+        job_row.active_run_id = run_id
+        job_row.active_run_started_at = run_row.started_at if run_row is not None else now
+        job_row.active_run_source = run_row.source if run_row is not None else None
+        job_row.waiting_question = waiting_question or response_text
+        return
+
+    job_row.run_count = (job_row.run_count or 0) + 1
+    if job_row.active_run_id == run_id:
+        job_row.active_run_id = None
+        job_row.active_run_started_at = None
+        job_row.active_run_source = None
+    job_row.waiting_question = None

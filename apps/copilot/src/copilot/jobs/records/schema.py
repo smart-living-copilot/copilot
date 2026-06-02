@@ -5,7 +5,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
-from copilot.jobs.store import _json_safe
+from copilot.jobs.stores import _json_safe
 
 
 def validate_record_schema(schema: Any) -> dict[str, Any]:

@@ -23,7 +23,7 @@ from copilot.jobs.models import (
     TimeTriggerKind,
 )
 from copilot.jobs.records import VirtualRecordStore, make_virtual_record_thing_id
-from copilot.jobs.store import (
+from copilot.jobs.stores import (
     JobRunNotCancellable,
     JobStore,
     job_run_thread_id_for_run,

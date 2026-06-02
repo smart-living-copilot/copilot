@@ -9,7 +9,7 @@ from typing import Any
 import redis.asyncio as redis
 
 from copilot.core.settings import Settings
-from copilot.jobs.store import JobStore
+from copilot.jobs.stores import JobStore
 
 logger = logging.getLogger(__name__)
 

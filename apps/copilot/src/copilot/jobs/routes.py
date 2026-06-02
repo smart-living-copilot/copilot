@@ -19,7 +19,7 @@ from copilot.jobs.schemas import (
 )
 from copilot.jobs.record_summary import submitted_record_event_message
 from copilot.jobs.records import VirtualRecordStore, virtual_record_http_error
-from copilot.jobs.store import JobNotWaitingForInput, JobRunNotCancellable
+from copilot.jobs.stores import JobNotWaitingForInput, JobRunNotCancellable
 from copilot.threads.messages import checkpoint_thread_messages
 from copilot.threads.store import get_thread
 

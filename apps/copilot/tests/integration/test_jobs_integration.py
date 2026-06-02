@@ -30,7 +30,7 @@ from copilot.jobs.results import JobRunEventPublisher
 from copilot.jobs.routes import router as jobs_router
 from copilot.jobs.schedule import build_schedule_source, schedule_id_for_job
 from copilot.jobs.service import JobService
-from copilot.jobs.store import JobStore, utc_now
+from copilot.jobs.stores import JobStore, utc_now
 from copilot.threads.store import get_thread, list_threads
 
 pytestmark = pytest.mark.integration

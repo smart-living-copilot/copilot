@@ -27,7 +27,7 @@ from copilot.jobs.records import (
 )
 from copilot.jobs.resources import JobResourceManager
 from copilot.jobs.schedule import JobScheduleManager, build_schedule_source
-from copilot.jobs.store import JobNotWaitingForInput, JobStore, utc_now
+from copilot.jobs.stores import JobNotWaitingForInput, JobStore, utc_now
 from copilot.clients.wot_runtime import WotRuntimeClient
 from copilot.jobs.taskiq_app import broker, run_job_task
 

@@ -39,7 +39,7 @@ from copilot.jobs.graph_results import (
     job_run_status_from_result,
 )
 from copilot.jobs.results import JobRunEventPublisher
-from copilot.jobs.store import JobStore, utc_now
+from copilot.jobs.stores import JobStore, utc_now
 from copilot.search import ThingSearchService, set_active_search_service
 
 logger = logging.getLogger(__name__)

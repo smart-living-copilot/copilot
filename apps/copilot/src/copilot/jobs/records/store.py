@@ -18,7 +18,7 @@ from copilot.jobs.records.schema import (
     validate_record_schema,
 )
 from copilot.jobs.records.td import build_virtual_record_td
-from copilot.jobs.store import _json_safe, iso, utc_now
+from copilot.jobs.stores import _json_safe, iso, utc_now
 
 
 class VirtualRecordStore:

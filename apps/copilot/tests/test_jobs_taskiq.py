@@ -47,7 +47,7 @@ from copilot.jobs.schedule import (
 )
 from copilot.jobs.record_summary import submitted_record_event_message
 from copilot.jobs.service import JobService
-from copilot.jobs.store import JobNotWaitingForInput
+from copilot.jobs.stores import JobNotWaitingForInput
 from copilot.agent.tools.submit_job_record import submit_job_record
 
 

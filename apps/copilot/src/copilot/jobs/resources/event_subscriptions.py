@@ -6,7 +6,7 @@ from copilot.clients.wot_runtime import WotRuntimeClient
 from copilot.jobs.resources.constants import RESOURCE_EVENT_SUBSCRIPTION
 from copilot.jobs.resources.health import mark_resource_health
 from copilot.jobs.schemas import CreateJobRequest, Job
-from copilot.jobs.store import JobStore
+from copilot.jobs.stores import JobStore
 from copilot.jobs.subscriptions import subscription_id_from_response
 
 logger = logging.getLogger(__name__)

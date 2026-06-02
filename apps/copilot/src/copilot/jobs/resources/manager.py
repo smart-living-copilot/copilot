@@ -19,7 +19,7 @@ from copilot.jobs.resources.event_subscriptions import EventSubscriptionReconcil
 from copilot.jobs.resources.health import mark_resource_health
 from copilot.jobs.schedule import JobScheduleManager
 from copilot.jobs.schemas import CreateJobRequest, Job
-from copilot.jobs.store import JobStore, utc_now
+from copilot.jobs.stores import JobStore, utc_now
 from copilot.jobs.subscriptions import subscription_id_from_response
 
 logger = logging.getLogger(__name__)
