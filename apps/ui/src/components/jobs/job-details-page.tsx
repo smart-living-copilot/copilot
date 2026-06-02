@@ -210,9 +210,9 @@ function TextPanel({
   );
 }
 
-function AnalysisOutputPanel({
+function CodeOutputPanel({
   result,
-  title = 'Analysis output',
+  title = 'Code output',
 }: {
   result: RunCodeResult;
   title?: string;
@@ -417,15 +417,12 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
   const isWaitingForReply = job ? supportsJobReply(job) : false;
   const hasTimeFields = job ? supportsTimeFields(job) : false;
   const hasEventFields = job ? supportsEventFields(job) : false;
-  const latestAnalysisResult = useMemo(() => {
-    if (job?.action_kind !== 'analysis') {
-      return null;
-    }
+  const latestCodeResult = useMemo(() => {
     const latestRun = runs.find((run) =>
       hasCodeOutput(normalizeJobCodeResult(run.result)),
     );
     return latestRun ? normalizeJobCodeResult(latestRun.result) : null;
-  }, [job?.action_kind, runs]);
+  }, [runs]);
   const degradedResourceMessages = useMemo(() => {
     const resources = job?.resource_health?.resources;
     if (!resources) return [];
@@ -833,28 +830,36 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
               </section>
 
               {job.action_kind === 'analysis' ? (
-                <AnalysisOutputPanel
-                  result={latestAnalysisResult ?? {}}
+                <CodeOutputPanel
+                  result={latestCodeResult ?? {}}
                   title="Latest output"
                 />
               ) : (
-                <TextPanel
-                  title={
-                    job.output_kind === 'structured_record'
-                      ? 'Latest record'
-                      : 'Last result'
-                  }
-                  description={
-                    job.output_kind === 'structured_record'
-                      ? 'The latest structured record captured from an execution.'
-                      : 'The latest response captured from an execution.'
-                  }
-                  value={
-                    latestSubmittedRecordSummary ||
-                    job.last_response ||
-                    'No result captured yet.'
-                  }
-                />
+                <>
+                  <TextPanel
+                    title={
+                      job.output_kind === 'structured_record'
+                        ? 'Latest record'
+                        : 'Last result'
+                    }
+                    description={
+                      job.output_kind === 'structured_record'
+                        ? 'The latest structured record captured from an execution.'
+                        : 'The latest response captured from an execution.'
+                    }
+                    value={
+                      latestSubmittedRecordSummary ||
+                      job.last_response ||
+                      'No result captured yet.'
+                    }
+                  />
+                  {latestCodeResult?.artifacts?.length ? (
+                    <CodeOutputPanel
+                      result={latestCodeResult}
+                      title="Generated artifacts"
+                    />
+                  ) : null}
+                </>
               )}
             </TabsContent>
 

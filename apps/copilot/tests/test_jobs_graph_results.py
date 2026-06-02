@@ -7,6 +7,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
 from copilot.jobs.graph_results import (
+    code_result_from_graph_result,
     failed_record_submission_from_graph_result,
     graph_input_for_run,
     job_result_from_graph_result,
@@ -137,6 +138,64 @@ class JobGraphResultsTestCase(unittest.TestCase):
         self.assertTrue(job_result["ok"])
         self.assertEqual(job_result["submitted_record"]["data"], {"mood": "good"})
         self.assertEqual(job_run_status_from_result(job_result), JobRunStatus.SUCCEEDED)
+
+    def test_run_code_artifacts_are_promoted_for_prompt_jobs(self) -> None:
+        result = {
+            "messages": [
+                HumanMessage(content="plot the temperatures"),
+                ToolMessage(
+                    content=(
+                        '{"stdout": "created plot", "artifacts": ['
+                        '{"ref": "image_1", "kind": "image", "filename": "plot.png"}]}'
+                    ),
+                    name="run_code",
+                    tool_call_id="call-1",
+                ),
+                AIMessage(content="A plot was generated."),
+            ]
+        }
+
+        code_result = code_result_from_graph_result(result)
+        job_result = job_result_from_graph_result(
+            result,
+            job=_job(output_kind=JobOutputKind.NARRATIVE),
+            message=None,
+            trigger={"source": "manual"},
+        )
+
+        self.assertEqual(
+            code_result,
+            {
+                "artifacts": [{"ref": "image_1", "kind": "image", "filename": "plot.png"}],
+                "stdout": "created plot",
+            },
+        )
+        self.assertEqual(job_result["artifacts"], code_result["artifacts"])
+        self.assertEqual(job_result["stdout"], "created plot")
+
+    def test_run_code_stdout_only_is_not_promoted_for_prompt_jobs(self) -> None:
+        result = {
+            "messages": [
+                HumanMessage(content="summarize the temperatures"),
+                ToolMessage(
+                    content='{"stdout": "22.9 C"}',
+                    name="run_code",
+                    tool_call_id="call-1",
+                ),
+                AIMessage(content="The temperature is 22.9 C."),
+            ]
+        }
+
+        job_result = job_result_from_graph_result(
+            result,
+            job=_job(output_kind=JobOutputKind.NARRATIVE),
+            message=None,
+            trigger={"source": "manual"},
+        )
+
+        self.assertIsNone(code_result_from_graph_result(result))
+        self.assertNotIn("stdout", job_result)
+        self.assertNotIn("artifacts", job_result)
 
     def test_failed_record_schema_submission_waits_for_repair(self) -> None:
         result = {

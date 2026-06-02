@@ -34,6 +34,11 @@ import { JobRunHistoryCard } from '@/components/jobs/job-run-history';
 import { LiveModePanel } from '@/components/copilot/live-mode-panel';
 import { chatToolCallRenderers } from '@/components/copilot/chat-tool-call-renderer';
 import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
+import {
+  formatArtifactSummary,
+  normalizeRunCodeResult,
+  type RunCodeResult,
+} from '@/components/copilot/chat-tool-call-model';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -80,6 +85,16 @@ function normalizeMessages(thread: JobThreadRecord | null): Message[] {
 }
 
 function runOutcome(run: JobRunRecord): string {
+  const codeResult = normalizeJobCodeResult(run.result);
+  const artifactSummary = codeResult.artifacts?.length
+    ? formatArtifactSummary(codeResult.artifacts)
+    : '';
+  if (artifactSummary && codeResult.stdout?.trim()) {
+    return `${artifactSummary} • text output`;
+  }
+  if (artifactSummary) return artifactSummary;
+  if (codeResult.stdout?.trim()) return codeResult.stdout.trim();
+  if (codeResult.error?.trim()) return codeResult.error.trim();
   if (run.error?.trim()) return run.error.trim();
   const submittedRecordSummary = getSubmittedRecordResultSummary(run.result);
   if (submittedRecordSummary) return submittedRecordSummary;
@@ -92,6 +107,27 @@ function runOutcome(run: JobRunRecord): string {
     }
   }
   return 'No output captured.';
+}
+
+function hasCodeOutput(result: RunCodeResult): boolean {
+  return Boolean(
+    result.error?.trim() ||
+    result.stdout?.trim() ||
+    (result.artifacts?.length ?? 0) > 0,
+  );
+}
+
+function normalizeJobCodeResult(value: unknown): RunCodeResult {
+  const direct = normalizeRunCodeResult(value);
+  if (hasCodeOutput(direct)) {
+    return direct;
+  }
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return direct;
+  }
+
+  return normalizeRunCodeResult((value as { response?: unknown }).response);
 }
 
 function eventLabel(type: JobRunEventType): string {

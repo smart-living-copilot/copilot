@@ -51,6 +51,7 @@ def job_result_from_graph_result(
     failed_submission = failed_record_submission_from_graph_result(result)
     waiting_question = waiting_question_from_graph_result(result)
     assistant = assistant_text_from_graph_result(result)
+    code_result = code_result_from_graph_result(result)
 
     if waiting_question:
         return _waiting_result(result, waiting_question, trigger)
@@ -86,13 +87,16 @@ def job_result_from_graph_result(
         )
     if not assistant:
         assistant = json.dumps(result, ensure_ascii=True, default=str)[:2000]
-    return {
+    job_result: dict[str, Any] = {
         "ok": True,
         "response": result,
         "assistant": assistant,
         "submitted_record": submitted_record,
         "metadata": {"trigger": trigger},
     }
+    if code_result:
+        job_result.update(code_result)
+    return job_result
 
 
 def job_run_status_from_result(result: dict[str, Any]) -> JobRunStatus:
@@ -166,6 +170,100 @@ def failed_record_submission_from_graph_result(result: Any) -> dict[str, Any] | 
     return content
 
 
+def code_result_from_graph_result(result: Any) -> dict[str, Any] | None:
+    stdout_parts: list[str] = []
+    error_parts: list[str] = []
+    artifacts: list[dict[str, str]] = []
+
+    for message in _tool_messages_after_latest_human(result, "run_code"):
+        content = _parsed_tool_message_content(message)
+        if not isinstance(content, dict):
+            continue
+        message_artifacts = _artifacts_from_run_code_result(content)
+        if not message_artifacts:
+            continue
+        artifacts.extend(message_artifacts)
+        stdout = content.get("stdout")
+        if isinstance(stdout, str) and stdout.strip():
+            stdout_parts.append(stdout.strip())
+        error = content.get("error")
+        if isinstance(error, str) and error.strip():
+            error_parts.append(error.strip())
+
+    artifacts = _dedupe_and_renumber_artifacts(artifacts)
+    if not artifacts:
+        return None
+
+    code_result: dict[str, Any] = {"artifacts": artifacts}
+    if stdout_parts:
+        code_result["stdout"] = _truncate_text("\n\n".join(stdout_parts), max_length=4000)
+    if error_parts:
+        code_result["error"] = _truncate_text("\n\n".join(error_parts), max_length=2000)
+    return code_result
+
+
+def _artifacts_from_run_code_result(content: dict[str, Any]) -> list[dict[str, str]]:
+    artifacts: list[dict[str, str]] = []
+    raw_artifacts = content.get("artifacts")
+    if isinstance(raw_artifacts, list):
+        for raw_artifact in raw_artifacts:
+            artifact = _artifact_from_mapping(raw_artifact)
+            if artifact:
+                artifacts.append(artifact)
+
+    if artifacts:
+        return artifacts
+
+    images = content.get("images")
+    if isinstance(images, list):
+        for index, filename in enumerate(images, start=1):
+            if isinstance(filename, str) and filename:
+                artifacts.append({"ref": f"image_{index}", "kind": "image", "filename": filename})
+
+    charts = content.get("plotly")
+    if isinstance(charts, list):
+        for index, filename in enumerate(charts, start=1):
+            if isinstance(filename, str) and filename:
+                artifacts.append({"ref": f"chart_{index}", "kind": "plotly", "filename": filename})
+
+    return artifacts
+
+
+def _artifact_from_mapping(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    kind = value.get("kind")
+    filename = value.get("filename")
+    ref = value.get("ref")
+    if kind not in {"image", "plotly"}:
+        return None
+    if not isinstance(filename, str) or not filename:
+        return None
+    if not isinstance(ref, str) or not ref:
+        ref = "artifact"
+    return {"ref": ref, "kind": kind, "filename": filename}
+
+
+def _dedupe_and_renumber_artifacts(artifacts: list[dict[str, str]]) -> list[dict[str, str]]:
+    seen: set[tuple[str, str]] = set()
+    image_count = 0
+    chart_count = 0
+    normalized: list[dict[str, str]] = []
+    for artifact in artifacts:
+        key = (artifact["kind"], artifact["filename"])
+        if key in seen:
+            continue
+        seen.add(key)
+        if artifact["kind"] == "image":
+            image_count += 1
+            ref = f"image_{image_count}"
+        else:
+            chart_count += 1
+            ref = f"chart_{chart_count}"
+        normalized.append({**artifact, "ref": ref})
+    return normalized
+
+
 def result_has_pending_interrupt(result: Any) -> bool:
     if not isinstance(result, dict):
         return False
@@ -221,19 +319,33 @@ def _waiting_result(
 
 
 def _tool_message_after_latest_human(result: Any, tool_name: str) -> ToolMessage | None:
+    for message in reversed(_tool_messages_after_latest_human(result, tool_name)):
+        return message
+    return None
+
+
+def _tool_messages_after_latest_human(result: Any, tool_name: str) -> list[ToolMessage]:
     if not isinstance(result, dict):
-        return None
+        return []
     messages = result.get("messages")
     if not isinstance(messages, list):
-        return None
+        return []
     latest_human_index = -1
     for index, message in enumerate(messages):
         if isinstance(message, HumanMessage):
             latest_human_index = index
+    tool_messages: list[ToolMessage] = []
     for message in reversed(messages[latest_human_index + 1 :]):
         if isinstance(message, ToolMessage) and message.name == tool_name:
-            return message
-    return None
+            tool_messages.append(message)
+    tool_messages.reverse()
+    return tool_messages
+
+
+def _truncate_text(value: str, *, max_length: int) -> str:
+    if len(value) <= max_length:
+        return value
+    return f"{value[: max_length - 3]}..."
 
 
 def _parsed_tool_message_content(message: ToolMessage) -> Any:
