@@ -1,20 +1,15 @@
-from copilot.jobs.stores import (
+from copilot.jobs.stores.base import (
     _json_safe,
     iso,
     job_run_thread_id_for_run,
     job_thread_id_for_job,
-    JobDefinitionStore,
     JobNotWaitingForInput,
-    JobRunEventStore,
     JobRunNotCancellable,
-    JobRunStore,
     utc_now,
 )
-
-
-class JobStore(JobDefinitionStore, JobRunStore, JobRunEventStore):
-    """Compatibility facade over the narrower job persistence stores."""
-
+from copilot.jobs.stores.definitions import JobDefinitionStore
+from copilot.jobs.stores.events import JobRunEventStore
+from copilot.jobs.stores.runs import JobRunStore
 
 __all__ = [
     "_json_safe",
@@ -26,6 +21,5 @@ __all__ = [
     "JobRunEventStore",
     "JobRunNotCancellable",
     "JobRunStore",
-    "JobStore",
     "utc_now",
 ]
