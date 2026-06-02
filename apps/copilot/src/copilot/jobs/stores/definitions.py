@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
+from copilot.jobs.cron import CronScheduleError, next_cron_run_at
 from copilot.jobs.db import JobRecord
 from copilot.jobs.enums import JobTriggerKind, TimeTriggerKind
 from copilot.jobs.schemas import CreateJobRequest, Job
@@ -21,6 +22,7 @@ from copilot.jobs.stores.base import (
     utc_now,
 )
 from copilot.threads.models import DEFAULT_THREAD_TITLE, Thread, ThreadKind
+
 
 class JobDefinitionStore(_JobStoreBase):
     async def create_job(
@@ -65,6 +67,8 @@ class JobDefinitionStore(_JobStoreBase):
                 schedule_kind=request.schedule_kind.value if request.schedule_kind else None,
                 run_at=request.run_at,
                 interval_seconds=request.interval_seconds,
+                cron_expression=request.cron_expression,
+                cron_timezone=request.cron_timezone,
                 next_run_at=next_run_at,
                 thing_id=request.thing_id,
                 event_name=request.event_name,
@@ -261,6 +265,8 @@ class JobDefinitionStore(_JobStoreBase):
         analysis_code: object = _UNSET,
         interval_seconds: object = _UNSET,
         run_at: object = _UNSET,
+        cron_expression: object = _UNSET,
+        cron_timezone: object = _UNSET,
         enabled: object = _UNSET,
     ) -> Job:
         return await asyncio.to_thread(
@@ -271,6 +277,8 @@ class JobDefinitionStore(_JobStoreBase):
             analysis_code,
             interval_seconds,
             run_at,
+            cron_expression,
+            cron_timezone,
             enabled,
         )
 
@@ -282,6 +290,8 @@ class JobDefinitionStore(_JobStoreBase):
         analysis_code: object,
         interval_seconds: object,
         run_at: object,
+        cron_expression: object,
+        cron_timezone: object,
         enabled: object,
     ) -> Job:
         now = utc_now()
@@ -301,6 +311,10 @@ class JobDefinitionStore(_JobStoreBase):
                 row.interval_seconds = interval_seconds  # type: ignore[assignment]
             if run_at is not _UNSET:
                 row.run_at = run_at  # type: ignore[assignment]
+            if cron_expression is not _UNSET:
+                row.cron_expression = cron_expression  # type: ignore[assignment]
+            if cron_timezone is not _UNSET:
+                row.cron_timezone = cron_timezone  # type: ignore[assignment]
             if enabled is not _UNSET:
                 row.enabled = bool(enabled)
 
@@ -320,4 +334,13 @@ class JobDefinitionStore(_JobStoreBase):
             if run_at.tzinfo is None:
                 run_at = run_at.replace(tzinfo=timezone.utc)
             return run_at if run_at > now else None
+        if row.schedule_kind == TimeTriggerKind.CRON.value and row.cron_expression:
+            try:
+                return next_cron_run_at(
+                    row.cron_expression,
+                    row.cron_timezone,
+                    after=now,
+                )
+            except CronScheduleError:
+                return None
         return None

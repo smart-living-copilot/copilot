@@ -11,6 +11,7 @@ class JobTriggerKind(StrEnum):
 class TimeTriggerKind(StrEnum):
     ONCE = "once"
     INTERVAL = "interval"
+    CRON = "cron"
 
 
 class JobActionKind(StrEnum):

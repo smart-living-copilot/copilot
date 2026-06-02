@@ -116,6 +116,8 @@ def _to_job(row: JobRecord) -> Job:
         schedule_kind=TimeTriggerKind(row.schedule_kind) if row.schedule_kind else None,
         run_at=row.run_at,
         interval_seconds=row.interval_seconds,
+        cron_expression=row.cron_expression,
+        cron_timezone=row.cron_timezone,
         next_run_at=row.next_run_at,
         thing_id=row.thing_id,
         event_name=row.event_name,

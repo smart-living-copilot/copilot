@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from copilot.clients.wot_runtime import WotRuntimeClient
+from copilot.jobs.cron import next_cron_run_at
 from copilot.jobs.enums import JobOutputKind, JobTriggerKind, TimeTriggerKind
 from copilot.jobs.records import VirtualRecordStore
 from copilot.jobs.resources.constants import (
@@ -323,4 +324,10 @@ def _next_run_at_for_time_request(request: CreateJobRequest) -> datetime | None:
         return request.run_at
     if request.schedule_kind == TimeTriggerKind.INTERVAL:
         return utc_now() + timedelta(seconds=request.interval_seconds)
+    if request.schedule_kind == TimeTriggerKind.CRON:
+        return next_cron_run_at(
+            request.cron_expression,
+            request.cron_timezone,
+            after=utc_now(),
+        )
     return None

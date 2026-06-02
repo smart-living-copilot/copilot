@@ -43,6 +43,8 @@ interface EditFormState {
   analysisCode: string;
   intervalSeconds: string;
   runAt: string;
+  cronExpression: string;
+  cronTimezone: string;
   enabled: boolean;
 }
 
@@ -65,6 +67,8 @@ function toFormState(job: JobRecord): EditFormState {
     intervalSeconds:
       job.interval_seconds != null ? String(job.interval_seconds) : '',
     runAt: toDatetimeLocal(job.run_at),
+    cronExpression: job.cron_expression ?? '',
+    cronTimezone: job.cron_timezone ?? 'Europe/Berlin',
     enabled: job.enabled,
   };
 }
@@ -109,6 +113,7 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
   const isInterval =
     job?.trigger_kind === 'time' && job.schedule_kind === 'interval';
   const isOnce = job?.trigger_kind === 'time' && job.schedule_kind === 'once';
+  const isCron = job?.trigger_kind === 'time' && job.schedule_kind === 'cron';
 
   const validationError = useMemo(() => {
     if (!job || !form) return null;
@@ -132,8 +137,11 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
     if (isOnce && !form.runAt.trim()) {
       return 'Run time is required for one-time jobs.';
     }
+    if (isCron && !form.cronExpression.trim()) {
+      return 'Cron expression is required.';
+    }
     return null;
-  }, [form, isInterval, isOnce, job]);
+  }, [form, isCron, isInterval, isOnce, job]);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -155,6 +163,10 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
       if (isOnce) {
         payload.run_at = new Date(form.runAt).toISOString();
       }
+      if (isCron) {
+        payload.cron_expression = form.cronExpression.trim();
+        payload.cron_timezone = form.cronTimezone.trim();
+      }
 
       setIsSubmitting(true);
       try {
@@ -168,7 +180,7 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
         setIsSubmitting(false);
       }
     },
-    [form, isInterval, isOnce, job, router, validationError],
+    [form, isCron, isInterval, isOnce, job, router, validationError],
   );
 
   if (isLoading) {
@@ -283,14 +295,16 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
         </CardContent>
       </Card>
 
-      {isInterval || isOnce ? (
+      {isInterval || isOnce || isCron ? (
         <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
           <CardHeader className="border-b border-border/70">
             <CardTitle className="text-base">Schedule</CardTitle>
             <CardDescription>
               {isInterval
                 ? 'How often this job runs. Saving resets the next run.'
-                : 'When this one-time job runs.'}
+                : isCron
+                  ? 'The cron expression and timezone for this recurring job.'
+                  : 'When this one-time job runs.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -306,6 +320,31 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
                   }
                   placeholder="300"
                 />
+              </div>
+            ) : isCron ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Cron expression
+                  </label>
+                  <Input
+                    value={form.cronExpression}
+                    onChange={(event) =>
+                      setField('cronExpression', event.target.value)
+                    }
+                    placeholder="0 9 * * sun"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Cron timezone</label>
+                  <Input
+                    value={form.cronTimezone}
+                    onChange={(event) =>
+                      setField('cronTimezone', event.target.value)
+                    }
+                    placeholder="Europe/Berlin"
+                  />
+                </div>
               </div>
             ) : (
               <div className="space-y-2 sm:max-w-xs">

@@ -83,6 +83,8 @@ function getSearchableText(job: JobRecord): string {
     job.output_kind,
     job.trigger_kind,
     job.schedule_kind,
+    job.cron_expression,
+    job.cron_timezone,
     job.thing_id,
     job.event_name,
     job.last_error,
@@ -115,6 +117,8 @@ function actionLabel(job: JobRecord): string {
 function triggerLabel(job: JobRecord): string {
   if (job.trigger_kind === 'event') return job.event_name || 'Event';
   if (job.schedule_kind === 'once') return 'Once';
+  if (job.schedule_kind === 'cron' && job.cron_expression)
+    return `Cron ${job.cron_expression}`;
   if (job.interval_seconds)
     return `Every ${formatInterval(job.interval_seconds)}`;
   return 'Time';

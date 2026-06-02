@@ -856,6 +856,19 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                         value={`${job.interval_seconds}s`}
                       />
                     ) : null}
+                    {job.cron_expression ? (
+                      <FieldCard
+                        label="Cron"
+                        value={job.cron_expression}
+                        mono
+                      />
+                    ) : null}
+                    {job.cron_timezone ? (
+                      <FieldCard
+                        label="Timezone"
+                        value={job.cron_timezone}
+                      />
+                    ) : null}
                     {job.run_at ? (
                       <FieldCard
                         label="Run once at"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 try:
@@ -24,6 +24,7 @@ from copilot.clients.code_executor import (
     CodeExecutorClient,
     format_code_execution_result,
 )
+from copilot.jobs.cron import CronScheduleError, next_cron_run_at
 from copilot.jobs.enums import (
     JobActionKind,
     JobRunSource,
@@ -196,8 +197,8 @@ class JobExecutor:
         now = utc_now()
         is_scheduled_time_run = run_source == JobRunSource.TIME
         next_run_at = (
-            now + timedelta(seconds=job.interval_seconds)
-            if is_scheduled_time_run and job.interval_seconds is not None
+            _next_run_at_after_scheduled_time_run(job, now)
+            if is_scheduled_time_run
             else None
         )
         status = job_run_status_from_result(result)
@@ -281,6 +282,21 @@ def _artifact_summary(artifacts: list[Any]) -> str:
     if images:
         parts.append(f"{images} image{'s' if images != 1 else ''}")
     return ", ".join(parts)
+
+
+def _next_run_at_after_scheduled_time_run(job: Job, now: datetime) -> datetime | None:
+    if job.schedule_kind == TimeTriggerKind.INTERVAL and job.interval_seconds is not None:
+        return now + timedelta(seconds=job.interval_seconds)
+    if job.schedule_kind == TimeTriggerKind.CRON and job.cron_expression:
+        try:
+            return next_cron_run_at(
+                job.cron_expression,
+                job.cron_timezone,
+                after=now,
+            )
+        except CronScheduleError:
+            return None
+    return None
 
 
 def _is_duplicate_reply_run(run: JobRun) -> bool:

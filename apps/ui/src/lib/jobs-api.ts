@@ -19,9 +19,11 @@ export interface JobRecord {
   virtual_thing_id: string | null;
   enabled: boolean;
   trigger_kind: 'time' | 'event';
-  schedule_kind: 'once' | 'interval' | null;
+  schedule_kind: 'once' | 'interval' | 'cron' | null;
   run_at: string | null;
   interval_seconds: number | null;
+  cron_expression: string | null;
+  cron_timezone: string | null;
   next_run_at: string | null;
   thing_id: string | null;
   event_name: string | null;
@@ -152,9 +154,11 @@ export interface CreateJobPayload {
   virtual_thing_title?: string;
   virtual_thing_description?: string;
   trigger_kind: 'time' | 'event';
-  schedule_kind?: 'once' | 'interval';
+  schedule_kind?: 'once' | 'interval' | 'cron';
   run_at?: string;
   interval_seconds?: number;
+  cron_expression?: string;
+  cron_timezone?: string;
   thing_id?: string;
   event_name?: string;
   subscription_input?: unknown;
@@ -191,6 +195,8 @@ export interface UpdateJobPayload {
   analysis_code?: string;
   interval_seconds?: number;
   run_at?: string;
+  cron_expression?: string;
+  cron_timezone?: string;
   enabled?: boolean;
 }
 

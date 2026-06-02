@@ -143,6 +143,11 @@ export function getScheduleLabel(job: JobRecord): string {
   if (job.interval_seconds) {
     return `Every ${formatInterval(job.interval_seconds)}`;
   }
+  if (job.schedule_kind === 'cron' && job.cron_expression) {
+    return job.cron_timezone
+      ? `Cron ${job.cron_expression} (${job.cron_timezone})`
+      : `Cron ${job.cron_expression}`;
+  }
   if (job.run_at) {
     return `Once at ${formatDateTime(job.run_at)}`;
   }

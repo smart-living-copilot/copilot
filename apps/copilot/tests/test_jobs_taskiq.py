@@ -833,6 +833,34 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
             now + timedelta(seconds=60),
         )
 
+    async def test_cron_time_job_advances_next_run_at_after_run(self) -> None:
+        repo = _FakeRepo(
+            _job(
+                schedule_kind=TimeTriggerKind.CRON,
+                interval_seconds=None,
+                cron_expression="0 9 * * sun",
+                cron_timezone="Europe/Berlin",
+            )
+        )
+        agent_runner = AsyncMock()
+        agent_runner.run.return_value = {"ok": True, "assistant": "done"}
+        executor = JobExecutor(
+            Settings(),
+            repo=repo,
+            agent_runner=agent_runner,
+            event_publisher=_FakePublisher(),
+        )
+        now = datetime(2026, 6, 2, 10, 0, tzinfo=timezone.utc)
+
+        with patch("copilot.jobs.executor.utc_now", return_value=now):
+            await executor.run_job("job-1", {"source": "time"})
+
+        self.assertEqual(repo.disabled, [])
+        self.assertEqual(
+            repo.finished_runs[0]["next_run_at"],
+            datetime(2026, 6, 7, 7, 0, tzinfo=timezone.utc),
+        )
+
     async def test_manual_interval_run_does_not_advance_next_run_at(self) -> None:
         repo = _FakeRepo(_job(interval_seconds=60))
         agent_runner = AsyncMock()
@@ -1208,6 +1236,40 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
         created = await service.create_job(request)
 
         self.assertEqual(created.id, "job-1")
+        self.assertEqual(schedule.added, ["job-1"])
+
+    async def test_create_cron_job_defaults_timezone_and_prepares_next_run(self) -> None:
+        schedule = _FakeScheduleManager()
+        repo = _FakeServiceRepo(
+            _job(
+                schedule_kind=TimeTriggerKind.CRON,
+                interval_seconds=None,
+                cron_expression="0 9 * * sun",
+                cron_timezone="Europe/Berlin",
+            )
+        )
+        service = JobService(
+            Settings(jobs_default_timezone="Europe/Berlin"),
+            repo=repo,
+            schedule_manager=schedule,
+        )
+        request = CreateJobRequest(
+            name="weekly",
+            created_from_thread_id="thread-1",
+            prompt="check",
+            trigger_kind=JobTriggerKind.TIME,
+            schedule_kind=TimeTriggerKind.CRON,
+            cron_expression="  0 9 * * sun  ",
+        )
+
+        created = await service.create_job(request)
+
+        self.assertEqual(created.id, "job-1")
+        saved_request, next_run_at, subscription_id = repo.created[0]
+        self.assertEqual(saved_request.cron_expression, "0 9 * * sun")
+        self.assertEqual(saved_request.cron_timezone, "Europe/Berlin")
+        self.assertIsNotNone(next_run_at)
+        self.assertIsNone(subscription_id)
         self.assertEqual(schedule.added, ["job-1"])
 
     async def test_create_record_prompt_job_creates_virtual_record_thing(self) -> None:
@@ -1709,6 +1771,21 @@ class JobScheduleManagerTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(task.time, run_at)
         self.assertIsNone(task.interval)
+
+    async def test_cron_job_builds_native_cron_schedule(self) -> None:
+        task = scheduled_task_for_job(
+            _job(
+                schedule_kind=TimeTriggerKind.CRON,
+                interval_seconds=None,
+                cron_expression="0 9 * * sun",
+                cron_timezone="Europe/Berlin",
+            )
+        )
+
+        self.assertEqual(task.cron, "0 9 * * sun")
+        self.assertEqual(task.cron_offset, "Europe/Berlin")
+        self.assertIsNone(task.interval)
+        self.assertIsNone(task.time)
 
     async def test_add_and_remove_job(self) -> None:
         source = _FakeScheduleSource()

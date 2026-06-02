@@ -41,6 +41,8 @@ class Job(BaseModel):
     schedule_kind: TimeTriggerKind | None = None
     run_at: datetime | None = None
     interval_seconds: int | None = None
+    cron_expression: str | None = None
+    cron_timezone: str | None = None
     next_run_at: datetime | None = None
     thing_id: str | None = None
     event_name: str | None = None
@@ -110,6 +112,8 @@ class CreateJobRequest(BaseModel):
     schedule_kind: TimeTriggerKind | None = None
     run_at: datetime | None = None
     interval_seconds: int | None = Field(default=None, ge=1)
+    cron_expression: str | None = Field(default=None, max_length=120)
+    cron_timezone: str | None = Field(default=None, max_length=80)
 
     thing_id: str | None = None
     event_name: str | None = None
@@ -135,6 +139,8 @@ class UpdateJobRequest(BaseModel):
     analysis_code: str | None = None
     interval_seconds: int | None = Field(default=None, ge=1)
     run_at: datetime | None = None
+    cron_expression: str | None = Field(default=None, max_length=120)
+    cron_timezone: str | None = Field(default=None, max_length=80)
     enabled: bool | None = None
 
 

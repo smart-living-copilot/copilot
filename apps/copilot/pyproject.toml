@@ -28,6 +28,7 @@ dependencies = [
     "alembic>=1.18,<2",
     "taskiq>=0.12,<1",
     "taskiq-redis>=1.2,<2",
+    "pycron>=3.2,<4",
     "python-dotenv>=1.0",
 ]
 

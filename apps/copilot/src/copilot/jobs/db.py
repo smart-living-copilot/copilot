@@ -43,7 +43,7 @@ class JobRecord(Base):
             name="ck_jobs_output_kind",
         ),
         CheckConstraint(
-            "schedule_kind IS NULL OR schedule_kind IN ('once', 'interval')",
+            "schedule_kind IS NULL OR schedule_kind IN ('once', 'interval', 'cron')",
             name="ck_jobs_schedule_kind",
         ),
         CheckConstraint(
@@ -90,6 +90,8 @@ class JobRecord(Base):
     schedule_kind: Mapped[str | None] = mapped_column(Text)
     run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     interval_seconds: Mapped[int | None] = mapped_column(Integer)
+    cron_expression: Mapped[str | None] = mapped_column(Text)
+    cron_timezone: Mapped[str | None] = mapped_column(Text)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     thing_id: Mapped[str | None] = mapped_column(Text)
     event_name: Mapped[str | None] = mapped_column(Text)

@@ -30,15 +30,22 @@ type CreateJobFormState = {
   name: string;
   actionKind: 'prompt' | 'analysis';
   triggerKind: 'time' | 'event';
-  scheduleKind: 'once' | 'interval';
+  scheduleKind: 'once' | 'interval' | 'cron';
   prompt: string;
   analysisCode: string;
   intervalSeconds: string;
   runAt: string;
+  cronExpression: string;
+  cronTimezone: string;
   thingId: string;
   eventName: string;
   subscriptionInput: string;
 };
+
+function defaultCronTimezone(): string {
+  if (typeof Intl === 'undefined') return 'Europe/Berlin';
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin';
+}
 
 const INITIAL_CREATE_FORM: CreateJobFormState = {
   name: '',
@@ -49,6 +56,8 @@ const INITIAL_CREATE_FORM: CreateJobFormState = {
   analysisCode: '',
   intervalSeconds: '',
   runAt: '',
+  cronExpression: '',
+  cronTimezone: defaultCronTimezone(),
   thingId: '',
   eventName: '',
   subscriptionInput: '',
@@ -74,6 +83,12 @@ function toCreatePayload(form: CreateJobFormState): CreateJobPayload {
     }
     if (form.scheduleKind === 'once' && form.runAt.trim()) {
       payload.run_at = new Date(form.runAt).toISOString();
+    }
+    if (form.scheduleKind === 'cron' && form.cronExpression.trim()) {
+      payload.cron_expression = form.cronExpression.trim();
+      if (form.cronTimezone.trim()) {
+        payload.cron_timezone = form.cronTimezone.trim();
+      }
     }
   } else {
     payload.thing_id = form.thingId.trim();
@@ -251,7 +266,7 @@ export function JobCreatePage() {
                   <label className="text-sm font-medium">Schedule</label>
                   <Select
                     value={form.scheduleKind}
-                    onValueChange={(value: 'once' | 'interval') =>
+                    onValueChange={(value: 'once' | 'interval' | 'cron') =>
                       setField('scheduleKind', value)
                     }
                   >
@@ -260,6 +275,7 @@ export function JobCreatePage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="interval">Interval</SelectItem>
+                      <SelectItem value="cron">Cron</SelectItem>
                       <SelectItem value="once">Once</SelectItem>
                     </SelectContent>
                   </Select>
@@ -286,6 +302,30 @@ export function JobCreatePage() {
                     value={form.runAt}
                     disabled={form.scheduleKind !== 'once'}
                     onChange={(event) => setField('runAt', event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Cron expression
+                  </label>
+                  <Input
+                    value={form.cronExpression}
+                    disabled={form.scheduleKind !== 'cron'}
+                    onChange={(event) =>
+                      setField('cronExpression', event.target.value)
+                    }
+                    placeholder="0 9 * * sun"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Cron timezone</label>
+                  <Input
+                    value={form.cronTimezone}
+                    disabled={form.scheduleKind !== 'cron'}
+                    onChange={(event) =>
+                      setField('cronTimezone', event.target.value)
+                    }
+                    placeholder="Europe/Berlin"
                   />
                 </div>
               </div>

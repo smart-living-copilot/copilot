@@ -42,8 +42,9 @@ def _utc(value: datetime) -> datetime:
 def scheduled_task_for_job(job: Job) -> ScheduledTask:
     """Build the taskiq schedule for a time-triggered job.
 
-    Recurring jobs use a native ``interval`` schedule; one-shot jobs use ``time`` and are
-    cleaned up automatically by the source's ``post_send`` once they fire.
+    Recurring jobs use native ``interval`` or ``cron`` schedules; one-shot jobs use
+    ``time`` and are cleaned up automatically by the source's ``post_send`` once they
+    fire.
     """
     common = dict(
         task_name=RUN_JOB_TASK_NAME,
@@ -56,6 +57,12 @@ def scheduled_task_for_job(job: Job) -> ScheduledTask:
         return ScheduledTask(interval=job.interval_seconds, **common)
     if job.schedule_kind == TimeTriggerKind.ONCE and job.run_at is not None:
         return ScheduledTask(time=_utc(job.run_at), **common)
+    if job.schedule_kind == TimeTriggerKind.CRON and job.cron_expression:
+        return ScheduledTask(
+            cron=job.cron_expression,
+            cron_offset=job.cron_timezone,
+            **common,
+        )
     raise ValueError(f"Time job {job.id} has an invalid schedule")
 
 
@@ -64,7 +71,8 @@ class JobScheduleManager:
 
     The job database is the source of truth. Schedules are written to Redis only when a
     job is created or deleted, plus a one-time reconciliation at startup -- never on a
-    timer. Recurrence is handled natively by taskiq's ``interval`` schedules.
+    timer. Recurrence is handled natively by taskiq's ``interval`` and ``cron``
+    schedules.
     """
 
     def __init__(

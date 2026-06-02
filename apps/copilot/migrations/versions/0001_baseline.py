@@ -293,6 +293,8 @@ def upgrade() -> None:
         sa.Column("schedule_kind", sa.Text()),
         sa.Column("run_at", sa.DateTime(timezone=True)),
         sa.Column("interval_seconds", sa.Integer()),
+        sa.Column("cron_expression", sa.Text()),
+        sa.Column("cron_timezone", sa.Text()),
         sa.Column("next_run_at", sa.DateTime(timezone=True)),
         sa.Column("thing_id", sa.Text()),
         sa.Column("event_name", sa.Text()),
@@ -333,7 +335,7 @@ def upgrade() -> None:
             name="ck_jobs_output_kind",
         ),
         sa.CheckConstraint(
-            "schedule_kind IS NULL OR schedule_kind IN ('once', 'interval')",
+            "schedule_kind IS NULL OR schedule_kind IN ('once', 'interval', 'cron')",
             name="ck_jobs_schedule_kind",
         ),
         sa.CheckConstraint(
@@ -591,6 +593,16 @@ def _repair_legacy_jobs_columns() -> None:
     op.add_column(
         "jobs",
         sa.Column("resource_health", postgresql.JSONB()),
+        if_not_exists=True,
+    )
+    op.add_column(
+        "jobs",
+        sa.Column("cron_expression", sa.Text()),
+        if_not_exists=True,
+    )
+    op.add_column(
+        "jobs",
+        sa.Column("cron_timezone", sa.Text()),
         if_not_exists=True,
     )
 

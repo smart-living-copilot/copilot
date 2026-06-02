@@ -64,6 +64,8 @@ class _FakeService:
             schedule_kind=request.schedule_kind,
             run_at=request.run_at,
             interval_seconds=request.interval_seconds,
+            cron_expression=request.cron_expression,
+            cron_timezone=request.cron_timezone,
         )
 
     async def run_job_now(self, job_id: str) -> dict:
@@ -131,6 +133,28 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.created_requests[0].interval_seconds, 10)
         self.assertEqual(service.ran, [])
         self.assertEqual(service.deleted, [])
+
+    async def test_create_prompt_job_passes_cron_schedule(self) -> None:
+        service = _FakeService()
+        set_active_job_service(service)
+
+        result = await job_scheduler.create_prompt_job.ainvoke(
+            {
+                "name": "weekly check",
+                "run_instructions": "Check the house.",
+                "trigger_kind": "time",
+                "schedule_kind": "cron",
+                "cron_expression": "0 9 * * sun",
+                "cron_timezone": "Europe/Berlin",
+            },
+            config={"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(result["schedule_kind"], "cron")
+        request = service.created_requests[0]
+        self.assertEqual(request.schedule_kind, TimeTriggerKind.CRON)
+        self.assertEqual(request.cron_expression, "0 9 * * sun")
+        self.assertEqual(request.cron_timezone, "Europe/Berlin")
 
     async def test_create_record_prompt_job_passes_schema_contract(self) -> None:
         service = _FakeService()

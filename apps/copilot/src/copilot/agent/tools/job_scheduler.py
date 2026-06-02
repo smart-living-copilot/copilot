@@ -77,6 +77,8 @@ async def create_prompt_job(
     created_from_thread_id: str | None = None,
     run_at: str | None = None,
     interval_seconds: int | None = None,
+    cron_expression: str | None = None,
+    cron_timezone: str | None = None,
     thing_id: str | None = None,
     event_name: str | None = None,
     subscription_input: Any = None,
@@ -88,12 +90,13 @@ async def create_prompt_job(
     pass run_instructions="Check the house."
 
     trigger_kind:
-    - "time": use run_at (ISO datetime) or interval_seconds
+    - "time": use run_at (ISO datetime), interval_seconds, or cron_expression
     - "event": use thing_id and event_name
 
     schedule_kind:
     - "once": run one time at run_at
     - "interval": run every interval_seconds
+    - "cron": run on cron_expression, with optional cron_timezone such as "Europe/Berlin"
     """
     service = get_active_job_service()
     if service is None:
@@ -108,6 +111,8 @@ async def create_prompt_job(
             schedule_kind=schedule_kind,
             run_at=run_at,
             interval_seconds=interval_seconds,
+            cron_expression=cron_expression,
+            cron_timezone=cron_timezone,
             thing_id=thing_id,
             event_name=event_name,
             subscription_input=subscription_input,
@@ -141,6 +146,8 @@ async def create_record_prompt_job(
     created_from_thread_id: str | None = None,
     run_at: str | None = None,
     interval_seconds: int | None = None,
+    cron_expression: str | None = None,
+    cron_timezone: str | None = None,
     thing_id: str | None = None,
     event_name: str | None = None,
     subscription_input: Any = None,
@@ -170,6 +177,8 @@ async def create_record_prompt_job(
             schedule_kind=schedule_kind,
             run_at=run_at,
             interval_seconds=interval_seconds,
+            cron_expression=cron_expression,
+            cron_timezone=cron_timezone,
             thing_id=thing_id,
             event_name=event_name,
             subscription_input=subscription_input,
@@ -189,6 +198,8 @@ async def create_analysis_job(
     created_from_thread_id: str | None = None,
     run_at: str | None = None,
     interval_seconds: int | None = None,
+    cron_expression: str | None = None,
+    cron_timezone: str | None = None,
     thing_id: str | None = None,
     event_name: str | None = None,
     subscription_input: Any = None,
@@ -196,12 +207,13 @@ async def create_analysis_job(
     """Create an analysis job that runs Python in the code-executor sandbox.
 
     trigger_kind:
-    - "time": use run_at (one-time ISO datetime) or interval_seconds (recurring cadence)
+    - "time": use run_at, interval_seconds, or cron_expression (recurring calendar cadence)
     - "event": use thing_id and event_name to run on a subscribed WoT event
 
     schedule_kind:
     - "once": run one time at run_at
     - "interval": run every interval_seconds
+    - "cron": run on cron_expression, with optional cron_timezone such as "Europe/Berlin"
     """
     service = get_active_job_service()
     if service is None:
@@ -216,6 +228,8 @@ async def create_analysis_job(
             schedule_kind=schedule_kind,
             run_at=run_at,
             interval_seconds=interval_seconds,
+            cron_expression=cron_expression,
+            cron_timezone=cron_timezone,
             thing_id=thing_id,
             event_name=event_name,
             subscription_input=subscription_input,
