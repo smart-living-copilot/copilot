@@ -824,6 +824,12 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                     mono
                   />
                 ) : null}
+                {job.output_kind === 'structured_record' ? (
+                  <FieldCard
+                    label="Schema version"
+                    value={job.record_schema_version || 'Unversioned'}
+                  />
+                ) : null}
               </section>
 
               {job.action_kind === 'analysis' ? (
@@ -934,6 +940,15 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                   value={formatDateTime(job.updated_at)}
                 />
               </section>
+
+              {job.output_kind === 'structured_record' ? (
+                <TextPanel
+                  title="Record schema"
+                  description="JSON Schema used to parse and validate submitted records."
+                  value={formatJson(job.record_schema)}
+                  compact
+                />
+              ) : null}
 
               {hasEventFields ? (
                 <TextPanel

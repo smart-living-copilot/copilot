@@ -92,6 +92,7 @@ function getSearchableText(job: JobRecord): string {
     job.virtual_thing_id,
     job.prompt,
     job.analysis_code,
+    job.record_schema ? JSON.stringify(job.record_schema) : null,
   ]
     .filter(Boolean)
     .join(' ')
