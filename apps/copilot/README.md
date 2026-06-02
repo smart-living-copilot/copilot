@@ -182,6 +182,46 @@ This is the current structured-artifact flow. The older marker-based `[IMAGE:...
 Thread metadata, registry tables, API keys, credentials, event outbox rows, and
 automation jobs share the SQLAlchemy database configured by `REGISTRY_DATABASE_URL`.
 
+### Database Migrations
+
+The application schema is owned by Alembic migrations in
+[`migrations`](./migrations). App startup calls `alembic upgrade head` through
+`init_db()`, so API, worker, LiveKit, and thing-indexer processes all use the
+same schema path.
+
+Run migrations manually from `apps/copilot` when setting up or checking a local
+database:
+
+```bash
+python -m alembic upgrade head
+python -m alembic current
+```
+
+For a fresh database, use `upgrade head`. For an existing development database
+that was already created by the pre-Alembic bootstrap SQL and is known to match
+the current schema, adopt it without replaying the baseline:
+
+```bash
+python -m alembic stamp head
+python -m alembic current
+```
+
+If the existing database is old or uncertain, reset the disposable dev/test
+database or test the migration on a copy first. The baseline is intentionally
+idempotent for current tables, but it is not a general repair script for every
+historic local schema shape.
+
+Before committing schema changes, verify that SQLAlchemy metadata and the live
+database have no pending autogenerate diff:
+
+```bash
+python -m alembic check
+```
+
+Keep `SEARCH_VECTOR_DIMENSIONS` stable for a database. The pgvector column is
+created as `vector(<SEARCH_VECTOR_DIMENSIONS>)`, and the search store validates
+that runtime setting against the migrated column type.
+
 ### Code Execution State
 
 - lives in the separate `code-executor` service
@@ -271,9 +311,13 @@ Valkey services through Docker Compose:
   apps/copilot/tests/integration -m integration
 ```
 
-The jobs schema is intentionally fresh-reset during rapid development. If a
-local database has an older `jobs` or `job_runs` table shape, reset that dev/test
-database before running the app or integration tests.
+Migration drift is covered by the integration test suite. To run only that
+check against disposable Docker services:
+
+```bash
+.venv/bin/python -m pytest -c apps/copilot/pyproject.toml \
+  apps/copilot/tests/integration/test_migrations.py -m integration
+```
 
 ## Environment Variables
 

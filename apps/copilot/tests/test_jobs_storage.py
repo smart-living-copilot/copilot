@@ -16,6 +16,7 @@ from copilot.jobs.models import (
     JobActionKind,
     JobInteractionMode,
     JobOutputKind,
+    JobRunEventType,
     JobRunSource,
     JobRunStatus,
     JobTriggerKind,
@@ -275,6 +276,7 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         reply_run = await self.repo.start_reply_job_run(
             job_id=job.id,
             message="21 C",
+            client_reply_id="reply-1",
             previous_run_id=run.id,
             now=now + timedelta(seconds=2),
         )
@@ -292,6 +294,82 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         finished = await self.repo.get_job(job.id)
         self.assertIsNone(finished.active_run_id)
         self.assertIsNone(finished.waiting_question)
+
+        events = await self.repo.list_job_run_events(job.id)
+        self.assertEqual(
+            [event.event_type for event in events],
+            [
+                JobRunEventType.RUN_STARTED,
+                JobRunEventType.WAITING_FOR_INPUT,
+                JobRunEventType.USER_REPLY,
+                JobRunEventType.ASSISTANT_MESSAGE,
+                JobRunEventType.RUN_SUCCEEDED,
+            ],
+        )
+        self.assertEqual(events[1].message, "Which temperature?")
+        self.assertEqual(events[2].message, "21 C")
+        self.assertEqual(events[2].payload["client_reply_id"], "reply-1")
+        self.assertEqual(events[3].message, "done")
+
+    async def test_duplicate_reply_id_does_not_append_reply_or_event(self):
+        now = utc_now()
+        job = await self.repo.create_job(
+            CreateJobRequest(
+                name="human check",
+                created_from_thread_id="thread-1",
+                prompt="ask if needed",
+                trigger_kind=JobTriggerKind.TIME,
+                schedule_kind=TimeTriggerKind.INTERVAL,
+                interval_seconds=60,
+            ),
+            next_run_at=now,
+            subscription_id=None,
+        )
+        run = await self.repo.try_start_job_run(
+            job_id=job.id,
+            source=JobRunSource.MANUAL,
+            trigger_payload={"source": "manual"},
+            now=now,
+        )
+        self.assertIsNotNone(run)
+        await self.repo.finish_job_run(
+            run_id=run.id,
+            job_id=job.id,
+            now=now + timedelta(seconds=1),
+            status=JobRunStatus.WAITING_FOR_INPUT,
+            error=None,
+            response_text="Which temperature?",
+            result={"ok": True, "status": "waiting_for_input"},
+            waiting_question="Which temperature?",
+        )
+
+        first = await self.repo.start_reply_job_run(
+            job_id=job.id,
+            message="21 C",
+            client_reply_id="reply-1",
+            previous_run_id=run.id,
+            now=now + timedelta(seconds=2),
+        )
+        duplicate = await self.repo.start_reply_job_run(
+            job_id=job.id,
+            message="21 C",
+            client_reply_id="reply-1",
+            previous_run_id=run.id,
+            now=now + timedelta(seconds=3),
+        )
+
+        self.assertEqual(first.id, duplicate.id)
+        self.assertTrue(duplicate.trigger_payload["_duplicate_reply"])
+        self.assertEqual(len(duplicate.trigger_payload["replies"]), 1)
+        events = await self.repo.list_job_run_events(job.id)
+        self.assertEqual(
+            [event.event_type for event in events],
+            [
+                JobRunEventType.RUN_STARTED,
+                JobRunEventType.WAITING_FOR_INPUT,
+                JobRunEventType.USER_REPLY,
+            ],
+        )
 
     async def test_stale_running_runs_are_marked_failed(self):
         now = utc_now()

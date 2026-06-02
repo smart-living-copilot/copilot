@@ -27,6 +27,7 @@ export interface JobRecord {
   event_name: string | null;
   subscription_id: string | null;
   subscription_input: unknown | null;
+  resource_health: JobResourceHealth | null;
   created_at: string;
   updated_at: string;
   last_run_id: string | null;
@@ -46,6 +47,19 @@ export interface JobRecord {
   active_run_started_at: string | null;
   active_run_source: 'manual' | 'time' | 'event' | null;
   waiting_question: string | null;
+}
+
+export interface JobResourceHealthEntry {
+  status: 'healthy' | 'degraded' | string;
+  checked_at?: string;
+  message?: string;
+}
+
+export interface JobResourceHealth {
+  status: 'healthy' | 'degraded' | string;
+  checked_at?: string;
+  last_error?: string;
+  resources?: Record<string, JobResourceHealthEntry>;
 }
 
 export interface JobRunRecord {
@@ -69,6 +83,27 @@ export interface JobRunRecord {
   created_at: string;
 }
 
+export type JobRunEventType =
+  | 'run_started'
+  | 'user_reply'
+  | 'waiting_for_input'
+  | 'assistant_message'
+  | 'record_submitted'
+  | 'run_succeeded'
+  | 'run_failed'
+  | 'run_cancelled'
+  | 'run_skipped';
+
+export interface JobRunEventRecord {
+  id: number;
+  job_id: string;
+  run_id: string;
+  event_type: JobRunEventType;
+  message: string | null;
+  payload: unknown | null;
+  created_at: string;
+}
+
 export interface JobThreadMessage {
   id?: string;
   role?: string;
@@ -87,6 +122,7 @@ export interface JobThreadRecord {
   jobId?: string | null;
   job: JobRecord;
   run?: JobRunRecord | null;
+  events: JobRunEventRecord[];
   messages: JobThreadMessage[];
 }
 
@@ -96,6 +132,10 @@ interface ListJobsResponse {
 
 interface ListJobRunsResponse {
   runs: JobRunRecord[];
+}
+
+interface ListJobRunEventsResponse {
+  events: JobRunEventRecord[];
 }
 
 export interface CreateJobPayload {
@@ -202,17 +242,34 @@ export async function fetchJobRuns(jobId: string): Promise<JobRunRecord[]> {
   return json.runs;
 }
 
+export async function fetchJobRunEvents(
+  jobId: string,
+): Promise<JobRunEventRecord[]> {
+  const json = await httpJson<ListJobRunEventsResponse>(
+    `/jobs/${encodeURIComponent(jobId)}/run-events`,
+  );
+  return json.events;
+}
+
 export async function fetchJobThread(jobId: string): Promise<JobThreadRecord> {
   return httpJson<JobThreadRecord>(`/jobs/${encodeURIComponent(jobId)}/thread`);
+}
+
+export function createClientReplyId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `reply-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 export async function replyToJob(
   jobId: string,
   message: string,
+  clientReplyId: string = createClientReplyId(),
 ): Promise<unknown> {
   return httpJson(`/jobs/${encodeURIComponent(jobId)}/reply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, client_reply_id: clientReplyId }),
   });
 }

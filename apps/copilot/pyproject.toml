@@ -25,6 +25,7 @@ dependencies = [
     "pgvector>=0.4,<1",
     "psycopg[binary,pool]>=3.2,<4",
     "sqlalchemy>=2,<3",
+    "alembic>=1.18,<2",
     "taskiq>=0.12,<1",
     "taskiq-redis>=1.2,<2",
     "python-dotenv>=1.0",

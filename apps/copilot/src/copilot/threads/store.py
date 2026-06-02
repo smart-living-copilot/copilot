@@ -9,8 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from copilot.core.database import get_session_factory, get_sqlalchemy_engine
-from copilot.threads.models import DEFAULT_THREAD_TITLE, Base, Thread, ThreadKind, ThreadRecord
+from copilot.core.database import get_session_factory
+from copilot.threads.models import DEFAULT_THREAD_TITLE, Thread, ThreadKind, ThreadRecord
 from copilot.threads.titles import MAX_THREAD_TITLE_LENGTH
 
 
@@ -181,7 +181,7 @@ class ThreadStore:
 
 
 def init_thread_store() -> None:
-    Base.metadata.create_all(get_sqlalchemy_engine())
+    """Compatibility hook; thread schema is managed by Alembic migrations."""
 
 
 def list_threads() -> list[ThreadRecord]:

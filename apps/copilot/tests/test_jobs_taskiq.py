@@ -17,8 +17,10 @@ from copilot.jobs.events import JobEventConsumer
 from copilot.jobs.executor import (
     BackgroundAgentRunner,
     JobExecutor,
-    _assistant_text_from_graph_result,
-    _waiting_question_from_graph_result,
+)
+from copilot.jobs.graph_results import (
+    assistant_text_from_graph_result,
+    waiting_question_from_graph_result,
 )
 from copilot.jobs.models import (
     CreateJobRequest,
@@ -27,12 +29,17 @@ from copilot.jobs.models import (
     JobInteractionMode,
     JobOutputKind,
     JobRun,
+    JobRunEvent,
+    JobRunEventType,
     JobRunSource,
     JobRunStatus,
     JobTriggerKind,
     TimeTriggerKind,
+    UpdateJobRequest,
 )
 from copilot.jobs.routes import router as jobs_router
+from copilot.jobs.routes import _messages_from_job_run_events
+from copilot.jobs.resources import JobResourceManager
 from copilot.jobs.schedule import (
     JobScheduleManager,
     schedule_id_for_job,
@@ -440,7 +447,7 @@ class BackgroundAgentRunnerTestCase(unittest.IsolatedAsyncioTestCase):
             ]
         }
 
-        self.assertIsNone(_waiting_question_from_graph_result(result))
+        self.assertIsNone(waiting_question_from_graph_result(result))
 
     async def test_waiting_detection_ignores_resumed_ask_tool_result(self) -> None:
         result = {
@@ -458,7 +465,7 @@ class BackgroundAgentRunnerTestCase(unittest.IsolatedAsyncioTestCase):
             ]
         }
 
-        self.assertIsNone(_waiting_question_from_graph_result(result))
+        self.assertIsNone(waiting_question_from_graph_result(result))
 
     async def test_assistant_text_ignores_old_answer_before_latest_user_reply(self) -> None:
         result = {
@@ -469,12 +476,50 @@ class BackgroundAgentRunnerTestCase(unittest.IsolatedAsyncioTestCase):
             ]
         }
 
-        self.assertEqual(_assistant_text_from_graph_result(result), "")
+        self.assertEqual(assistant_text_from_graph_result(result), "")
+
+
+class JobRunEventMessageTestCase(unittest.TestCase):
+    def test_job_run_events_convert_to_thread_messages(self) -> None:
+        created_at = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
+        messages = _messages_from_job_run_events(
+            [
+                JobRunEvent(
+                    id=1,
+                    job_id="job-1",
+                    run_id="run-1",
+                    event_type=JobRunEventType.RUN_STARTED,
+                    created_at=created_at,
+                ),
+                JobRunEvent(
+                    id=2,
+                    job_id="job-1",
+                    run_id="run-1",
+                    event_type=JobRunEventType.USER_REPLY,
+                    message="21 C",
+                    created_at=created_at,
+                ),
+                JobRunEvent(
+                    id=3,
+                    job_id="job-1",
+                    run_id="run-1",
+                    event_type=JobRunEventType.WAITING_FOR_INPUT,
+                    message="Which temperature?",
+                    created_at=created_at,
+                ),
+            ]
+        )
+
+        self.assertEqual([message["role"] for message in messages], ["system", "user", "assistant"])
+        self.assertEqual(messages[0]["content"], "Run started.")
+        self.assertEqual(messages[1]["content"], "21 C")
+        self.assertEqual(messages[2]["jobEventType"], "waiting_for_input")
 
 
 class _FakeRepo:
-    def __init__(self, job: Job) -> None:
+    def __init__(self, job: Job, *, duplicate_reply: bool = False) -> None:
         self.job = job
+        self.duplicate_reply = duplicate_reply
         self.started_runs = []
         self.finished_runs = []
         self.disabled = []
@@ -516,6 +561,7 @@ class _FakeRepo:
         *,
         job_id: str,
         message: str,
+        client_reply_id: str | None,
         previous_run_id: str | None,
         now: datetime,
     ) -> JobRun:
@@ -526,11 +572,19 @@ class _FakeRepo:
                 "trigger_payload": {
                     "source": "user_reply",
                     "message": message,
+                    "client_reply_id": client_reply_id,
                     "previous_run_id": previous_run_id,
                 },
                 "now": now,
             }
         )
+        trigger_payload = {
+            "source": "user_reply",
+            "message": message,
+            "client_reply_id": client_reply_id,
+        }
+        if self.duplicate_reply:
+            trigger_payload["_duplicate_reply"] = True
         return JobRun(
             id=previous_run_id or self.job.active_run_id or "run-1",
             job_id=self.job.id,
@@ -538,8 +592,10 @@ class _FakeRepo:
                 f"{self.job.job_thread_id}:run:{previous_run_id or self.job.active_run_id or 'run-1'}"
             ),
             source=self.job.active_run_source or JobRunSource.MANUAL,
-            status=JobRunStatus.RUNNING,
-            trigger_payload={"source": "user_reply", "message": message},
+            status=JobRunStatus.SUCCEEDED if self.duplicate_reply else JobRunStatus.RUNNING,
+            trigger_payload=trigger_payload,
+            result={"ok": True, "assistant": "continued"} if self.duplicate_reply else None,
+            response_text="continued" if self.duplicate_reply else None,
             started_at=now,
             created_at=now,
         )
@@ -622,6 +678,40 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
             JobRunStatus.WAITING_FOR_INPUT,
         )
         self.assertEqual(repo.finished_runs[0]["waiting_question"], "Which temperature?")
+
+    async def test_duplicate_reply_run_does_not_resume_agent(self) -> None:
+        repo = _FakeRepo(
+            _job(
+                last_run_id="run-1",
+                active_run_id="run-1",
+                last_run_status=JobRunStatus.WAITING_FOR_INPUT,
+            ),
+            duplicate_reply=True,
+        )
+        publisher = _FakePublisher()
+        agent_runner = AsyncMock()
+        executor = JobExecutor(
+            Settings(),
+            repo=repo,
+            agent_runner=agent_runner,
+            event_publisher=publisher,
+        )
+
+        result = await executor.run_job(
+            "job-1",
+            {
+                "source": "user_reply",
+                "message": "kitchen",
+                "client_reply_id": "reply-1",
+                "previous_run_id": "run-1",
+            },
+        )
+
+        self.assertEqual(result["status"], "duplicate_reply")
+        self.assertEqual(result["result"], {"ok": True, "assistant": "continued"})
+        agent_runner.run.assert_not_called()
+        self.assertEqual(repo.finished_runs, [])
+        self.assertEqual(publisher.published, [("job-1", "run-1")])
 
     async def test_analysis_job_uses_code_executor(self) -> None:
         repo = _FakeRepo(
@@ -785,14 +875,28 @@ class _FakeScheduleManager:
 
 
 class _FakeServiceRepo:
-    def __init__(self, job: Job, *, create_error=None, delete_error=None) -> None:
+    def __init__(
+        self,
+        job: Job,
+        *,
+        create_error=None,
+        delete_error=None,
+        jobs: list[Job] | None = None,
+        duplicate_reply_run: JobRun | None = None,
+    ) -> None:
         self.job = job
+        self.jobs = [job] if jobs is None else jobs
         self.created = []
         self.deleted: list[str] = []
         self.loaded: list[str] = []
         self.loaded_by_thread: list[str] = []
+        self.loaded_by_client_reply_id: list[tuple[str, str]] = []
+        self.updated = []
+        self.subscription_updates = []
+        self.resource_health_updates = []
         self.create_error = create_error
         self.delete_error = delete_error
+        self.duplicate_reply_run = duplicate_reply_run
 
     async def create_job(self, request, *, next_run_at, subscription_id) -> Job:
         if self.create_error is not None:
@@ -814,6 +918,49 @@ class _FakeServiceRepo:
 
     async def get_job_by_thread_id_any(self, job_thread_id: str) -> Job:
         return await self.get_job_by_thread_id(job_thread_id)
+
+    async def list_jobs(self, created_from_thread_id: str | None = None) -> list[Job]:
+        if created_from_thread_id is None:
+            return self.jobs
+        return [
+            job
+            for job in self.jobs
+            if job.created_from_thread_id == created_from_thread_id
+        ]
+
+    async def get_job_run_by_client_reply_id(
+        self,
+        job_id: str,
+        client_reply_id: str,
+    ) -> JobRun | None:
+        self.loaded_by_client_reply_id.append((job_id, client_reply_id))
+        return self.duplicate_reply_run
+
+    async def update_job(self, job_id: str, **fields) -> Job:
+        self.updated.append((job_id, fields))
+        if job_id != self.job.id:
+            raise KeyError(job_id)
+        self.job = self.job.model_copy(update=fields)
+        self.jobs = [self.job if job.id == job_id else job for job in self.jobs]
+        return self.job
+
+    async def set_subscription_id(self, job_id: str, subscription_id: str | None) -> None:
+        self.subscription_updates.append((job_id, subscription_id))
+        if job_id != self.job.id:
+            raise KeyError(job_id)
+        self.job = self.job.model_copy(update={"subscription_id": subscription_id})
+        self.jobs = [self.job if job.id == job_id else job for job in self.jobs]
+
+    async def set_job_resource_health(
+        self,
+        job_id: str,
+        *,
+        resource: str,
+        status: str,
+        message: str | None = None,
+    ) -> Job | None:
+        self.resource_health_updates.append((job_id, resource, status, message))
+        return self.job if job_id == self.job.id else None
 
     async def delete_job(self, job_id: str) -> Job:
         self.deleted.append(job_id)
@@ -840,16 +987,34 @@ class _FakeServiceRuntimeClient:
 
 
 class _FakeRecordStore:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        create_error=None,
+        delete_error=None,
+        existing: set[str] | None = None,
+    ) -> None:
         self.created = []
         self.deleted = []
+        self.create_error = create_error
+        self.delete_error = delete_error
+        self.existing = set(existing or set())
+
+    def thing_exists(self, thing_id: str) -> bool:
+        return thing_id in self.existing
 
     def create_or_update_thing(self, **kwargs):
         self.created.append(kwargs)
+        if self.create_error is not None:
+            raise self.create_error
+        self.existing.add(kwargs["thing_id"])
         return {"thing_id": kwargs["thing_id"]}
 
     def delete_thing(self, thing_id: str) -> None:
         self.deleted.append(thing_id)
+        if self.delete_error is not None:
+            raise self.delete_error
+        self.existing.discard(thing_id)
 
 
 class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
@@ -905,9 +1070,46 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             trigger={
                 "source": "user_reply",
                 "message": "kitchen",
+                "client_reply_id": None,
                 "previous_run_id": "run-1",
             },
         )
+
+    async def test_duplicate_reply_id_returns_existing_run_without_enqueue(self) -> None:
+        now = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
+        duplicate_run = JobRun(
+            id="run-1",
+            job_id="job-1",
+            job_thread_id="job:job-1:run:run-1",
+            source=JobRunSource.MANUAL,
+            status=JobRunStatus.SUCCEEDED,
+            trigger_payload={
+                "source": "user_reply",
+                "replies": [{"client_reply_id": "reply-1", "message": "kitchen"}],
+            },
+            result={"ok": True, "assistant": "continued"},
+            response_text="continued",
+            started_at=now,
+            finished_at=now,
+            created_at=now,
+        )
+        repo = _FakeServiceRepo(
+            _job(last_run_id="run-1", last_run_status=JobRunStatus.SUCCEEDED),
+            duplicate_reply_run=duplicate_run,
+        )
+        service = JobService(Settings(), repo=repo)
+
+        with patch("copilot.jobs.service.run_job_task.kiq", AsyncMock()) as enqueue:
+            result = await service.reply_to_job(
+                "job-1",
+                "kitchen",
+                client_reply_id="reply-1",
+            )
+
+        self.assertEqual(result["status"], "duplicate_reply")
+        self.assertEqual(result["result"], {"ok": True, "assistant": "continued"})
+        self.assertEqual(repo.loaded_by_client_reply_id, [("job-1", "reply-1")])
+        enqueue.assert_not_awaited()
 
     async def test_reply_to_waiting_thread_ignores_non_waiting_thread(self) -> None:
         repo = _FakeServiceRepo(_job(last_run_status=JobRunStatus.SUCCEEDED))
@@ -1011,6 +1213,90 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(schedule.removed, ["job-1"])
         self.assertEqual(repo.deleted, ["job-1"])
 
+    async def test_create_record_job_deletes_db_job_when_virtual_thing_creation_fails(
+        self,
+    ) -> None:
+        repo = _FakeServiceRepo(
+            _job(
+                interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+                output_kind=JobOutputKind.STRUCTURED_RECORD,
+                record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+                record_schema_version=1,
+                virtual_thing_id="virtual:records:morning",
+            )
+        )
+        schedule = _FakeScheduleManager()
+        record_store = _FakeRecordStore(create_error=RuntimeError("catalog down"))
+        service = JobService(
+            Settings(),
+            repo=repo,
+            schedule_manager=schedule,
+            record_store=record_store,
+        )
+        request = CreateJobRequest(
+            name="morning",
+            created_from_thread_id="thread-1",
+            interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+            output_kind=JobOutputKind.STRUCTURED_RECORD,
+            prompt="ask",
+            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+            virtual_thing_id="virtual:records:morning",
+            trigger_kind=JobTriggerKind.TIME,
+            schedule_kind=TimeTriggerKind.INTERVAL,
+            interval_seconds=60,
+        )
+
+        with self.assertRaises(RuntimeError):
+            await service.create_job(request)
+
+        self.assertEqual(record_store.created[0]["thing_id"], "virtual:records:morning")
+        self.assertEqual(record_store.deleted, ["virtual:records:morning"])
+        self.assertEqual(schedule.added, [])
+        self.assertEqual(schedule.removed, ["job-1"])
+        self.assertEqual(repo.deleted, ["job-1"])
+
+    async def test_create_structured_time_job_deletes_virtual_thing_when_schedule_fails(
+        self,
+    ) -> None:
+        repo = _FakeServiceRepo(
+            _job(
+                interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+                output_kind=JobOutputKind.STRUCTURED_RECORD,
+                record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+                record_schema_version=1,
+                virtual_thing_id="virtual:records:morning",
+            )
+        )
+        schedule = _FakeScheduleManager(add_error=RuntimeError("redis down"))
+        record_store = _FakeRecordStore()
+        service = JobService(
+            Settings(),
+            repo=repo,
+            schedule_manager=schedule,
+            record_store=record_store,
+        )
+        request = CreateJobRequest(
+            name="morning",
+            created_from_thread_id="thread-1",
+            interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+            output_kind=JobOutputKind.STRUCTURED_RECORD,
+            prompt="ask",
+            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+            virtual_thing_id="virtual:records:morning",
+            trigger_kind=JobTriggerKind.TIME,
+            schedule_kind=TimeTriggerKind.INTERVAL,
+            interval_seconds=60,
+        )
+
+        with self.assertRaises(RuntimeError):
+            await service.create_job(request)
+
+        self.assertEqual(record_store.created[0]["thing_id"], "virtual:records:morning")
+        self.assertEqual(record_store.deleted, ["virtual:records:morning"])
+        self.assertEqual(schedule.added, ["job-1"])
+        self.assertEqual(schedule.removed, ["job-1"])
+        self.assertEqual(repo.deleted, ["job-1"])
+
     async def test_create_event_job_removes_subscription_when_insert_fails(self) -> None:
         repo = _FakeServiceRepo(
             _job(
@@ -1056,6 +1342,33 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(schedule.removed, ["job-1"])
 
+    async def test_delete_structured_time_job_removes_schedule_and_virtual_record_thing(
+        self,
+    ) -> None:
+        schedule = _FakeScheduleManager()
+        record_store = _FakeRecordStore()
+        repo = _FakeServiceRepo(
+            _job(
+                interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+                output_kind=JobOutputKind.STRUCTURED_RECORD,
+                record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+                record_schema_version=1,
+                virtual_thing_id="virtual:records:morning",
+            )
+        )
+        service = JobService(
+            Settings(),
+            repo=repo,
+            schedule_manager=schedule,
+            record_store=record_store,
+        )
+
+        await service.delete_job("job-1")
+
+        self.assertEqual(schedule.removed, ["job-1"])
+        self.assertEqual(record_store.deleted, ["virtual:records:morning"])
+        self.assertEqual(repo.deleted, ["job-1"])
+
     async def test_delete_time_job_keeps_record_when_schedule_cleanup_fails(self) -> None:
         repo = _FakeServiceRepo(_job(interval_seconds=60))
         schedule = _FakeScheduleManager(remove_error=RuntimeError("redis down"))
@@ -1096,6 +1409,199 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(runtime_client.removed, ["sub-1"])
         self.assertEqual(repo.deleted, [])
+
+    async def test_disable_event_job_removes_subscription_and_clears_id(self) -> None:
+        repo = _FakeServiceRepo(
+            _job(
+                trigger_kind=JobTriggerKind.EVENT,
+                schedule_kind=None,
+                interval_seconds=None,
+                next_run_at=None,
+                subscription_id="old-sub",
+                thing_id="thing-1",
+                event_name="changed",
+            )
+        )
+        runtime_client = _FakeServiceRuntimeClient()
+        service = JobService(
+            Settings(),
+            repo=repo,
+            runtime_client=runtime_client,
+            schedule_manager=_FakeScheduleManager(),
+        )
+
+        updated = await service.update_job("job-1", UpdateJobRequest(enabled=False))
+
+        self.assertFalse(updated.enabled)
+        self.assertIsNone(updated.subscription_id)
+        self.assertEqual(runtime_client.removed, ["old-sub"])
+        self.assertEqual(repo.subscription_updates, [("job-1", None)])
+        self.assertEqual(
+            repo.resource_health_updates,
+            [("job-1", "event_subscription", "healthy", None)],
+        )
+
+    async def test_disable_event_job_records_degraded_health_when_cleanup_fails(
+        self,
+    ) -> None:
+        repo = _FakeServiceRepo(
+            _job(
+                trigger_kind=JobTriggerKind.EVENT,
+                schedule_kind=None,
+                interval_seconds=None,
+                next_run_at=None,
+                subscription_id="old-sub",
+                thing_id="thing-1",
+                event_name="changed",
+            )
+        )
+        runtime_client = _FakeServiceRuntimeClient(remove_error=RuntimeError("runtime down"))
+        service = JobService(
+            Settings(),
+            repo=repo,
+            runtime_client=runtime_client,
+            schedule_manager=_FakeScheduleManager(),
+        )
+
+        with self.assertRaises(RuntimeError):
+            await service.update_job("job-1", UpdateJobRequest(enabled=False))
+
+        self.assertEqual(runtime_client.removed, ["old-sub"])
+        self.assertEqual(
+            repo.resource_health_updates,
+            [("job-1", "event_subscription", "degraded", "runtime down")],
+        )
+
+    async def test_enable_event_job_creates_subscription_and_stores_id(self) -> None:
+        repo = _FakeServiceRepo(
+            _job(
+                enabled=False,
+                trigger_kind=JobTriggerKind.EVENT,
+                schedule_kind=None,
+                interval_seconds=None,
+                next_run_at=None,
+                subscription_id=None,
+                thing_id="thing-1",
+                event_name="changed",
+                subscription_input={"threshold": 3},
+            )
+        )
+        runtime_client = _FakeServiceRuntimeClient()
+        service = JobService(
+            Settings(),
+            repo=repo,
+            runtime_client=runtime_client,
+            schedule_manager=_FakeScheduleManager(),
+        )
+
+        updated = await service.update_job("job-1", UpdateJobRequest(enabled=True))
+
+        self.assertTrue(updated.enabled)
+        self.assertEqual(updated.subscription_id, "sub-1")
+        self.assertEqual(runtime_client.subscribed[0]["thing_id"], "thing-1")
+        self.assertEqual(runtime_client.subscribed[0]["event_name"], "changed")
+        self.assertEqual(runtime_client.subscribed[0]["subscription_input"], {"threshold": 3})
+        self.assertEqual(repo.subscription_updates, [("job-1", "sub-1")])
+        self.assertEqual(
+            repo.resource_health_updates,
+            [("job-1", "event_subscription", "healthy", None)],
+        )
+
+
+class JobResourceManagerTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_sync_record_things_repairs_missing_structured_record_thing(self) -> None:
+        record_store = _FakeRecordStore()
+        job = _job(
+            interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+            output_kind=JobOutputKind.STRUCTURED_RECORD,
+            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+            record_schema_version=1,
+            virtual_thing_id="virtual:records:morning",
+        )
+        manager = JobResourceManager(
+            repo=_FakeServiceRepo(job),
+            runtime_client=_FakeServiceRuntimeClient(),
+            schedule_manager=_FakeScheduleManager(),
+            record_store=record_store,
+        )
+
+        repaired = await manager.sync_record_things()
+
+        self.assertEqual(repaired, 1)
+        self.assertEqual(record_store.created[0]["thing_id"], "virtual:records:morning")
+        self.assertEqual(record_store.created[0]["title"], "Demo job")
+
+    async def test_sync_record_things_keeps_existing_structured_record_thing(self) -> None:
+        record_store = _FakeRecordStore(existing={"virtual:records:morning"})
+        job = _job(
+            interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+            output_kind=JobOutputKind.STRUCTURED_RECORD,
+            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+            record_schema_version=1,
+            virtual_thing_id="virtual:records:morning",
+        )
+        manager = JobResourceManager(
+            repo=_FakeServiceRepo(job),
+            runtime_client=_FakeServiceRuntimeClient(),
+            schedule_manager=_FakeScheduleManager(),
+            record_store=record_store,
+        )
+
+        repaired = await manager.sync_record_things()
+
+        self.assertEqual(repaired, 0)
+        self.assertEqual(record_store.created, [])
+
+    async def test_sync_repairs_schedules_and_record_things(self) -> None:
+        schedule = _FakeScheduleManager()
+        record_store = _FakeRecordStore()
+        job = _job(
+            interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
+            output_kind=JobOutputKind.STRUCTURED_RECORD,
+            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+            record_schema_version=1,
+            virtual_thing_id="virtual:records:morning",
+        )
+        manager = JobResourceManager(
+            repo=_FakeServiceRepo(job),
+            runtime_client=_FakeServiceRuntimeClient(),
+            schedule_manager=schedule,
+            record_store=record_store,
+        )
+
+        await manager.sync()
+
+        self.assertEqual(schedule.synced, 1)
+        self.assertEqual(record_store.created[0]["thing_id"], "virtual:records:morning")
+
+    async def test_sync_event_subscriptions_replaces_stale_subscription(self) -> None:
+        repo = _FakeEventRepo(
+            [
+                _job(
+                    trigger_kind=JobTriggerKind.EVENT,
+                    schedule_kind=None,
+                    interval_seconds=None,
+                    next_run_at=None,
+                    thing_id="thing-1",
+                    event_name="overheated",
+                    subscription_id="old-sub",
+                )
+            ]
+        )
+        runtime_client = _FakeRuntimeClient()
+        manager = JobResourceManager(
+            repo=repo,
+            runtime_client=runtime_client,
+            schedule_manager=_FakeScheduleManager(),
+            record_store=_FakeRecordStore(),
+        )
+
+        synced = await manager.sync_event_subscriptions()
+
+        self.assertEqual(synced, 1)
+        self.assertEqual(runtime_client.removed, ["old-sub"])
+        self.assertEqual(runtime_client.subscribed[0]["thing_id"], "thing-1")
+        self.assertEqual(repo.subscription_updates, [("job-1", "new-sub")])
 
 
 class _FakeScheduleRepo:
@@ -1195,6 +1701,7 @@ class _FakeEventRepo:
     def __init__(self, jobs: list[Job]) -> None:
         self.jobs = jobs
         self.subscription_updates = []
+        self.resource_health_updates = []
 
     async def list_event_jobs_for_subscription(self, subscription_id: str) -> list[Job]:
         return [
@@ -1208,6 +1715,17 @@ class _FakeEventRepo:
 
     async def set_subscription_id(self, job_id: str, subscription_id: str | None) -> None:
         self.subscription_updates.append((job_id, subscription_id))
+
+    async def set_job_resource_health(
+        self,
+        job_id: str,
+        *,
+        resource: str,
+        status: str,
+        message: str | None = None,
+    ) -> Job | None:
+        self.resource_health_updates.append((job_id, resource, status, message))
+        return None
 
 
 class _FakeRuntimeClient:
@@ -1465,7 +1983,7 @@ class JobsEventsRouteTestCase(unittest.TestCase):
 
     def test_reply_route_returns_conflict_when_job_is_not_waiting(self) -> None:
         class FakeService:
-            async def reply_to_job(self, job_id, message):
+            async def reply_to_job(self, job_id, message, *, client_reply_id=None):
                 raise JobNotWaitingForInput(job_id)
 
         app = FastAPI()

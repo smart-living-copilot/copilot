@@ -11,7 +11,13 @@ from fastapi.responses import StreamingResponse
 from copilot.auth import User, require_service
 from copilot.catalog.ids import decode_thing_id
 from copilot.core.api_dependencies import verify_internal_api_key
-from copilot.jobs.models import CreateJobRequest, ReplyJobRequest, UpdateJobRequest
+from copilot.jobs.models import (
+    CreateJobRequest,
+    JobRunEvent,
+    JobRunEventType,
+    ReplyJobRequest,
+    UpdateJobRequest,
+)
 from copilot.jobs.records import VirtualRecordStore, virtual_record_http_error
 from copilot.jobs.store import JobNotWaitingForInput, JobRunNotCancellable
 from copilot.threads.messages import checkpoint_thread_messages
@@ -80,6 +86,17 @@ async def list_job_runs(job_id: str, request: Request):
     return {"runs": [run.model_dump() for run in runs]}
 
 
+@router.get("/jobs/{job_id}/run-events")
+async def list_job_run_events(job_id: str, request: Request):
+    verify_internal_api_key(request)
+    service = request.app.state.service
+    try:
+        events = await service.list_job_run_events(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="job not found")
+    return {"events": [event.model_dump(mode="json") for event in events]}
+
+
 @router.get("/jobs/{job_id}/thread")
 async def get_job_thread(job_id: str, request: Request):
     verify_internal_api_key(request)
@@ -108,15 +125,17 @@ async def get_job_thread(job_id: str, request: Request):
             "jobId": job.id,
         }
 
-    checkpointer = getattr(request.app.state, "checkpointer", None)
-    if checkpointer is None:
-        raise HTTPException(status_code=503, detail="Checkpointer not ready")
-
-    messages = await checkpoint_thread_messages(checkpointer, thread_id)
+    events = await service.list_job_run_events(job_id)
+    messages = _messages_from_job_run_events(events)
+    if not messages:
+        checkpointer = getattr(request.app.state, "checkpointer", None)
+        if checkpointer is not None:
+            messages = await checkpoint_thread_messages(checkpointer, thread_id)
     return {
         **record,
         "job": job.model_dump(),
         "run": run.model_dump() if run is not None else None,
+        "events": [event.model_dump(mode="json") for event in events],
         "messages": messages,
     }
 
@@ -126,7 +145,11 @@ async def reply_to_job(job_id: str, payload: ReplyJobRequest, request: Request):
     verify_internal_api_key(request)
     service = request.app.state.service
     try:
-        return await service.reply_to_job(job_id, payload.message)
+        return await service.reply_to_job(
+            job_id,
+            payload.message,
+            client_reply_id=payload.client_reply_id,
+        )
     except KeyError:
         raise HTTPException(status_code=404, detail="job not found")
     except JobNotWaitingForInput as exc:
@@ -242,3 +265,51 @@ def invoke_virtual_record_action(
         }
     except Exception as exc:
         raise virtual_record_http_error(exc) from exc
+
+
+def _messages_from_job_run_events(events: list[JobRunEvent]) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    for event in events:
+        content = _message_content_from_event(event)
+        if not content:
+            continue
+        messages.append(
+            {
+                "id": f"job-event-{event.id}",
+                "role": _message_role_from_event(event.event_type),
+                "content": content,
+                "createdAt": event.created_at.isoformat(),
+                "jobRunId": event.run_id,
+                "jobEventType": event.event_type.value,
+            }
+        )
+    return messages
+
+
+def _message_role_from_event(event_type: JobRunEventType) -> str:
+    if event_type == JobRunEventType.USER_REPLY:
+        return "user"
+    if event_type in {
+        JobRunEventType.ASSISTANT_MESSAGE,
+        JobRunEventType.WAITING_FOR_INPUT,
+    }:
+        return "assistant"
+    return "system"
+
+
+def _message_content_from_event(event: JobRunEvent) -> str:
+    if event.message:
+        return event.message
+    if event.event_type == JobRunEventType.RUN_STARTED:
+        return "Run started."
+    if event.event_type == JobRunEventType.RECORD_SUBMITTED:
+        return "Structured record submitted."
+    if event.event_type == JobRunEventType.RUN_SUCCEEDED:
+        return "Run succeeded."
+    if event.event_type == JobRunEventType.RUN_FAILED:
+        return "Run failed."
+    if event.event_type == JobRunEventType.RUN_CANCELLED:
+        return "Run cancelled."
+    if event.event_type == JobRunEventType.RUN_SKIPPED:
+        return "Run skipped."
+    return ""

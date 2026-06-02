@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from pgvector.sqlalchemy import VECTOR
-from sqlalchemy import DateTime, Text, text
+from sqlalchemy import DateTime, Index, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +13,15 @@ from copilot.core.orm import Base
 
 class SearchIndexChunk(Base):
     __tablename__ = "search_index_chunks"
+    __table_args__ = (
+        Index("idx_search_index_chunks_thing_id", "thing_id"),
+        Index(
+            "idx_search_index_chunks_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
 
     chunk_id: Mapped[str] = mapped_column(Text, primary_key=True)
     thing_id: Mapped[str] = mapped_column(Text, nullable=False)

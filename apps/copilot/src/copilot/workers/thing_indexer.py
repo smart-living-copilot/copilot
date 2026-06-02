@@ -4,6 +4,7 @@ import signal
 import sys
 
 from copilot.core.config import get_settings
+from copilot.core.database import init_db
 from copilot.thing_indexer.consumer import (
     ThingIndexerStreamConsumer,
     ThingIndexerConsumerState,
@@ -35,6 +36,7 @@ async def main() -> None:
         loop.add_signal_handler(sig, _on_signal)
 
     try:
+        await asyncio.to_thread(init_db)
         await consumer.start()
         logger.info("Thing indexer consumer started.")
         await consumer.run_forever(stop_event)

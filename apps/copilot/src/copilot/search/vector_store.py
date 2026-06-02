@@ -130,40 +130,34 @@ class SearchVectorStore:
 
     def _ensure_schema_sync(self) -> None:
         with self._session_factory() as session:
-            session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            session.execute(
-                text(
-                    f"""
-                    CREATE TABLE IF NOT EXISTS search_index_chunks (
-                        chunk_id TEXT PRIMARY KEY,
-                        thing_id TEXT NOT NULL,
-                        page_content TEXT NOT NULL,
-                        metadata_json JSONB NOT NULL DEFAULT '{{}}'::jsonb,
-                        embedding vector({self._embedding_dimensions}) NOT NULL,
-                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                    )
-                    """
+            table_name = session.execute(
+                text("SELECT to_regclass('search_index_chunks')")
+            ).scalar()
+            if table_name is None:
+                raise RuntimeError(
+                    "search_index_chunks table is missing. Run init_db() or "
+                    "`alembic upgrade head` before using semantic search."
                 )
-            )
-            session.execute(
+
+            embedding_type = session.execute(
                 text(
                     """
-                    CREATE INDEX IF NOT EXISTS idx_search_index_chunks_thing_id
-                        ON search_index_chunks(thing_id)
+                    SELECT format_type(attribute.atttypid, attribute.atttypmod)
+                    FROM pg_attribute AS attribute
+                    WHERE attribute.attrelid = to_regclass('search_index_chunks')
+                        AND attribute.attname = 'embedding'
+                        AND NOT attribute.attisdropped
                     """
                 )
-            )
-            session.execute(
-                text(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_search_index_chunks_embedding_hnsw
-                        ON search_index_chunks
-                        USING hnsw (embedding vector_cosine_ops)
-                    """
+            ).scalar()
+            expected_type = f"vector({self._embedding_dimensions})"
+            if embedding_type != expected_type:
+                raise RuntimeError(
+                    "search_index_chunks.embedding has type "
+                    f"{embedding_type or '<missing>'}, expected {expected_type}. "
+                    "Run the database migrations with the configured "
+                    "SEARCH_VECTOR_DIMENSIONS value."
                 )
-            )
-            session.commit()
 
     def _query_similar_sync(
         self,

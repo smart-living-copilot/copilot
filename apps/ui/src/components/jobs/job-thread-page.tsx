@@ -15,7 +15,19 @@ import {
   type FormEvent,
 } from 'react';
 import Link from 'next/link';
-import { Eye, Loader2, MessageSquareReply, RefreshCw, Send } from 'lucide-react';
+import {
+  Bot,
+  CheckCircle2,
+  CircleDot,
+  ClipboardCheck,
+  Eye,
+  Loader2,
+  MessageSquare,
+  MessageSquareReply,
+  RefreshCw,
+  Send,
+  XCircle,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { JobRunHistoryCard } from '@/components/jobs/job-run-history';
@@ -39,8 +51,11 @@ import {
 } from '@/lib/job-formatters';
 import {
   type JobRecord,
+  type JobRunEventRecord,
+  type JobRunEventType,
   type JobRunRecord,
   type JobThreadRecord,
+  createClientReplyId,
   fetchJobRuns,
   fetchJobThread,
   replyToJob,
@@ -74,6 +89,140 @@ function runOutcome(run: JobRunRecord): string {
     }
   }
   return 'No output captured.';
+}
+
+function eventLabel(type: JobRunEventType): string {
+  switch (type) {
+    case 'run_started':
+      return 'Started';
+    case 'user_reply':
+      return 'Reply';
+    case 'waiting_for_input':
+      return 'Waiting';
+    case 'assistant_message':
+      return 'Assistant';
+    case 'record_submitted':
+      return 'Record';
+    case 'run_succeeded':
+      return 'Succeeded';
+    case 'run_failed':
+      return 'Failed';
+    case 'run_cancelled':
+      return 'Cancelled';
+    case 'run_skipped':
+      return 'Skipped';
+  }
+}
+
+function eventIcon(type: JobRunEventType) {
+  switch (type) {
+    case 'run_succeeded':
+      return <CheckCircle2 className="h-4 w-4 text-emerald-600" />;
+    case 'run_failed':
+    case 'run_cancelled':
+      return <XCircle className="h-4 w-4 text-destructive" />;
+    case 'user_reply':
+      return <MessageSquare className="h-4 w-4 text-sky-600" />;
+    case 'assistant_message':
+    case 'waiting_for_input':
+      return <Bot className="h-4 w-4 text-primary" />;
+    case 'record_submitted':
+      return <ClipboardCheck className="h-4 w-4 text-emerald-600" />;
+    default:
+      return <CircleDot className="h-4 w-4 text-muted-foreground" />;
+  }
+}
+
+function eventFallbackMessage(type: JobRunEventType): string {
+  switch (type) {
+    case 'run_started':
+      return 'Run started.';
+    case 'record_submitted':
+      return 'Structured record submitted.';
+    case 'run_succeeded':
+      return 'Run succeeded.';
+    case 'run_failed':
+      return 'Run failed.';
+    case 'run_cancelled':
+      return 'Run cancelled.';
+    case 'run_skipped':
+      return 'Run skipped.';
+    case 'waiting_for_input':
+      return 'Waiting for input.';
+    case 'user_reply':
+      return 'Reply received.';
+    case 'assistant_message':
+      return 'Assistant response.';
+  }
+}
+
+function formatEventTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function payloadPreview(payload: unknown): string | null {
+  if (payload == null) return null;
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
+function JobEventTimeline({ events }: { events: JobRunEventRecord[] }) {
+  return (
+    <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold tracking-tight">Timeline</h2>
+          <Badge variant="outline">{events.length} events</Badge>
+        </div>
+        <div className="divide-y rounded-md border bg-background">
+          {events.map((event) => {
+            const preview =
+              event.event_type === 'record_submitted'
+                ? payloadPreview(event.payload)
+                : null;
+            return (
+              <div
+                key={event.id}
+                className="grid grid-cols-[2rem_1fr] gap-3 px-4 py-3"
+              >
+                <div className="flex h-8 w-8 items-center justify-center rounded-md border bg-muted/30">
+                  {eventIcon(event.event_type)}
+                </div>
+                <div className="min-w-0 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">
+                      {eventLabel(event.event_type)}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {formatEventTime(event.created_at)}
+                    </span>
+                  </div>
+                  <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                    {event.message || eventFallbackMessage(event.event_type)}
+                  </p>
+                  {preview ? (
+                    <pre className="max-h-64 overflow-auto rounded-md bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
+                      {preview}
+                    </pre>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function WaitingReplyCard({
@@ -156,6 +305,10 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
   const [inputValue, setInputValue] = useState('');
   const [isReplying, setIsReplying] = useState(false);
   const voiceTurnWasPendingRef = useRef(false);
+  const pendingReplyRef = useRef<{
+    message: string;
+    clientReplyId: string;
+  } | null>(null);
 
   const load = useCallback(
     async ({ silent = false }: LoadOptions = {}) => {
@@ -213,6 +366,7 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
   const hasJobThread = job ? supportsJobThread(job) : false;
   const isWaiting = job ? supportsJobReply(job) : false;
   const messages = useMemo(() => normalizeMessages(thread), [thread]);
+  const events = thread?.events ?? [];
 
   useEffect(() => {
     if (mediaSession.isAssistantResponsePending) {
@@ -240,6 +394,7 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
   useEffect(() => {
     if (!isWaiting) {
       setInputValue('');
+      pendingReplyRef.current = null;
     }
   }, [isWaiting]);
 
@@ -252,11 +407,20 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
         toast.error('This job is not waiting for input.');
         return;
       }
+      let pendingReply = pendingReplyRef.current;
+      if (!pendingReply || pendingReply.message !== message) {
+        pendingReply = {
+          message,
+          clientReplyId: createClientReplyId(),
+        };
+        pendingReplyRef.current = pendingReply;
+      }
 
       setIsReplying(true);
       try {
-        await replyToJob(jobId, message);
+        await replyToJob(jobId, message, pendingReply.clientReplyId);
         toast.success('Answer submitted.');
+        pendingReplyRef.current = null;
         setInputValue('');
         await load();
       } catch (error) {
@@ -326,7 +490,10 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
               <Badge variant="outline">{getScheduleLabel(job)}</Badge>
               <Badge variant="outline">{runs.length} runs</Badge>
               {hasJobThread ? (
-                <Badge variant="outline">{messages.length} messages</Badge>
+                <Badge variant="outline">
+                  {events.length || messages.length}{' '}
+                  {events.length ? 'events' : 'messages'}
+                </Badge>
               ) : null}
             </div>
           ) : null}
@@ -379,42 +546,47 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
       {job && hasJobThread ? (
         <>
           {isWaiting ? (
-            <WaitingReplyCard
-              question={job.waiting_question || 'The job is waiting for a reply.'}
-              value={inputValue}
-              isSubmitting={isReplying}
-              detailsHref={`/jobs/${jobId}`}
-              onChange={setInputValue}
-              onSubmit={submitReply}
-            />
+            <div className="space-y-5">
+              <WaitingReplyCard
+                question={job.waiting_question || 'The job is waiting for a reply.'}
+                value={inputValue}
+                isSubmitting={isReplying}
+                detailsHref={`/jobs/${jobId}`}
+                onChange={setInputValue}
+                onSubmit={submitReply}
+              />
+              {events.length ? <JobEventTimeline events={events} /> : null}
+            </div>
+          ) : showLiveMode ? (
+            <div className="min-h-[34rem] flex-1 overflow-hidden rounded-md border border-border/70 bg-background shadow-sm shadow-black/5">
+              <LiveModePanel artifacts={[]} session={mediaSession} />
+            </div>
+          ) : events.length ? (
+            <JobEventTimeline events={events} />
           ) : (
             <div className="min-h-[34rem] flex-1 overflow-hidden rounded-md border border-border/70 bg-background shadow-sm shadow-black/5">
-              {showLiveMode ? (
-                <LiveModePanel artifacts={[]} session={mediaSession} />
-              ) : (
-                <CopilotKitProvider
-                  runtimeUrl="/api/copilotkit"
-                  showDevConsole={enableInspector}
-                  renderToolCalls={chatToolCallRenderers}
+              <CopilotKitProvider
+                runtimeUrl="/api/copilotkit"
+                showDevConsole={enableInspector}
+                renderToolCalls={chatToolCallRenderers}
+              >
+                <CopilotChatConfigurationProvider
+                  agentId="copilot"
+                  threadId={threadId}
+                  labels={{
+                    chatInputPlaceholder: 'Transcript view',
+                  }}
                 >
-                  <CopilotChatConfigurationProvider
-                    agentId="copilot"
-                    threadId={threadId}
-                    labels={{
-                      chatInputPlaceholder: 'Transcript view',
-                    }}
-                  >
-                    <CopilotChatView
-                      autoScroll
-                      className="smart-living-copilot-chat h-full"
-                      input={chatInput}
-                      messageView={MessageViewWithWotSummary}
-                      messages={messages}
-                      welcomeScreen={false}
-                    />
-                  </CopilotChatConfigurationProvider>
-                </CopilotKitProvider>
-              )}
+                  <CopilotChatView
+                    autoScroll
+                    className="smart-living-copilot-chat h-full"
+                    input={chatInput}
+                    messageView={MessageViewWithWotSummary}
+                    messages={messages}
+                    welcomeScreen={false}
+                  />
+                </CopilotChatConfigurationProvider>
+              </CopilotKitProvider>
             </div>
           )}
         </>

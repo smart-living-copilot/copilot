@@ -88,7 +88,6 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         async def exercise() -> None:
             with (
                 patch.object(copilot_app, "AgentSettings", return_value=fake_settings),
-                patch.object(copilot_app, "init_thread_store"),
                 patch.object(copilot_app, "init_db"),
                 patch.object(copilot_app, "get_registry_settings"),
                 patch.object(copilot_app, "get_connection_pool", return_value=object()),

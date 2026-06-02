@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from collections.abc import AsyncIterator
@@ -17,6 +16,7 @@ from copilot.jobs.models import (
     JobInteractionMode,
     JobOutputKind,
     JobRun,
+    JobRunEvent,
     JobRunStatus,
     JobTriggerKind,
     TimeTriggerKind,
@@ -28,9 +28,9 @@ from copilot.jobs.records import (
     make_virtual_record_thing_id,
     validate_record_schema,
 )
+from copilot.jobs.resources import JobResourceManager
 from copilot.jobs.schedule import JobScheduleManager, build_schedule_source
 from copilot.jobs.store import JobNotWaitingForInput, JobStore, utc_now
-from copilot.jobs.subscriptions import subscription_id_from_response
 from copilot.clients.wot_runtime import WotRuntimeClient
 from copilot.jobs.taskiq_app import broker, run_job_task
 
@@ -50,13 +50,19 @@ class JobService:
     ) -> None:
         self._settings = settings
         self._repo = repo or JobStore()
-        self._runtime_client = runtime_client or WotRuntimeClient(settings)
         self._run_event_stream = run_event_stream or JobRunEventStream(settings)
-        self._schedule_manager = schedule_manager or JobScheduleManager(
+        runtime_client = runtime_client or WotRuntimeClient(settings)
+        schedule_manager = schedule_manager or JobScheduleManager(
             build_schedule_source(settings),
             repo=self._repo,
         )
-        self._record_store = record_store or VirtualRecordStore()
+        record_store = record_store or VirtualRecordStore()
+        self._resources = JobResourceManager(
+            repo=self._repo,
+            runtime_client=runtime_client,
+            schedule_manager=schedule_manager,
+            record_store=record_store,
+        )
 
     async def start(self) -> None:
         await broker.startup()
@@ -69,7 +75,7 @@ class JobService:
         stale_count = await self._repo.mark_stale_running_runs_failed(cutoff=cutoff)
         if stale_count:
             logger.warning("Marked %d stale job run(s) failed on startup", stale_count)
-        await self._schedule_manager.sync()
+        await self._resources.sync()
 
     async def stop(self) -> None:
         await broker.shutdown()
@@ -77,56 +83,7 @@ class JobService:
     async def create_job(self, request: CreateJobRequest) -> Job:
         request = self._normalize_create_request(request)
         self._validate_request(request)
-
-        next_run_at = None
-        subscription_id = None
-        if request.trigger_kind == JobTriggerKind.TIME:
-            if request.schedule_kind == TimeTriggerKind.ONCE:
-                next_run_at = request.run_at
-            elif request.schedule_kind == TimeTriggerKind.INTERVAL:
-                next_run_at = utc_now() + timedelta(seconds=request.interval_seconds)
-        else:
-            subscription_response = await self._runtime_client.subscribe_event(
-                thing_id=request.thing_id or "",
-                event_name=request.event_name or "",
-                subscription_input=request.subscription_input,
-            )
-            subscription_id = subscription_id_from_response(subscription_response)
-
-        try:
-            job = await self._repo.create_job(
-                request,
-                next_run_at=next_run_at,
-                subscription_id=subscription_id,
-            )
-        except Exception:
-            if subscription_id:
-                await self._remove_subscription_after_create_failure(subscription_id)
-            raise
-
-        if job.output_kind == JobOutputKind.STRUCTURED_RECORD:
-            try:
-                await asyncio.to_thread(
-                    self._record_store.create_or_update_thing,
-                    thing_id=job.virtual_thing_id or "",
-                    source_job_id=job.id,
-                    schema_version=job.record_schema_version or 1,
-                    record_schema=job.record_schema or {},
-                    title=request.virtual_thing_title or job.name,
-                    description=request.virtual_thing_description
-                    or f"Structured records collected by the {job.name} job.",
-                )
-            except Exception:
-                await self._cleanup_created_job_after_create_failure(job)
-                raise
-
-        if job.trigger_kind == JobTriggerKind.TIME:
-            try:
-                await self._schedule_manager.add_job(job)
-            except Exception:
-                await self._cleanup_created_job_after_create_failure(job)
-                raise
-        return job
+        return await self._resources.create_job(request)
 
     async def get_job(self, job_id: str) -> Job:
         return await self._repo.get_job(job_id)
@@ -157,6 +114,10 @@ class JobService:
         await self._repo.get_job(job_id)
         return await self._repo.list_job_runs(job_id)
 
+    async def list_job_run_events(self, job_id: str) -> list[JobRunEvent]:
+        await self._repo.get_job(job_id)
+        return await self._repo.list_job_run_events(job_id)
+
     async def update_job(self, job_id: str, request: UpdateJobRequest) -> Job:
         job = await self._repo.get_job(job_id)
         fields = request.model_dump(exclude_unset=True)
@@ -166,12 +127,7 @@ class JobService:
             return job
 
         updated = await self._repo.update_job(job_id, **fields)
-
-        if updated.trigger_kind == JobTriggerKind.TIME:
-            await self._schedule_manager.remove_job(updated.id)
-            if updated.enabled:
-                await self._schedule_manager.add_job(updated)
-        return updated
+        return await self._resources.update_job_resources(job, updated)
 
     def _validate_update(self, job: Job, fields: dict[str, Any]) -> None:
         if "prompt" in fields:
@@ -195,40 +151,7 @@ class JobService:
         return await self._repo.cancel_active_run(job_id)
 
     async def delete_job(self, job_id: str) -> Job:
-        job = await self._repo.get_job(job_id)
-        await self._remove_job_resources(job)
-        job = await self._repo.delete_job(job_id)
-        return job
-
-    async def _remove_job_resources(self, job: Job) -> None:
-        if job.trigger_kind == JobTriggerKind.TIME:
-            await self._schedule_manager.remove_job(job.id)
-        if job.subscription_id:
-            await self._runtime_client.remove_subscription(
-                subscription_id=job.subscription_id,
-            )
-        if job.virtual_thing_id:
-            await asyncio.to_thread(self._record_store.delete_thing, job.virtual_thing_id)
-
-    async def _remove_subscription_after_create_failure(self, subscription_id: str) -> None:
-        try:
-            await self._runtime_client.remove_subscription(subscription_id=subscription_id)
-        except Exception as exc:
-            logger.warning(
-                "Failed to remove runtime subscription %s after job creation failed: %s",
-                subscription_id,
-                exc,
-            )
-
-    async def _cleanup_created_job_after_create_failure(self, job: Job) -> None:
-        try:
-            await self._remove_job_resources(job)
-        except Exception as exc:
-            logger.warning("Failed to clean external resources for job %s: %s", job.id, exc)
-        try:
-            await self._repo.delete_job(job.id)
-        except Exception as exc:
-            logger.warning("Failed to delete job %s after creation failed: %s", job.id, exc)
+        return await self._resources.delete_job(job_id)
 
     async def run_job_now(self, job_id: str) -> dict[str, Any]:
         await self._repo.get_job(job_id)
@@ -252,9 +175,23 @@ class JobService:
             return value
         return {"ok": True, "response": value}
 
-    async def reply_to_job(self, job_id: str, message: str) -> dict[str, Any]:
+    async def reply_to_job(
+        self,
+        job_id: str,
+        message: str,
+        *,
+        client_reply_id: str | None = None,
+    ) -> dict[str, Any]:
         job = await self._repo.get_job(job_id)
+        client_reply_id = _normalize_client_reply_id(client_reply_id)
         if job.last_run_status != JobRunStatus.WAITING_FOR_INPUT:
+            if client_reply_id:
+                duplicate_run = await self._repo.get_job_run_by_client_reply_id(
+                    job_id,
+                    client_reply_id,
+                )
+                if duplicate_run is not None:
+                    return _duplicate_reply_result(duplicate_run)
             raise JobNotWaitingForInput(job_id)
 
         try:
@@ -263,6 +200,7 @@ class JobService:
                 trigger={
                     "source": "user_reply",
                     "message": message,
+                    "client_reply_id": client_reply_id,
                     "previous_run_id": job.active_run_id or job.last_run_id,
                 },
             )
@@ -378,3 +316,18 @@ class JobService:
             if request.interaction_mode == JobInteractionMode.AUTONOMOUS:
                 fields["interaction_mode"] = JobInteractionMode.REQUIRED_CHECKIN
         return request.model_copy(update=fields) if fields else request
+
+
+def _normalize_client_reply_id(client_reply_id: str | None) -> str | None:
+    normalized = (client_reply_id or "").strip()
+    return normalized or None
+
+
+def _duplicate_reply_result(run: JobRun) -> dict[str, Any]:
+    result = run.result if isinstance(run.result, dict) else None
+    return {
+        "ok": True,
+        "status": "duplicate_reply",
+        "run": run.model_dump(mode="json"),
+        "result": result,
+    }

@@ -7,9 +7,9 @@ from uuid import uuid4
 import redis.asyncio as redis
 
 from copilot.core.settings import Settings
+from copilot.jobs.resources import EventSubscriptionReconciler
 from copilot.jobs.store import JobStore
 from copilot.jobs.stream import StreamConfig, ensure_stream_group, parse_runtime_stream_fields
-from copilot.jobs.subscriptions import subscription_id_from_response
 from copilot.jobs.taskiq_app import run_job_task
 from copilot.clients.wot_runtime import WotRuntimeClient
 
@@ -37,6 +37,10 @@ class JobEventConsumer:
         self._settings = settings
         self._repo = repo or JobStore()
         self._runtime_client = runtime_client or WotRuntimeClient(settings)
+        self._event_subscriptions = EventSubscriptionReconciler(
+            repo=self._repo,
+            runtime_client=self._runtime_client,
+        )
         self._redis: redis.Redis | None = None
         self._stream = StreamConfig(
             stream=settings.wot_runtime_stream,
@@ -71,30 +75,7 @@ class JobEventConsumer:
                     self._redis = None
 
     async def _sync_event_subscriptions(self) -> None:
-        jobs = await self._repo.list_enabled_event_jobs()
-        for job in jobs:
-            if job.subscription_id:
-                try:
-                    await self._runtime_client.remove_subscription(
-                        subscription_id=job.subscription_id,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to remove stale runtime subscription for job %s: %s",
-                        job.id,
-                        exc,
-                    )
-
-            try:
-                subscription_response = await self._runtime_client.subscribe_event(
-                    thing_id=job.thing_id or "",
-                    event_name=job.event_name or "",
-                    subscription_input=job.subscription_input,
-                )
-                subscription_id = subscription_id_from_response(subscription_response)
-                await self._repo.set_subscription_id(job.id, subscription_id)
-            except Exception as exc:
-                logger.error("Failed to sync subscription for job %s: %s", job.id, exc)
+        await self._event_subscriptions.sync()
 
     async def _sync_event_subscriptions_with_lock(self) -> None:
         token = str(uuid4())

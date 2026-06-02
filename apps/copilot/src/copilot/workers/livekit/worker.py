@@ -20,7 +20,7 @@ from copilot.core.settings import Settings
 from copilot.jobs.active import set_active_job_service
 from copilot.jobs.service import JobService
 from copilot.search import ThingSearchService, set_active_search_service
-from copilot.threads import init_thread_store, touch_thread
+from copilot.threads import touch_thread
 from copilot.workers.livekit.capture import livekit_camera_capture
 from copilot.workers.livekit.graph import VoiceSafeGraphStream, compile_graph
 from copilot.workers.livekit.speech import make_stt, make_tts
@@ -79,7 +79,6 @@ async def _start_shared_runtime(settings: Settings) -> None:
         if _runtime_ref_count == 0:
             registry_settings = get_registry_settings()
             await asyncio.to_thread(init_db)
-            await asyncio.to_thread(init_thread_store)
 
             _search_service = ThingSearchService(registry_settings)
             set_active_search_service(_search_service)

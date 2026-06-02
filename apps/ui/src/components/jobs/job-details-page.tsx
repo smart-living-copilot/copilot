@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -61,6 +62,7 @@ import {
   type JobRecord,
   type JobRunRecord,
   cancelJobRun,
+  createClientReplyId,
   deleteJob,
   fetchJob,
   fetchJobRuns,
@@ -122,6 +124,25 @@ function normalizeJobCodeResult(value: unknown): RunCodeResult {
   }
 
   return normalizeRunCodeResult((value as { response?: unknown }).response);
+}
+
+function resourceHealthLabel(status: string | undefined): string {
+  if (status === 'healthy') return 'Healthy';
+  if (status === 'degraded') return 'Degraded';
+  return 'Unknown';
+}
+
+function resourceHealthBadgeVariant(status: string | undefined) {
+  if (status === 'degraded') return 'destructive';
+  if (status === 'healthy') return 'secondary';
+  return 'outline';
+}
+
+function resourceNameLabel(name: string): string {
+  if (name === 'event_subscription') return 'Event subscription';
+  if (name === 'virtual_record_thing') return 'Virtual record Thing';
+  if (name === 'schedule') return 'Schedule';
+  return name.replaceAll('_', ' ');
 }
 
 function FieldCard({
@@ -330,6 +351,10 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
   const [isBusy, setIsBusy] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const pendingReplyRef = useRef<{
+    message: string;
+    clientReplyId: string;
+  } | null>(null);
 
   const load = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -396,6 +421,16 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
     );
     return latestRun ? normalizeJobCodeResult(latestRun.result) : null;
   }, [job?.action_kind, runs]);
+  const degradedResourceMessages = useMemo(() => {
+    const resources = job?.resource_health?.resources;
+    if (!resources) return [];
+    return Object.entries(resources)
+      .filter(([, resource]) => resource.status === 'degraded')
+      .map(([name, resource]) => ({
+        name: resourceNameLabel(name),
+        message: resource.message || 'Resource check failed.',
+      }));
+  }, [job?.resource_health]);
 
   const handleRun = useCallback(async () => {
     setIsRunning(true);
@@ -413,6 +448,7 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
   useEffect(() => {
     if (!isWaitingForReply) {
       setReplyText('');
+      pendingReplyRef.current = null;
     }
   }, [isWaitingForReply]);
 
@@ -421,11 +457,20 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
       event.preventDefault();
       const message = replyText.trim();
       if (!job || !isWaitingForReply || !message) return;
+      let pendingReply = pendingReplyRef.current;
+      if (!pendingReply || pendingReply.message !== message) {
+        pendingReply = {
+          message,
+          clientReplyId: createClientReplyId(),
+        };
+        pendingReplyRef.current = pendingReply;
+      }
 
       setIsReplying(true);
       try {
-        await replyToJob(job.id, message);
+        await replyToJob(job.id, message, pendingReply.clientReplyId);
         toast.success('Answer submitted.');
+        pendingReplyRef.current = null;
         setReplyText('');
         await load({ silent: true });
       } catch (error) {
@@ -640,6 +685,27 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
             </Alert>
           ) : null}
 
+          {job.resource_health?.status === 'degraded' ? (
+            <Alert variant="destructive">
+              <AlertTitle>Resource health degraded</AlertTitle>
+              <AlertDescription>
+                {degradedResourceMessages.length ? (
+                  <div className="space-y-1">
+                    {degradedResourceMessages.map((resource) => (
+                      <div key={resource.name}>
+                        <span className="font-medium">{resource.name}:</span>{' '}
+                        {resource.message}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  job.resource_health.last_error ||
+                  'One or more job resources need attention.'
+                )}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           <Tabs defaultValue="overview" className="space-y-5">
             <div className="overflow-x-auto">
               <TabsList
@@ -724,6 +790,18 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                 <FieldCard
                   label="Last run"
                   value={job.last_run_status || 'No runs'}
+                />
+                <FieldCard
+                  label="Resources"
+                  value={
+                    <Badge
+                      variant={resourceHealthBadgeVariant(
+                        job.resource_health?.status,
+                      )}
+                    >
+                      {resourceHealthLabel(job.resource_health?.status)}
+                    </Badge>
+                  }
                 />
                 {job.virtual_thing_id ? (
                   <FieldCard

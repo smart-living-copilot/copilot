@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Identity, Integer, Text, text
+from sqlalchemy import BigInteger, DateTime, Identity, Index, Integer, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,6 +11,7 @@ from copilot.core.orm import Base
 
 class ThingEventOutbox(Base):
     __tablename__ = "thing_event_outbox"
+    __table_args__ = (Index("idx_thing_event_outbox_pending", "published_at", "id"),)
 
     id: Mapped[int] = mapped_column(
         BigInteger,

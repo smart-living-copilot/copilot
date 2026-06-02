@@ -7,13 +7,23 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, Text, UniqueConstraint, func, select
+from sqlalchemy import (
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    func,
+    select,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
 from copilot.catalog.events import build_change_event, build_remove_event
 from copilot.catalog.events.outbox import enqueue_thing_event
-from copilot.catalog.store import delete_thing, put_thing
+from copilot.catalog.store import delete_thing, get_thing as get_catalog_thing, put_thing
 from copilot.catalog.validation import validate_document
 from copilot.core.database import get_session_factory
 from copilot.core.orm import Base
@@ -43,6 +53,8 @@ class VirtualRecord(Base):
     __tablename__ = "virtual_records"
     __table_args__ = (
         UniqueConstraint("thing_id", "source_run_id", name="uq_virtual_records_run"),
+        Index("idx_virtual_records_thing_recorded", "thing_id", "recorded_at"),
+        Index("idx_virtual_records_source_run", "source_run_id"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -146,6 +158,13 @@ def build_virtual_record_td(
 class VirtualRecordStore:
     def __init__(self, session_factory: sessionmaker[Session] | None = None) -> None:
         self._session_factory = session_factory or get_session_factory()
+
+    def thing_exists(self, thing_id: str) -> bool:
+        with self._session_factory() as session:
+            return (
+                session.get(VirtualRecordThing, thing_id) is not None
+                and get_catalog_thing(session, thing_id) is not None
+            )
 
     def create_or_update_thing(
         self,

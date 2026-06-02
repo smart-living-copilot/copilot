@@ -2,6 +2,47 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy import Boolean, DateTime, Index, Text, text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from copilot.core.orm import Base
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    __table_args__ = (Index("ix_api_keys_key_hash", "key_hash"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    key_prefix: Mapped[str] = mapped_column(Text, nullable=False)
+    key_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+    )
+
 
 @dataclass(frozen=True)
 class ApiKeyRecord:

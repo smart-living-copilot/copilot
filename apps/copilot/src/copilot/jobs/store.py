@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -17,6 +18,9 @@ from copilot.jobs.models import (
     JobOutputKind,
     JobRecord,
     JobRun,
+    JobRunEvent,
+    JobRunEventRecord,
+    JobRunEventType,
     JobRunRecord,
     JobRunSource,
     JobRunStatus,
@@ -47,6 +51,45 @@ def iso(value: datetime) -> str:
 
 def _json_safe(value):
     return json.loads(json.dumps(value, ensure_ascii=True, default=str))
+
+
+def _updated_resource_health(
+    current: Any,
+    *,
+    resource: str,
+    status: str,
+    message: str | None,
+    now: datetime,
+) -> dict[str, Any]:
+    health = dict(current) if isinstance(current, dict) else {}
+    resources = dict(health.get("resources")) if isinstance(health.get("resources"), dict) else {}
+    entry: dict[str, Any] = {
+        "status": status,
+        "checked_at": iso(now),
+    }
+    if message:
+        entry["message"] = message
+    resources[resource] = entry
+
+    has_degraded_resource = any(
+        isinstance(value, dict) and value.get("status") == "degraded"
+        for value in resources.values()
+    )
+    degraded_messages = [
+        str(value.get("message") or "")
+        for value in resources.values()
+        if isinstance(value, dict) and value.get("status") == "degraded"
+    ]
+    degraded_messages = [message for message in degraded_messages if message]
+    overall_status = "degraded" if has_degraded_resource else "healthy"
+    updated: dict[str, Any] = {
+        "status": overall_status,
+        "checked_at": iso(now),
+        "resources": resources,
+    }
+    if degraded_messages:
+        updated["last_error"] = degraded_messages[-1]
+    return _json_safe(updated)
 
 
 def job_thread_id_for_job(job_id: str) -> str:
@@ -88,6 +131,7 @@ def _to_job(row: JobRecord) -> Job:
         event_name=row.event_name,
         subscription_id=row.subscription_id,
         subscription_input=row.subscription_input,
+        resource_health=row.resource_health,
         created_at=row.created_at,
         updated_at=row.updated_at,
         last_run_id=row.last_run_id,
@@ -118,6 +162,18 @@ def _to_job_run(row: JobRunRecord) -> JobRun:
         response_text=row.response_text,
         started_at=row.started_at,
         finished_at=row.finished_at,
+        created_at=row.created_at,
+    )
+
+
+def _to_job_run_event(row: JobRunEventRecord) -> JobRunEvent:
+    return JobRunEvent(
+        id=row.id,
+        job_id=row.job_id,
+        run_id=row.run_id,
+        event_type=JobRunEventType(row.event_type),
+        message=row.message,
+        payload=row.payload,
         created_at=row.created_at,
     )
 
@@ -175,6 +231,7 @@ class JobStore:
                 subscription_input=_json_safe(request.subscription_input)
                 if request.subscription_input is not None
                 else None,
+                resource_health=None,
                 created_at=now,
                 updated_at=now,
                 run_count=0,
@@ -312,6 +369,48 @@ class JobStore:
             row.updated_at = utc_now()
             session.commit()
 
+    async def set_job_resource_health(
+        self,
+        job_id: str,
+        *,
+        resource: str,
+        status: str,
+        message: str | None = None,
+        now: datetime | None = None,
+    ) -> Job | None:
+        return await asyncio.to_thread(
+            self._set_job_resource_health_sync,
+            job_id,
+            resource,
+            status,
+            message,
+            now or utc_now(),
+        )
+
+    def _set_job_resource_health_sync(
+        self,
+        job_id: str,
+        resource: str,
+        status: str,
+        message: str | None,
+        now: datetime,
+    ) -> Job | None:
+        with self._session_factory() as session:
+            statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
+            row = session.scalars(statement).one_or_none()
+            if row is None:
+                return None
+            row.resource_health = _updated_resource_health(
+                row.resource_health,
+                resource=resource,
+                status=status,
+                message=message,
+                now=now,
+            )
+            row.updated_at = now
+            session.commit()
+            return _to_job(row)
+
     async def update_job(
         self,
         job_id: str,
@@ -403,6 +502,14 @@ class JobStore:
                 run_row.status = JobRunStatus.CANCELLED.value
                 run_row.error = "Run cancelled by user."
                 run_row.finished_at = now
+                _add_job_run_event(
+                    session,
+                    job_id=row.id,
+                    run_id=run_row.id,
+                    event_type=JobRunEventType.RUN_CANCELLED,
+                    now=now,
+                    message="Run cancelled by user.",
+                )
 
             row.last_run_status = JobRunStatus.CANCELLED.value
             row.last_error = None
@@ -484,6 +591,18 @@ class JobStore:
                 created_at=now,
             )
             session.add(run)
+            session.flush()
+            _add_job_run_event(
+                session,
+                job_id=row.id,
+                run_id=run.id,
+                event_type=JobRunEventType.RUN_STARTED,
+                now=now,
+                payload={
+                    "source": source.value,
+                    "trigger": trigger_payload,
+                },
+            )
             row.active_run_id = run.id
             row.active_run_started_at = now
             row.active_run_source = source.value
@@ -500,6 +619,7 @@ class JobStore:
         *,
         job_id: str,
         message: str,
+        client_reply_id: str | None,
         previous_run_id: str | None,
         now: datetime,
     ) -> JobRun:
@@ -507,6 +627,7 @@ class JobStore:
             self._start_reply_job_run_sync,
             job_id,
             message,
+            client_reply_id,
             previous_run_id,
             now,
         )
@@ -515,22 +636,31 @@ class JobStore:
         self,
         job_id: str,
         message: str,
+        client_reply_id: str | None,
         previous_run_id: str | None,
         now: datetime,
     ) -> JobRun:
+        client_reply_id = _normalize_client_reply_id(client_reply_id)
         with self._session_factory() as session:
             statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
             row = session.scalars(statement).one_or_none()
             if row is None:
                 raise KeyError(job_id)
-            if row.last_run_status != JobRunStatus.WAITING_FOR_INPUT.value:
-                raise JobNotWaitingForInput(job_id)
             run_id = row.active_run_id or row.last_run_id
             if not run_id:
                 raise KeyError(job_id)
             run_row = session.get(JobRunRecord, run_id)
             if run_row is None:
                 raise KeyError(run_id)
+
+            if client_reply_id and _reply_payload_has_client_reply_id(
+                run_row.trigger_payload,
+                client_reply_id,
+            ):
+                return _duplicate_reply_run(run_row)
+
+            if row.last_run_status != JobRunStatus.WAITING_FOR_INPUT.value:
+                raise JobNotWaitingForInput(job_id)
 
             trigger_payload = _json_safe(
                 {
@@ -547,6 +677,7 @@ class JobStore:
                         ),
                         {
                             "message": message,
+                            "client_reply_id": client_reply_id,
                             "received_at": iso(now),
                             "previous_run_id": previous_run_id
                             or row.active_run_id
@@ -559,6 +690,20 @@ class JobStore:
             run_row.status = JobRunStatus.RUNNING.value
             run_row.trigger_payload = trigger_payload
             run_row.finished_at = None
+            _add_job_run_event(
+                session,
+                job_id=row.id,
+                run_id=run_row.id,
+                event_type=JobRunEventType.USER_REPLY,
+                now=now,
+                message=message,
+                payload={
+                    "client_reply_id": client_reply_id,
+                    "previous_run_id": previous_run_id
+                    or row.active_run_id
+                    or row.last_run_id,
+                },
+            )
 
             row.active_run_id = run_row.id
             row.active_run_started_at = now
@@ -614,6 +759,37 @@ class JobStore:
             if row is None:
                 raise KeyError(run_id)
             return _to_job_run(row)
+
+    async def get_job_run_by_client_reply_id(
+        self,
+        job_id: str,
+        client_reply_id: str,
+    ) -> JobRun | None:
+        return await asyncio.to_thread(
+            self._get_job_run_by_client_reply_id_sync,
+            job_id,
+            client_reply_id,
+        )
+
+    def _get_job_run_by_client_reply_id_sync(
+        self,
+        job_id: str,
+        client_reply_id: str,
+    ) -> JobRun | None:
+        normalized = _normalize_client_reply_id(client_reply_id)
+        if normalized is None:
+            return None
+        statement = (
+            select(JobRunRecord)
+            .where(JobRunRecord.job_id == job_id)
+            .order_by(JobRunRecord.started_at.desc())
+        )
+        with self._session_factory() as session:
+            rows = session.scalars(statement).all()
+            for row in rows:
+                if _reply_payload_has_client_reply_id(row.trigger_payload, normalized):
+                    return _duplicate_reply_run(row)
+        return None
 
     async def get_latest_job_run(self, job_id: str) -> JobRun | None:
         return await asyncio.to_thread(self._get_latest_job_run_sync, job_id)
@@ -695,6 +871,17 @@ class JobStore:
                 run_row.response_text = response_text
                 run_row.result = _json_safe(result) if result is not None else None
                 run_row.finished_at = None if status == JobRunStatus.WAITING_FOR_INPUT else now
+                _add_finish_events(
+                    session,
+                    job_id=job_id,
+                    run_id=run_id,
+                    now=now,
+                    status=status,
+                    error=error,
+                    response_text=response_text,
+                    result=result,
+                    waiting_question=waiting_question,
+                )
 
             job_statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
             job_row = session.scalars(job_statement).one_or_none()
@@ -756,6 +943,14 @@ class JobStore:
                     run_row.status = JobRunStatus.FAILED.value
                     run_row.error = stale_error
                     run_row.finished_at = now
+                    _add_job_run_event(
+                        session,
+                        job_id=job_row.id,
+                        run_id=run_row.id,
+                        event_type=JobRunEventType.RUN_FAILED,
+                        now=now,
+                        message=stale_error,
+                    )
 
                 job_row.last_run_status = JobRunStatus.FAILED.value
                 job_row.last_error = stale_error
@@ -781,6 +976,30 @@ class JobStore:
         with self._session_factory() as session:
             rows = session.scalars(statement).all()
             return [_to_job_run(row) for row in rows]
+
+    async def list_job_run_events(
+        self,
+        job_id: str,
+        *,
+        run_id: str | None = None,
+    ) -> list[JobRunEvent]:
+        return await asyncio.to_thread(self._list_job_run_events_sync, job_id, run_id)
+
+    def _list_job_run_events_sync(
+        self,
+        job_id: str,
+        run_id: str | None,
+    ) -> list[JobRunEvent]:
+        statement = select(JobRunEventRecord).where(JobRunEventRecord.job_id == job_id)
+        if run_id is not None:
+            statement = statement.where(JobRunEventRecord.run_id == run_id)
+        statement = statement.order_by(
+            JobRunEventRecord.created_at.asc(),
+            JobRunEventRecord.id.asc(),
+        )
+        with self._session_factory() as session:
+            rows = session.scalars(statement).all()
+            return [_to_job_run_event(row) for row in rows]
 
     def _create_skipped_run(
         self,
@@ -810,6 +1029,20 @@ class JobStore:
             created_at=now,
         )
         session.add(run)
+        session.flush()
+        _add_job_run_event(
+            session,
+            job_id=job_row.id,
+            run_id=run.id,
+            event_type=JobRunEventType.RUN_SKIPPED,
+            now=now,
+            message=response_text,
+            payload={
+                "source": source.value,
+                "trigger": trigger_payload,
+                "error": error,
+            },
+        )
         job_row.run_count = (job_row.run_count or 0) + 1
         job_row.updated_at = now
         if update_job_snapshot:
@@ -819,6 +1052,147 @@ class JobStore:
             job_row.last_error = error
             job_row.last_response = response_text
         return run
+
+
+def _add_finish_events(
+    session: Session,
+    *,
+    job_id: str,
+    run_id: str,
+    now: datetime,
+    status: JobRunStatus,
+    error: str | None,
+    response_text: str | None,
+    result: dict | None,
+    waiting_question: str | None,
+) -> None:
+    if status == JobRunStatus.WAITING_FOR_INPUT:
+        _add_job_run_event(
+            session,
+            job_id=job_id,
+            run_id=run_id,
+            event_type=JobRunEventType.WAITING_FOR_INPUT,
+            now=now,
+            message=waiting_question or response_text,
+        )
+        return
+
+    submitted_record = _submitted_record_from_run_result(result)
+    if submitted_record is not None:
+        _add_job_run_event(
+            session,
+            job_id=job_id,
+            run_id=run_id,
+            event_type=JobRunEventType.RECORD_SUBMITTED,
+            now=now,
+            message="Structured record submitted.",
+            payload=submitted_record,
+        )
+
+    if response_text:
+        _add_job_run_event(
+            session,
+            job_id=job_id,
+            run_id=run_id,
+            event_type=JobRunEventType.ASSISTANT_MESSAGE,
+            now=now,
+            message=response_text,
+        )
+
+    if status == JobRunStatus.SUCCEEDED:
+        _add_job_run_event(
+            session,
+            job_id=job_id,
+            run_id=run_id,
+            event_type=JobRunEventType.RUN_SUCCEEDED,
+            now=now,
+            message="Run succeeded.",
+        )
+    elif status == JobRunStatus.FAILED:
+        _add_job_run_event(
+            session,
+            job_id=job_id,
+            run_id=run_id,
+            event_type=JobRunEventType.RUN_FAILED,
+            now=now,
+            message=error or "Run failed.",
+        )
+    elif status == JobRunStatus.CANCELLED:
+        _add_job_run_event(
+            session,
+            job_id=job_id,
+            run_id=run_id,
+            event_type=JobRunEventType.RUN_CANCELLED,
+            now=now,
+            message=error or "Run cancelled.",
+        )
+    elif status == JobRunStatus.SKIPPED:
+        _add_job_run_event(
+            session,
+            job_id=job_id,
+            run_id=run_id,
+            event_type=JobRunEventType.RUN_SKIPPED,
+            now=now,
+            message=error or response_text or "Run skipped.",
+        )
+
+
+def _submitted_record_from_run_result(result: dict | None) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+    submitted_record = result.get("submitted_record")
+    return submitted_record if isinstance(submitted_record, dict) else None
+
+
+def _add_job_run_event(
+    session: Session,
+    *,
+    job_id: str,
+    run_id: str,
+    event_type: JobRunEventType,
+    now: datetime,
+    message: str | None = None,
+    payload: Any | None = None,
+) -> None:
+    session.add(
+        JobRunEventRecord(
+            job_id=job_id,
+            run_id=run_id,
+            event_type=event_type.value,
+            message=message,
+            payload=_json_safe(payload) if payload is not None else None,
+            created_at=now,
+        )
+    )
+
+
+def _normalize_client_reply_id(client_reply_id: str | None) -> str | None:
+    normalized = (client_reply_id or "").strip()
+    return normalized or None
+
+
+def _reply_payload_has_client_reply_id(payload: Any, client_reply_id: str) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    replies = payload.get("replies")
+    if not isinstance(replies, list):
+        return False
+    for reply in replies:
+        if not isinstance(reply, dict):
+            continue
+        if reply.get("client_reply_id") == client_reply_id:
+            return True
+    return False
+
+
+def _duplicate_reply_run(row: JobRunRecord) -> JobRun:
+    run = _to_job_run(row)
+    trigger_payload = run.trigger_payload if isinstance(run.trigger_payload, dict) else {}
+    run.trigger_payload = {
+        **trigger_payload,
+        "_duplicate_reply": True,
+    }
+    return run
 
 
 def _has_active_run(row: JobRecord) -> bool:

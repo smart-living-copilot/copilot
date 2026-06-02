@@ -24,7 +24,6 @@ from copilot.agent import build_graph
 from copilot.media.routes import create_media_router
 from copilot.core.settings import Settings as AgentSettings
 from copilot.threads import (
-    init_thread_store,
     suggest_thread_title,
     sync_thread_after_run,
 )
@@ -206,7 +205,6 @@ async def lifespan(app: FastAPI):
     _settings = settings
     logging.basicConfig(level=settings.log_level)
     await asyncio.to_thread(init_db)
-    await asyncio.to_thread(init_thread_store)
 
     registry_settings = get_registry_settings()
     connection_pool = get_connection_pool()

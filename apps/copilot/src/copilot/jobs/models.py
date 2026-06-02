@@ -5,7 +5,17 @@ from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -50,6 +60,18 @@ class JobRunStatus(StrEnum):
     WAITING_FOR_INPUT = "waiting_for_input"
     CANCELLED = "cancelled"
     SKIPPED = "skipped"
+
+
+class JobRunEventType(StrEnum):
+    RUN_STARTED = "run_started"
+    USER_REPLY = "user_reply"
+    WAITING_FOR_INPUT = "waiting_for_input"
+    ASSISTANT_MESSAGE = "assistant_message"
+    RECORD_SUBMITTED = "record_submitted"
+    RUN_SUCCEEDED = "run_succeeded"
+    RUN_FAILED = "run_failed"
+    RUN_CANCELLED = "run_cancelled"
+    RUN_SKIPPED = "run_skipped"
 
 
 class JobRecord(Base):
@@ -126,6 +148,7 @@ class JobRecord(Base):
     event_name: Mapped[str | None] = mapped_column(Text)
     subscription_id: Mapped[str | None] = mapped_column(Text)
     subscription_input: Mapped[Any | None] = mapped_column(JSONB)
+    resource_health: Mapped[Any | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_run_id: Mapped[str | None] = mapped_column(Text)
@@ -175,6 +198,50 @@ class JobRunRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class JobRunEventRecord(Base):
+    """Canonical user/debug timeline for a job run."""
+
+    __tablename__ = "job_run_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ("
+            "'run_started', "
+            "'user_reply', "
+            "'waiting_for_input', "
+            "'assistant_message', "
+            "'record_submitted', "
+            "'run_succeeded', "
+            "'run_failed', "
+            "'run_cancelled', "
+            "'run_skipped'"
+            ")",
+            name="ck_job_run_events_type",
+        ),
+        Index("idx_job_run_events_job_created", "job_id", "created_at", "id"),
+        Index("idx_job_run_events_run_created", "run_id", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(),
+        primary_key=True,
+    )
+    job_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    run_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("job_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[str | None] = mapped_column(Text)
+    payload: Mapped[Any | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class Job(BaseModel):
     id: str
     name: str
@@ -204,6 +271,7 @@ class Job(BaseModel):
     event_name: str | None = None
     subscription_id: str | None = None
     subscription_input: Any | None = None
+    resource_health: Any | None = None
     created_at: datetime
     updated_at: datetime
     last_run_id: str | None = None
@@ -230,6 +298,16 @@ class JobRun(BaseModel):
     response_text: str | None = None
     started_at: datetime
     finished_at: datetime | None = None
+    created_at: datetime
+
+
+class JobRunEvent(BaseModel):
+    id: int
+    job_id: str
+    run_id: str
+    event_type: JobRunEventType
+    message: str | None = None
+    payload: Any | None = None
     created_at: datetime
 
 
@@ -287,3 +365,4 @@ class UpdateJobRequest(BaseModel):
 
 class ReplyJobRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
+    client_reply_id: str | None = Field(default=None, min_length=1, max_length=120)
