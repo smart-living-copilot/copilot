@@ -9,12 +9,13 @@ import {
 } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2, Save } from 'lucide-react';
+import { Save } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import {
   Card,
   CardContent,
@@ -187,7 +188,7 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
     return (
       <Card className="rounded-md border-border/70">
         <CardContent className="flex min-h-56 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <Spinner className="size-6 text-primary" />
         </CardContent>
       </Card>
     );
@@ -221,7 +222,7 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
             disabled={isSubmitting || Boolean(validationError)}
           >
             {isSubmitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Spinner className="size-4" />
             ) : (
               <Save className="h-4 w-4" />
             )}
@@ -324,9 +325,7 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
             ) : isCron ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    Cron expression
-                  </label>
+                  <label className="text-sm font-medium">Cron expression</label>
                   <Input
                     value={form.cronExpression}
                     onChange={(event) =>

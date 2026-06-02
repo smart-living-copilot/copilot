@@ -12,7 +12,6 @@ import Link from 'next/link';
 import {
   Ban,
   Eye,
-  Loader2,
   MessagesSquare,
   MoreHorizontal,
   Pause,
@@ -31,6 +30,8 @@ import { VoiceModeToggle } from '@/components/jobs/job-speech-controls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -245,7 +246,7 @@ function JobRowActions({
       />
       <IconAction label="Run now" disabled={busy} onClick={onRun}>
         {running ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Spinner className="size-3.5" />
         ) : (
           <Play className="h-3.5 w-3.5" />
         )}
@@ -582,8 +583,10 @@ export function JobsList() {
               </div>
 
               {isPending ? (
-                <div className="flex min-h-48 items-center justify-center rounded-md border">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                <div className="space-y-2 rounded-md border p-3">
+                  {['r1', 'r2', 'r3', 'r4', 'r5'].map((key) => (
+                    <Skeleton key={key} className="h-12 w-full rounded-md" />
+                  ))}
                 </div>
               ) : visibleJobs.length > 0 ? (
                 <div className="overflow-x-auto rounded-md border">

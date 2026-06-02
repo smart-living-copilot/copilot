@@ -21,7 +21,6 @@ import {
   CircleDot,
   ClipboardCheck,
   Eye,
-  Loader2,
   MessageSquare,
   MessageSquareReply,
   RefreshCw,
@@ -47,6 +46,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { useJobEvents } from '@/hooks/use-job-events';
 import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
@@ -334,7 +334,7 @@ function WaitingReplyCard({
             />
             <Button type="submit" disabled={!canSubmit}>
               {isSubmitting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Spinner className="size-4" />
               ) : (
                 <Send className="h-4 w-4" />
               )}
@@ -581,7 +581,7 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
       {isLoading && !thread ? (
         <Card className="rounded-md border-border/70">
           <CardContent className="flex min-h-56 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <Spinner className="size-6 text-primary" />
           </CardContent>
         </Card>
       ) : null}

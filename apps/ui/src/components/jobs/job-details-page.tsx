@@ -13,7 +13,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Ban,
-  Loader2,
   MessagesSquare,
   Pause,
   Pencil,
@@ -34,6 +33,8 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
 import { RunCodeArtifactCard } from '@/components/copilot/chat-tool-call-cards';
 import {
   formatArtifactSummary,
@@ -365,7 +366,7 @@ function JobReplyPanel({
             />
             <Button type="submit" disabled={!canSubmit}>
               {isSubmitting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Spinner className="size-4" />
               ) : (
                 <Send className="h-4 w-4" />
               )}
@@ -671,7 +672,7 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
             }
           >
             {isRunning ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Spinner className="size-4" />
             ) : (
               <Play className="h-4 w-4" />
             )}
@@ -691,7 +692,7 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                 }
               >
                 {isDeleting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Spinner className="size-4" />
                 ) : (
                   <Trash2 className="h-4 w-4" />
                 )}
@@ -703,11 +704,14 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
       </section>
 
       {isLoading && !job ? (
-        <Card className="rounded-md border-border/70">
-          <CardContent className="flex min-h-56 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {['status', 'action', 'trigger', 'last-run'].map((key) => (
+              <Skeleton key={key} className="h-[68px] rounded-md" />
+            ))}
+          </section>
+          <Skeleton className="h-72 rounded-md" />
+        </div>
       ) : null}
 
       {loadError && !job ? (

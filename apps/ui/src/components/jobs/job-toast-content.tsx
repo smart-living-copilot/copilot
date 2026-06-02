@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState, type FormEvent } from 'react';
-import { Loader2, Send } from 'lucide-react';
+import { Send } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -9,6 +9,7 @@ import {
   VoiceAnswerButton,
 } from '@/components/jobs/job-speech-controls';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import {
   createClientReplyId,
@@ -123,7 +124,7 @@ function JobToastAnswerForm({
         />
         <Button type="submit" size="sm" disabled={!canSubmit}>
           {isSubmitting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Spinner className="size-4" />
           ) : (
             <Send className="h-4 w-4" />
           )}

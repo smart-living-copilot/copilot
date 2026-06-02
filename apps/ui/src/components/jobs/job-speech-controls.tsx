@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { Loader2, Mic, Square, Volume2, VolumeX } from 'lucide-react';
+import { Mic, Square, Volume2, VolumeX } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { useSpeechPlayback } from '@/components/jobs/speech-playback-context';
 import { transcribeSpeech } from '@/lib/speech-api';
 
@@ -62,7 +63,7 @@ export function ReadAloudButton({
       onClick={() => void handleClick()}
     >
       {isLoading ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
+        <Spinner className="size-4" />
       ) : isPlaying ? (
         <Square className="h-4 w-4" />
       ) : (
@@ -236,7 +237,7 @@ export function VoiceAnswerButton({
       }}
     >
       {isTranscribing ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
+        <Spinner className="size-4" />
       ) : isRecording ? (
         <Square className="h-4 w-4" />
       ) : (

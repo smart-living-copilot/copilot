@@ -3,10 +3,11 @@
 import { FormEvent, useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import {
   Card,
   CardContent,
@@ -196,11 +197,13 @@ export function JobCreatePage() {
           <Button
             type="submit"
             disabled={
-              isSubmitting || Boolean(validationError) || Boolean(subscriptionError)
+              isSubmitting ||
+              Boolean(validationError) ||
+              Boolean(subscriptionError)
             }
           >
             {isSubmitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Spinner className="size-4" />
             ) : (
               <Plus className="h-4 w-4" />
             )}
