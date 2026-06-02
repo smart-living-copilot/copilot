@@ -144,7 +144,11 @@ export interface CreateJobPayload {
   name: string;
   created_from_thread_id?: string;
   action_kind: 'prompt' | 'analysis';
-  interaction_mode?: 'autonomous' | 'ask_when_needed' | 'required_checkin' | 'approval_gate';
+  interaction_mode?:
+    | 'autonomous'
+    | 'ask_when_needed'
+    | 'required_checkin'
+    | 'approval_gate';
   output_kind?: 'narrative' | 'structured_record';
   prompt?: string;
   analysis_code?: string;
@@ -262,7 +266,10 @@ export async function fetchJobThread(jobId: string): Promise<JobThreadRecord> {
 }
 
 export function createClientReplyId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
     return crypto.randomUUID();
   }
   return `reply-${Date.now()}-${Math.random().toString(16).slice(2)}`;

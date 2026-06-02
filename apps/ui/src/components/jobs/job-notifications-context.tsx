@@ -79,7 +79,8 @@ export function JobNotificationsProvider({
   const clear = useCallback(() => setNotifications([]), []);
 
   const unreadCount = useMemo(
-    () => notifications.reduce((count, entry) => count + (entry.read ? 0 : 1), 0),
+    () =>
+      notifications.reduce((count, entry) => count + (entry.read ? 0 : 1), 0),
     [notifications],
   );
 
