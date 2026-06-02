@@ -75,7 +75,6 @@ def _run_alembic_upgrade() -> None:
             connection.execute("SELECT pg_advisory_unlock(%s, %s)", _MIGRATION_LOCK_KEY)
 
 
-def init_db(pool: ConnectionPool[DatabaseConnection] | None = None) -> None:
+def init_db() -> None:
     """Create or update the Postgres schema owned by the copilot service."""
-    _ = pool
     _run_alembic_upgrade()

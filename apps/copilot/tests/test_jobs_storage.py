@@ -29,7 +29,6 @@ from copilot.jobs.store import (
     job_run_thread_id_for_run,
     utc_now,
 )
-from copilot.threads.store import init_thread_store
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("COPILOT_TEST_DATABASE_URL"),
@@ -53,7 +52,6 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         get_settings.cache_clear()
         _close_cached_pool()
         init_db()
-        init_thread_store()
         with get_connection_pool().connection() as connection:
             connection.execute("TRUNCATE job_runs, jobs, threads RESTART IDENTITY CASCADE")
             connection.commit()

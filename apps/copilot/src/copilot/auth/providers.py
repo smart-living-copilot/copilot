@@ -6,6 +6,7 @@ from fastapi import Request
 from copilot.api_keys import hash_api_key, lookup_api_key_by_hash, touch_last_used
 from copilot.auth.models import User
 from copilot.core.config import get_settings
+from copilot.core.database import get_session_factory
 from copilot.core.scopes import SERVICE_SCOPES
 
 SERVICE_NAME_HEADER = "X-Registry-Service"
@@ -48,14 +49,18 @@ def get_api_key_user(request: Request) -> User | None:
 
     token = auth_header[7:]
     key_hash = hash_api_key(token)
-    with request.app.state.connection_pool.connection() as connection:
-        row = lookup_api_key_by_hash(connection, key_hash)
+    session_factory = getattr(request.app.state, "orm_session_factory", None)
+    if session_factory is None:
+        session_factory = get_session_factory()
+
+    with session_factory() as session:
+        row = lookup_api_key_by_hash(session, key_hash)
         if row is None or not row.is_active:
             return None
         if row.expires_at is not None and row.expires_at < datetime.now(timezone.utc):
             return None
 
-        touch_last_used(connection, row)
+        touch_last_used(session, row)
         return User(
             user_id=row.user_id,
             scopes=list(row.scopes or []),

@@ -44,11 +44,11 @@ def initialize_app_state(
 
 def bootstrap_persistent_state(
     *,
-    connection_pool: ConnectionPool[DatabaseConnection],
     settings: Settings,
 ) -> None:
-    with connection_pool.connection() as connection:
-        BackendBootstrapService(connection).bootstrap(settings)
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        BackendBootstrapService(session).bootstrap(settings)
 
 
 def _start_background_task(
@@ -131,7 +131,7 @@ async def start_backend_runtime(
 ) -> None:
     settings.validate_runtime_security_settings()
     initialize_app_state(app, settings=settings, connection_pool=connection_pool)
-    bootstrap_persistent_state(connection_pool=connection_pool, settings=settings)
+    bootstrap_persistent_state(settings=settings)
 
     try:
         start_thing_event_outbox(app, settings=settings)

@@ -73,7 +73,7 @@ class ThingIndexerService:
             raise RuntimeError(
                 "OPENAI_MODEL must be set for thing indexer LLM summarization."
             )
-        await self._vector_store.ensure_schema()
+        await self._vector_store.validate_schema()
 
     async def process_event(self, event: dict[str, Any]) -> None:
         thing_id = clean_text(event.get("id"))

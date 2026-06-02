@@ -180,10 +180,6 @@ class ThreadStore:
         return True
 
 
-def init_thread_store() -> None:
-    """Compatibility hook; thread schema is managed by Alembic migrations."""
-
-
 def list_threads() -> list[ThreadRecord]:
     return ThreadStore().list()
 

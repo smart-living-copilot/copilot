@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from copilot.auth import User, require_scopes
-from copilot.core.api_dependencies import DatabaseDep
+from copilot.core.api_dependencies import SessionDep
 from copilot.core.scopes import API_KEY_SCOPES
 from copilot.api_keys.service import ApiKeyManagementService
 
@@ -57,10 +57,10 @@ def _serialize_api_key(record) -> dict[str, Any]:
 @router.post("/keys", status_code=201)
 def create_key(
     body: CreateApiKeyRequest,
-    connection: DatabaseDep,
+    session: SessionDep,
     user: User = Depends(require_scopes(["keys:manage"])),
 ) -> dict[str, Any]:
-    record, raw_key = ApiKeyManagementService(connection).create_for_user(
+    record, raw_key = ApiKeyManagementService(session).create_for_user(
         user=user,
         name=body.name,
         scopes=body.scopes,
@@ -75,10 +75,10 @@ def create_key(
 
 @router.get("/keys")
 def list_keys(
-    connection: DatabaseDep,
+    session: SessionDep,
     user: User = Depends(require_scopes(["keys:manage"])),
 ) -> dict[str, Any]:
-    records = ApiKeyManagementService(connection).list_for_user(user.user_id)
+    records = ApiKeyManagementService(session).list_for_user(user.user_id)
     return {"items": [_serialize_api_key(record) for record in records]}
 
 
@@ -92,8 +92,8 @@ def list_key_scopes(
 @router.delete("/keys/{key_id}")
 def revoke_key(
     key_id: str,
-    connection: DatabaseDep,
+    session: SessionDep,
     user: User = Depends(require_scopes(["keys:manage"])),
 ) -> dict[str, str]:
-    ApiKeyManagementService(connection).revoke_for_user(key_id, user.user_id)
+    ApiKeyManagementService(session).revoke_for_user(key_id, user.user_id)
     return {"id": key_id, "status": "revoked"}

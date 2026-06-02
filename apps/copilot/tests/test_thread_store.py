@@ -10,7 +10,7 @@ from copilot.core.database import (
     get_sqlalchemy_engine,
     init_db,
 )
-from copilot.threads import ThreadKind, init_thread_store
+from copilot.threads import ThreadKind
 from copilot.threads.store import (
     create_thread,
     delete_thread,
@@ -43,7 +43,6 @@ class ThreadStoreTestCase(unittest.TestCase):
         get_settings.cache_clear()
         _close_cached_pool()
         init_db()
-        init_thread_store()
         with get_connection_pool().connection() as connection:
             connection.execute("TRUNCATE threads")
             connection.commit()

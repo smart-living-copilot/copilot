@@ -11,7 +11,6 @@ from copilot.core.database import (
 )
 from copilot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
 from copilot.search import set_active_search_service
-from copilot.threads import init_thread_store
 from copilot.catalog.schema import load_td_schema
 
 
@@ -77,7 +76,6 @@ async def _registry_only_lifespan(app):
     settings = get_settings()
     app.state.settings = settings
     init_db()
-    init_thread_store()
     connection_pool = get_connection_pool()
     await start_backend_runtime(
         app,
@@ -109,11 +107,10 @@ def clear_backend_state(monkeypatch):
     get_settings.cache_clear()
     _close_cached_pool()
     load_td_schema.cache_clear()
-    init_pool = get_connection_pool()
     from copilot.core.database import init_db
 
-    init_db(init_pool)
-    init_thread_store()
+    init_db()
+    init_pool = get_connection_pool()
     with init_pool.connection() as connection:
         connection.execute(
             """

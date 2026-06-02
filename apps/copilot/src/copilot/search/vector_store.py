@@ -58,8 +58,8 @@ class SearchVectorStore:
         self._embedding_dimensions = embedding_dimensions
         self._session_factory = session_factory or get_session_factory()
 
-    async def ensure_schema(self) -> None:
-        await asyncio.to_thread(self._ensure_schema_sync)
+    async def validate_schema(self) -> None:
+        await asyncio.to_thread(self._validate_schema_sync)
 
     async def query_similar(
         self,
@@ -70,7 +70,7 @@ class SearchVectorStore:
         if limit < 1:
             return []
 
-        await self.ensure_schema()
+        await self.validate_schema()
         embeddings = self._require_embeddings()
         query_embedding = self._validate_embedding(
             await embeddings.aembed_query(query),
@@ -82,7 +82,7 @@ class SearchVectorStore:
         )
 
     async def get_device_chunk(self, thing_id: str) -> SearchIndexDocument | None:
-        await self.ensure_schema()
+        await self.validate_schema()
         return await asyncio.to_thread(self._get_device_chunk_sync, thing_id)
 
     async def replace_thing_chunks(
@@ -90,7 +90,7 @@ class SearchVectorStore:
         thing_id: str,
         chunks: list[tuple[str, SearchIndexDocument]],
     ) -> None:
-        await self.ensure_schema()
+        await self.validate_schema()
         documents_by_id = dict(chunks)
         next_chunk_ids = list(documents_by_id)
 
@@ -125,10 +125,10 @@ class SearchVectorStore:
         )
 
     async def delete_thing_chunks(self, thing_id: str) -> None:
-        await self.ensure_schema()
+        await self.validate_schema()
         await asyncio.to_thread(self._delete_thing_chunks_sync, thing_id)
 
-    def _ensure_schema_sync(self) -> None:
+    def _validate_schema_sync(self) -> None:
         with self._session_factory() as session:
             table_name = session.execute(
                 text("SELECT to_regclass('search_index_chunks')")
