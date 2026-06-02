@@ -330,27 +330,38 @@ function JobReplyPanel({
             placeholder="Answer..."
             value={value}
             onChange={(event) => onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
             disabled={isSubmitting}
           />
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="outline" asChild>
-              <Link href={transcriptHref}>
-                <MessagesSquare className="h-4 w-4" />
-                View transcript
-              </Link>
-            </Button>
-            <VoiceAnswerButton
-              disabled={isSubmitting}
-              onTranscript={onVoiceAnswer}
-            />
-            <Button type="submit" disabled={!canSubmit}>
-              {isSubmitting ? (
-                <Spinner className="size-4" />
-              ) : (
-                <Send className="h-4 w-4" />
-              )}
-              Submit answer
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground">
+              Press ⌘/Ctrl + Enter to submit
+            </span>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button variant="outline" asChild>
+                <Link href={transcriptHref}>
+                  <MessagesSquare className="h-4 w-4" />
+                  View transcript
+                </Link>
+              </Button>
+              <VoiceAnswerButton
+                disabled={isSubmitting}
+                onTranscript={onVoiceAnswer}
+              />
+              <Button type="submit" disabled={!canSubmit}>
+                {isSubmitting ? (
+                  <Spinner className="size-4" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                Submit answer
+              </Button>
+            </div>
           </div>
         </form>
       </CardContent>

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from '@/components/theme-provider';
+import { JobNotificationsBell } from '@/components/jobs/job-notifications-bell';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -63,7 +64,8 @@ export function SiteHeader({ breadcrumbs = [], children }: SiteHeaderProps) {
 
       {children}
 
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-1">
+        <JobNotificationsBell />
         <Button
           variant="ghost"
           size="icon"

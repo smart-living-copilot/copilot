@@ -192,6 +192,12 @@ function JobToastAnswerForm({
         placeholder="Answer..."
         value={value}
         onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault();
+            event.currentTarget.form?.requestSubmit();
+          }
+        }}
         disabled={isSubmitting}
       />
       <div className="flex items-center justify-end gap-2">

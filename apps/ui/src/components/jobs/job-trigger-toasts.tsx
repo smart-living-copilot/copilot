@@ -4,6 +4,7 @@ import { useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 
 import { useJobDetail } from '@/components/jobs/job-detail-context';
+import { useJobNotifications } from '@/components/jobs/job-notifications-context';
 import { JobToastContent } from '@/components/jobs/job-toast-content';
 import { useSpeechPlayback } from '@/components/jobs/speech-playback-context';
 import { useJobEvents } from '@/hooks/use-job-events';
@@ -33,6 +34,7 @@ function summarizeResult(job: JobRecord): string {
 export function JobTriggerToasts() {
   const { openJobDetail } = useJobDetail();
   const { voiceMode, play } = useSpeechPlayback();
+  const { addNotification } = useJobNotifications();
   const seenRunsRef = useRef<Set<string>>(new Set());
 
   const handleJob = useCallback(
@@ -78,6 +80,12 @@ export function JobTriggerToasts() {
         duration: isWaiting || job.last_error?.trim() ? Infinity : undefined,
       };
 
+      const status = isWaiting
+        ? 'waiting'
+        : job.last_error?.trim()
+          ? 'failed'
+          : 'success';
+
       if (isWaiting) {
         toast(`Job needs input: ${job.name}`, options);
       } else if (job.last_error?.trim()) {
@@ -86,12 +94,21 @@ export function JobTriggerToasts() {
         toast.success(`Job triggered: ${job.name}`, options);
       }
 
+      addNotification({
+        id: toastId,
+        jobId: job.id,
+        jobName: job.name,
+        status,
+        summary: detail,
+        at: job.last_run_at ?? new Date().toISOString(),
+      });
+
       if (voiceMode && detail.trim()) {
         // Best-effort hands-free read-out; ignore autoplay/synthesis failures.
         void play(toastId, detail).catch(() => {});
       }
     },
-    [openJobDetail, play, voiceMode],
+    [addNotification, openJobDetail, play, voiceMode],
   );
 
   useJobEvents(handleJob);

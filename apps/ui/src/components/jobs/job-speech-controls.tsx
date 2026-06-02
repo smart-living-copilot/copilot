@@ -100,6 +100,36 @@ export function VoiceModeToggle() {
   );
 }
 
+const MAX_RECORDING_MS = 60_000;
+const METER_BARS = [
+  { id: 'a', scale: 0.6 },
+  { id: 'b', scale: 1 },
+  { id: 'c', scale: 0.8 },
+  { id: 'd', scale: 0.45 },
+];
+
+function formatClock(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function RecordingMeter({ level }: { level: number }) {
+  return (
+    <span className="flex items-center gap-0.5" aria-hidden>
+      {METER_BARS.map((bar) => (
+        <span
+          key={bar.id}
+          className="w-0.5 rounded-full bg-current"
+          style={{
+            height: `${Math.max(3, Math.min(16, level * 16 * bar.scale))}px`,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
 export function VoiceAnswerButton({
   disabled = false,
   onTranscript,
@@ -109,24 +139,42 @@ export function VoiceAnswerButton({
 }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [level, setLevel] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   const cleanupStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }, []);
 
+  const stopAnalysis = useCallback(() => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    if (audioContextRef.current) {
+      void audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    setLevel(0);
+    setElapsedSeconds(0);
+  }, []);
+
   const stopRecording = useCallback(() => {
     const recorder = recorderRef.current;
     if (!recorder || recorder.state === 'inactive') {
       cleanupStream();
+      stopAnalysis();
       setIsRecording(false);
       return;
     }
     recorder.stop();
-  }, [cleanupStream]);
+  }, [cleanupStream, stopAnalysis]);
 
   useEffect(() => {
     return () => {
@@ -134,8 +182,52 @@ export function VoiceAnswerButton({
         recorderRef.current.stop();
       }
       cleanupStream();
+      stopAnalysis();
     };
-  }, [cleanupStream]);
+  }, [cleanupStream, stopAnalysis]);
+
+  // Sample microphone amplitude for the live meter, surface elapsed time, and
+  // auto-stop once the recording hits the max duration.
+  const startAnalysis = useCallback(
+    (stream: MediaStream) => {
+      const AudioContextCtor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!AudioContextCtor) return;
+
+      const audioContext = new AudioContextCtor();
+      audioContextRef.current = audioContext;
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      audioContext.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Uint8Array(analyser.frequencyBinCount);
+      const startedAt = Date.now();
+
+      const tick = () => {
+        analyser.getByteTimeDomainData(samples);
+        let sumSquares = 0;
+        for (let i = 0; i < samples.length; i += 1) {
+          const deviation = (samples[i] - 128) / 128;
+          sumSquares += deviation * deviation;
+        }
+        const rms = Math.sqrt(sumSquares / samples.length);
+        setLevel(Math.min(1, rms * 3));
+
+        const elapsed = Date.now() - startedAt;
+        const seconds = Math.floor(elapsed / 1000);
+        setElapsedSeconds((prev) => (prev === seconds ? prev : seconds));
+
+        if (elapsed >= MAX_RECORDING_MS) {
+          stopRecording();
+          return;
+        }
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    },
+    [stopRecording],
+  );
 
   const startRecording = useCallback(async () => {
     if (
@@ -173,6 +265,7 @@ export function VoiceAnswerButton({
           const mimeType = recorder.mimeType || 'audio/webm';
           const audio = new Blob(chunksRef.current, { type: mimeType });
           cleanupStream();
+          stopAnalysis();
           setIsRecording(false);
           if (audio.size === 0) {
             toast.error('No audio was captured.');
@@ -207,20 +300,15 @@ export function VoiceAnswerButton({
       );
       recorder.start();
       setIsRecording(true);
+      startAnalysis(stream);
     } catch (error) {
       cleanupStream();
+      stopAnalysis();
       toast.error(
         error instanceof Error ? error.message : 'Failed to start recording.',
       );
     }
-  }, [cleanupStream, onTranscript]);
-
-  const isBusy = isRecording || isTranscribing;
-  const label = isRecording
-    ? 'Stop recording'
-    : isTranscribing
-      ? 'Transcribing'
-      : 'Dictate answer';
+  }, [cleanupStream, onTranscript, startAnalysis, stopAnalysis]);
 
   return (
     <Button
@@ -228,6 +316,7 @@ export function VoiceAnswerButton({
       variant="outline"
       size="sm"
       disabled={disabled || isTranscribing}
+      aria-label={isRecording ? 'Stop recording' : 'Dictate answer'}
       onClick={() => {
         if (isRecording) {
           stopRecording();
@@ -239,11 +328,15 @@ export function VoiceAnswerButton({
       {isTranscribing ? (
         <Spinner className="size-4" />
       ) : isRecording ? (
-        <Square className="h-4 w-4" />
+        <RecordingMeter level={level} />
       ) : (
         <Mic className="h-4 w-4" />
       )}
-      {isBusy ? label : 'Dictate'}
+      {isRecording
+        ? formatClock(elapsedSeconds)
+        : isTranscribing
+          ? 'Transcribing'
+          : 'Dictate'}
     </Button>
   );
 }
