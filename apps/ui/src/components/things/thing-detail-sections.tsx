@@ -85,7 +85,7 @@ export function ThingDetailPageLayout({
   });
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="space-y-5">
       <ThingSummaryCard
         thing={thing}
         title={title}
@@ -99,7 +99,7 @@ export function ThingDetailPageLayout({
         onDelete={onDelete}
       />
 
-      <Tabs defaultValue={defaultTabValue} className="space-y-6">
+      <Tabs defaultValue={defaultTabValue} className="space-y-5">
         <div className="overflow-x-auto">
           <TabsList
             variant="line"

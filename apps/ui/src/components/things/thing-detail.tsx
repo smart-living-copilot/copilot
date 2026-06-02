@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { httpClient, httpJson } from '@/lib/http-client';
 import { type ThingRecord, deleteThing, fetchThing } from '@/lib/things-api';
 
@@ -185,17 +185,16 @@ export function ThingDetail({ thingId }: { thingId: string }) {
 
   if (isPending) {
     return (
-      <Card>
-        <CardContent className="flex min-h-64 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        </CardContent>
-      </Card>
+      <div className="space-y-5">
+        <Skeleton className="h-44 rounded-md" />
+        <Skeleton className="h-72 rounded-md" />
+      </div>
     );
   }
 
   if (!thing || !detailData) {
     return (
-      <Card>
+      <Card className="rounded-md border-border/70">
         <CardContent className="flex min-h-64 flex-col items-center justify-center gap-4">
           <p className="text-muted-foreground">Thing not found.</p>
         </CardContent>

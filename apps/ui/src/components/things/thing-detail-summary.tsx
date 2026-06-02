@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { type ReactNode } from 'react';
-import { Loader2, Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 
 import { type ThingRecord } from '@/lib/things-api';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { Spinner } from '@/components/ui/spinner';
 
 import {
   type ActionDef,
@@ -36,7 +37,7 @@ function DetailStat({
   mono?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
+    <div className="rounded-md border border-border/70 bg-muted/20 p-4">
       <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
         {label}
       </p>
@@ -108,17 +109,17 @@ export function ThingSummaryCard({
   onDelete: () => Promise<void> | void;
 }) {
   return (
-    <Card className="border border-border/70 shadow-sm shadow-black/5">
+    <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
       <CardHeader className="gap-4 border-b border-border/70">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                Thing detail
-              </p>
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+            <div className="space-y-1">
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">
                 {title}
               </h1>
+              <p className="break-all font-mono text-xs text-muted-foreground">
+                {thing.id}
+              </p>
             </div>
             <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
               {description}
@@ -141,7 +142,7 @@ export function ThingSummaryCard({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <Button asChild variant="outline">
               <Link href={`/things/${encodeURIComponent(thing.id)}/edit`}>
                 <Pencil className="h-4 w-4" />
@@ -154,7 +155,7 @@ export function ThingSummaryCard({
               disabled={isDeleting}
             >
               {isDeleting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Spinner className="size-4" />
               ) : (
                 <Trash2 className="h-4 w-4" />
               )}
@@ -163,8 +164,7 @@ export function ThingSummaryCard({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-3 pt-4 md:grid-cols-2 xl:grid-cols-3">
-        <DetailStat label="Thing ID" value={thing.id} mono />
+      <CardContent className="grid gap-2 pt-4 md:grid-cols-2 xl:grid-cols-3">
         <DetailStat
           label="Indexed At"
           value={formatDateTime(indexStatus?.indexed_at)}
@@ -188,9 +188,9 @@ export function ThingSemanticSection({
   semanticIndexed: boolean;
 }) {
   return (
-    <Card className="border border-border/70 shadow-sm shadow-black/5">
+    <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
       <CardHeader>
-        <CardTitle className="text-2xl">Semantic summary</CardTitle>
+        <CardTitle className="text-base">Semantic summary</CardTitle>
         <CardDescription>
           Latest summary and extracted terms from the semantic indexer.
         </CardDescription>

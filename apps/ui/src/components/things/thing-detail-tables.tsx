@@ -39,9 +39,9 @@ function ThingSectionCard({
   children: ReactNode;
 }) {
   return (
-    <Card className="border border-border/70 shadow-sm shadow-black/5">
+    <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
       <CardHeader>
-        <CardTitle className="text-2xl">{title}</CardTitle>
+        <CardTitle className="text-base">{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent>{children}</CardContent>
@@ -50,7 +50,7 @@ function ThingSectionCard({
 }
 
 function TableShell({ children }: { children: ReactNode }) {
-  return <div className="rounded-xl border border-border/70">{children}</div>;
+  return <div className="rounded-md border border-border/70">{children}</div>;
 }
 
 function EmptyState({ children }: { children: ReactNode }) {
