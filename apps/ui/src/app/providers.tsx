@@ -13,7 +13,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <JobDetailProvider>
         <JobTriggerToasts />
         <TooltipProvider>{children}</TooltipProvider>
-        <Toaster />
+        <Toaster
+          closeButton
+          richColors
+          expand
+          toastOptions={{ style: { width: '24rem' } }}
+        />
       </JobDetailProvider>
     </ThemeProvider>
   );

@@ -158,7 +158,7 @@ class SpeechRoutesTestCase(unittest.TestCase):
             post_multipart.call_args.kwargs["data"],
             {
                 "model": "whisper-demo",
-                "response_format": "text",
+                "response_format": "json",
                 "language": "en",
             },
         )

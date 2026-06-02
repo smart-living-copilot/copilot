@@ -4,12 +4,17 @@ import { useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 
 import { useJobDetail } from '@/components/jobs/job-detail-context';
+import { JobToastContent } from '@/components/jobs/job-toast-content';
 import { useJobEvents } from '@/hooks/use-job-events';
 import { type JobRecord } from '@/lib/jobs-api';
 
+const SEEN_RUNS_LIMIT = 200;
+
 function summarizeResult(job: JobRecord): string {
   if (job.last_run_status === 'waiting_for_input') {
-    return job.waiting_question?.trim() || 'The job is waiting for your answer.';
+    return (
+      job.waiting_question?.trim() || 'The job is waiting for your answer.'
+    );
   }
 
   if (job.last_error?.trim()) {
@@ -40,31 +45,43 @@ export function JobTriggerToasts() {
         return;
       }
       seenRunsRef.current.add(runKey);
+      if (seenRunsRef.current.size > SEEN_RUNS_LIMIT) {
+        const oldest = seenRunsRef.current.values().next().value;
+        if (oldest !== undefined) {
+          seenRunsRef.current.delete(oldest);
+        }
+      }
 
       const detail = summarizeResult(job);
+      const toastId = `job-toast:${runKey}`;
+      const isWaiting = job.last_run_status === 'waiting_for_input';
       const description = (
-        <button
-          type="button"
-          className="w-full cursor-pointer text-left"
-          onClick={() => openJobDetail(job.id)}
-        >
-          {detail}
-        </button>
+        <JobToastContent
+          job={job}
+          detail={detail}
+          onOpen={() => openJobDetail(job.id)}
+          onAnswered={() => toast.dismiss(toastId)}
+        />
       );
       const action = {
-        label:
-          job.last_run_status === 'waiting_for_input'
-            ? 'Answer'
-            : 'View details',
+        label: 'View details',
         onClick: () => openJobDetail(job.id),
       };
+      // Interactive toasts (answer form) and failures must persist so they are
+      // not dismissed mid-interaction; successes can auto-dismiss.
+      const options = {
+        id: toastId,
+        description,
+        action,
+        duration: isWaiting || job.last_error?.trim() ? Infinity : undefined,
+      };
 
-      if (job.last_run_status === 'waiting_for_input') {
-        toast(`Job needs input: ${job.name}`, { description, action });
+      if (isWaiting) {
+        toast(`Job needs input: ${job.name}`, options);
       } else if (job.last_error?.trim()) {
-        toast.error(`Job failed: ${job.name}`, { description, action });
+        toast.error(`Job failed: ${job.name}`, options);
       } else {
-        toast.success(`Job triggered: ${job.name}`, { description, action });
+        toast.success(`Job triggered: ${job.name}`, options);
       }
     },
     [openJobDetail],

@@ -92,9 +92,12 @@ async def create_transcription(request: Request) -> dict[str, str]:
     base_url = str(kwargs.pop("base_url", "") or OPENAI_BASE_URL).rstrip("/")
     content_type = request.headers.get("content-type") or "audio/webm"
     filename = request.headers.get("x-filename") or _filename_for_content_type(content_type)
+    # ``json`` is the OpenAI default and the most widely supported value across
+    # OpenAI-compatible servers (LocalAI rejects ``text``). ``_transcription_text``
+    # parses the ``{"text": ...}`` payload back out.
     data: dict[str, str] = {
         "model": str(kwargs["model"]),
-        "response_format": "text",
+        "response_format": "json",
     }
     language = kwargs.get("language")
     if language:
