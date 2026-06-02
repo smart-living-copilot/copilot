@@ -1,158 +1,24 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from fastapi import HTTPException
-from jsonschema import Draft202012Validator, SchemaError, ValidationError
-from sqlalchemy import (
-    DateTime,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    Text,
-    UniqueConstraint,
-    func,
-    select,
-)
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, sessionmaker
 
 from copilot.catalog.events import build_change_event, build_remove_event
 from copilot.catalog.events.outbox import enqueue_thing_event
 from copilot.catalog.store import delete_thing, get_thing as get_catalog_thing, put_thing
-from copilot.catalog.validation import validate_document
 from copilot.core.database import get_session_factory
-from copilot.core.orm import Base
+from copilot.jobs.records.db import VirtualRecord, VirtualRecordThing
+from copilot.jobs.records.schema import (
+    field_name_for_property,
+    validate_record_data,
+    validate_record_schema,
+)
+from copilot.jobs.records.td import build_virtual_record_td
 from copilot.jobs.store import _json_safe, iso, utc_now
-
-VIRTUAL_RECORD_THING_PREFIX = "virtual:records:"
-
-
-class VirtualRecordThing(Base):
-    __tablename__ = "virtual_record_things"
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    source_job_id: Mapped[str] = mapped_column(
-        Text,
-        ForeignKey("jobs.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    record_schema: Mapped[Any] = mapped_column(JSONB, nullable=False)
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
-class VirtualRecord(Base):
-    __tablename__ = "virtual_records"
-    __table_args__ = (
-        UniqueConstraint("thing_id", "source_run_id", name="uq_virtual_records_run"),
-        Index("idx_virtual_records_thing_recorded", "thing_id", "recorded_at"),
-        Index("idx_virtual_records_source_run", "source_run_id"),
-    )
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    thing_id: Mapped[str] = mapped_column(
-        Text,
-        ForeignKey("virtual_record_things.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
-    source_job_id: Mapped[str] = mapped_column(
-        Text,
-        ForeignKey("jobs.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    source_run_id: Mapped[str] = mapped_column(Text, nullable=False)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    data: Mapped[Any] = mapped_column(JSONB, nullable=False)
-    raw_input: Mapped[str | None] = mapped_column(Text)
-    confidence: Mapped[float | None] = mapped_column(Float)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
-def is_virtual_record_thing_id(thing_id: str | None) -> bool:
-    return isinstance(thing_id, str) and thing_id.startswith(VIRTUAL_RECORD_THING_PREFIX)
-
-
-def make_virtual_record_thing_id(name: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "record-job"
-    return f"{VIRTUAL_RECORD_THING_PREFIX}{slug}-{uuid4().hex[:8]}"
-
-
-def validate_record_schema(schema: Any) -> dict[str, Any]:
-    if not isinstance(schema, dict):
-        raise ValueError("structured record jobs require record_schema to be an object")
-    try:
-        Draft202012Validator.check_schema(schema)
-    except SchemaError as exc:
-        raise ValueError(f"invalid record_schema: {exc.message}") from exc
-    if schema.get("type") != "object":
-        raise ValueError("record_schema must be a JSON Schema object with type='object'")
-    properties = schema.get("properties")
-    if properties is not None and not isinstance(properties, dict):
-        raise ValueError("record_schema.properties must be an object")
-    return _json_safe(schema)
-
-
-def build_virtual_record_td(
-    *,
-    thing_id: str,
-    title: str,
-    description: str,
-    record_schema: dict[str, Any],
-) -> dict[str, Any]:
-    properties: dict[str, Any] = {
-        "latest_record": _property("Most recent validated record.", {"type": "object"}),
-        "record_count": _property("Number of stored records.", {"type": "integer"}),
-        "last_recorded_at": _property(
-            "Timestamp of the most recent stored record.",
-            {"type": "string", "format": "date-time"},
-        ),
-    }
-    for field_name, field_schema in _scalar_schema_fields(record_schema).items():
-        properties[f"latest_{_safe_affordance_name(field_name)}"] = _property(
-            f"Most recent value for {field_name}.",
-            field_schema,
-        )
-
-    td = {
-        "@context": "https://www.w3.org/2022/wot/td/v1.1",
-        "id": thing_id,
-        "title": title,
-        "description": description,
-        "tags": ["virtual", "records", "generated", "job"],
-        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
-        "security": "nosec_sc",
-        "properties": properties,
-        "actions": {
-            "query_records": {
-                "description": "Query stored records by time range.",
-                "safe": True,
-                "input": _query_input_schema(),
-                "output": {"type": "array", "items": {"type": "object"}},
-                "forms": [_form("query_records", "invokeaction")],
-            },
-            "query_property_history": {
-                "description": "Query historical values for one top-level record property.",
-                "safe": True,
-                "input": {
-                    **_query_input_schema(),
-                    "required": ["property"],
-                },
-                "output": {"type": "array", "items": {"type": "object"}},
-                "forms": [_form("query_property_history", "invokeaction")],
-            },
-        },
-    }
-    return validate_document(td)
 
 
 class VirtualRecordStore:
@@ -236,7 +102,7 @@ class VirtualRecordStore:
             thing = session.get(VirtualRecordThing, thing_id)
             if thing is None:
                 raise KeyError(thing_id)
-            _validate_record_data(thing.record_schema, data)
+            validate_record_data(thing.record_schema, data)
             existing = session.scalars(
                 select(VirtualRecord).where(
                     VirtualRecord.thing_id == thing_id,
@@ -282,7 +148,7 @@ class VirtualRecordStore:
             if property_name == "last_recorded_at":
                 return iso(latest.recorded_at) if latest is not None else None
             if property_name.startswith("latest_"):
-                field = _field_name_for_property(
+                field = field_name_for_property(
                     self._get_thing_or_404(session, thing_id).record_schema,
                     property_name.removeprefix("latest_"),
                 )
@@ -318,7 +184,7 @@ class VirtualRecordStore:
     ) -> list[dict[str, Any]]:
         with self._session_factory() as session:
             thing = self._get_thing_or_404(session, thing_id)
-            real_field = _field_name_for_property(thing.record_schema, field_name) or field_name
+            real_field = field_name_for_property(thing.record_schema, field_name) or field_name
             statement = self._filtered_records_statement(thing_id, query)
             rows = session.scalars(statement).all()
             return [
@@ -357,17 +223,6 @@ class VirtualRecordStore:
         return statement.order_by(VirtualRecord.recorded_at.asc()).limit(limit)
 
 
-def _validate_record_data(schema: Any, data: Any) -> None:
-    if not isinstance(data, dict):
-        raise ValueError("structured record data must be an object")
-    try:
-        Draft202012Validator(schema).validate(data)
-    except ValidationError as exc:
-        path = ".".join(str(part) for part in exc.path)
-        location = f" at {path}" if path else ""
-        raise ValueError(f"record data failed schema validation{location}: {exc.message}") from exc
-
-
 def _record_payload(row: VirtualRecord) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -382,63 +237,6 @@ def _record_payload(row: VirtualRecord) -> dict[str, Any]:
     }
 
 
-def _scalar_schema_fields(record_schema: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    properties = record_schema.get("properties")
-    if not isinstance(properties, dict):
-        return {}
-    fields: dict[str, dict[str, Any]] = {}
-    for name, schema in properties.items():
-        if not isinstance(name, str) or not isinstance(schema, dict):
-            continue
-        schema_type = schema.get("type")
-        if schema_type in {"string", "integer", "number", "boolean"} or "enum" in schema:
-            fields[name] = schema
-    return fields
-
-
-def _property(description: str, schema: dict[str, Any]) -> dict[str, Any]:
-    return {
-        **schema,
-        "description": description,
-        "readOnly": True,
-        "forms": [_form("property", "readproperty")],
-    }
-
-
-def _query_input_schema() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {
-            "from": {"type": "string", "format": "date-time"},
-            "to": {"type": "string", "format": "date-time"},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 1000},
-        },
-    }
-
-
-def _form(path: str, op: str) -> dict[str, Any]:
-    return {
-        "href": f"urn:smart-living-copilot:virtual-records:{path}",
-        "op": [op],
-        "contentType": "application/json",
-    }
-
-
-def _safe_affordance_name(name: str) -> str:
-    value = re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_")
-    return value or "value"
-
-
-def _field_name_for_property(record_schema: Any, property_suffix: str) -> str | None:
-    properties = record_schema.get("properties") if isinstance(record_schema, dict) else {}
-    if not isinstance(properties, dict):
-        return None
-    for field_name in properties:
-        if isinstance(field_name, str) and _safe_affordance_name(field_name) == property_suffix:
-            return field_name
-    return None
-
-
 def _parse_datetime(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -450,11 +248,3 @@ def _bounded_limit(value: Any) -> int:
     if isinstance(value, int):
         return min(max(value, 1), 1000)
     return 100
-
-
-def virtual_record_http_error(error: Exception) -> HTTPException:
-    if isinstance(error, KeyError):
-        return HTTPException(status_code=404, detail=str(error))
-    if isinstance(error, ValueError):
-        return HTTPException(status_code=400, detail=str(error))
-    return HTTPException(status_code=502, detail=str(error))
