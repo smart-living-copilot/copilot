@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Mic, Square, Volume2 } from 'lucide-react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Loader2, Mic, Square, Volume2, VolumeX } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
-import { synthesizeSpeech, transcribeSpeech } from '@/lib/speech-api';
+import { useSpeechPlayback } from '@/components/jobs/speech-playback-context';
+import { transcribeSpeech } from '@/lib/speech-api';
 
 type ButtonSize = 'sm' | 'icon-sm';
 
@@ -20,32 +21,15 @@ export function ReadAloudButton({
   disabled?: boolean;
   compact?: boolean;
 }) {
-  const [isLoading, setIsLoading] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
-
-  const cleanupAudio = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.onended = null;
-      audioRef.current.onerror = null;
-      audioRef.current.pause();
-      audioRef.current.removeAttribute('src');
-      audioRef.current = null;
-    }
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
-    }
-    setIsPlaying(false);
-    setIsLoading(false);
-  }, []);
-
-  useEffect(() => cleanupAudio, [cleanupAudio]);
+  const playbackId = useId();
+  const { activeId, status, play, stop } = useSpeechPlayback();
+  const isActive = activeId === playbackId;
+  const isLoading = isActive && status === 'loading';
+  const isPlaying = isActive && status === 'playing';
 
   const handleClick = useCallback(async () => {
-    if (isPlaying || isLoading) {
-      cleanupAudio();
+    if (isActive) {
+      stop();
       return;
     }
 
@@ -55,30 +39,14 @@ export function ReadAloudButton({
       return;
     }
 
-    setIsLoading(true);
     try {
-      const blob = await synthesizeSpeech(textToRead.slice(0, 4096));
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audioUrlRef.current = url;
-      audioRef.current = audio;
-      audio.onended = cleanupAudio;
-      audio.onerror = () => {
-        if (audioRef.current === audio) {
-          toast.error('Failed to play speech audio.');
-          cleanupAudio();
-        }
-      };
-      setIsPlaying(true);
-      setIsLoading(false);
-      await audio.play();
+      await play(playbackId, textToRead);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : 'Failed to create speech.',
       );
-      cleanupAudio();
     }
-  }, [cleanupAudio, isLoading, isPlaying, text]);
+  }, [isActive, play, playbackId, stop, text]);
 
   const size: ButtonSize = compact ? 'icon-sm' : 'sm';
   const buttonLabel = isPlaying || isLoading ? 'Stop audio' : label;
@@ -101,6 +69,32 @@ export function ReadAloudButton({
         <Volume2 className="h-4 w-4" />
       )}
       {compact ? null : <span>{isPlaying || isLoading ? 'Stop' : label}</span>}
+    </Button>
+  );
+}
+
+export function VoiceModeToggle() {
+  const { voiceMode, toggleVoiceMode } = useSpeechPlayback();
+  const label = voiceMode ? 'Voice on' : 'Voice off';
+
+  return (
+    <Button
+      type="button"
+      variant={voiceMode ? 'default' : 'outline'}
+      onClick={toggleVoiceMode}
+      aria-pressed={voiceMode}
+      title={
+        voiceMode
+          ? 'Auto-read job updates aloud (on)'
+          : 'Auto-read job updates aloud (off)'
+      }
+    >
+      {voiceMode ? (
+        <Volume2 className="h-4 w-4" />
+      ) : (
+        <VolumeX className="h-4 w-4" />
+      )}
+      {label}
     </Button>
   );
 }

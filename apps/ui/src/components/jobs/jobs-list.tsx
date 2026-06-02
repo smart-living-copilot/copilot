@@ -27,6 +27,7 @@ import {
 import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/jobs/confirm-dialog';
+import { VoiceModeToggle } from '@/components/jobs/job-speech-controls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -508,6 +509,7 @@ export function JobsList() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <VoiceModeToggle />
             <Button asChild>
               <Link href="/jobs/new">
                 <Plus className="h-4 w-4" />
