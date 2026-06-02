@@ -528,9 +528,9 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(records.read_property(thing_id, "latest_mood"), "stressed")
         self.assertEqual(records.read_property(thing_id, "record_count"), 1)
         self.assertEqual(
-            records.invoke_action(thing_id, "query_property_history", {"property": "energy"})[
-                0
-            ]["value"],
+            records.invoke_action(thing_id, "query_property_history", {"property": "energy"})[0][
+                "value"
+            ],
             2,
         )
 

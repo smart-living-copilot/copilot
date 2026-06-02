@@ -117,10 +117,7 @@ def test_api_things_crud_and_events(authenticated_headers):
             headers=authenticated_headers,
         )
         assert get_response.status_code == 200
-        assert (
-            get_response.json()["document"]["properties"]["temperature"]["type"]
-            == "number"
-        )
+        assert get_response.json()["document"]["properties"]["temperature"]["type"] == "number"
 
         updated = sample_thing()
         updated["description"] = "Updated kitchen air monitor"

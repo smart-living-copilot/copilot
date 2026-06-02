@@ -197,9 +197,7 @@ class JobExecutor:
         now = utc_now()
         is_scheduled_time_run = run_source == JobRunSource.TIME
         next_run_at = (
-            _next_run_at_after_scheduled_time_run(job, now)
-            if is_scheduled_time_run
-            else None
+            _next_run_at_after_scheduled_time_run(job, now) if is_scheduled_time_run else None
         )
         status = job_run_status_from_result(result)
 

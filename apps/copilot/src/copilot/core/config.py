@@ -116,9 +116,7 @@ def get_settings() -> Settings:
         SEARCH_INDEXER_POLL_BLOCK_MS=_int_env("SEARCH_INDEXER_POLL_BLOCK_MS", 5000),
         SEARCH_INDEXER_BATCH_SIZE=_int_env("SEARCH_INDEXER_BATCH_SIZE", 20),
         SEARCH_INDEXER_CLAIM_IDLE_MS=_int_env("SEARCH_INDEXER_CLAIM_IDLE_MS", 60000),
-        SEARCH_INDEXER_RETRY_SECONDS=float(
-            os.getenv("SEARCH_INDEXER_RETRY_SECONDS", "5")
-        ),
+        SEARCH_INDEXER_RETRY_SECONDS=float(os.getenv("SEARCH_INDEXER_RETRY_SECONDS", "5")),
         OPENAI_API_BASE_URL=os.getenv("OPENAI_API_BASE_URL")
         or os.getenv("OPENAI_BASE_URL")
         or None,

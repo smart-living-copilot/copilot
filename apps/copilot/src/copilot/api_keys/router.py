@@ -47,9 +47,7 @@ def _serialize_api_key(record) -> dict[str, Any]:
         "created_at": record.created_at.isoformat(),
         "updated_at": record.updated_at.isoformat(),
         "expires_at": record.expires_at.isoformat() if record.expires_at else None,
-        "last_used_at": record.last_used_at.isoformat()
-        if record.last_used_at
-        else None,
+        "last_used_at": record.last_used_at.isoformat() if record.last_used_at else None,
         "is_active": record.is_active,
     }
 

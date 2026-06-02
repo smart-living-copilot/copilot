@@ -278,11 +278,14 @@ def test_virtual_record_store_persists_and_queries_generated_record_thing(
     assert stored["data"]["mood"] == "stressed"
     assert records.read_property(thing_id, "latest_mood") == "stressed"
     assert records.read_property(thing_id, "record_count") == 1
-    assert records.invoke_action(
-        thing_id,
-        "query_property_history",
-        {"property": "energy"},
-    )[0]["value"] == 2
+    assert (
+        records.invoke_action(
+            thing_id,
+            "query_property_history",
+            {"property": "energy"},
+        )[0]["value"]
+        == 2
+    )
 
 
 def test_job_resource_sync_repairs_missing_virtual_record_thing(
@@ -423,10 +426,7 @@ def test_event_job_toggle_updates_runtime_subscription(
     stored = _run(repo.get_job(job.id))
     assert stored.subscription_id == "new-sub"
     assert stored.resource_health["status"] == "healthy"
-    assert (
-        stored.resource_health["resources"]["event_subscription"]["status"]
-        == "healthy"
-    )
+    assert stored.resource_health["resources"]["event_subscription"]["status"] == "healthy"
 
 
 def test_structured_record_reply_replay_writes_one_reply_event_and_record(
@@ -556,13 +556,12 @@ def test_structured_record_reply_replay_writes_one_reply_event_and_record(
         JobRunEventType.ASSISTANT_MESSAGE,
         JobRunEventType.RUN_SUCCEEDED,
     ]
-    assert [event.message for event in events if event.event_type == JobRunEventType.USER_REPLY] == [
-        "Good mood, energy 4. I cooked dinner."
-    ]
+    assert [
+        event.message for event in events if event.event_type == JobRunEventType.USER_REPLY
+    ] == ["Good mood, energy 4. I cooked dinner."]
     assert events[2].payload["client_reply_id"] == "reply-evening-1"
     assert (
-        events[3].message
-        == "Structured record submitted: mood=good, energy=4, note=cooked dinner"
+        events[3].message == "Structured record submitted: mood=good, energy=4, note=cooked dinner"
     )
     assert events[3].payload["data"]["mood"] == "good"
 

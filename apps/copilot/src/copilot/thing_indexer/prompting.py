@@ -9,8 +9,7 @@ from openai import AsyncOpenAI
 SUMMARY_PROMPT_VERSION = "v6"
 
 SYSTEM_PROMPT = (
-    "You create concise, search-friendly summaries for Web of Things "
-    "(WoT) Thing Descriptions."
+    "You create concise, search-friendly summaries for Web of Things (WoT) Thing Descriptions."
 )
 
 PROMPT_TEMPLATE = """Given the raw Thing Description JSON below, produce a concise, search-friendly plain-text summary.

@@ -44,10 +44,7 @@ def next_cron_run_at(
     cron_timezone = normalize_cron_timezone(timezone_name)
     zone = ZoneInfo(cron_timezone)
     after_utc = _as_utc(after or datetime.now(timezone.utc))
-    candidate = (
-        after_utc.astimezone(zone).replace(second=0, microsecond=0)
-        + timedelta(minutes=1)
-    )
+    candidate = after_utc.astimezone(zone).replace(second=0, microsecond=0) + timedelta(minutes=1)
 
     for _ in range(CRON_LOOKAHEAD_MINUTES):
         if _cron_matches(cron_expression, candidate):

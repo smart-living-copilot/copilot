@@ -135,9 +135,9 @@ class VirtualRecordStore:
             if property_name == "record_count":
                 return int(
                     session.scalar(
-                        select(func.count()).select_from(VirtualRecord).where(
-                            VirtualRecord.thing_id == thing_id
-                        )
+                        select(func.count())
+                        .select_from(VirtualRecord)
+                        .where(VirtualRecord.thing_id == thing_id)
                     )
                     or 0
                 )

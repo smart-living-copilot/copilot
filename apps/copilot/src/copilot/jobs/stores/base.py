@@ -20,6 +20,7 @@ from copilot.jobs.enums import (
 )
 from copilot.jobs.schemas import CreateJobRequest, Job, JobRun, JobRunEvent
 
+
 class JobNotWaitingForInput(RuntimeError):
     """Raised when a job reply is submitted outside a waiting state."""
 
@@ -134,9 +135,7 @@ def _to_job(row: JobRecord) -> Job:
         run_count=row.run_count or 0,
         active_run_id=row.active_run_id,
         active_run_started_at=row.active_run_started_at,
-        active_run_source=JobRunSource(row.active_run_source)
-        if row.active_run_source
-        else None,
+        active_run_source=JobRunSource(row.active_run_source) if row.active_run_source else None,
         waiting_question=row.waiting_question,
     )
 

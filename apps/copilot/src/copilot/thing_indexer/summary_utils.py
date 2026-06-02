@@ -14,11 +14,7 @@ class ThingTDMetadata(TypedDict):
 
 
 def normalize_thing_td_payload(thing_td: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in thing_td.items()
-        if key not in {"eventType", "hash"}
-    }
+    return {key: value for key, value in thing_td.items() if key not in {"eventType", "hash"}}
 
 
 def clean_text(value: Any) -> str:

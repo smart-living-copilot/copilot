@@ -15,11 +15,7 @@ from copilot.threads.titles import MAX_THREAD_TITLE_LENGTH
 
 
 def _now_iso() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .isoformat(timespec="milliseconds")
-        .replace("+00:00", "Z")
-    )
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _clean_title(title: str | None, *, default: str | None) -> str | None:

@@ -14,10 +14,7 @@ def test_postgresql_psycopg_url_is_normalized(monkeypatch):
 
     get_settings.cache_clear()
 
-    assert (
-        get_settings().DATABASE_URL
-        == "postgresql://copilot:copilot@postgres:5432/copilot"
-    )
+    assert get_settings().DATABASE_URL == "postgresql://copilot:copilot@postgres:5432/copilot"
 
 
 @pytest.mark.anyio

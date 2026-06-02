@@ -345,8 +345,7 @@ def upgrade() -> None:
             name="ck_jobs_last_run_status",
         ),
         sa.CheckConstraint(
-            "active_run_source IS NULL OR active_run_source IN "
-            "('manual', 'time', 'event')",
+            "active_run_source IS NULL OR active_run_source IN ('manual', 'time', 'event')",
             name="ck_jobs_active_run_source",
         ),
         sa.UniqueConstraint("job_thread_id"),

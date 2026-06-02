@@ -145,16 +145,10 @@ class JobService:
             ):
                 raise ValueError("interval_seconds can only be set on interval jobs")
         if "run_at" in fields:
-            if (
-                job.trigger_kind != JobTriggerKind.TIME
-                or job.schedule_kind != TimeTriggerKind.ONCE
-            ):
+            if job.trigger_kind != JobTriggerKind.TIME or job.schedule_kind != TimeTriggerKind.ONCE:
                 raise ValueError("run_at can only be set on one-time jobs")
         if "cron_expression" in fields or "cron_timezone" in fields:
-            if (
-                job.trigger_kind != JobTriggerKind.TIME
-                or job.schedule_kind != TimeTriggerKind.CRON
-            ):
+            if job.trigger_kind != JobTriggerKind.TIME or job.schedule_kind != TimeTriggerKind.CRON:
                 raise ValueError("cron fields can only be set on cron jobs")
             expression = fields.get("cron_expression", job.cron_expression)
             timezone_name = fields.get("cron_timezone", job.cron_timezone)
@@ -370,10 +364,7 @@ class JobService:
     def _normalize_update_fields(self, job: Job, fields: dict[str, Any]) -> dict[str, Any]:
         if "cron_expression" not in fields and "cron_timezone" not in fields:
             return fields
-        if (
-            job.trigger_kind != JobTriggerKind.TIME
-            or job.schedule_kind != TimeTriggerKind.CRON
-        ):
+        if job.trigger_kind != JobTriggerKind.TIME or job.schedule_kind != TimeTriggerKind.CRON:
             return fields
         expression = fields.get("cron_expression", job.cron_expression)
         timezone_name = fields.get(

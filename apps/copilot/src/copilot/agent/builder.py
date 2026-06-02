@@ -43,11 +43,7 @@ def build_graph(
     registry_tool_groups = partition_registry_tools(registry_tools)
     local_tool_groups = group_local_tools(local_tools, vision_enabled=vision_enabled)
 
-    vision_tools = (
-        [local_tool_groups.look_at_camera]
-        if local_tool_groups.look_at_camera
-        else []
-    )
+    vision_tools = [local_tool_groups.look_at_camera] if local_tool_groups.look_at_camera else []
     job_runtime_tools = [
         tool
         for tool in (
@@ -231,11 +227,7 @@ def build_background_job_graph(
     """Build and compile the compact graph used by background prompt jobs."""
     registry_tool_groups = partition_registry_tools(registry_tools)
     local_tool_groups = group_local_tools(local_tools, vision_enabled=vision_enabled)
-    vision_tools = (
-        [local_tool_groups.look_at_camera]
-        if local_tool_groups.look_at_camera
-        else []
-    )
+    vision_tools = [local_tool_groups.look_at_camera] if local_tool_groups.look_at_camera else []
     job_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime

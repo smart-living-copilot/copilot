@@ -184,7 +184,9 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.virtual_thing_title, "Morning Check-ins")
 
     async def test_create_prompt_job_reports_validation_error(self) -> None:
-        service = _FakeService(create_error=ValueError("time jobs require run_at or interval_seconds"))
+        service = _FakeService(
+            create_error=ValueError("time jobs require run_at or interval_seconds")
+        )
         set_active_job_service(service)
 
         result = await job_scheduler.create_prompt_job.ainvoke(
@@ -209,9 +211,7 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         service = _FakeService(run_result={"ok": True})
         set_active_job_service(service)
 
-        listed = await job_scheduler.list_jobs.ainvoke(
-            {"created_from_thread_id": "thread-1"}
-        )
+        listed = await job_scheduler.list_jobs.ainvoke({"created_from_thread_id": "thread-1"})
         deleted = await job_scheduler.delete_job.ainvoke({"job_id": "job-9"})
         ran = await job_scheduler.run_job_now.ainvoke({"job_id": "job-9"})
 

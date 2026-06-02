@@ -27,9 +27,7 @@ class OpenAIEmbeddingsAdapter(Embeddings):
         api_key: str | None,
     ) -> None:
         if not api_key:
-            raise RuntimeError(
-                "OPENAI_API_KEY must be set for semantic search features."
-            )
+            raise RuntimeError("OPENAI_API_KEY must be set for semantic search features.")
         self._model = model
         self._sync_client = OpenAI(base_url=base_url, api_key=api_key)
         self._async_client = AsyncOpenAI(base_url=base_url, api_key=api_key)

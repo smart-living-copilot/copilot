@@ -77,7 +77,9 @@ class CodeExecutorClient:
         base_backoff = max(0.0, self._settings.code_executor_retry_backoff_seconds)
 
         last_error: Exception | None = None
-        async with httpx.AsyncClient(timeout=self._settings.code_executor_timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            timeout=self._settings.code_executor_timeout_seconds
+        ) as client:
             for attempt in range(1, attempts + 1):
                 try:
                     response = await client.post(

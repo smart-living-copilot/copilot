@@ -11,9 +11,7 @@ from copilot.core.orm import Base
 
 class ThingCredential(Base):
     __tablename__ = "thing_credentials"
-    __table_args__ = (
-        UniqueConstraint("thing_id", "security_name", name="uq_thing_security"),
-    )
+    __table_args__ = (UniqueConstraint("thing_id", "security_name", name="uq_thing_security"),)
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     thing_id: Mapped[str] = mapped_column(Text, nullable=False)

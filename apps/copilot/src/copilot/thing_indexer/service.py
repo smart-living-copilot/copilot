@@ -66,13 +66,9 @@ class ThingIndexerService:
 
     async def _validate_dependencies(self) -> None:
         if not self._settings.OPENAI_API_KEY:
-            raise RuntimeError(
-                "OPENAI_API_KEY must be set for thing indexer embedding generation."
-            )
+            raise RuntimeError("OPENAI_API_KEY must be set for thing indexer embedding generation.")
         if not self._settings.OPENAI_MODEL:
-            raise RuntimeError(
-                "OPENAI_MODEL must be set for thing indexer LLM summarization."
-            )
+            raise RuntimeError("OPENAI_MODEL must be set for thing indexer LLM summarization.")
         await self._vector_store.validate_schema()
 
     async def process_event(self, event: dict[str, Any]) -> None:
@@ -89,9 +85,7 @@ class ThingIndexerService:
                 return
 
             if event_type not in {"create", "update"}:
-                logger.info(
-                    "Ignoring event type '%s' for thing '%s'", event_type, thing_id
-                )
+                logger.info("Ignoring event type '%s' for thing '%s'", event_type, thing_id)
                 return
 
             prepared = await self._prepare_index_entry(
@@ -127,12 +121,8 @@ class ThingIndexerService:
             summary_source="llm",
             summary_model=self._settings.OPENAI_MODEL,
         )
-        chunk_id, document = generate_chunk(
-            thing_td, td_metadata, summary.strip(), metadata
-        )
-        return PreparedIndexEntry(
-            thing_id=thing_id, chunk_id=chunk_id, document=document
-        )
+        chunk_id, document = generate_chunk(thing_td, td_metadata, summary.strip(), metadata)
+        return PreparedIndexEntry(thing_id=thing_id, chunk_id=chunk_id, document=document)
 
     async def _upsert_index_entry(self, prepared: PreparedIndexEntry) -> None:
         await self._vector_store.replace_thing_chunks(

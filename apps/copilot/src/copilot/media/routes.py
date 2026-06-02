@@ -75,8 +75,7 @@ def create_media_router(
         )
         participant_identity = (
             raw_participant_identity
-            if isinstance(raw_participant_identity, str)
-            and raw_participant_identity
+            if isinstance(raw_participant_identity, str) and raw_participant_identity
             else ""
         )
 

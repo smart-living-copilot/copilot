@@ -65,9 +65,7 @@ def test_init_admin_key_is_refreshed_with_sqlalchemy(jobs_integration_environmen
 
 
 def test_backend_bootstrap_creates_init_admin_key(jobs_integration_environment) -> None:
-    bootstrap_persistent_state(
-        settings=replace(get_settings(), INIT_ADMIN_TOKEN="bootstrap-token")
-    )
+    bootstrap_persistent_state(settings=replace(get_settings(), INIT_ADMIN_TOKEN="bootstrap-token"))
 
     session_factory = get_session_factory()
     with session_factory() as session:

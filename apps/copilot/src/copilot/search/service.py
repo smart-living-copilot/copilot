@@ -76,9 +76,7 @@ class ThingSearchService:
             "prompt_version": metadata.get("promptVersion"),
             "td_hash_match": td_hash_match,
             "summary": summary,
-            "location_candidates": _coerce_string_list(
-                metadata.get("locationCandidates")
-            ),
+            "location_candidates": _coerce_string_list(metadata.get("locationCandidates")),
             "property_names": _coerce_string_list(metadata.get("propertyNames")),
             "action_names": _coerce_string_list(metadata.get("actionNames")),
             "event_names": _coerce_string_list(metadata.get("eventNames")),

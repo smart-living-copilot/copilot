@@ -137,12 +137,8 @@ def stub_search_runtime(monkeypatch):
         app.state.search_service = None
         set_active_search_service(None)
 
-    monkeypatch.setattr(
-        "copilot.core.lifecycle.start_search_service", fake_start_search_service
-    )
-    monkeypatch.setattr(
-        "copilot.core.lifecycle.stop_search_service", fake_stop_search_service
-    )
+    monkeypatch.setattr("copilot.core.lifecycle.start_search_service", fake_start_search_service)
+    monkeypatch.setattr("copilot.core.lifecycle.stop_search_service", fake_stop_search_service)
     set_active_search_service(None)
     yield
     set_active_search_service(None)

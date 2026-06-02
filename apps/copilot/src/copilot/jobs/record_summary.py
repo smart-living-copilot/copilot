@@ -23,9 +23,7 @@ def submitted_record_summary(payload: Any) -> str:
         if len(parts) >= 5:
             parts.append("...")
             break
-        value_text = (
-            value if isinstance(value, str) else json.dumps(value, ensure_ascii=True)
-        )
+        value_text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=True)
         parts.append(f"{key}={_truncate_text(str(value_text), max_length=80)}")
 
     return _truncate_text(", ".join(parts), max_length=320)

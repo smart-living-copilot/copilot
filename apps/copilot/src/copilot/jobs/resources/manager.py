@@ -135,9 +135,7 @@ class JobResourceManager:
                 subscription_id=None,
             )
 
-        subscription_response = await self._event_subscriptions.subscribe_event_request(
-            request
-        )
+        subscription_response = await self._event_subscriptions.subscribe_event_request(request)
         return PreparedJobResources(
             next_run_at=None,
             subscription_id=subscription_id_from_response(subscription_response),
@@ -308,8 +306,7 @@ class JobResourceManager:
             schema_version=job.record_schema_version or 1,
             record_schema=job.record_schema or {},
             title=title or job.name,
-            description=description
-            or f"Structured records collected by the {job.name} job.",
+            description=description or f"Structured records collected by the {job.name} job.",
         )
         await mark_resource_health(
             self._repo,

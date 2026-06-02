@@ -211,8 +211,7 @@ class WotRuntimeClient:
                     if not detail and response.status == 413:
                         detail = "Request payload too large"
                     raise ValueError(
-                        detail
-                        or f"wot_runtime request failed with status {response.status}"
+                        detail or f"wot_runtime request failed with status {response.status}"
                     )
                 if not isinstance(data, dict):
                     raise ValueError("wot_runtime returned a non-object response")

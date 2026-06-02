@@ -43,10 +43,13 @@ def stt_kwargs(settings: Settings) -> dict[str, Any]:
         kwargs["language"] = language
     else:
         kwargs["detect_language"] = True
-    base_url = _base_url_from_openai_endpoint(
-        settings.stt_transcriptions_url,
-        suffix="/audio/transcriptions",
-    ) or settings.openai_base_url
+    base_url = (
+        _base_url_from_openai_endpoint(
+            settings.stt_transcriptions_url,
+            suffix="/audio/transcriptions",
+        )
+        or settings.openai_base_url
+    )
     api_key = _speech_api_key(
         endpoint_url=settings.stt_transcriptions_url,
         speech_api_key=settings.stt_api_key,
@@ -65,10 +68,13 @@ def tts_kwargs(settings: Settings) -> dict[str, Any]:
         "voice": settings.tts_voice,
         "speed": settings.tts_speed,
     }
-    base_url = _base_url_from_openai_endpoint(
-        settings.tts_speech_url,
-        suffix="/audio/speech",
-    ) or settings.openai_base_url
+    base_url = (
+        _base_url_from_openai_endpoint(
+            settings.tts_speech_url,
+            suffix="/audio/speech",
+        )
+        or settings.openai_base_url
+    )
     api_key = _speech_api_key(
         endpoint_url=settings.tts_speech_url,
         speech_api_key=settings.tts_api_key,

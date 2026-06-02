@@ -81,7 +81,9 @@ async def _checkpoint_saver_context(
             "Postgres checkpointing requires langgraph-checkpoint-postgres to be installed"
         )
 
-    async with AsyncPostgresSaver.from_conn_string(psycopg_conninfo(database_url)) as postgres_saver:
+    async with AsyncPostgresSaver.from_conn_string(
+        psycopg_conninfo(database_url)
+    ) as postgres_saver:
         await postgres_saver.setup()
         yield postgres_saver
 

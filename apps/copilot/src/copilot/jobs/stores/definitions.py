@@ -32,9 +32,7 @@ class JobDefinitionStore(_JobStoreBase):
         next_run_at: datetime | None,
         subscription_id: str | None,
     ) -> Job:
-        return await asyncio.to_thread(
-            self._create_job_sync, request, next_run_at, subscription_id
-        )
+        return await asyncio.to_thread(self._create_job_sync, request, next_run_at, subscription_id)
 
     def _create_job_sync(
         self,
@@ -122,9 +120,7 @@ class JobDefinitionStore(_JobStoreBase):
     def _list_jobs_sync(self, created_from_thread_id: str | None = None) -> list[Job]:
         statement = select(JobRecord)
         if created_from_thread_id:
-            statement = statement.where(
-                JobRecord.created_from_thread_id == created_from_thread_id
-            )
+            statement = statement.where(JobRecord.created_from_thread_id == created_from_thread_id)
         statement = statement.order_by(JobRecord.created_at.desc())
         with self._session_factory() as session:
             rows = session.scalars(statement).all()
@@ -176,9 +172,7 @@ class JobDefinitionStore(_JobStoreBase):
             session.commit()
 
     async def list_event_jobs_for_subscription(self, subscription_id: str) -> list[Job]:
-        return await asyncio.to_thread(
-            self._list_event_jobs_for_subscription_sync, subscription_id
-        )
+        return await asyncio.to_thread(self._list_event_jobs_for_subscription_sync, subscription_id)
 
     def _list_event_jobs_for_subscription_sync(self, subscription_id: str) -> list[Job]:
         statement = select(JobRecord).where(

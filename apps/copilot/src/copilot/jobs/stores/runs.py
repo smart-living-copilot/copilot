@@ -32,6 +32,7 @@ from copilot.jobs.stores.replies import (
 from copilot.jobs.stores.run_events import _add_finish_events, _add_job_run_event
 from copilot.jobs.stores.run_state import _has_active_run, _job_thread_id_for_run_row
 
+
 class JobRunStore(_JobStoreBase):
     async def cancel_active_run(self, job_id: str) -> Job:
         return await asyncio.to_thread(self._cancel_active_run_sync, job_id)
@@ -216,7 +217,9 @@ class JobRunStore(_JobStoreBase):
 
             trigger_payload = _json_safe(
                 {
-                    **(run_row.trigger_payload if isinstance(run_row.trigger_payload, dict) else {}),
+                    **(
+                        run_row.trigger_payload if isinstance(run_row.trigger_payload, dict) else {}
+                    ),
                     "latest_reply": message,
                     "latest_reply_at": iso(now),
                     "replies": [
@@ -251,9 +254,7 @@ class JobRunStore(_JobStoreBase):
                 message=message,
                 payload={
                     "client_reply_id": client_reply_id,
-                    "previous_run_id": previous_run_id
-                    or row.active_run_id
-                    or row.last_run_id,
+                    "previous_run_id": previous_run_id or row.active_run_id or row.last_run_id,
                 },
             )
 
@@ -286,9 +287,7 @@ class JobRunStore(_JobStoreBase):
             return _to_job_run(run)
 
     async def get_job_by_active_run_thread_id(self, job_thread_id: str) -> Job:
-        return await asyncio.to_thread(
-            self._get_job_by_active_run_thread_id_sync, job_thread_id
-        )
+        return await asyncio.to_thread(self._get_job_by_active_run_thread_id_sync, job_thread_id)
 
     def _get_job_by_active_run_thread_id_sync(self, job_thread_id: str) -> Job:
         with self._session_factory() as session:
@@ -413,9 +412,7 @@ class JobRunStore(_JobStoreBase):
         waiting_question: str | None,
     ) -> None:
         with self._session_factory() as session:
-            run_statement = (
-                select(JobRunRecord).where(JobRunRecord.id == run_id).with_for_update()
-            )
+            run_statement = select(JobRunRecord).where(JobRunRecord.id == run_id).with_for_update()
             run_row = session.scalars(run_statement).one_or_none()
             if run_row is not None:
                 run_row.status = status.value

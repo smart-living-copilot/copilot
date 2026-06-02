@@ -97,8 +97,7 @@ class CreateJobRequest(BaseModel):
     prompt: str | None = Field(
         default=None,
         description=(
-            "Runtime instructions for the job. Do not include create/schedule job "
-            "meta text."
+            "Runtime instructions for the job. Do not include create/schedule job meta text."
         ),
     )
     analysis_code: str | None = None
@@ -132,8 +131,7 @@ class UpdateJobRequest(BaseModel):
     prompt: str | None = Field(
         default=None,
         description=(
-            "Runtime instructions for the job. Do not include create/schedule job "
-            "meta text."
+            "Runtime instructions for the job. Do not include create/schedule job meta text."
         ),
     )
     analysis_code: str | None = None

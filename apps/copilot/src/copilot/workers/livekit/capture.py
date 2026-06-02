@@ -157,9 +157,7 @@ async def livekit_camera_capture(ctx: Any, thread_id: str):
             name=f"livekit-video-capture-{sid}",
         )
         tasks_by_track_sid[sid] = task
-        logger.info(
-            "Started LiveKit camera capture for thread_id=%s track_sid=%s", thread_id, sid
-        )
+        logger.info("Started LiveKit camera capture for thread_id=%s track_sid=%s", thread_id, sid)
 
     async def stop_capture(track: Any) -> None:
         sid = track_sid(track)

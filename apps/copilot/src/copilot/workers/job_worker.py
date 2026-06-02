@@ -55,4 +55,5 @@ async def _worker_shutdown(_state: object) -> None:
     _event_stop = None
     await close_job_executor()
 
+
 __all__ = ["broker", "run_job_task"]

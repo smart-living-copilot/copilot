@@ -40,9 +40,7 @@ class MediaSessionRegistryTestCase(unittest.TestCase):
         assert snapshot is not None
         self.assertEqual(snapshot[0], b"fresh-frame")
 
-        self.assertIsNone(
-            registry.latest_video_frame_for_thread("thread-a", max_age_seconds=0.0)
-        )
+        self.assertIsNone(registry.latest_video_frame_for_thread("thread-a", max_age_seconds=0.0))
 
         registry.store_video_frame_jpeg("livekit-a", jpeg_bytes=b"fresh-frame")
         registry.close("livekit-a")

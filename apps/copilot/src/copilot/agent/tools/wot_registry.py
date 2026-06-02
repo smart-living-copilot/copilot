@@ -127,9 +127,7 @@ async def things_search(query: str, k: int = 5) -> dict[str, Any]:
 async def things_get(thing_id: str) -> dict[str, Any]:
     """Fetch one stored Thing Description by id."""
     payload = await _run_with_session(
-        lambda session: ThingCatalogQueryService(session).get_owned_thing(
-            decode_thing_id(thing_id)
-        )
+        lambda session: ThingCatalogQueryService(session).get_owned_thing(decode_thing_id(thing_id))
     )
     return _thing_summary(payload)
 

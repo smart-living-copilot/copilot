@@ -10,9 +10,7 @@ def parse_stream_event(fields: dict[str, str]) -> dict[str, Any]:
     try:
         event = json.loads(payload)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Thing event stream entry contains invalid JSON: {exc}"
-        ) from exc
+        raise ValueError(f"Thing event stream entry contains invalid JSON: {exc}") from exc
 
     if not isinstance(event, dict):
         raise ValueError("Thing event stream entry must decode to an object.")

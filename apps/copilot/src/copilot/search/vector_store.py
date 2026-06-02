@@ -130,9 +130,7 @@ class SearchVectorStore:
 
     def _validate_schema_sync(self) -> None:
         with self._session_factory() as session:
-            table_name = session.execute(
-                text("SELECT to_regclass('search_index_chunks')")
-            ).scalar()
+            table_name = session.execute(text("SELECT to_regclass('search_index_chunks')")).scalar()
             if table_name is None:
                 raise RuntimeError(
                     "search_index_chunks table is missing. Run init_db() or "
@@ -164,9 +162,7 @@ class SearchVectorStore:
         query_embedding: list[float],
         limit: int,
     ) -> list[SearchIndexMatch]:
-        distance = SearchIndexChunk.embedding.cosine_distance(query_embedding).label(
-            "distance"
-        )
+        distance = SearchIndexChunk.embedding.cosine_distance(query_embedding).label("distance")
         stmt = (
             select(SearchIndexChunk, distance)
             .order_by(distance, SearchIndexChunk.chunk_id)
@@ -224,21 +220,15 @@ class SearchVectorStore:
                     )
                 )
 
-            stale_delete = delete(SearchIndexChunk).where(
-                SearchIndexChunk.thing_id == thing_id
-            )
+            stale_delete = delete(SearchIndexChunk).where(SearchIndexChunk.thing_id == thing_id)
             if next_chunk_ids:
-                stale_delete = stale_delete.where(
-                    SearchIndexChunk.chunk_id.not_in(next_chunk_ids)
-                )
+                stale_delete = stale_delete.where(SearchIndexChunk.chunk_id.not_in(next_chunk_ids))
             session.execute(stale_delete)
             session.commit()
 
     def _delete_thing_chunks_sync(self, thing_id: str) -> None:
         with self._session_factory() as session:
-            session.execute(
-                delete(SearchIndexChunk).where(SearchIndexChunk.thing_id == thing_id)
-            )
+            session.execute(delete(SearchIndexChunk).where(SearchIndexChunk.thing_id == thing_id))
             session.commit()
 
     def _validate_embedding(self, embedding: Sequence[float]) -> list[float]:

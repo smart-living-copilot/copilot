@@ -230,10 +230,7 @@ def _active_tools_for_config(tools: list[Any], config: RunnableConfig | None) ->
     return [
         tool
         for tool in tools
-        if (
-            getattr(tool, "name", None) != "look_at_camera"
-            or is_look_at_camera_available(config)
-        )
+        if (getattr(tool, "name", None) != "look_at_camera" or is_look_at_camera_available(config))
         and (
             getattr(tool, "name", None) != "submit_job_record"
             or configurable.get("job_output_kind") == JobOutputKind.STRUCTURED_RECORD.value

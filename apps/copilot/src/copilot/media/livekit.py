@@ -61,7 +61,7 @@ def _safe_livekit_name_component(value: str, *, fallback: str) -> str:
         return cleaned
 
     digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
-    return f"{cleaned[:_MAX_ROOM_COMPONENT_LENGTH - 17]}-{digest}"
+    return f"{cleaned[: _MAX_ROOM_COMPONENT_LENGTH - 17]}-{digest}"
 
 
 def livekit_room_name(
@@ -277,8 +277,7 @@ async def dispatch_livekit_agent(
                     if matching_dispatches:
                         status = _dispatch_job_status(api, matching_dispatches[-1]) or status
                     message = (
-                        f"LiveKit agent '{agent_name}' was not assigned to room "
-                        f"'{room}' ({status})"
+                        f"LiveKit agent '{agent_name}' was not assigned to room '{room}' ({status})"
                     )
                     if last_error is not None:
                         message = f"{message}: {last_error}"

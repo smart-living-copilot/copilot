@@ -11,8 +11,7 @@ class _ResourceHealthRepo(Protocol):
         resource: str,
         status: str,
         message: str | None = None,
-    ) -> object:
-        ...
+    ) -> object: ...
 
 
 async def mark_resource_health(

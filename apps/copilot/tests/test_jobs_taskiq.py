@@ -193,7 +193,7 @@ class BackgroundAgentRunnerTestCase(unittest.IsolatedAsyncioTestCase):
                     "record_schema": None,
                     "record_schema_version": None,
                     "virtual_thing_id": None,
-                }
+                },
             },
         )
         self.assertEqual(graph.state_updates, [])
@@ -243,7 +243,9 @@ class BackgroundAgentRunnerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(invocation_messages), 1)
         # The reply is appended verbatim; the checkpointer carries prior context.
         self.assertEqual(invocation_messages[0].content, "42")
-        self.assertEqual(graph.invocations[0][1]["configurable"]["thread_id"], "job:job-1:run:run-1")
+        self.assertEqual(
+            graph.invocations[0][1]["configurable"]["thread_id"], "job:job-1:run:run-1"
+        )
         saver.adelete_thread.assert_not_awaited()
 
     async def test_structured_record_reply_resumes_pending_interrupt(self) -> None:
@@ -1008,11 +1010,7 @@ class _FakeServiceRepo:
     async def list_jobs(self, created_from_thread_id: str | None = None) -> list[Job]:
         if created_from_thread_id is None:
             return self.jobs
-        return [
-            job
-            for job in self.jobs
-            if job.created_from_thread_id == created_from_thread_id
-        ]
+        return [job for job in self.jobs if job.created_from_thread_id == created_from_thread_id]
 
     async def get_job_run_by_client_reply_id(
         self,
@@ -1057,7 +1055,9 @@ class _FakeServiceRepo:
 
 class _FakeServiceRuntimeClient:
     def __init__(self, *, subscribe_response=None, remove_error=None) -> None:
-        self.subscribe_response = subscribe_response or {"subscription": {"subscriptionId": "sub-1"}}
+        self.subscribe_response = subscribe_response or {
+            "subscription": {"subscriptionId": "sub-1"}
+        }
         self.remove_error = remove_error
         self.subscribed = []
         self.removed: list[str] = []
@@ -1839,11 +1839,7 @@ class _FakeEventRepo:
         self.resource_health_updates = []
 
     async def list_event_jobs_for_subscription(self, subscription_id: str) -> list[Job]:
-        return [
-            job
-            for job in self.jobs
-            if job.subscription_id == subscription_id and job.enabled
-        ]
+        return [job for job in self.jobs if job.subscription_id == subscription_id and job.enabled]
 
     async def list_enabled_event_jobs(self) -> list[Job]:
         return [job for job in self.jobs if job.enabled]
