@@ -118,6 +118,38 @@ export function JobCreatePage() {
     }
   }, [form.subscriptionInput, form.triggerKind]);
 
+  const validationError = useMemo(() => {
+    if (!form.name.trim()) return 'Name is required.';
+    if (form.actionKind === 'prompt' && !form.prompt.trim()) {
+      return 'Prompt is required.';
+    }
+    if (form.actionKind === 'analysis' && !form.analysisCode.trim()) {
+      return 'Analysis code is required.';
+    }
+    if (form.triggerKind === 'time') {
+      if (form.scheduleKind === 'interval') {
+        const seconds = Number(form.intervalSeconds);
+        if (
+          !form.intervalSeconds.trim() ||
+          !Number.isFinite(seconds) ||
+          seconds < 1
+        ) {
+          return 'Interval must be a positive number of seconds.';
+        }
+      }
+      if (form.scheduleKind === 'once' && !form.runAt.trim()) {
+        return 'Run time is required for one-time jobs.';
+      }
+      if (form.scheduleKind === 'cron' && !form.cronExpression.trim()) {
+        return 'Cron expression is required.';
+      }
+      return null;
+    }
+    if (!form.thingId.trim()) return 'Thing ID is required for event jobs.';
+    if (!form.eventName.trim()) return 'Event name is required for event jobs.';
+    return null;
+  }, [form]);
+
   const setField = useCallback(
     <K extends keyof CreateJobFormState>(
       field: K,
@@ -131,6 +163,7 @@ export function JobCreatePage() {
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      if (validationError || subscriptionError) return;
       setIsSubmitting(true);
       try {
         const job = await createJob(toCreatePayload(form));
@@ -144,7 +177,7 @@ export function JobCreatePage() {
         setIsSubmitting(false);
       }
     },
-    [form, router],
+    [form, router, subscriptionError, validationError],
   );
 
   return (
@@ -162,7 +195,9 @@ export function JobCreatePage() {
           </Button>
           <Button
             type="submit"
-            disabled={isSubmitting || Boolean(subscriptionError)}
+            disabled={
+              isSubmitting || Boolean(validationError) || Boolean(subscriptionError)
+            }
           >
             {isSubmitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -280,54 +315,62 @@ export function JobCreatePage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    Interval seconds
-                  </label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={form.intervalSeconds}
-                    disabled={form.scheduleKind !== 'interval'}
-                    onChange={(event) =>
-                      setField('intervalSeconds', event.target.value)
-                    }
-                    placeholder="300"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Run once at</label>
-                  <Input
-                    type="datetime-local"
-                    value={form.runAt}
-                    disabled={form.scheduleKind !== 'once'}
-                    onChange={(event) => setField('runAt', event.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    Cron expression
-                  </label>
-                  <Input
-                    value={form.cronExpression}
-                    disabled={form.scheduleKind !== 'cron'}
-                    onChange={(event) =>
-                      setField('cronExpression', event.target.value)
-                    }
-                    placeholder="0 9 * * sun"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Cron timezone</label>
-                  <Input
-                    value={form.cronTimezone}
-                    disabled={form.scheduleKind !== 'cron'}
-                    onChange={(event) =>
-                      setField('cronTimezone', event.target.value)
-                    }
-                    placeholder="Europe/Berlin"
-                  />
-                </div>
+                {form.scheduleKind === 'interval' ? (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Interval seconds
+                    </label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={form.intervalSeconds}
+                      onChange={(event) =>
+                        setField('intervalSeconds', event.target.value)
+                      }
+                      placeholder="300"
+                    />
+                  </div>
+                ) : null}
+                {form.scheduleKind === 'once' ? (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Run once at</label>
+                    <Input
+                      type="datetime-local"
+                      value={form.runAt}
+                      onChange={(event) =>
+                        setField('runAt', event.target.value)
+                      }
+                    />
+                  </div>
+                ) : null}
+                {form.scheduleKind === 'cron' ? (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        Cron expression
+                      </label>
+                      <Input
+                        value={form.cronExpression}
+                        onChange={(event) =>
+                          setField('cronExpression', event.target.value)
+                        }
+                        placeholder="0 9 * * sun"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        Cron timezone
+                      </label>
+                      <Input
+                        value={form.cronTimezone}
+                        onChange={(event) =>
+                          setField('cronTimezone', event.target.value)
+                        }
+                        placeholder="Europe/Berlin"
+                      />
+                    </div>
+                  </>
+                ) : null}
               </div>
             </TabsContent>
 
@@ -377,6 +420,9 @@ export function JobCreatePage() {
           </Tabs>
         </CardContent>
       </Card>
+      {validationError ? (
+        <p className="text-sm text-destructive">{validationError}</p>
+      ) : null}
     </form>
   );
 }
