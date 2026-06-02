@@ -153,7 +153,13 @@ export function VoiceAnswerButton({
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          noiseSuppression: true,
+          echoCancellation: true,
+          autoGainControl: true,
+        },
+      });
       streamRef.current = stream;
       chunksRef.current = [];
       const options = MediaRecorder.isTypeSupported('audio/webm')
