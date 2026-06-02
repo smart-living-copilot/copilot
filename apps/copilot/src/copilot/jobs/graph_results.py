@@ -249,6 +249,10 @@ def _parsed_tool_message_content(message: ToolMessage) -> Any:
 def _record_submission_needs_user_repair(submission: dict[str, Any] | None) -> bool:
     if submission is None:
         return False
+    if submission.get("repairable") is True:
+        return True
+    if submission.get("repairable") is False:
+        return False
     error = _record_submission_error(submission)
     return (
         error.startswith("record data failed schema validation")

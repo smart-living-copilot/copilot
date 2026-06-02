@@ -169,6 +169,30 @@ class JobGraphResultsTestCase(unittest.TestCase):
         self.assertIn("record_submission_error", job_result["metadata"])
         self.assertEqual(job_run_status_from_result(job_result), JobRunStatus.WAITING_FOR_INPUT)
 
+    def test_repairable_record_tool_error_waits_for_repair(self) -> None:
+        result = {
+            "messages": [
+                HumanMessage(content="energy was very high"),
+                ToolMessage(
+                    content='{"ok": false, "repairable": true, "error": "missing energy"}',
+                    name="submit_job_record",
+                    tool_call_id="call-1",
+                ),
+                AIMessage(content="I could not store the record."),
+            ]
+        }
+
+        job_result = job_result_from_graph_result(
+            result,
+            job=_job(output_kind=JobOutputKind.STRUCTURED_RECORD),
+            message="energy was very high",
+            trigger={"source": "user_reply"},
+        )
+
+        self.assertTrue(job_result["ok"])
+        self.assertEqual(job_result["status"], JobRunStatus.WAITING_FOR_INPUT.value)
+        self.assertIn("missing energy", job_result["waiting_question"])
+
     def test_non_user_repairable_record_tool_error_still_fails(self) -> None:
         result = {
             "messages": [

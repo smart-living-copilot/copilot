@@ -25,6 +25,7 @@ async def submit_job_record(
     if not job_id or not run_id or not virtual_thing_id:
         return {
             "ok": False,
+            "repairable": False,
             "error": "submit_job_record requires job_id, run_id, and virtual_thing_id",
         }
 
@@ -37,8 +38,12 @@ async def submit_job_record(
             raw_input=raw_input,
             confidence=confidence,
         )
+    except ValueError as exc:
+        return {"ok": False, "repairable": True, "error": str(exc)}
+    except KeyError as exc:
+        return {"ok": False, "repairable": False, "error": str(exc)}
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "repairable": False, "error": str(exc)}
 
     return {
         "ok": True,

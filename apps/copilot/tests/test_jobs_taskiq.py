@@ -851,6 +851,39 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["record"]["thing_id"], "virtual:records:mood")
         self.assertEqual(result["record"]["source_run_id"], "run-1")
 
+    async def test_submit_job_record_tool_marks_schema_errors_repairable(self) -> None:
+        class FakeRecordStore:
+            def submit_record(self, **kwargs):
+                raise ValueError("record data failed schema validation at energy")
+
+        with patch(
+            "copilot.agent.tools.submit_job_record.VirtualRecordStore",
+            return_value=FakeRecordStore(),
+        ):
+            result = await submit_job_record.ainvoke(
+                {"data": {"energy": "high"}},
+                config={
+                    "configurable": {
+                        "job_id": "job-1",
+                        "run_id": "run-1",
+                        "virtual_thing_id": "virtual:records:mood",
+                    }
+                },
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["repairable"])
+        self.assertIn("energy", result["error"])
+
+    async def test_submit_job_record_tool_marks_context_errors_not_repairable(self) -> None:
+        result = await submit_job_record.ainvoke(
+            {"data": {"mood": "good"}},
+            config={"configurable": {"job_id": "job-1"}},
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["repairable"])
+
 
 class _FakeScheduleManager:
     def __init__(self, *, add_error=None, remove_error=None) -> None:
