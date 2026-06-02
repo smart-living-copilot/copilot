@@ -13,7 +13,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Ban,
-  MessagesSquare,
   Pause,
   Pencil,
   Play,
@@ -25,6 +24,7 @@ import {
 import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/jobs/confirm-dialog';
+import { JobConversationPanel } from '@/components/jobs/job-conversation-panel';
 import { JobRunHistoryCard } from '@/components/jobs/job-run-history';
 import {
   ReadAloudButton,
@@ -283,7 +283,6 @@ function JobReplyPanel({
   question,
   value,
   isSubmitting,
-  transcriptHref,
   onChange,
   onVoiceAnswer,
   onSubmit,
@@ -291,7 +290,6 @@ function JobReplyPanel({
   question: string;
   value: string;
   isSubmitting: boolean;
-  transcriptHref: string;
   onChange: (value: string) => void;
   onVoiceAnswer: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -343,12 +341,6 @@ function JobReplyPanel({
               Press ⌘/Ctrl + Enter to submit
             </span>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button variant="outline" asChild>
-                <Link href={transcriptHref}>
-                  <MessagesSquare className="h-4 w-4" />
-                  View transcript
-                </Link>
-              </Button>
               <VoiceAnswerButton
                 disabled={isSubmitting}
                 onTranscript={onVoiceAnswer}
@@ -610,14 +602,6 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
             />
             Refresh
           </Button>
-          {hasJobThread ? (
-            <Button variant="outline" asChild>
-              <Link href={`/jobs/${jobId}/thread`}>
-                <MessagesSquare className="h-4 w-4" />
-                Thread
-              </Link>
-            </Button>
-          ) : null}
           {job ? (
             <Button variant="outline" asChild>
               <Link href={`/jobs/${jobId}/edit`}>
@@ -720,7 +704,6 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
               }
               value={replyText}
               isSubmitting={isReplying}
-              transcriptHref={`/jobs/${jobId}/thread`}
               onChange={setReplyText}
               onVoiceAnswer={handleVoiceAnswer}
               onSubmit={handleReply}
@@ -787,6 +770,14 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                     {job.output_kind === 'structured_record'
                       ? 'Schema'
                       : 'Subscription'}
+                  </TabsTrigger>
+                ) : null}
+                {hasJobThread ? (
+                  <TabsTrigger
+                    value="conversation"
+                    className={JOB_TABS_TRIGGER_CLASSNAME}
+                  >
+                    Conversation
                   </TabsTrigger>
                 ) : null}
               </TabsList>
@@ -1017,6 +1008,12 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                     compact
                   />
                 ) : null}
+              </TabsContent>
+            ) : null}
+
+            {hasJobThread ? (
+              <TabsContent value="conversation" className="mt-0">
+                <JobConversationPanel jobId={jobId} job={job} />
               </TabsContent>
             ) : null}
           </Tabs>

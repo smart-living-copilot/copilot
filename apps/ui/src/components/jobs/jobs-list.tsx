@@ -63,7 +63,6 @@ import {
   getStatusBadgeVariant,
   getStatusLabel,
   supportsJobReply,
-  supportsJobThread,
   supportsTimeFields,
 } from '@/lib/job-formatters';
 import {
@@ -293,14 +292,6 @@ function JobRowActions({
               View details
             </Link>
           </DropdownMenuItem>
-          {supportsJobThread(job) ? (
-            <DropdownMenuItem asChild>
-              <Link href={`/jobs/${job.id}/thread`}>
-                <MessagesSquare className="h-4 w-4" />
-                View transcript
-              </Link>
-            </DropdownMenuItem>
-          ) : null}
           <DropdownMenuItem asChild>
             <Link href={`/jobs/${job.id}/edit`}>
               <Pencil className="h-4 w-4" />
