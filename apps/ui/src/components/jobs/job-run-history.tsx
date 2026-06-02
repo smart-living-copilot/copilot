@@ -1,4 +1,5 @@
 import { Badge } from '@/components/ui/badge';
+import { ReadAloudButton } from '@/components/jobs/job-speech-controls';
 import {
   Card,
   CardContent,
@@ -35,6 +36,7 @@ interface JobRunHistoryCardProps {
   outcome: (run: JobRunRecord) => string;
   showFinished?: boolean;
   minWidthClassName?: string;
+  readOutcome?: boolean;
 }
 
 export function JobRunHistoryCard({
@@ -43,6 +45,7 @@ export function JobRunHistoryCard({
   outcome,
   showFinished = false,
   minWidthClassName = 'min-w-[760px]',
+  readOutcome = false,
 }: JobRunHistoryCardProps) {
   return (
     <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
@@ -69,29 +72,37 @@ export function JobRunHistoryCard({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {runs.map((run) => (
-                  <TableRow key={run.id}>
-                    <TableCell className="align-top">
-                      <RunStatusBadge status={run.status} />
-                    </TableCell>
-                    <TableCell className="align-top capitalize">
-                      {run.source}
-                    </TableCell>
-                    <TableCell className="align-top text-xs text-muted-foreground">
-                      {formatDateTime(run.started_at)}
-                    </TableCell>
-                    {showFinished ? (
-                      <TableCell className="align-top text-xs text-muted-foreground">
-                        {formatDateTime(run.finished_at)}
+                {runs.map((run) => {
+                  const outcomeText = outcome(run);
+                  return (
+                    <TableRow key={run.id}>
+                      <TableCell className="align-top">
+                        <RunStatusBadge status={run.status} />
                       </TableCell>
-                    ) : null}
-                    <TableCell className="align-top text-sm text-muted-foreground">
-                      <p className="line-clamp-3 whitespace-pre-wrap break-words">
-                        {outcome(run)}
-                      </p>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      <TableCell className="align-top capitalize">
+                        {run.source}
+                      </TableCell>
+                      <TableCell className="align-top text-xs text-muted-foreground">
+                        {formatDateTime(run.started_at)}
+                      </TableCell>
+                      {showFinished ? (
+                        <TableCell className="align-top text-xs text-muted-foreground">
+                          {formatDateTime(run.finished_at)}
+                        </TableCell>
+                      ) : null}
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        <div className="flex items-start gap-2">
+                          <p className="line-clamp-3 flex-1 whitespace-pre-wrap break-words">
+                            {outcomeText}
+                          </p>
+                          {readOutcome ? (
+                            <ReadAloudButton text={outcomeText} compact />
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

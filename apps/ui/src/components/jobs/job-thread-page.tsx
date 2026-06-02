@@ -31,6 +31,10 @@ import {
 import { toast } from 'sonner';
 
 import { JobRunHistoryCard } from '@/components/jobs/job-run-history';
+import {
+  ReadAloudButton,
+  VoiceAnswerButton,
+} from '@/components/jobs/job-speech-controls';
 import { LiveModePanel } from '@/components/copilot/live-mode-panel';
 import { chatToolCallRenderers } from '@/components/copilot/chat-tool-call-renderer';
 import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
@@ -270,6 +274,7 @@ function WaitingReplyCard({
   isSubmitting,
   detailsHref,
   onChange,
+  onVoiceAnswer,
   onSubmit,
 }: {
   question: string;
@@ -277,6 +282,7 @@ function WaitingReplyCard({
   isSubmitting: boolean;
   detailsHref: string;
   onChange: (value: string) => void;
+  onVoiceAnswer: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const canSubmit = value.trim().length > 0 && !isSubmitting;
@@ -296,8 +302,11 @@ function WaitingReplyCard({
           </p>
         </div>
         <div className="rounded-md border bg-muted/20 p-4">
-          <div className="text-xs font-medium text-muted-foreground">
-            Question
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs font-medium text-muted-foreground">
+              Question
+            </div>
+            <ReadAloudButton text={question} compact />
           </div>
           <p className="mt-2 whitespace-pre-wrap break-words text-base leading-7 text-foreground">
             {question}
@@ -319,6 +328,10 @@ function WaitingReplyCard({
                 Details
               </Link>
             </Button>
+            <VoiceAnswerButton
+              disabled={isSubmitting}
+              onTranscript={onVoiceAnswer}
+            />
             <Button type="submit" disabled={!canSubmit}>
               {isSubmitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -473,6 +486,13 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
     [inputValue, isWaiting, jobId, load],
   );
 
+  const handleVoiceAnswer = useCallback((message: string) => {
+    setInputValue((current) => {
+      const currentText = current.trim();
+      return currentText ? `${currentText} ${message}` : message;
+    });
+  }, []);
+
   const chatInput = useMemo(
     () => ({
       children: () => {
@@ -595,6 +615,7 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
                 isSubmitting={isReplying}
                 detailsHref={`/jobs/${jobId}`}
                 onChange={setInputValue}
+                onVoiceAnswer={handleVoiceAnswer}
                 onSubmit={submitReply}
               />
               {events.length ? <JobEventTimeline events={events} /> : null}
@@ -639,6 +660,7 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
           runs={runs}
           description="Execution attempts connected to this checkpoint thread."
           outcome={runOutcome}
+          readOutcome
         />
       ) : null}
     </div>

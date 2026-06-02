@@ -36,6 +36,7 @@ from copilot.jobs.routes import router as jobs_router
 from copilot.jobs.service import JobService
 from copilot.search.router import router as search_router
 from copilot.catalog.router import router as things_router
+from copilot.speech.routes import router as speech_router
 
 logger = logging.getLogger(__name__)
 EMBED_EPHEMERAL_THREAD_PREFIX = "embed-ephemeral-"
@@ -276,6 +277,7 @@ app.include_router(search_router)
 app.include_router(things_router)
 app.include_router(api_keys_router)
 app.include_router(jobs_router)
+app.include_router(speech_router)
 
 
 def _current_settings() -> AgentSettings | None:

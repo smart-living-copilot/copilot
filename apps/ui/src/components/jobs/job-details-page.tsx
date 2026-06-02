@@ -27,6 +27,10 @@ import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/jobs/confirm-dialog';
 import { JobRunHistoryCard } from '@/components/jobs/job-run-history';
+import {
+  ReadAloudButton,
+  VoiceAnswerButton,
+} from '@/components/jobs/job-speech-controls';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -183,17 +187,28 @@ function TextPanel({
   description,
   value,
   compact = false,
+  readText,
 }: {
   title: string;
   description?: string;
   value: string;
   compact?: boolean;
+  readText?: string;
 }) {
   return (
     <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
       <CardHeader className="border-b border-border/70">
-        <CardTitle className="text-base">{title}</CardTitle>
-        {description ? <CardDescription>{description}</CardDescription> : null}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">{title}</CardTitle>
+            {description ? (
+              <CardDescription>{description}</CardDescription>
+            ) : null}
+          </div>
+          {readText?.trim() ? (
+            <ReadAloudButton text={readText} compact />
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent>
         <pre
@@ -213,9 +228,11 @@ function TextPanel({
 function CodeOutputPanel({
   result,
   title = 'Code output',
+  readText,
 }: {
   result: RunCodeResult;
   title?: string;
+  readText?: string;
 }) {
   const artifactSummary = result.artifacts?.length
     ? formatArtifactSummary(result.artifacts)
@@ -237,10 +254,17 @@ function CodeOutputPanel({
   return (
     <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
       <CardHeader className="border-b border-border/70">
-        <CardTitle className="text-base">{title}</CardTitle>
-        <CardDescription>
-          {artifactSummary || 'Text output from the latest analysis run.'}
-        </CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">{title}</CardTitle>
+            <CardDescription>
+              {artifactSummary || 'Text output from the latest analysis run.'}
+            </CardDescription>
+          </div>
+          {readText?.trim() ? (
+            <ReadAloudButton text={readText} compact />
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {hasError ? (
@@ -281,6 +305,7 @@ function JobReplyPanel({
   isSubmitting,
   transcriptHref,
   onChange,
+  onVoiceAnswer,
   onSubmit,
 }: {
   question: string;
@@ -288,6 +313,7 @@ function JobReplyPanel({
   isSubmitting: boolean;
   transcriptHref: string;
   onChange: (value: string) => void;
+  onVoiceAnswer: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const canSubmit = value.trim().length > 0 && !isSubmitting;
@@ -307,8 +333,11 @@ function JobReplyPanel({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-md border bg-muted/20 p-4">
-          <div className="text-xs font-medium text-muted-foreground">
-            Question
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs font-medium text-muted-foreground">
+              Question
+            </div>
+            <ReadAloudButton text={question} compact />
           </div>
           <p className="mt-2 whitespace-pre-wrap break-words text-base leading-7 text-foreground">
             {question}
@@ -330,6 +359,10 @@ function JobReplyPanel({
                 View transcript
               </Link>
             </Button>
+            <VoiceAnswerButton
+              disabled={isSubmitting}
+              onTranscript={onVoiceAnswer}
+            />
             <Button type="submit" disabled={!canSubmit}>
               {isSubmitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -495,6 +528,13 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
     },
     [isWaitingForReply, job, load, replyText],
   );
+
+  const handleVoiceAnswer = useCallback((message: string) => {
+    setReplyText((current) => {
+      const currentText = current.trim();
+      return currentText ? `${currentText} ${message}` : message;
+    });
+  }, []);
 
   const handleToggleEnabled = useCallback(async () => {
     if (!job) return;
@@ -688,6 +728,7 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
               isSubmitting={isReplying}
               transcriptHref={`/jobs/${jobId}/thread`}
               onChange={setReplyText}
+              onVoiceAnswer={handleVoiceAnswer}
               onSubmit={handleReply}
             />
           ) : null}
@@ -864,10 +905,7 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                       />
                     ) : null}
                     {job.cron_timezone ? (
-                      <FieldCard
-                        label="Timezone"
-                        value={job.cron_timezone}
-                      />
+                      <FieldCard label="Timezone" value={job.cron_timezone} />
                     ) : null}
                     {job.run_at ? (
                       <FieldCard
@@ -904,6 +942,10 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                 <CodeOutputPanel
                   result={latestCodeResult ?? {}}
                   title="Latest output"
+                  readText={
+                    latestCodeResult?.stdout?.trim() ||
+                    latestCodeResult?.error?.trim()
+                  }
                 />
               ) : (
                 <>
@@ -923,11 +965,20 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                       job.last_response ||
                       'No result captured yet.'
                     }
+                    readText={
+                      latestSubmittedRecordSummary ||
+                      job.last_response ||
+                      undefined
+                    }
                   />
                   {latestCodeResult?.artifacts?.length ? (
                     <CodeOutputPanel
                       result={latestCodeResult}
                       title="Generated artifacts"
+                      readText={
+                        latestCodeResult.stdout?.trim() ||
+                        formatArtifactSummary(latestCodeResult.artifacts)
+                      }
                     />
                   ) : null}
                 </>
@@ -939,6 +990,7 @@ export function JobDetailsPage({ jobId }: JobDetailsPageProps) {
                 runs={runs}
                 description="Recent starts, completion times, and captured outcomes."
                 outcome={runOutcome}
+                readOutcome
                 showFinished
                 minWidthClassName="min-w-[860px]"
               />
