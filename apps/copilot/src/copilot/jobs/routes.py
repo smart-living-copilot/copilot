@@ -11,10 +11,10 @@ from fastapi.responses import StreamingResponse
 from copilot.auth import User, require_service
 from copilot.catalog.ids import decode_thing_id
 from copilot.core.api_dependencies import verify_internal_api_key
-from copilot.jobs.models import (
+from copilot.jobs.enums import JobRunEventType
+from copilot.jobs.schemas import (
     CreateJobRequest,
     JobRunEvent,
-    JobRunEventType,
     ReplyJobRequest,
     UpdateJobRequest,
 )

@@ -14,12 +14,12 @@ from langchain_core.tools import tool
 from pydantic import Field, ValidationError
 
 from copilot.jobs.active import get_active_job_service
-from copilot.jobs.models import (
-    CreateJobRequest,
+from copilot.jobs.enums import (
     JobActionKind,
     JobInteractionMode,
     JobOutputKind,
 )
+from copilot.jobs.schemas import CreateJobRequest
 
 if TYPE_CHECKING:
     from copilot.jobs.service import JobService

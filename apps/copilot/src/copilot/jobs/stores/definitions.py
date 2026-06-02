@@ -6,13 +6,9 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from copilot.jobs.models import (
-    CreateJobRequest,
-    Job,
-    JobRecord,
-    JobTriggerKind,
-    TimeTriggerKind,
-)
+from copilot.jobs.db import JobRecord
+from copilot.jobs.enums import JobTriggerKind, TimeTriggerKind
+from copilot.jobs.schemas import CreateJobRequest, Job
 from copilot.jobs.stores.base import (
     _JobStoreBase,
     _UNSET,

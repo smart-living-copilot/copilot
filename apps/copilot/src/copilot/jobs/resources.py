@@ -7,13 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from copilot.clients.wot_runtime import WotRuntimeClient
-from copilot.jobs.models import (
-    CreateJobRequest,
-    Job,
-    JobOutputKind,
-    JobTriggerKind,
-    TimeTriggerKind,
-)
+from copilot.jobs.enums import JobOutputKind, JobTriggerKind, TimeTriggerKind
+from copilot.jobs.schemas import CreateJobRequest, Job
 from copilot.jobs.records import VirtualRecordStore
 from copilot.jobs.schedule import JobScheduleManager
 from copilot.jobs.store import JobStore, utc_now

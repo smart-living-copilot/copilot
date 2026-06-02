@@ -7,23 +7,18 @@ from typing import Any
 from sqlalchemy.orm import Session, sessionmaker
 
 from copilot.core.database import get_session_factory
-from copilot.jobs.models import (
-    CreateJobRequest,
-    Job,
+from copilot.jobs.db import JobRecord, JobRunEventRecord, JobRunRecord
+from copilot.jobs.enums import (
     JobActionKind,
     JobInteractionMode,
     JobOutputKind,
-    JobRecord,
-    JobRun,
-    JobRunEvent,
-    JobRunEventRecord,
     JobRunEventType,
-    JobRunRecord,
     JobRunSource,
     JobRunStatus,
     JobTriggerKind,
     TimeTriggerKind,
 )
+from copilot.jobs.schemas import CreateJobRequest, Job, JobRun, JobRunEvent
 
 class JobNotWaitingForInput(RuntimeError):
     """Raised when a job reply is submitted outside a waiting state."""

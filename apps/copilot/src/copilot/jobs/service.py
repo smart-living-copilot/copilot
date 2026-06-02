@@ -9,19 +9,15 @@ from typing import Any
 from taskiq.exceptions import TaskiqResultTimeoutError
 
 from copilot.core.settings import Settings
-from copilot.jobs.models import (
-    CreateJobRequest,
-    Job,
+from copilot.jobs.enums import (
     JobActionKind,
     JobInteractionMode,
     JobOutputKind,
-    JobRun,
-    JobRunEvent,
     JobRunStatus,
     JobTriggerKind,
     TimeTriggerKind,
-    UpdateJobRequest,
 )
+from copilot.jobs.schemas import CreateJobRequest, Job, JobRun, JobRunEvent, UpdateJobRequest
 from copilot.jobs.results import JobRunEventStream
 from copilot.jobs.records import (
     VirtualRecordStore,

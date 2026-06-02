@@ -7,15 +7,13 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from copilot.jobs.models import (
-    Job,
-    JobRecord,
-    JobRun,
+from copilot.jobs.db import JobRecord, JobRunRecord
+from copilot.jobs.enums import (
     JobRunEventType,
-    JobRunRecord,
     JobRunSource,
     JobRunStatus,
 )
+from copilot.jobs.schemas import Job, JobRun
 from copilot.jobs.stores.base import (
     _JobStoreBase,
     _add_finish_events,

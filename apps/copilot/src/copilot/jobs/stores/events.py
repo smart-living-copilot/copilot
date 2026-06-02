@@ -4,7 +4,8 @@ import asyncio
 
 from sqlalchemy import select
 
-from copilot.jobs.models import JobRunEvent, JobRunEventRecord
+from copilot.jobs.db import JobRunEventRecord
+from copilot.jobs.schemas import JobRunEvent
 from copilot.jobs.stores.base import _JobStoreBase, _to_job_run_event
 
 class JobRunEventStore(_JobStoreBase):

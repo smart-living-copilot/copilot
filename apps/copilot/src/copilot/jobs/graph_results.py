@@ -6,13 +6,12 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
-from copilot.jobs.models import (
-    Job,
+from copilot.jobs.enums import (
     JobInteractionMode,
     JobOutputKind,
-    JobRun,
     JobRunStatus,
 )
+from copilot.jobs.schemas import Job, JobRun
 
 
 def graph_input_for_run(job: Job, run: JobRun, message: str | None) -> Any:

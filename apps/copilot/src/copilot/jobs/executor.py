@@ -24,14 +24,13 @@ from copilot.clients.code_executor import (
     CodeExecutorClient,
     format_code_execution_result,
 )
-from copilot.jobs.models import (
-    Job,
+from copilot.jobs.enums import (
     JobActionKind,
-    JobRun,
     JobRunSource,
     JobRunStatus,
     TimeTriggerKind,
 )
+from copilot.jobs.schemas import Job, JobRun
 from copilot.jobs.graph_results import (
     graph_config_for_run,
     graph_input_for_run,

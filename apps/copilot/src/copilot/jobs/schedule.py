@@ -9,7 +9,8 @@ from taskiq_redis import ListRedisScheduleSource
 
 from copilot.core.settings import Settings
 from copilot.jobs.constants import JOB_SCHEDULE_PREFIX, RUN_JOB_TASK_NAME
-from copilot.jobs.models import Job, JobTriggerKind, TimeTriggerKind
+from copilot.jobs.enums import JobTriggerKind, TimeTriggerKind
+from copilot.jobs.schemas import Job
 from copilot.jobs.store import JobStore
 
 logger = logging.getLogger(__name__)

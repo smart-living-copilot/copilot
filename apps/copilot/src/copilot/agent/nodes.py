@@ -23,7 +23,7 @@ from langgraph.graph import END
 from pydantic import BaseModel, Field
 
 from copilot.agent.tools.look_at_camera import is_look_at_camera_available
-from copilot.jobs.models import JobOutputKind
+from copilot.jobs.enums import JobOutputKind
 from copilot.agent.prompts import (
     ANALYSIS_PROMPT,
     CONTROL_PROMPT,
