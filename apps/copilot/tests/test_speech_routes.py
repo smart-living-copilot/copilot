@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -48,7 +50,9 @@ class SpeechRoutesTestCase(unittest.TestCase):
         )
 
         with (
+            TemporaryDirectory() as cache_dir,
             _client(settings) as client,
+            patch("copilot.speech.routes._tts_cache_dir", return_value=Path(cache_dir)),
             patch(
                 "copilot.speech.routes._post_json",
                 AsyncMock(return_value=upstream),
@@ -63,6 +67,7 @@ class SpeechRoutesTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"mp3-bytes")
         self.assertEqual(response.headers["content-type"], "audio/mpeg")
+        self.assertEqual(response.headers["x-speech-cache"], "miss")
         post_json.assert_awaited_once()
         url, body = post_json.call_args.args
         self.assertEqual(url, "https://speech.example/v1/audio/speech")
@@ -72,6 +77,47 @@ class SpeechRoutesTestCase(unittest.TestCase):
         self.assertEqual(body["speed"], 0.9)
         self.assertEqual(body["response_format"], "mp3")
         self.assertEqual(post_json.call_args.kwargs["accept"], "audio/mpeg")
+
+    def test_tts_caches_repeated_speech_requests(self) -> None:
+        upstream = httpx.Response(
+            200,
+            content=b"cached-mp3",
+            headers={"content-type": "audio/mpeg"},
+        )
+        settings = Settings(
+            internal_api_key="secret",
+            tts_speech_url="https://speech.example/v1/audio/speech",
+            tts_model="tts-demo",
+            tts_voice="thorsten",
+        )
+
+        with (
+            TemporaryDirectory() as cache_dir,
+            _client(settings) as client,
+            patch("copilot.speech.routes._tts_cache_dir", return_value=Path(cache_dir)),
+            patch(
+                "copilot.speech.routes._post_json",
+                AsyncMock(return_value=upstream),
+            ) as post_json,
+        ):
+            first_response = client.post(
+                "/speech/tts",
+                json={"text": "Repeat this result."},
+                headers={"Authorization": "Bearer secret"},
+            )
+            second_response = client.post(
+                "/speech/tts",
+                json={"text": "Repeat this result."},
+                headers={"Authorization": "Bearer secret"},
+            )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(first_response.content, b"cached-mp3")
+        self.assertEqual(second_response.content, b"cached-mp3")
+        self.assertEqual(first_response.headers["x-speech-cache"], "miss")
+        self.assertEqual(second_response.headers["x-speech-cache"], "hit")
+        post_json.assert_awaited_once()
 
     def test_transcription_proxies_audio_upload(self) -> None:
         upstream = httpx.Response(

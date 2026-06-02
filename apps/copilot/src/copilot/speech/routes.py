@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import tempfile
+import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -13,6 +19,7 @@ from copilot.workers.livekit.speech import stt_kwargs, tts_kwargs
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 MAX_TTS_CHARS = 4096
 MAX_TRANSCRIPTION_BYTES = 25 * 1024 * 1024
+TTS_CACHE_TTL_SECONDS = 30 * 60
 
 router = APIRouter(prefix="/speech", tags=["speech"])
 
@@ -32,6 +39,7 @@ async def create_speech(payload: TextToSpeechRequest, request: Request) -> Respo
     kwargs = tts_kwargs(settings)
     api_key = str(kwargs.pop("api_key", "") or "")
     base_url = str(kwargs.pop("base_url", "") or OPENAI_BASE_URL).rstrip("/")
+    url = f"{base_url}/audio/speech"
     response_format = "mp3"
     body: dict[str, Any] = {
         "model": kwargs["model"],
@@ -40,20 +48,31 @@ async def create_speech(payload: TextToSpeechRequest, request: Request) -> Respo
         "speed": kwargs["speed"],
         "response_format": response_format,
     }
+    cache_key = _tts_cache_key(url, body)
+    cached = _read_tts_cache(cache_key)
+    if cached is not None:
+        content, content_type = cached
+        return _speech_response(content, content_type, cache_status="hit")
 
     response = await _post_json(
-        f"{base_url}/audio/speech",
+        url,
         body,
         api_key=api_key,
         accept="audio/mpeg",
     )
     content_type = response.headers.get("content-type") or "audio/mpeg"
+    _write_tts_cache(cache_key, response.content, content_type)
+    return _speech_response(response.content, content_type, cache_status="miss")
+
+
+def _speech_response(content: bytes, content_type: str, *, cache_status: str) -> Response:
     return Response(
-        content=response.content,
+        content=content,
         media_type=content_type,
         headers={
             "Cache-Control": "private, no-store, max-age=0",
             "X-Content-Type-Options": "nosniff",
+            "X-Speech-Cache": cache_status,
         },
     )
 
@@ -95,6 +114,85 @@ def _settings(request: Request) -> Settings:
     if isinstance(settings, Settings):
         return settings
     return Settings()
+
+
+def _tts_cache_key(url: str, body: dict[str, Any]) -> str:
+    payload = json.dumps(
+        {"url": url, "body": body},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _tts_cache_dir() -> Path:
+    return Path(tempfile.gettempdir()) / "smart-living-copilot-tts-cache"
+
+
+def _read_tts_cache(cache_key: str) -> tuple[bytes, str] | None:
+    cache_dir = _tts_cache_dir()
+    body_path = cache_dir / f"{cache_key}.body"
+    meta_path = cache_dir / f"{cache_key}.json"
+    now = time.time()
+
+    try:
+        if now - body_path.stat().st_mtime > TTS_CACHE_TTL_SECONDS:
+            _delete_tts_cache_entry(body_path, meta_path)
+            return None
+        content = body_path.read_bytes()
+        content_type = "audio/mpeg"
+        if meta_path.exists():
+            metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+            if isinstance(metadata, dict):
+                content_type = str(metadata.get("content_type") or content_type)
+        return content, content_type
+    except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _write_tts_cache(cache_key: str, content: bytes, content_type: str) -> None:
+    cache_dir = _tts_cache_dir()
+    body_path = cache_dir / f"{cache_key}.body"
+    meta_path = cache_dir / f"{cache_key}.json"
+    body_tmp_path = cache_dir / f"{cache_key}.body.tmp"
+    meta_tmp_path = cache_dir / f"{cache_key}.json.tmp"
+    now = time.time()
+
+    try:
+        cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _prune_expired_tts_cache(cache_dir, now)
+        body_tmp_path.write_bytes(content)
+        meta_tmp_path.write_text(
+            json.dumps({"content_type": content_type}, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        os.replace(body_tmp_path, body_path)
+        os.replace(meta_tmp_path, meta_path)
+    except OSError:
+        _delete_tts_cache_entry(body_tmp_path, meta_tmp_path)
+
+
+def _prune_expired_tts_cache(cache_dir: Path, now: float) -> None:
+    try:
+        body_paths = list(cache_dir.glob("*.body"))
+    except OSError:
+        return
+
+    for body_path in body_paths:
+        try:
+            if now - body_path.stat().st_mtime > TTS_CACHE_TTL_SECONDS:
+                _delete_tts_cache_entry(body_path, body_path.with_suffix(".json"))
+        except OSError:
+            continue
+
+
+def _delete_tts_cache_entry(*paths: Path) -> None:
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            continue
 
 
 async def _post_json(

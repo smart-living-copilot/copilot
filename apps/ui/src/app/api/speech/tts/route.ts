@@ -10,13 +10,18 @@ export async function POST(req: Request) {
     },
     body,
   });
+  const headers = new Headers({
+    'Content-Type': res.headers.get('content-type') || 'audio/mpeg',
+    'Cache-Control':
+      res.headers.get('cache-control') || 'private, no-store, max-age=0',
+  });
+  const speechCache = res.headers.get('x-speech-cache');
+  if (speechCache) {
+    headers.set('X-Speech-Cache', speechCache);
+  }
 
   return new Response(res.body, {
     status: res.status,
-    headers: {
-      'Content-Type': res.headers.get('content-type') || 'audio/mpeg',
-      'Cache-Control':
-        res.headers.get('cache-control') || 'private, no-store, max-age=0',
-    },
+    headers,
   });
 }
