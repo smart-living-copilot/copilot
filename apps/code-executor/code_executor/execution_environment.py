@@ -1,0 +1,207 @@
+"""Runtime environment for code executed inside an isolated worker."""
+
+from __future__ import annotations
+
+import io
+import os
+import sys
+import traceback
+import types
+import uuid
+from contextlib import redirect_stdout
+from typing import Any
+
+from code_executor.constants import MAX_STDOUT_CHARS, SENSITIVE_ENV_VARS
+from code_executor.wot_client import SandboxWotClient
+
+
+class ExecutionEnvironment:
+    """Owns imports, globals, and captured artifacts for one live worker."""
+
+    def __init__(
+        self,
+        artifacts_dir: str,
+        runtime_url: str,
+        runtime_api_token: str,
+    ) -> None:
+        self.artifacts_dir = artifacts_dir
+        self.images: list[str] = []
+        self.plotly: list[str] = []
+        self.wot_calls: list[dict[str, Any]] = []
+
+        self._prepare_process_environment()
+        self._load_runtime_modules()
+        self._install_plotly_renderer()
+
+        self.wot = SandboxWotClient(
+            runtime_url,
+            runtime_api_token,
+            self.wot_calls.append,
+        )
+        self._register_wot_module()
+        self.user_globals = self._build_user_globals()
+
+    def execute_code(self, code: str) -> dict[str, Any]:
+        self.images.clear()
+        self.plotly.clear()
+        self.wot_calls.clear()
+        stdout_buffer = io.StringIO()
+
+        original_plt_show = self.plt.show
+        original_pio_show = self.pio.show
+        original_renderer = self.pio.renderers.default
+        self.plt.show = self._capture_matplotlib_figure
+        self.pio.show = self._capture_plotly_figure
+        self.pio.renderers.default = "capture"
+
+        success = True
+        try:
+            with redirect_stdout(stdout_buffer):
+                exec(code, self.user_globals)
+        except Exception:
+            success = False
+            self._print_short_traceback(stdout_buffer)
+        finally:
+            self.plt.show = original_plt_show
+            self.pio.show = original_pio_show
+            self.pio.renderers.default = original_renderer
+
+        images = self.images.copy()
+        plotly = self.plotly.copy()
+        if not success:
+            self._delete_artifacts(images + plotly)
+            images = []
+            plotly = []
+
+        return {
+            "ok": success,
+            "stdout": self._trim_stdout(stdout_buffer.getvalue()),
+            "images": images,
+            "plotly": plotly,
+            "wot_calls": self.wot_calls.copy(),
+        }
+
+    @staticmethod
+    def _prepare_process_environment() -> None:
+        for key in SENSITIVE_ENV_VARS:
+            os.environ.pop(key, None)
+
+        os.environ["MPLBACKEND"] = "Agg"
+
+    def _load_runtime_modules(self) -> None:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import pandas as pd
+        import plotly.io as pio
+        import requests
+
+        self.plt = plt
+        self.np = np
+        self.pd = pd
+        self.pio = pio
+        self.requests = requests
+
+    def _install_plotly_renderer(self) -> None:
+        from plotly.io._base_renderers import ExternalRenderer
+
+        environment = self
+
+        class _CaptureRenderer(ExternalRenderer):
+            def render(self, fig_dict):
+                import plotly.graph_objects as go
+
+                fig = go.Figure(fig_dict)
+                environment._save_plotly_figure(fig)
+
+        self.pio.renderers["capture"] = _CaptureRenderer()
+
+    def _register_wot_module(self) -> None:
+        wot_module = types.ModuleType("wot")
+        wot_module.read_property = self.wot.read_property
+        wot_module.write_property = self.wot.write_property
+        wot_module.invoke_action = self.wot.invoke_action
+        sys.modules["wot"] = wot_module
+
+    def _build_user_globals(self) -> dict[str, Any]:
+        return {
+            "__builtins__": __builtins__,
+            "pd": self.pd,
+            "np": self.np,
+            "plt": self.plt,
+            "requests": self.requests,
+            "print": print,
+            "pio": self.pio,
+            "save_image": self.save_image,
+            "wot": self.wot,
+        }
+
+    def _capture_matplotlib_figure(self) -> None:
+        filename = f"{uuid.uuid4()}.png"
+        filepath = os.path.join(self.artifacts_dir, filename)
+        self.plt.savefig(filepath, format="png", bbox_inches="tight", dpi=150)
+        self.images.append(filename)
+        self.plt.close("all")
+
+    def save_image(self, image: Any) -> None:
+        filename = f"{uuid.uuid4()}.png"
+        filepath = os.path.join(self.artifacts_dir, filename)
+        if hasattr(image, "save"):
+            image.save(filepath, format="PNG")
+        elif hasattr(image, "read"):
+            with open(filepath, "wb") as f:
+                f.write(image.read())
+        elif isinstance(image, bytes):
+            with open(filepath, "wb") as f:
+                f.write(image)
+        else:
+            raise TypeError(
+                f"save_image expects PIL Image, BytesIO, or bytes. Got {type(image)}"
+            )
+        self.images.append(filename)
+
+    def _capture_plotly_figure(self, fig: Any, *args: Any, **kwargs: Any) -> None:
+        self._save_plotly_figure(fig)
+
+    def _save_plotly_figure(self, fig: Any) -> None:
+        filename = f"{uuid.uuid4()}.json"
+        filepath = os.path.join(self.artifacts_dir, filename)
+        if hasattr(fig, "write_json"):
+            fig.write_json(filepath)
+            self.plotly.append(filename)
+
+    def _delete_artifacts(self, filenames: list[str]) -> None:
+        for filename in filenames:
+            filepath = os.path.join(self.artifacts_dir, filename)
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _print_short_traceback(stdout_buffer: io.StringIO) -> None:
+        with redirect_stdout(stdout_buffer):
+            tb = traceback.format_exc()
+            lines = tb.strip().splitlines()
+            error_line = lines[-1] if lines else "Unknown error"
+            source_line = ""
+            for i, line in enumerate(lines):
+                if 'File "<string>"' in line and i + 1 < len(lines):
+                    source_line = lines[i + 1].strip()
+            if source_line:
+                print(f"Error: {error_line}\nAt: {source_line}")
+            else:
+                print(f"Error: {error_line}")
+
+    @staticmethod
+    def _trim_stdout(stdout: str) -> str:
+        if len(stdout) <= MAX_STDOUT_CHARS:
+            return stdout
+
+        return (
+            stdout[:MAX_STDOUT_CHARS]
+            + f"\n\n... truncated ({len(stdout)} chars total)."
+            " Print only summaries, not raw data."
+        )

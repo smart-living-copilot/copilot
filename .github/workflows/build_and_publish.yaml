@@ -6,7 +6,7 @@ on:
       - 'v*'
     branches:
       - 'main'
-      - 'dev'
+      - 'develop'
   workflow_dispatch:
 
 env:
@@ -50,8 +50,8 @@ jobs:
       - name: Build and push copilot image
         uses: docker/build-push-action@v6
         with:
-          context: ./copilot
-          file: ./copilot/Dockerfile
+          context: ./apps/copilot
+          file: ./apps/copilot/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -59,7 +59,7 @@ jobs:
           cache-from: type=gha,scope=copilot
           cache-to: type=gha,mode=max,scope=copilot
 
-  build-and-push-chat-ui:
+  build-and-push-ui:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -82,18 +82,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Extract metadata for chat-ui
+      - name: Extract metadata for ui
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/chat-ui
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/ui
           tags: |
             type=ref,event=branch
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
 
-      - name: Determine chat-ui app version
+      - name: Determine ui app version
         id: app-version
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
@@ -102,11 +102,11 @@ jobs:
             echo "value=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build and push chat-ui image
+      - name: Build and push ui image
         uses: docker/build-push-action@v6
         with:
-          context: ./chat-ui
-          file: ./chat-ui/Dockerfile
+          context: ./apps/ui
+          file: ./apps/ui/Dockerfile
           target: runtime
           build-args: |
             APP_VERSION=${{ steps.app-version.outputs.value }}
@@ -114,8 +114,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=chat-ui
-          cache-to: type=gha,mode=max,scope=chat-ui
+          cache-from: type=gha,scope=ui
+          cache-to: type=gha,mode=max,scope=ui
 
   build-and-push-code-executor:
     runs-on: ubuntu-latest
@@ -154,8 +154,8 @@ jobs:
       - name: Build and push code-executor image
         uses: docker/build-push-action@v6
         with:
-          context: ./code-executor
-          file: ./code-executor/Dockerfile
+          context: ./apps/code-executor
+          file: ./apps/code-executor/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -163,7 +163,7 @@ jobs:
           cache-from: type=gha,scope=code-executor
           cache-to: type=gha,mode=max,scope=code-executor
 
-  build-and-push-data-replay:
+  build-and-push-wot-runtime:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -186,25 +186,26 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Extract metadata for data-replay
+      - name: Extract metadata for wot-runtime
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/data-replay
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/wot-runtime
           tags: |
             type=ref,event=branch
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
 
-      - name: Build and push data-replay image
+      - name: Build and push wot-runtime image
         uses: docker/build-push-action@v6
         with:
-          context: ./data-replay
-          file: ./data-replay/Dockerfile
+          context: ./apps/wot-runtime
+          file: ./apps/wot-runtime/Dockerfile
+          target: production
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=data-replay
-          cache-to: type=gha,mode=max,scope=data-replay
+          cache-from: type=gha,scope=wot-runtime
+          cache-to: type=gha,mode=max,scope=wot-runtime

@@ -1,0 +1,104 @@
+services:
+  copilot:
+    build:
+      context: ../apps/copilot
+      dockerfile: Dockerfile
+    volumes:
+      - ../apps/copilot/src:/app/src:cached
+      - ../apps/copilot/migrations:/app/migrations:cached
+      - ../apps/copilot/tests:/app/tests:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+      PYTHONPATH: "/app/src"
+    command: ["copilot", "serve", "--reload"]
+
+  job-worker:
+    build:
+      context: ../apps/copilot
+      dockerfile: Dockerfile
+    volumes:
+      - ../apps/copilot/src:/app/src:cached
+      - ../apps/copilot/migrations:/app/migrations:cached
+      - ../apps/copilot/tests:/app/tests:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+      PYTHONPATH: "/app/src"
+    command: ["copilot", "job-worker"]
+
+  livekit-agent:
+    build:
+      context: ../apps/copilot
+      dockerfile: Dockerfile
+    volumes:
+      - ../apps/copilot/src:/app/src:cached
+      - ../apps/copilot/migrations:/app/migrations:cached
+      - ../apps/copilot/tests:/app/tests:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+      PYTHONPATH: "/app/src"
+    command: ["copilot", "livekit-agent", "start"]
+
+  job-scheduler:
+    build:
+      context: ../apps/copilot
+      dockerfile: Dockerfile
+    volumes:
+      - ../apps/copilot/src:/app/src:cached
+      - ../apps/copilot/migrations:/app/migrations:cached
+      - ../apps/copilot/tests:/app/tests:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+      PYTHONPATH: "/app/src"
+    command: ["copilot", "job-scheduler"]
+
+  thing-indexer:
+    build:
+      context: ../apps/copilot
+      dockerfile: Dockerfile
+    volumes:
+      - ../apps/copilot/src:/app/src:cached
+      - ../apps/copilot/migrations:/app/migrations:cached
+      - ../apps/copilot/tests:/app/tests:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+      PYTHONPATH: "/app/src"
+    command: ["copilot", "thing-indexer"]
+
+  ui:
+    build:
+      context: ../apps/ui
+      dockerfile: Dockerfile
+      target: dev
+      args:
+        APP_VERSION: ${APP_VERSION:-}
+    volumes:
+      - ../apps/ui:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_POLL_INTERVAL_MS: "${NEXT_POLL_INTERVAL_MS:-1000}"
+
+  code-executor:
+    build:
+      context: ../apps/code-executor
+      dockerfile: Dockerfile
+      target: builder
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../apps/code-executor/code_executor:/app/code_executor:cached
+    environment:
+      LOG_LEVEL: "DEBUG"
+      IDLE_TIMEOUT_SECONDS: "600"
+    entrypoint: ["uvicorn", "code_executor.api:app", "--host", "0.0.0.0", "--port", "8888", "--reload", "--reload-dir", "code_executor"]
+
+  wot-runtime:
+    build:
+      context: ../apps/wot-runtime
+      dockerfile: Dockerfile
+      target: deps
+    volumes:
+      - ../apps/wot-runtime:/app:cached
+      - /app/node_modules
+    command: ["npx", "tsx", "watch", "src/index.ts"]

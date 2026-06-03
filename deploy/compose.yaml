@@ -1,0 +1,256 @@
+services:
+  copilot:
+    image: ghcr.io/smart-living-copilot/copilot:latest
+    env_file: ../.env
+    command: ["copilot", "serve"]
+    volumes:
+      - copilot-data:/data
+    environment:
+      CODE_EXECUTOR_URL: "http://code-executor:8888"
+      JOB_RUNNER_URL: "http://copilot:8123"
+      REDIS_URL: "redis://valkey:6379"
+      WOT_RUNTIME_URL: "http://wot-runtime:3003"
+      REGISTRY_PUBLIC_URL: "${REGISTRY_PUBLIC_URL:-http://copilot:8123}"
+      LIVEKIT_URL: "${LIVEKIT_URL:-ws://livekit:7880}"
+      LIVEKIT_PUBLIC_URL: "${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}"
+      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:-devkey}"
+      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:-secret}"
+      LIVEKIT_AGENT_NAME: "${LIVEKIT_AGENT_NAME:-smart-living-copilot}"
+      LIVEKIT_ROOM_PREFIX: "${LIVEKIT_ROOM_PREFIX:-copilot}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8123/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - frontend-internal
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+
+  job-worker:
+    image: ghcr.io/smart-living-copilot/copilot:latest
+    env_file: ../.env
+    # The worker also hosts the WoT event consumer (formerly the standalone
+    # job-events service), so it needs the WoT stream + consumer-group settings.
+    command: ["copilot", "job-worker"]
+    environment:
+      CODE_EXECUTOR_URL: "http://code-executor:8888"
+      REDIS_URL: "redis://valkey:6379"
+      WOT_RUNTIME_URL: "http://wot-runtime:3003"
+      REGISTRY_PUBLIC_URL: "${REGISTRY_PUBLIC_URL:-http://copilot:8123}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      code-executor:
+        condition: service_started
+      wot-runtime:
+        condition: service_healthy
+    networks:
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+
+  livekit-agent:
+    image: ghcr.io/smart-living-copilot/copilot:latest
+    env_file: ../.env
+    command: ["copilot", "livekit-agent", "start"]
+    environment:
+      CODE_EXECUTOR_URL: "http://code-executor:8888"
+      REDIS_URL: "redis://valkey:6379"
+      WOT_RUNTIME_URL: "http://wot-runtime:3003"
+      REGISTRY_PUBLIC_URL: "${REGISTRY_PUBLIC_URL:-http://copilot:8123}"
+      LIVEKIT_URL: "${LIVEKIT_URL:-ws://livekit:7880}"
+      LIVEKIT_PUBLIC_URL: "${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}"
+      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:-devkey}"
+      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:-secret}"
+      LIVEKIT_AGENT_NAME: "${LIVEKIT_AGENT_NAME:-smart-living-copilot}"
+      LIVEKIT_ROOM_PREFIX: "${LIVEKIT_ROOM_PREFIX:-copilot}"
+    depends_on:
+      livekit:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      code-executor:
+        condition: service_started
+      wot-runtime:
+        condition: service_healthy
+    networks:
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: ["--dev", "--bind", "0.0.0.0"]
+    ports:
+      - "7880:7880"       # HTTP API & WebSockets
+      - "7881:7881"       # WebRTC over TCP (Fallback)
+      - "7882:7882/udp"   # WebRTC over UDP (Multiplexed)
+    networks:
+      - frontend-internal
+      - backend-isolated
+    restart: unless-stopped
+
+  job-scheduler:
+    image: ghcr.io/smart-living-copilot/copilot:latest
+    env_file: ../.env
+    command: ["copilot", "job-scheduler"]
+    # The scheduler reads schedules from Redis only; the API process keeps Redis in
+    # sync with the jobs database, so this container does not need Postgres.
+    environment:
+      REDIS_URL: "redis://valkey:6379"
+    depends_on:
+      valkey:
+        condition: service_healthy
+    networks:
+      - backend-isolated
+    restart: unless-stopped
+
+  thing-indexer:
+    image: ghcr.io/smart-living-copilot/copilot:latest
+    env_file: ../.env
+    command: ["copilot", "thing-indexer"]
+    environment:
+      REDIS_URL: "redis://valkey:6379"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+
+  ui:
+    image: ghcr.io/smart-living-copilot/ui:latest
+    env_file: ../.env
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:8123"
+      COPILOT_URL: "http://copilot:8123"
+      CODE_EXECUTOR_URL: "http://code-executor:8888"
+      JOB_RUNNER_URL: "http://copilot:8123"
+      WOT_API_URL: "http://copilot:8123/api"
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      copilot:
+        condition: service_started
+    networks:
+      - frontend-internal
+      - backend-isolated
+    restart: unless-stopped
+
+  code-executor:
+    image: ghcr.io/smart-living-copilot/code-executor:latest
+    init: true
+    env_file: ../.env
+    read_only: true
+    tmpfs:
+      - /tmp:size=100M
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 1024M
+          pids: 64
+    networks:
+      - backend-isolated
+    environment:
+      IDLE_TIMEOUT_SECONDS: "1800"
+      MAX_SESSIONS: "50"
+      LOG_LEVEL: "INFO"
+      WOT_RUNTIME_URL: "http://wot-runtime:3003"
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - backend-isolated
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg17
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-copilot}"
+      POSTGRES_USER: "${POSTGRES_USER:-copilot}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-copilot}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - backend-isolated
+    restart: unless-stopped
+
+  wot-runtime:
+    image: ghcr.io/smart-living-copilot/wot-runtime:latest
+    env_file: ../.env
+    depends_on:
+      valkey:
+        condition: service_healthy
+      copilot:
+        condition: service_healthy
+    networks:
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3003"
+      REDIS_URL: redis://valkey:6379
+      REGISTRY_URL: http://copilot:8123
+
+  kokoro-tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    profiles:
+      - tts
+    ports:
+      - "8880:8880"
+    networks:
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+
+volumes:
+  copilot-data:
+  postgres-data:
+  valkey-data:
+
+networks:
+  frontend-internal:
+  backend-isolated:
+    internal: true
+  egress-api:
