@@ -6,7 +6,7 @@ on:
       - 'v*'
     branches:
       - 'main'
-      - 'develop'
+      - 'dev'
   workflow_dispatch:
 
 env:
@@ -45,7 +45,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/dev' }}
 
       - name: Build and push copilot image
         uses: docker/build-push-action@v6
@@ -91,7 +91,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/dev' }}
 
       - name: Determine ui app version
         id: app-version
@@ -149,7 +149,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/dev' }}
 
       - name: Build and push code-executor image
         uses: docker/build-push-action@v6
@@ -195,7 +195,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/dev' }}
 
       - name: Build and push wot-runtime image
         uses: docker/build-push-action@v6
