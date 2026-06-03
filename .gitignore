@@ -19,3 +19,4 @@ examples/thing-descriptions
 .next/
 *.tsbuildinfo
 next-env.d.ts
+data/
