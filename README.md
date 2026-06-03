@@ -1,6 +1,6 @@
 # Smart Living Copilot
 
-Smart Living Copilot is a multi-service smart home assistant stack. This repository contains the chat frontend, the Python copilot service, and the code execution service used for analysis workflows.
+Smart Living Copilot is a multi-service smart home assistant stack. It combines a Next.js chat and operations UI, a Python LangGraph copilot service, a Python code execution service, and a node-wot runtime for Web of Things device access.
 
 ## Services
 
@@ -8,37 +8,52 @@ Smart Living Copilot is a multi-service smart home assistant stack. This reposit
 browser
   -> ui
   -> copilot
-  -> code-executor
-  -> wot-runtime
+     -> code-executor
+     -> wot-runtime
+     -> postgres / valkey
 ```
 
-- [`apps/ui`](./apps/ui/README.md): Next.js frontend, chat UX, sidebar thread index, and internal API proxying.
-- [`apps/copilot`](./apps/copilot/README.md): FastAPI + LangGraph agent service behind the chat experience.
-- [`apps/code-executor`](./apps/code-executor/README.md): internal Python execution service used by `run_code`.
-- [`examples/thing-descriptions`](./examples/thing-descriptions): local Thing Description assets used for integration scenarios.
+- [`apps/ui`](./apps/ui/README.md): Next.js frontend for chat, live mode, Things, jobs, settings, and backend proxying.
+- [`apps/copilot`](./apps/copilot/README.md): FastAPI + LangGraph service for agent orchestration, Thing registry APIs, jobs, persistence, and LiveKit worker roles.
+- [`apps/code-executor`](./apps/code-executor/README.md): internal Python worker service used by the agent's `run_code` tool.
+- [`apps/wot-runtime`](./apps/wot-runtime/README.md): internal node-wot runtime that reads, writes, invokes, and subscribes against Thing Descriptions.
+- [`examples/thing-descriptions`](./examples/thing-descriptions): sample Thing Description assets for local scenarios.
+
+Docker Compose also starts Postgres with pgvector, Valkey, LiveKit Server, and an optional Kokoro TTS profile.
 
 ## Getting Started
 
-1. Copy [`.env.example`](./.env.example) to `.env` and fill in the required values.
-2. Start the stack with Docker Compose:
+1. Copy [`.env.example`](./.env.example) to `.env`.
+2. Fill the required LLM and shared-secret values.
+3. Start the stack:
 
 ```bash
 docker compose up -d
 ```
 
-3. Open `http://localhost:3000`.
+4. Open `http://localhost:3000`.
 
-For local development, [docker-compose.override.yaml](./docker-compose.override.yaml) is picked up automatically by `docker compose` and includes the canonical override in [`deploy/compose.override.yaml`](./deploy/compose.override.yaml).
+The root Compose files are compatibility wrappers around the canonical stack in [`deploy/compose.yaml`](./deploy/compose.yaml) and its local development override in [`deploy/compose.override.yaml`](./deploy/compose.override.yaml).
 
-## Documentation
+## Development
+
+The default local setup uses Docker Compose with bind mounts and hot reload where practical:
+
+```bash
+docker compose up -d --build
+```
+
+Service-specific setup, test commands, and implementation notes live in the service READMEs:
 
 - [UI README](./apps/ui/README.md)
 - [Copilot README](./apps/copilot/README.md)
 - [Code Executor README](./apps/code-executor/README.md)
+- [WoT Runtime README](./apps/wot-runtime/README.md)
 
 ## Top-Level Files
 
-- [`docker-compose.yaml`](./docker-compose.yaml): root compatibility wrapper for the default stack.
-- [`docker-compose.override.yaml`](./docker-compose.override.yaml): root compatibility wrapper for local development overrides.
+- [`docker-compose.yaml`](./docker-compose.yaml): root wrapper for the default stack.
+- [`docker-compose.override.yaml`](./docker-compose.override.yaml): root wrapper for local development overrides.
 - [`deploy/compose.yaml`](./deploy/compose.yaml): canonical multi-service stack definition.
+- [`.env.example`](./.env.example): documented environment template.
 - [`LICENSE`](./LICENSE): project license.

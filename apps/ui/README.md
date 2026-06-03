@@ -1,61 +1,31 @@
 # UI
 
-`ui` is the Next.js frontend for Smart Living Copilot. It renders the chat experience and proxies both CopilotKit runtime requests and thread APIs to the Python `copilot` service.
+`ui` is the Next.js frontend for Smart Living Copilot. It owns the browser experience and keeps backend services behind server-side proxy routes.
 
 ## What This App Owns
 
-- Renders the main chat route with `CopilotKit` and `CopilotChat`.
-- Uses the route param `chatId` as the real CopilotKit `threadId`.
-- Creates, renames, deletes, filters, and groups sidebar threads.
-- Proxies CopilotKit runtime requests from `/api/copilotkit` to the backend AG-UI endpoint.
-- Proxies thread APIs from `/api/chats*` to `copilot`.
+- Chat and embedded chat experiences built around CopilotKit.
+- Live mode controls for microphone, camera, agent dispatch, transcripts, and artifacts.
+- Sidebar thread navigation, search, rename, and delete flows.
+- Thing registry views for listing, creating, uploading, inspecting, and credential management.
+- Automation job list, creation, detail, run history, conversation, and notification views.
+- Settings screens for API key management.
+- Server-side proxying to `copilot`, `code-executor`, and other internal service APIs.
 
-It does **not** own message persistence anymore. CopilotKit and the backend LangGraph checkpointer own the active conversation state.
+The UI does not persist the active conversation itself. CopilotKit, the `chatId` route parameter, and the backend LangGraph checkpointer share the same thread identity.
 
-## Current Chat Architecture
+## Runtime Shape
 
 ```text
-/chat/[chatId]
-  -> route-scoped CopilotKit provider
-  -> CopilotChat
-  -> /api/copilotkit
-  -> LangGraphHttpAgent
-  -> copilot /ag-ui
+browser
+  -> Next.js UI
+  -> server-side proxy routes
+  -> copilot / code-executor
 ```
 
-The sidebar uses `/api/chats` and `/api/chats/[chatId]` only as a thin proxy layer:
+The browser talks to the Next.js app. The Next.js app forwards internal requests to backend services using environment-configured service URLs and shared internal credentials.
 
-- `GET /api/chats`: list threads for the sidebar
-- `POST /api/chats`: create a new thread id and placeholder title
-- `GET /api/chats/[chatId]`: fetch one thread with metadata and messages
-- `PATCH /api/chats/[chatId]`: rename a thread title
-- `DELETE /api/chats/[chatId]`: trigger backend cleanup
-
-Deleting a thread also fans out to:
-
-- `code-executor /sessions/{chatId}`
-- `copilot /threads/{chatId}`
-
-## Important Files
-
-- [`src/app/chat/[chatId]/page.tsx`](./src/app/chat/[chatId]/page.tsx): route-scoped `CopilotKit` provider and `CopilotChat`
-- [`src/app/api/copilotkit/route.ts`](./src/app/api/copilotkit/route.ts): CopilotKit runtime bridge to `copilot /ag-ui`
-- [`src/app/api/chats/route.ts`](./src/app/api/chats/route.ts): thread list/create proxy to `copilot /threads`
-- [`src/app/api/chats/[chatId]/route.ts`](./src/app/api/chats/[chatId]/route.ts): thread read/rename proxy and delete cleanup fan-out
-- [`src/components/chat-sidebar.tsx`](./src/components/chat-sidebar.tsx): thread picker, rename, search, grouping, optimistic delete
-- [`src/lib/copilot-backend.ts`](./src/lib/copilot-backend.ts): shared proxy helper for internal backend requests
-- [`src/app/providers.tsx`](./src/app/providers.tsx): theme, tooltip, and toast providers only
-
-## Development Notes
-
-### Version Label
-
-The sidebar version label is no longer hard-coded in the UI.
-
-- `ui` reads `NEXT_PUBLIC_APP_VERSION` at build time when available.
-- The publish workflow injects the git tag for tagged releases and the short commit SHA for branch builds.
-- If no build metadata is provided, the UI shows `unknown`.
-- For local Docker dev, you can rebuild with `APP_VERSION="$(git describe --tags --always --dirty)" docker compose up -d --build ui`.
+## Development
 
 ### With Docker Compose
 
@@ -63,27 +33,47 @@ The sidebar version label is no longer hard-coded in the UI.
 docker compose up -d ui
 docker compose exec ui npm run lint
 docker compose exec ui npm run typecheck
+docker compose exec ui npm run test
 ```
 
-### Hot Reload Caveat
+The dev override bind-mounts the app and preserves container-owned `node_modules` and `.next`.
 
-The dev override bind-mounts `src/` and `public/`, but not `package.json`.
-
-That means:
-
-- source changes hot-reload
-- dependency or script changes need a rebuild
-
-Use:
+### Directly
 
 ```bash
-docker compose up -d --build ui
+cd apps/ui
+npm install
+npm run dev
 ```
 
-## Contributor Rules Of Thumb
+Use `npm run build` for a production build and `npm run start` to serve it.
 
-- Keep CopilotKit as the source of truth for the active conversation.
-- Keep `/api/chats` lightweight. It should stay a thin proxy to backend thread APIs, not a second chat system.
-- If a feature needs real conversation history or metadata, prefer the backend thread/checkpoint model over local frontend persistence.
-- Keep `chatId` and CopilotKit `threadId` aligned.
-- When deleting a thread, preserve the current fan-out cleanup behavior unless the backend contract changes.
+## Version Label
+
+The sidebar version label comes from `NEXT_PUBLIC_APP_VERSION` at build time. The publish workflow injects a release tag for tagged builds and the short commit SHA for branch builds. Local Docker builds can override it with:
+
+```bash
+APP_VERSION="$(git describe --tags --always --dirty)" docker compose up -d --build ui
+```
+
+## Environment
+
+Most UI settings are backend URLs and shared internal credentials. See [`src/lib/backend-env.ts`](./src/lib/backend-env.ts), [`src/lib/app-version.ts`](./src/lib/app-version.ts), and the root [`.env.example`](../../.env.example).
+
+## Important Files
+
+- [`src/app`](./src/app): Next.js routes and server-side route handlers.
+- [`src/components/copilot`](./src/components/copilot): chat, live mode, tool-call cards, and artifact rendering.
+- [`src/components/jobs`](./src/components/jobs): automation job list, form, detail, run, and conversation UI.
+- [`src/components/things`](./src/components/things): Thing registry screens and credential dialogs.
+- [`src/components/settings`](./src/components/settings): settings panels.
+- [`src/lib`](./src/lib): backend clients, stream helpers, deletion flow, formatters, and tests.
+- [`src/hooks`](./src/hooks): browser-side hooks for job events and live media.
+
+## Contributor Notes
+
+- Keep backend service calls in server-side helpers or route handlers.
+- Keep `chatId`, CopilotKit `threadId`, LangGraph `thread_id`, and code-executor session ids aligned.
+- Keep Next.js route handlers thin; business logic belongs in shared libs or backend services.
+- Preserve thread-delete cleanup across chat metadata, LangGraph state, and code-executor sessions.
+- Prefer focused component tests around parsing, formatting, streaming, and cleanup behavior.

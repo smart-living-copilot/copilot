@@ -1,0 +1,73 @@
+# WoT Runtime
+
+`wot-runtime` is the internal Node.js service that executes Web of Things operations for Smart Living Copilot. It uses node-wot bindings to read properties, write properties, invoke actions, and manage subscriptions against Thing Descriptions stored by `copilot`.
+
+## What This Service Owns
+
+- Runtime interaction with Things through node-wot.
+- Thing Description lookup through the copilot registry service.
+- Credential retrieval through the internal service boundary.
+- Runtime event publication to Redis streams for automation jobs.
+- Subscription management and runtime health reporting.
+
+It does not own Thing registry persistence. `copilot` remains the source of truth for Things, credentials, search, jobs, and API keys.
+
+## Runtime Shape
+
+```text
+copilot agent/jobs/code-executor
+  -> wot-runtime
+     -> node-wot servient
+     -> devices / Thing affordances
+     -> Redis event stream
+```
+
+The service is kept on the backend network in Docker Compose. `copilot` and `code-executor` call it through internal service URLs.
+
+## Development
+
+### With Docker Compose
+
+```bash
+docker compose up -d wot-runtime
+```
+
+The dev override builds the dependency stage, bind-mounts the app, and runs `tsx watch`.
+
+### Directly
+
+```bash
+cd apps/wot-runtime
+npm install
+npm run dev
+```
+
+Use `npm run build` for TypeScript compilation and `npm run start` to run the compiled app.
+
+## Environment
+
+The Docker image defaults to:
+
+- `REGISTRY_URL=http://copilot:8123`
+- `REDIS_URL=redis://valkey:6379`
+- `WOT_RUNTIME_STREAM=wot_runtime_events`
+
+Compose also sets `HOST`, `PORT`, and runtime tokens from the root environment. See [`src/config/env.ts`](./src/config/env.ts) and the root [`.env.example`](../../.env.example).
+
+## Important Files
+
+- [`src/index.ts`](./src/index.ts): service startup.
+- [`src/config/env.ts`](./src/config/env.ts): environment parsing.
+- [`src/http/runtime-routes.ts`](./src/http/runtime-routes.ts): HTTP route registration.
+- [`src/runtime/servient.ts`](./src/runtime/servient.ts): node-wot servient setup.
+- [`src/runtime/operations.ts`](./src/runtime/operations.ts): Thing operation execution.
+- [`src/runtime/credentials.ts`](./src/runtime/credentials.ts): credential resolution.
+- [`src/services/thing-catalog-client.ts`](./src/services/thing-catalog-client.ts): copilot registry client.
+- [`src/services/stream-publisher.ts`](./src/services/stream-publisher.ts): Redis stream publishing.
+- [`src/services/subscriptions.ts`](./src/services/subscriptions.ts): subscription lifecycle.
+
+## Contributor Notes
+
+- Keep registry persistence in `copilot`; this service should stay focused on runtime operations.
+- Keep credentials behind internal service calls and avoid exposing raw credential data in logs.
+- Prefer adding node-wot bindings through the runtime setup rather than scattering protocol setup across handlers.

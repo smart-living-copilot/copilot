@@ -1,114 +1,34 @@
 # Copilot
 
-`copilot` is the Python agent service behind Smart Living Copilot. It is an internal FastAPI service that builds a LangGraph-based assistant on startup, serves the AG-UI protocol to CopilotKit, and persists both LangGraph thread state and sidebar thread metadata in Postgres.
+`copilot` is the Python agent service behind Smart Living Copilot. It builds the LangGraph assistant, owns the Thing registry and automation job backend, persists conversation and registry state, and provides worker roles used by the stack.
 
-## Current Role In The Stack
+## What This Service Owns
 
-- `ui` owns the browser experience and the authenticated edge.
-- `copilot` owns agent orchestration, prompts, tool use, the WoT registry API, LangGraph checkpoint state, and thread metadata.
-- `code-executor` runs stateful Python for the `run_code` tool.
-- `job-worker` and `job-scheduler` run automation jobs through Taskiq.
+- LangGraph agent assembly, routing, prompts, and tool binding.
+- Backend API composition for chat transport, threads, Things, credentials, API keys, jobs, media, and speech.
+- Postgres persistence for LangGraph checkpoints, thread metadata, Thing registry data, credentials, API keys, search vectors, and jobs.
+- Redis-backed job events and scheduling coordination through Taskiq.
+- LiveKit agent worker integration for local voice and camera-assisted sessions.
+- The worker entrypoints for job execution, scheduling, Thing indexing, and LiveKit.
 
-At runtime, the browser talks to `ui`, `ui` proxies agent traffic to `copilot`, and `copilot` uses local LangGraph tools for registry/runtime access and `code-executor` for Python execution. `copilot` owns the job API and result SSE stream, `job-worker` executes jobs and bridges WoT runtime events into Taskiq jobs, and `job-scheduler` sends time-triggered runs. Prompt jobs use hidden per-job LangGraph checkpoint threads, so they can pause for user input without showing those threads in the default sidebar.
+It is intended to run on an internal network behind `ui`.
 
-Live voice can be run through a self-hosted LiveKit Server plus a separate
-`copilot livekit-agent` process. The local LiveKit worker owns realtime media,
-STT, VAD, TTS, interruption handling, and transcription forwarding, while
-wrapping the same compiled LangGraph graph with LiveKit's `LLMAdapter`. This
-does not require LiveKit Agent Cloud.
-
-## Request Lifecycle
+## Runtime Shape
 
 ```text
-/chat/[chatId] in ui
-  -> CopilotKit threadId = chatId
-  -> ui /api/copilotkit
-  -> copilot POST /ag-ui
-  -> LangGraphAGUIAgent
-  -> router branch
-  -> registry/runtime tools and local tools
-  -> AG-UI stream back to ui
+ui
+  -> copilot FastAPI app
+     -> LangGraph agent
+     -> code-executor for run_code
+     -> wot-runtime for Thing operations
+     -> Postgres / Valkey
 ```
 
-The frontend `chatId`, CopilotKit `threadId`, LangGraph `thread_id`, and `run_code` session id are intentionally the same value so chat continuity stays aligned across services.
+The frontend `chatId`, CopilotKit `threadId`, LangGraph `thread_id`, and code-executor session id are intentionally the same value so chat continuity stays aligned across services.
 
-## API Surface
+## Agent Architecture
 
-### `POST /ag-ui`
-
-AG-UI endpoint registered through `add_langgraph_fastapi_endpoint(...)`.
-
-- Used by: `ui /api/copilotkit`
-- Input: CopilotKit `RunAgentInput`
-- Output: AG-UI SSE stream
-- Auth: none in-app today; expected to stay on the internal network behind `ui`
-
-### `GET /ag-ui/health`
-
-Health endpoint added by the AG-UI FastAPI helper.
-
-### `GET /health`
-
-Basic service health check.
-
-### `POST /media/livekit/token`
-
-Creates a short-lived LiveKit participant token for the current chat thread.
-Each token uses a fresh room for that live session; the chat thread id is kept
-in metadata for graph checkpointing.
-
-- Used by: `ui` live media hook
-- Input: `{ "threadId": "<chat id>" }`
-- Output: `{ "enabled": false }` when LiveKit is not configured, otherwise
-  LiveKit URL, token, room, participant identity, and agent name
-- Auth: `Authorization: Bearer <INTERNAL_API_KEY>` when configured
-
-### `POST /media/livekit/dispatch`
-
-Explicitly dispatches the self-hosted LiveKit agent into a room after the
-browser has joined.
-
-- Used by: `ui` live media hook
-- Input: `{ "room": "<room>", "threadId": "<chat id>", "participantIdentity": "<participant>" }`
-- Output: `{ "enabled": true, "dispatched": true }`
-- Auth: `Authorization: Bearer <INTERNAL_API_KEY>` when configured
-
-### `GET /threads`
-
-Lists thread metadata for the sidebar.
-
-### `POST /threads`
-
-Creates a new thread metadata row and returns the generated thread id.
-
-### `PATCH /threads/{thread_id}`
-
-Updates thread metadata such as the title.
-
-### `GET /threads/{thread_id}`
-
-Returns one thread record together with its persisted messages.
-
-### `DELETE /threads/{thread_id}`
-
-Deletes LangGraph checkpoint rows and thread metadata for one thread.
-
-- Auth: `Authorization: Bearer <INTERNAL_API_KEY>` when configured
-- Deletes from both `writes` and `checkpoints`
-- Used by: thread deletion flow in `ui`
-
-## Graph Architecture
-
-The graph is assembled in [`copilot/agent/builder.py`](./src/copilot/agent/builder.py).
-
-### State
-
-```python
-class CopilotState(CopilotKitState):
-    intent: str = ""
-```
-
-### Graph Shape
+The graph is assembled in [`src/copilot/agent/builder.py`](./src/copilot/agent/builder.py). A router selects a branch, then the selected branch alternates between an LLM node and its allowed tools.
 
 ```text
 START
@@ -119,136 +39,32 @@ START
      -> jobs_llm -> jobs_tools -> jobs_llm -> END
 ```
 
-### Branches
+- `chat`: lightweight conversational responses.
+- `control`: device discovery and control.
+- `analysis`: device/data analysis plus Python execution.
+- `jobs`: automation job creation, inspection, debugging, manual runs, and deletion.
 
-- `chat`: lightweight conversational responses, with `get_current_time`
-- `control`: device control flows with discovery, schema inspection, and runtime write/read tools
-- `analysis`: device/data analysis with discovery/inspection tools plus `run_code`
-- `jobs`: automation job creation, inspection, debugging, manual runs, and deletion
+Prompts live in [`src/copilot/agent/prompts`](./src/copilot/agent/prompts). Tool grouping lives in [`src/copilot/agent/tool_groups.py`](./src/copilot/agent/tool_groups.py).
 
-### Tool Grouping
+## Jobs And Live Media
 
-Tool grouping lives in [`copilot/agent/tool_groups.py`](./src/copilot/agent/tool_groups.py).
+Automation jobs use the same graph and persistence model as normal conversations, with hidden per-job checkpoint threads when a job needs user input. The Docker stack runs separate `job-worker` and `job-scheduler` processes from the same image.
 
-| Group | Tools | Used by |
-|-------|-------|---------|
-| `discovery` | `things_list`, `things_search` | control, analysis, jobs |
-| `inspect` | `things_get`, `wot_get_action`, `wot_get_property`, `wot_get_event` | control, analysis, jobs |
-| `runtime_read` | `wot_read_property`, `wot_observe_property` | analysis, jobs |
-| `runtime` | `wot_invoke_action`, `wot_write_property`, `wot_subscribe_event`, `wot_remove_subscription`, plus the read tools above | control |
+Live voice uses a self-hosted LiveKit Server plus the `copilot livekit-agent` worker. The worker handles realtime media, speech-to-text, text-to-speech, interruption handling, transcription forwarding, and the bridge back into the LangGraph assistant.
 
-Local tools are grouped separately:
+## Persistence And Migrations
 
-- [`get_current_time`](./src/copilot/agent/tools/get_current_time.py)
-- [`run_code`](./src/copilot/agent/tools/run_code.py)
-- [`create_prompt_job`, `create_analysis_job`, `list_jobs`, `run_job_now`, `delete_job`](./src/copilot/agent/tools/job_scheduler.py)
-- registry/runtime tools live in [`copilot/agent/tools/wot_registry.py`](./src/copilot/agent/tools/wot_registry.py)
+The application schema is owned by Alembic migrations in [`migrations`](./migrations). App startup calls `alembic upgrade head`, so API, worker, LiveKit, and indexer processes share the same schema path.
 
-## Prompts
-
-- Branch prompts live in [`copilot/agent/prompts`](./src/copilot/agent/prompts).
-- Analysis, control, response, router, and jobs guidance are kept in the branch
-  prompt modules.
-- Registry/runtime tools are grouped explicitly in [`copilot/agent/tool_groups.py`](./src/copilot/agent/tool_groups.py).
-
-Current behavior worth knowing:
-
-- tool calls are bound with `parallel_tool_calls=False`
-- analysis and jobs get a current-time block injected into their system prompts
-- prompts are shaped and trimmed in [`copilot/agent/nodes.py`](./src/copilot/agent/nodes.py) before they are fed to the model
-
-## `run_code` Integration
-
-`run_code` is a local LangChain tool implemented in [`copilot/agent/tools/run_code.py`](./src/copilot/agent/tools/run_code.py).
-
-Current flow:
-
-1. The model calls `run_code(...)`.
-2. `copilot` sends `POST /execute` to `code-executor` with `session_id = thread_id`.
-3. `code-executor` returns `stdout`, `images`, and `plotly`.
-4. `copilot` normalizes that into structured tool output with `stdout` plus `artifacts`.
-5. `ui` renders those artifacts below the tool call.
-
-This is the current structured-artifact flow. The older marker-based `[IMAGE:...]` / `[CHART:...]` approach is no longer used.
-
-## Persistence
-
-### LangGraph State
-
-- backend: Postgres through `AsyncPostgresSaver` by default
-- database URL: `AGENT_STATE_DATABASE_URL`, falling back to `REGISTRY_DATABASE_URL`
-- key: `thread_id`
-
-Thread metadata, registry tables, API keys, credentials, event outbox rows, and
-automation jobs share the SQLAlchemy database configured by `REGISTRY_DATABASE_URL`.
-
-### Database Migrations
-
-The application schema is owned by Alembic migrations in
-[`migrations`](./migrations). App startup calls `alembic upgrade head` through
-`init_db()`, so API, worker, LiveKit, and thing-indexer processes all use the
-same schema path.
-
-Run migrations manually from `apps/copilot` when setting up or checking a local
-database:
+Run migrations manually from `apps/copilot` when needed:
 
 ```bash
 python -m alembic upgrade head
 python -m alembic current
-```
-
-For a fresh database, use `upgrade head`. For an existing development database
-that was already created by the pre-Alembic bootstrap SQL and is known to match
-the current schema, adopt it without replaying the baseline:
-
-```bash
-python -m alembic stamp head
-python -m alembic current
-```
-
-If the existing database is old or uncertain, reset the disposable dev/test
-database or test the migration on a copy first. The baseline is intentionally
-idempotent for current tables, but it is not a general repair script for every
-historic local schema shape.
-
-Before committing schema changes, verify that SQLAlchemy metadata and the live
-database have no pending autogenerate diff:
-
-```bash
 python -m alembic check
 ```
 
-Keep `SEARCH_VECTOR_DIMENSIONS` stable for a database. The pgvector column is
-created as `vector(<SEARCH_VECTOR_DIMENSIONS>)`, and the search store validates
-that runtime setting against the migrated column type.
-
-### Code Execution State
-
-- lives in the separate `code-executor` service
-- uses the same thread id for session continuity
-- is cleaned up independently through `DELETE /sessions/{session_id}` in `code-executor`
-
-## Security Boundary
-
-This service currently assumes an internal-service deployment model.
-
-- `POST /ag-ui` is not protected by an in-app API key today
-- `DELETE /threads/{thread_id}` is protected by `INTERNAL_API_KEY` when configured
-- the intended boundary is: public traffic terminates at `ui`, while `copilot` stays on the internal network
-
-If the stack is deployed publicly through Kubernetes ingress, keep `copilot` internal-only and let ingress or `ui` enforce user authentication.
-
-External API keys are intended for registry management, not direct device
-control. The currently valid API-key scopes are:
-
-- `things:read`, `things:write`, `things:delete`
-- `search:read`
-- `credentials:read`, `credentials:write`
-- `keys:manage`
-
-`GET /api/credentials/{thing_id}` returns credential metadata only. Raw
-credential payloads are only exposed through the service-only
-`GET /api/runtime/secrets` endpoint used by `wot-runtime`.
+LangGraph checkpoints use `AGENT_STATE_DATABASE_URL` when set, otherwise `REGISTRY_DATABASE_URL`. Keep `SEARCH_VECTOR_DIMENSIONS` stable for an existing database because the pgvector column is migrated with that dimension.
 
 ## Development
 
@@ -259,12 +75,7 @@ docker compose up -d copilot
 docker compose exec copilot sh -lc "cd /app && python -m pytest tests"
 ```
 
-The dev override:
-
-- builds the local image from [`Dockerfile`](./Dockerfile)
-- mounts `apps/copilot/src -> /app/src`
-- mounts `apps/copilot/tests -> /app/tests`
-- runs `copilot serve --reload`
+The dev override builds the local image, bind-mounts source, migrations, and tests, and runs the API with reload.
 
 ### Directly
 
@@ -274,36 +85,16 @@ pip install -e ".[dev]"
 copilot serve --reload
 ```
 
-For a self-hosted local LiveKit stack through Docker Compose, the default
-compose file starts LiveKit Server and the local agent worker. These are the
-local defaults:
-
-```env
-LIVEKIT_URL=ws://livekit:7880
-LIVEKIT_PUBLIC_URL=ws://localhost:7880
-LIVEKIT_API_KEY=devkey
-LIVEKIT_API_SECRET=secret
-```
+Other local process roles:
 
 ```bash
-docker compose up
-```
-
-Run the LiveKit voice worker directly with the LiveKit Agent CLI subcommand you
-need:
-
-```bash
+copilot job-worker
+copilot job-scheduler
+copilot thing-indexer
 copilot livekit-agent start
-copilot livekit-agent dev
-copilot livekit-agent connect --room copilot-demo
 ```
 
-Postgres-backed tests require `COPILOT_TEST_DATABASE_URL` to point at a
-disposable Postgres database. Tests that need database access are skipped when
-that variable is not set.
-
-Container-backed integration tests start disposable pgvector Postgres and
-Valkey services through Docker Compose:
+Container-backed integration tests start disposable pgvector Postgres and Valkey services:
 
 ```bash
 .venv/bin/python -m pip install -e "apps/copilot[test]"
@@ -311,70 +102,43 @@ Valkey services through Docker Compose:
   apps/copilot/tests/integration -m integration
 ```
 
-Migration drift is covered by the integration test suite. To run only that
-check against disposable Docker services:
+## Environment
 
-```bash
-.venv/bin/python -m pytest -c apps/copilot/pyproject.toml \
-  apps/copilot/tests/integration/test_migrations.py -m integration
-```
+The root [`.env.example`](../../.env.example) documents required and optional settings. Runtime settings are defined in [`src/copilot/core/settings.py`](./src/copilot/core/settings.py). Registry database settings live in [`src/copilot/core/config.py`](./src/copilot/core/config.py).
 
-## Environment Variables
+Common groups:
 
-Defined in [`src/copilot/core/settings.py`](./src/copilot/core/settings.py):
+- LLM, embedding, and vision model settings.
+- Shared internal API keys and registry tokens.
+- Postgres, pgvector, and LangGraph checkpoint configuration.
+- Redis, Taskiq jobs, WoT runtime, and event stream settings.
+- LiveKit, speech-to-text, and text-to-speech settings.
+- Code-executor URL, timeout, and retry settings.
 
-- `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL`
-- `CODE_EXECUTOR_URL`, `CODE_EXECUTOR_TIMEOUT_SECONDS`
-- `JOB_TASK_TIMEOUT_SECONDS`, `JOB_RUN_STALE_AFTER_SECONDS`, `JOBS_RUN_EVENTS_STREAM`
-- `REDIS_URL`, `WOT_RUNTIME_URL`, `WOT_RUNTIME_API_TOKEN`, `WOT_RUNTIME_STREAM`
-- `JOBS_EVENTS_GROUP`, `JOBS_EVENTS_CONSUMER`, `JOBS_STREAM_BATCH_SIZE`, `JOBS_STREAM_POLL_BLOCK_MS`, `JOBS_STREAM_CLAIM_IDLE_MS`
-- `INTERNAL_API_KEY`
-- `REGISTRY_DATABASE_URL`, `AGENT_STATE_DATABASE_URL`
-- `MAX_CONTEXT_TOKENS`
-- `LOG_LEVEL`
-- `LIVEKIT_URL`, `LIVEKIT_PUBLIC_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
-- `LIVEKIT_AGENT_NAME`, `LIVEKIT_ROOM_PREFIX`, `LIVEKIT_TOKEN_TTL_SECONDS`
-- `STT_TRANSCRIPTIONS_URL`, `STT_MODEL`, `STT_API_KEY`, `STT_LANGUAGE`
-- `TTS_SPEECH_URL`, `TTS_MODEL`, `TTS_VOICE`, `TTS_API_KEY`
-- `TTS_RESPONSE_FORMAT`, `TTS_SPEED`
+## Security Boundary
 
-LiveKit setup is controlled by:
+`copilot` assumes an internal-service deployment model. Public traffic should terminate at `ui`, with `copilot`, `code-executor`, `wot-runtime`, Postgres, and Valkey kept off the public internet.
 
-- `LIVEKIT_URL`: internal LiveKit WebSocket URL used by the agent worker, for example `ws://livekit:7880` in Docker or `ws://localhost:7880` outside Docker.
-- `LIVEKIT_PUBLIC_URL`: browser-facing LiveKit WebSocket URL returned by `/media/livekit/token`, for example `ws://localhost:7880`.
-- `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET`: used by `copilot` to mint browser tokens and by `copilot livekit-agent` to register the worker.
-- `LIVEKIT_AGENT_NAME`: explicit dispatch name used by `/media/livekit/dispatch`.
-- `LIVEKIT_ROOM_PREFIX`: prefix for per-session room names.
-
-The LiveKit worker uses the existing `OPENAI_*`, `STT_*`, `TTS_*`, `VISION_*`,
-Redis, Postgres, WoT runtime, and code-executor settings. Live media is now
-handled only through LiveKit and the local LiveKit agent worker.
-
-Also defined today but not currently wired into the graph execution path:
-
-- `MAX_ITERATIONS`
-- `RECURSION_LIMIT`
+Shared internal credentials protect service-to-service calls when configured. Registry API keys are intended for registry management and search, not direct unrestricted device control.
 
 ## Important Files
 
-- [`src/copilot/api/main.py`](./src/copilot/api/main.py): unified FastAPI app composition and AG-UI endpoint registration
-- [`src/copilot/catalog`](./src/copilot/catalog): Thing catalog, credentials, validation, and event outbox
-- [`src/copilot/thing_indexer`](./src/copilot/thing_indexer): Thing search indexing domain logic
-- [`src/copilot/workers`](./src/copilot/workers): process role entrypoints for jobs, scheduler, and indexing
-- [`src/copilot/media`](./src/copilot/media): LiveKit token helpers, live camera frame storage, and media routes
-- [`src/copilot/threads`](./src/copilot/threads): thread metadata storage, title helpers, and thread routes
-- [`src/copilot/core/llm.py`](./src/copilot/core/llm.py): model factory
-- [`src/copilot/agent/builder.py`](./src/copilot/agent/builder.py): graph assembly
-- [`src/copilot/agent/nodes.py`](./src/copilot/agent/nodes.py): node behavior and prompt shaping
-- [`src/copilot/agent/tool_groups.py`](./src/copilot/agent/tool_groups.py): explicit tool grouping
-- [`src/copilot/agent/prompts`](./src/copilot/agent/prompts): system prompts by branch
-- [`src/copilot/agent/tools/run_code.py`](./src/copilot/agent/tools/run_code.py): bridge to `code-executor`
-- [`src/copilot/agent/tools/job_scheduler.py`](./src/copilot/agent/tools/job_scheduler.py): agent tools for the job API
-- [`src/copilot/jobs`](./src/copilot/jobs): job CRUD routes, Taskiq task execution, Postgres schedule source, WoT event consumer, and Redis-backed run events
+- [`src/copilot/api/main.py`](./src/copilot/api/main.py): FastAPI app composition.
+- [`src/copilot/cli.py`](./src/copilot/cli.py): process role entrypoint.
+- [`src/copilot/agent`](./src/copilot/agent): graph builder, nodes, prompts, tools, and voice adapter.
+- [`src/copilot/catalog`](./src/copilot/catalog): Thing registry, credentials, validation, and event outbox.
+- [`src/copilot/jobs`](./src/copilot/jobs): job definitions, runs, scheduler integration, records, events, and stores.
+- [`src/copilot/media`](./src/copilot/media): LiveKit token, dispatch, and media helpers.
+- [`src/copilot/threads`](./src/copilot/threads): thread metadata, message loading, titles, and routes.
+- [`src/copilot/search`](./src/copilot/search): embedding and vector search for Things.
+- [`src/copilot/thing_indexer`](./src/copilot/thing_indexer): Thing indexing worker.
+- [`src/copilot/workers`](./src/copilot/workers): process role implementations.
+- [`migrations`](./migrations): Alembic migrations.
 
 ## Contributor Notes
 
-- Keep AG-UI transport concerns in the framework helper, not hand-written SSE routes.
-- Keep `threadId`, `chatId`, LangGraph `thread_id`, and `run_code` session ids aligned.
-- Treat `DELETE /threads/{thread_id}` as part of the user-facing delete flow, not optional cleanup.
-- Prefer reducing tool ambiguity and adding examples over making prompts longer.
+- Keep AG-UI transport concerns in the framework helper where possible.
+- Keep thread ids aligned across UI, LangGraph, and code execution.
+- Keep prompts concise and prefer clearer tool boundaries over longer instructions.
+- Treat schema changes as migration changes and verify with `alembic check`.
+- Keep direct device/runtime access behind internal services.
