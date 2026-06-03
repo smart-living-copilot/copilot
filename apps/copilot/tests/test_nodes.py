@@ -82,7 +82,7 @@ class NodeMessageSanitizationTestCase(unittest.TestCase):
             ),
             ToolMessage(content='[{"id":"meter-05"}]', tool_call_id="call_1"),
             AIMessage(content="I found the smart meter."),
-            HumanMessage(content="Now disaggregate it with all NILM services."),
+            HumanMessage(content="Now break it down with all matching analysis services."),
         ]
 
         router_messages = _make_router_messages(messages, max_tokens=4000)

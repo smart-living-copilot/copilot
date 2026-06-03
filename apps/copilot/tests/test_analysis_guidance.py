@@ -7,13 +7,13 @@ class AnalysisGuidanceTestCase(unittest.TestCase):
     def test_analysis_prompt_requires_full_affordance_inspection(self) -> None:
         self.assertIn("wot_get_action or wot_get_property", ANALYSIS_PROMPT)
         self.assertIn(
-            "Use all relevant NILM services",
+            "Use all relevant services",
             ANALYSIS_PROMPT,
         )
         self.assertIn("Current Time", ANALYSIS_PROMPT)
 
-    def test_analysis_prompt_describes_nilm_workflow(self) -> None:
-        self.assertIn("NILM services for that household", ANALYSIS_PROMPT)
+    def test_analysis_prompt_describes_breakdown_workflow(self) -> None:
+        self.assertIn("matching analysis services for that household", ANALYSIS_PROMPT)
         self.assertIn("stacked area chart", ANALYSIS_PROMPT)
 
     def test_analysis_prompt_describes_typical_workflow(self) -> None:
