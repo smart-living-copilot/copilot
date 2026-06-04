@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test src/lib/chat-deletion.test.ts src/lib/copilot-stream.test.ts src/lib/embed-chat.test.ts src/lib/job-formatters.test.ts src/lib/wot-interactions.test.ts",
+    "test": "tsx --test src/components/copilot/chat-tool-calls/grouped-tool-call-model.test.ts src/lib/chat-deletion.test.ts src/lib/copilot-stream.test.ts src/lib/embed-chat.test.ts src/lib/job-formatters.test.ts src/lib/wot-interactions.test.ts",
     "typecheck": "next typegen && tsc --noEmit",
     "format": "prettier . --write",
     "format:check": "prettier . --check"
@@ -27,7 +27,8 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "virtua": "^0.49.1"
   },
   "overrides": {
     "prismjs": "^1.30.0",

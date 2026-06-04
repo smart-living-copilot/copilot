@@ -6,6 +6,8 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk
 
+from copilot.agent.device_interactions import is_device_interaction_summary_message
+
 VOICE_STREAM_NODES = frozenset({"respond", "control_llm", "analysis_llm"})
 
 
@@ -30,7 +32,7 @@ def assistant_text_from_graph_result(result: Any) -> str:
     if not isinstance(messages, list):
         return ""
     for message in reversed(messages):
-        if not isinstance(message, AIMessage):
+        if not isinstance(message, AIMessage) or is_device_interaction_summary_message(message):
             continue
         return text_from_message_content(message.content).strip()
     return ""

@@ -1,14 +1,35 @@
 'use client';
 
-import { memo, useMemo, type ComponentProps } from 'react';
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactElement,
+} from 'react';
 import {
   CopilotChatAssistantMessage,
   CopilotChatMessageView,
 } from '@copilotkit/react-core/v2';
+import { Virtualizer } from 'virtua';
 
+import { GroupedToolCallsView } from '@/components/copilot/chat-tool-calls/grouped-tool-calls-view';
+import {
+  isFirstToolOnlyMessageInGroup,
+  isToolOnlyAssistantMessage,
+} from '@/components/copilot/chat-tool-calls/grouped-tool-call-model';
 import { WotInteractionSummaryCard } from '@/components/copilot/wot-summary/wot-interaction-summary-card';
 import { cn } from '@/lib/utils';
-import { getAssistantTurnWotInteractions } from '@/lib/wot-interactions';
+import {
+  looksLikeDeviceInteractionSummaryContent,
+  parseDeviceInteractionSummaryContent,
+} from '@/lib/wot-interactions';
+
+type ChatMessage = NonNullable<
+  ComponentProps<typeof CopilotChatMessageView>['messages']
+>[number];
 
 function isIntentPayloadMessage(message: { content?: unknown }) {
   const content = message.content;
@@ -42,6 +63,96 @@ function isIntentPayloadMessage(message: { content?: unknown }) {
   }
 }
 
+function getElementMessage({
+  element,
+  messages,
+}: {
+  element: ReactElement;
+  messages: ChatMessage[];
+}) {
+  const key = element.key == null ? null : String(element.key);
+  if (!key) {
+    return null;
+  }
+
+  return messages.find((message) => message.id === key) ?? null;
+}
+
+function groupToolCallMessageElements({
+  messageElements,
+  messages,
+}: {
+  messageElements: ReactElement[];
+  messages: ChatMessage[];
+}) {
+  return messageElements.flatMap((element) => {
+    const message = getElementMessage({ element, messages });
+    if (!message || !isToolOnlyAssistantMessage(message)) {
+      return [element];
+    }
+
+    if (!isFirstToolOnlyMessageInGroup({ message, messages })) {
+      return [];
+    }
+
+    return [
+      <GroupedToolCallsView
+        key={`tool-call-group-${message.id}`}
+        message={message}
+        messages={messages}
+      />,
+    ];
+  });
+}
+
+function findScrollableAncestor(element: HTMLElement) {
+  let parent = element.parentElement;
+
+  while (parent && parent !== document.body) {
+    const { overflowY } = window.getComputedStyle(parent);
+    if (overflowY === 'auto' || overflowY === 'scroll') {
+      return parent;
+    }
+    parent = parent.parentElement;
+  }
+
+  return null;
+}
+
+function VirtualizedMessageElements({
+  messageElements,
+}: {
+  messageElements: ReactElement[];
+}) {
+  const scrollRef = useRef<HTMLElement | null>(null);
+  const [hasScrollParent, setHasScrollParent] = useState(false);
+
+  const setContainerRef = useCallback((element: HTMLDivElement | null) => {
+    const scrollParent = element ? findScrollableAncestor(element) : null;
+    scrollRef.current = scrollParent;
+    setHasScrollParent(Boolean(scrollParent));
+  }, []);
+
+  return (
+    <div ref={setContainerRef} className="min-h-0">
+      {hasScrollParent ? (
+        <Virtualizer
+          data={messageElements}
+          itemSize={160}
+          keepMounted={
+            messageElements.length > 0 ? [messageElements.length - 1] : []
+          }
+          scrollRef={scrollRef}
+        >
+          {(element: ReactElement) => element}
+        </Virtualizer>
+      ) : (
+        messageElements
+      )}
+    </div>
+  );
+}
+
 const AssistantMessageWithWotSummaryImpl = memo(
   function AssistantMessageWithWotSummary({
     className,
@@ -50,25 +161,30 @@ const AssistantMessageWithWotSummaryImpl = memo(
     messages = [],
     ...props
   }: ComponentProps<typeof CopilotChatAssistantMessage>) {
-    const interactions = useMemo(
-      () => getAssistantTurnWotInteractions(messages, message.id),
-      [message.id, messages],
+    const explicitInteractions = useMemo(
+      () => parseDeviceInteractionSummaryContent(message.content),
+      [message.content],
     );
-    const showSummary = interactions.length > 0;
+
+    if (explicitInteractions.length > 0) {
+      return <WotInteractionSummaryCard interactions={explicitInteractions} />;
+    }
+    if (looksLikeDeviceInteractionSummaryContent(message.content)) {
+      return null;
+    }
+    if (isToolOnlyAssistantMessage(message)) {
+      return null;
+    }
 
     return (
-      <div className="space-y-3">
-        <CopilotChatAssistantMessage
-          {...props}
-          className={className}
-          isRunning={isRunning}
-          message={message}
-          messages={messages}
-        />
-        {showSummary ? (
-          <WotInteractionSummaryCard interactions={interactions} />
-        ) : null}
-      </div>
+      <CopilotChatAssistantMessage
+        {...props}
+        className={className}
+        isRunning={isRunning}
+        message={message}
+        messages={messages}
+        toolCallsView={GroupedToolCallsView}
+      />
     );
   },
 );
@@ -96,7 +212,34 @@ function MessageViewWithWotSummaryImpl({
         assistantMessage={AssistantMessageWithWotSummary}
         isRunning={isRunning}
         messages={displayMessages}
-      />
+      >
+        {({ interruptElement, isRunning, messageElements }) => {
+          const groupedMessageElements = groupToolCallMessageElements({
+            messageElements,
+            messages: displayMessages,
+          });
+          const showCursor =
+            isRunning && displayMessages.at(-1)?.role !== 'reasoning';
+
+          return (
+            <div
+              className="copilotKitMessages flex min-h-0 flex-1 flex-col"
+              data-copilotkit
+              data-testid="copilot-message-list"
+            >
+              <VirtualizedMessageElements
+                messageElements={groupedMessageElements}
+              />
+              {interruptElement}
+              {showCursor ? (
+                <div className="mt-2">
+                  <CopilotChatMessageView.Cursor />
+                </div>
+              ) : null}
+            </div>
+          );
+        }}
+      </CopilotChatMessageView>
     </div>
   );
 }

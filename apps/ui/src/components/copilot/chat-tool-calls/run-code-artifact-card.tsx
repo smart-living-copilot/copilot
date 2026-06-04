@@ -79,26 +79,31 @@ export const RunCodeArtifactCard = memo(function RunCodeArtifactCard({
           </CardContent>
         </Card>
 
-        <DialogContent
-          className="max-w-[min(96vw,90rem)] gap-0 p-0 sm:max-w-[min(96vw,90rem)]"
-          showCloseButton
-        >
-          <DialogHeader className="border-b border-border/55 px-4 py-3 pr-12">
-            <DialogTitle className="flex items-center gap-2 text-sm">
-              <Badge className="h-5 font-mono text-[0.66rem]" variant="outline">
-                {artifact.ref}
-              </Badge>
-              <span>{artifactType}</span>
-            </DialogTitle>
-            <DialogDescription className="text-[0.72rem]">
-              Fullscreen preview for {artifact.filename}
-            </DialogDescription>
-          </DialogHeader>
+        {isFullscreenOpen ? (
+          <DialogContent
+            className="max-w-[min(96vw,90rem)] gap-0 p-0 sm:max-w-[min(96vw,90rem)]"
+            showCloseButton
+          >
+            <DialogHeader className="border-b border-border/55 px-4 py-3 pr-12">
+              <DialogTitle className="flex items-center gap-2 text-sm">
+                <Badge
+                  className="h-5 font-mono text-[0.66rem]"
+                  variant="outline"
+                >
+                  {artifact.ref}
+                </Badge>
+                <span>{artifactType}</span>
+              </DialogTitle>
+              <DialogDescription className="text-[0.72rem]">
+                Fullscreen preview for {artifact.filename}
+              </DialogDescription>
+            </DialogHeader>
 
-          <div className="overflow-auto p-4">
-            <ArtifactPreview artifact={artifact} fullscreen />
-          </div>
-        </DialogContent>
+            <div className="overflow-auto p-4">
+              <ArtifactPreview artifact={artifact} fullscreen />
+            </div>
+          </DialogContent>
+        ) : null}
       </Collapsible>
     </Dialog>
   );

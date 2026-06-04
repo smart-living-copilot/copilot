@@ -16,6 +16,7 @@ from copilot.agent.nodes import (
     make_router_node,
     respond_should_continue,
 )
+from copilot.agent.device_interactions import make_device_interaction_summary_node
 from copilot.agent.tool_groups import group_local_tools, partition_registry_tools
 
 
@@ -130,6 +131,7 @@ def build_graph(
         "analysis_tools",
         ToolNode(analysis_tools, handle_tool_errors=_tool_error_message),
     )
+    graph.add_node("device_summary", make_device_interaction_summary_node())
 
     graph.add_edge(START, "router")
 
@@ -149,7 +151,7 @@ def build_graph(
         respond_should_continue,
         {
             "tools": "respond_tools",
-            END: END,
+            END: "device_summary",
         },
     )
     graph.add_conditional_edges(
@@ -166,7 +168,7 @@ def build_graph(
         tools_condition,
         {
             "tools": "control_tools",
-            END: END,
+            END: "device_summary",
         },
     )
     graph.add_conditional_edges(
@@ -183,7 +185,7 @@ def build_graph(
         tools_condition,
         {
             "tools": "analysis_tools",
-            END: END,
+            END: "device_summary",
         },
     )
     graph.add_conditional_edges(
@@ -200,7 +202,7 @@ def build_graph(
         tools_condition,
         {
             "tools": "jobs_tools",
-            END: END,
+            END: "device_summary",
         },
     )
     graph.add_conditional_edges(
@@ -211,6 +213,7 @@ def build_graph(
             END: END,
         },
     )
+    graph.add_edge("device_summary", END)
 
     return graph.compile(checkpointer=checkpointer)
 

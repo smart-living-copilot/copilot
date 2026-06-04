@@ -102,3 +102,25 @@ services:
       - ../apps/wot-runtime:/app:cached
       - /app/node_modules
     command: ["npx", "tsx", "watch", "src/index.ts"]
+
+  wot-replay:
+    image: ghcr.io/smart-living-copilot/wot-replay:latest
+    volumes:
+      - ../data/a4h.db:/app/fixtures.db:ro
+    environment:
+      REPLAY_BASE_URL: "http://wot-replay:9000"
+      WOT_REGISTRY_URL: "http://copilot:8123"
+      WOT_REGISTRY_TOKEN: "${INIT_ADMIN_TOKEN}"
+    depends_on:
+      copilot:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/health', timeout=3)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - frontend-internal
+      - backend-isolated
+      - egress-api

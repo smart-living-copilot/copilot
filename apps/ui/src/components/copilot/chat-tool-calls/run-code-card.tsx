@@ -20,7 +20,7 @@ import {
   type RunCodeResult,
 } from '../chat-tool-call-model';
 
-function RunCodeOutput({ result }: { result: RunCodeResult }) {
+export function RunCodeArtifacts({ result }: { result: RunCodeResult }) {
   if (!(result.artifacts?.length ?? 0)) {
     return null;
   }
@@ -74,22 +74,25 @@ function RunCodeDetails({ result }: { result: RunCodeResult }) {
 export const RunCodeCard = memo(function RunCodeCard({
   args,
   result,
+  showArtifacts = true,
   status,
-}: CatchAllToolCallRenderProps) {
+}: CatchAllToolCallRenderProps & { showArtifacts?: boolean }) {
   const [showDetails, setShowDetails] = useState(false);
   const code = (args as { code?: string } | undefined)?.code ?? '';
   const parsedResult = useMemo(
     () => (status === 'complete' ? normalizeRunCodeResult(result) : {}),
     [status, result],
   );
+  const wotInteractions = parsedResult.wotInteractions ?? [];
   const hasArtifacts = (parsedResult.artifacts?.length ?? 0) > 0;
   const hasStdout = !!parsedResult.stdout?.trim();
   const hasError = !!parsedResult.error;
+  const hasWotInteractions = wotInteractions.length > 0;
   const artifactSummary = parsedResult.artifacts?.length
     ? formatArtifactSummary(parsedResult.artifacts)
     : '';
-  const wotInteractionSummary = parsedResult.wotInteractions?.length
-    ? formatWotInteractionSummary(parsedResult.wotInteractions)
+  const wotInteractionSummary = hasWotInteractions
+    ? formatWotInteractionSummary(wotInteractions)
     : '';
   const completedSummary = [wotInteractionSummary, artifactSummary]
     .filter(Boolean)
@@ -138,11 +141,15 @@ export const RunCodeCard = memo(function RunCodeCard({
         </div>
       ) : null}
 
-      {status === 'complete' && hasArtifacts ? (
-        <RunCodeOutput result={parsedResult} />
+      {showArtifacts && status === 'complete' && hasArtifacts ? (
+        <RunCodeArtifacts result={parsedResult} />
       ) : null}
 
-      {status === 'complete' && !hasArtifacts && !hasStdout && !hasError ? (
+      {status === 'complete' &&
+      !hasArtifacts &&
+      !hasStdout &&
+      !hasError &&
+      !hasWotInteractions ? (
         <p className="px-0.5 text-[0.72rem] text-muted-foreground">
           No visible output.
         </p>

@@ -1,8 +1,13 @@
+import json
 import unittest
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from copilot.agent.nodes import _make_router_messages, _trim_conversation
+from copilot.agent.device_interactions import DEVICE_INTERACTION_SUMMARY_TYPE
+from copilot.agent.nodes import (
+    _make_router_messages,
+    _trim_conversation,
+)
 
 
 def _tool_call(tool_id: str) -> dict:
@@ -63,6 +68,35 @@ class PromptTrimmingTestCase(unittest.TestCase):
         # Should keep the conversational messages
         contents = [m.content for m in tail]
         self.assertIn("and the last 72h?", contents)
+
+    def test_ui_device_summary_messages_are_not_sent_to_llm_prompts(self) -> None:
+        summary = AIMessage(
+            content=json.dumps(
+                {
+                    "type": DEVICE_INTERACTION_SUMMARY_TYPE,
+                    "interactions": [
+                        {
+                            "type": "read_property",
+                            "thingId": "urn:meter",
+                            "affordanceName": "power",
+                            "ok": True,
+                        }
+                    ],
+                }
+            )
+        )
+        messages = [
+            HumanMessage(content="Show power"),
+            AIMessage(content="Power is 10 kW."),
+            summary,
+            HumanMessage(content="and yesterday?"),
+        ]
+
+        trimmed = _trim_conversation(messages, max_tokens=10_000)
+        routed = _make_router_messages(messages, max_tokens=10_000)
+
+        self.assertNotIn(summary, trimmed)
+        self.assertNotIn(summary, routed)
 
 
 if __name__ == "__main__":
