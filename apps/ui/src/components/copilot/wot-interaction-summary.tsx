@@ -27,6 +27,10 @@ import {
   parseDeviceInteractionSummaryContent,
 } from '@/lib/wot-interactions';
 
+type ChatMessage = NonNullable<
+  ComponentProps<typeof CopilotChatMessageView>['messages']
+>[number];
+
 function isIntentPayloadMessage(message: { content?: unknown }) {
   const content = message.content;
   const normalized =
@@ -57,6 +61,48 @@ function isIntentPayloadMessage(message: { content?: unknown }) {
   } catch {
     return false;
   }
+}
+
+function getElementMessage({
+  element,
+  messages,
+}: {
+  element: ReactElement;
+  messages: ChatMessage[];
+}) {
+  const key = element.key == null ? null : String(element.key);
+  if (!key) {
+    return null;
+  }
+
+  return messages.find((message) => message.id === key) ?? null;
+}
+
+function groupToolCallMessageElements({
+  messageElements,
+  messages,
+}: {
+  messageElements: ReactElement[];
+  messages: ChatMessage[];
+}) {
+  return messageElements.flatMap((element) => {
+    const message = getElementMessage({ element, messages });
+    if (!message || !isToolOnlyAssistantMessage(message)) {
+      return [element];
+    }
+
+    if (!isFirstToolOnlyMessageInGroup({ message, messages })) {
+      return [];
+    }
+
+    return [
+      <GroupedToolCallsView
+        key={`tool-call-group-${message.id}`}
+        message={message}
+        messages={messages}
+      />,
+    ];
+  });
 }
 
 function findScrollableAncestor(element: HTMLElement) {
@@ -123,11 +169,7 @@ const AssistantMessageWithWotSummaryImpl = memo(
       return null;
     }
     if (isToolOnlyAssistantMessage(message)) {
-      if (!isFirstToolOnlyMessageInGroup({ message, messages })) {
-        return null;
-      }
-
-      return <GroupedToolCallsView message={message} messages={messages} />;
+      return null;
     }
 
     return (
@@ -168,6 +210,10 @@ function MessageViewWithWotSummaryImpl({
         messages={displayMessages}
       >
         {({ interruptElement, isRunning, messageElements }) => {
+          const groupedMessageElements = groupToolCallMessageElements({
+            messageElements,
+            messages: displayMessages,
+          });
           const showCursor =
             isRunning && displayMessages.at(-1)?.role !== 'reasoning';
 
@@ -177,7 +223,9 @@ function MessageViewWithWotSummaryImpl({
               data-copilotkit
               data-testid="copilot-message-list"
             >
-              <VirtualizedMessageElements messageElements={messageElements} />
+              <VirtualizedMessageElements
+                messageElements={groupedMessageElements}
+              />
               {interruptElement}
               {showCursor ? (
                 <div className="mt-2">
