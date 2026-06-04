@@ -1,11 +1,8 @@
 'use client';
 
-import { useMemo, useState, type ComponentProps, type ReactNode } from 'react';
-import {
-  CopilotChatAssistantMessage,
-  useCopilotKit,
-  useRenderToolCall,
-} from '@copilotkit/react-core/v2';
+import { useMemo, useState, type ReactNode } from 'react';
+import { type AssistantMessage, type Message } from '@ag-ui/core';
+import { useCopilotKit, useRenderToolCall } from '@copilotkit/react-core/v2';
 import {
   CheckCircle2,
   ChevronDown,
@@ -29,139 +26,15 @@ import { cn } from '@/lib/utils';
 import {
   hasErrorResult,
   normalizeRunCodeResult,
-  type CatchAllToolCallRenderProps,
-  type ToolCallStatus,
 } from '../chat-tool-call-model';
-
-type AssistantMessageProps = ComponentProps<typeof CopilotChatAssistantMessage>;
-type AssistantMessage = AssistantMessageProps['message'];
-type Message = NonNullable<AssistantMessageProps['messages']>[number];
-type ToolCall = NonNullable<AssistantMessage['toolCalls']>[number];
-type ToolMessage = Extract<Message, { role: 'tool' }>;
-
-export function isToolOnlyAssistantMessage(
-  message: Message,
-): message is AssistantMessage {
-  return (
-    message.role === 'assistant' &&
-    (message.toolCalls?.length ?? 0) > 0 &&
-    !(message.content ?? '').trim()
-  );
-}
-
-export function isFirstToolOnlyMessageInGroup({
-  message,
-  messages,
-}: {
-  message: AssistantMessage;
-  messages: Message[];
-}) {
-  if (!isToolOnlyAssistantMessage(message)) {
-    return true;
-  }
-
-  const messageIndex = messages.findIndex(
-    (candidate) => candidate.id === message.id,
-  );
-  if (messageIndex <= 0) {
-    return true;
-  }
-
-  for (let index = messageIndex - 1; index >= 0; index -= 1) {
-    const previous = messages[index];
-    if (!previous || previous.role === 'tool') {
-      continue;
-    }
-
-    return !isToolOnlyAssistantMessage(previous);
-  }
-
-  return true;
-}
-
-function getGroupedToolCalls({
-  message,
-  messages,
-}: {
-  message: AssistantMessage;
-  messages: Message[];
-}) {
-  if (
-    (message.toolCalls?.length ?? 0) === 0 ||
-    (message.content ?? '').trim()
-  ) {
-    return message.toolCalls ?? [];
-  }
-
-  const groupedToolCalls: ToolCall[] = [];
-  const messageIndex = messages.findIndex(
-    (candidate) => candidate.id === message.id,
-  );
-  if (messageIndex < 0) {
-    return message.toolCalls ?? [];
-  }
-
-  for (let index = messageIndex; index < messages.length; index += 1) {
-    const current = messages[index];
-    if (!current) {
-      continue;
-    }
-    if (current.role === 'tool') {
-      continue;
-    }
-    if (!isToolOnlyAssistantMessage(current)) {
-      break;
-    }
-
-    groupedToolCalls.push(...(current.toolCalls ?? []));
-  }
-
-  return groupedToolCalls;
-}
-
-function parseToolArgs(rawArgs: string) {
-  try {
-    const parsed = JSON.parse(rawArgs);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function getToolStatus({
-  executingToolCallIds,
-  toolCall,
-  toolMessage,
-}: {
-  executingToolCallIds: ReadonlySet<string>;
-  toolCall: ToolCall;
-  toolMessage?: ToolMessage;
-}): ToolCallStatus {
-  if (toolMessage) {
-    return 'complete';
-  }
-
-  return executingToolCallIds.has(toolCall.id) ? 'executing' : 'inProgress';
-}
-
-function buildToolCallProps({
-  executingToolCallIds,
-  toolCall,
-  toolMessage,
-}: {
-  executingToolCallIds: ReadonlySet<string>;
-  toolCall: ToolCall;
-  toolMessage?: ToolMessage;
-}): CatchAllToolCallRenderProps {
-  return {
-    args: parseToolArgs(toolCall.function.arguments),
-    name: toolCall.function.name,
-    result: toolMessage?.content,
-    status: getToolStatus({ executingToolCallIds, toolCall, toolMessage }),
-  };
-}
+import {
+  buildToolCallProps,
+  createToolStatusCounts,
+  formatToolCount,
+  formatToolStatusSummary,
+  getGroupedToolCalls,
+  getToolMessageForCall,
+} from './grouped-tool-call-model';
 
 function ToolActivityIcon({
   hasError,
@@ -183,39 +56,6 @@ function ToolActivityIcon({
   return <Loader2 className="size-3.5 animate-spin text-primary" />;
 }
 
-function formatToolCount(count: number) {
-  return `${count} tool${count === 1 ? '' : 's'} called`;
-}
-
-function formatToolStatusSummary({
-  completeCount,
-  count,
-  executingCount,
-  inProgressCount,
-}: {
-  completeCount: number;
-  count: number;
-  executingCount: number;
-  inProgressCount: number;
-}) {
-  if (completeCount === count) {
-    return 'Finished';
-  }
-
-  const parts = [];
-  if (executingCount) {
-    parts.push(`${executingCount} running`);
-  }
-  if (inProgressCount) {
-    parts.push(`${inProgressCount} preparing`);
-  }
-  if (completeCount) {
-    parts.push(`${completeCount} complete`);
-  }
-
-  return parts.join(' • ') || 'Working';
-}
-
 export function GroupedToolCallsView({
   message,
   messages = [],
@@ -235,18 +75,11 @@ export function GroupedToolCallsView({
     useMemo(() => {
       const renderedTools: ReactNode[] = [];
       const renderedArtifacts: ReactNode[] = [];
-      const statusCounts = {
-        complete: 0,
-        executing: 0,
-        inProgress: 0,
-      } satisfies Record<ToolCallStatus, number>;
+      const statusCounts = createToolStatusCounts();
       let hasError = false;
 
       for (const toolCall of toolCalls) {
-        const toolMessage = messages.find(
-          (candidate): candidate is ToolMessage =>
-            candidate.role === 'tool' && candidate.toolCallId === toolCall.id,
-        );
+        const toolMessage = getToolMessageForCall({ messages, toolCall });
         const props = buildToolCallProps({
           executingToolCallIds,
           toolCall,

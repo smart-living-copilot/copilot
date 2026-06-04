@@ -15,11 +15,11 @@ import {
 } from '@copilotkit/react-core/v2';
 import { Virtualizer } from 'virtua';
 
+import { GroupedToolCallsView } from '@/components/copilot/chat-tool-calls/grouped-tool-calls-view';
 import {
-  GroupedToolCallsView,
   isFirstToolOnlyMessageInGroup,
   isToolOnlyAssistantMessage,
-} from '@/components/copilot/chat-tool-calls/grouped-tool-calls-view';
+} from '@/components/copilot/chat-tool-calls/grouped-tool-call-model';
 import { WotInteractionSummaryCard } from '@/components/copilot/wot-summary/wot-interaction-summary-card';
 import { cn } from '@/lib/utils';
 import {
