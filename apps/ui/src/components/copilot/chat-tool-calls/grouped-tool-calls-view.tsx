@@ -39,6 +39,86 @@ type Message = NonNullable<AssistantMessageProps['messages']>[number];
 type ToolCall = NonNullable<AssistantMessage['toolCalls']>[number];
 type ToolMessage = Extract<Message, { role: 'tool' }>;
 
+export function isToolOnlyAssistantMessage(
+  message: Message,
+): message is AssistantMessage {
+  return (
+    message.role === 'assistant' &&
+    (message.toolCalls?.length ?? 0) > 0 &&
+    !(message.content ?? '').trim()
+  );
+}
+
+export function isFirstToolOnlyMessageInGroup({
+  message,
+  messages,
+}: {
+  message: AssistantMessage;
+  messages: Message[];
+}) {
+  if (!isToolOnlyAssistantMessage(message)) {
+    return true;
+  }
+
+  const messageIndex = messages.findIndex(
+    (candidate) => candidate.id === message.id,
+  );
+  if (messageIndex <= 0) {
+    return true;
+  }
+
+  for (let index = messageIndex - 1; index >= 0; index -= 1) {
+    const previous = messages[index];
+    if (!previous || previous.role === 'tool') {
+      continue;
+    }
+
+    return !isToolOnlyAssistantMessage(previous);
+  }
+
+  return true;
+}
+
+function getGroupedToolCalls({
+  message,
+  messages,
+}: {
+  message: AssistantMessage;
+  messages: Message[];
+}) {
+  if (
+    (message.toolCalls?.length ?? 0) === 0 ||
+    (message.content ?? '').trim()
+  ) {
+    return message.toolCalls ?? [];
+  }
+
+  const groupedToolCalls: ToolCall[] = [];
+  const messageIndex = messages.findIndex(
+    (candidate) => candidate.id === message.id,
+  );
+  if (messageIndex < 0) {
+    return message.toolCalls ?? [];
+  }
+
+  for (let index = messageIndex; index < messages.length; index += 1) {
+    const current = messages[index];
+    if (!current) {
+      continue;
+    }
+    if (current.role === 'tool') {
+      continue;
+    }
+    if (!isToolOnlyAssistantMessage(current)) {
+      break;
+    }
+
+    groupedToolCalls.push(...(current.toolCalls ?? []));
+  }
+
+  return groupedToolCalls;
+}
+
 function parseToolArgs(rawArgs: string) {
   try {
     const parsed = JSON.parse(rawArgs);
@@ -146,6 +226,10 @@ export function GroupedToolCallsView({
   const [isExpanded, setIsExpanded] = useState(false);
   const { executingToolCallIds } = useCopilotKit();
   const renderToolCall = useRenderToolCall();
+  const toolCalls = useMemo(
+    () => getGroupedToolCalls({ message, messages }),
+    [message, messages],
+  );
 
   const { hasError, renderedArtifacts, renderedTools, statusCounts } =
     useMemo(() => {
@@ -158,7 +242,7 @@ export function GroupedToolCallsView({
       } satisfies Record<ToolCallStatus, number>;
       let hasError = false;
 
-      for (const toolCall of message.toolCalls ?? []) {
+      for (const toolCall of toolCalls) {
         const toolMessage = messages.find(
           (candidate): candidate is ToolMessage =>
             candidate.role === 'tool' && candidate.toolCallId === toolCall.id,
@@ -201,9 +285,9 @@ export function GroupedToolCallsView({
         renderedTools,
         statusCounts,
       };
-    }, [executingToolCallIds, message.toolCalls, messages, renderToolCall]);
+    }, [executingToolCallIds, messages, renderToolCall, toolCalls]);
 
-  const toolCount = message.toolCalls?.length ?? 0;
+  const toolCount = toolCalls.length;
   if (!toolCount) {
     return null;
   }
