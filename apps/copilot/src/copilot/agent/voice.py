@@ -32,9 +32,7 @@ def assistant_text_from_graph_result(result: Any) -> str:
     if not isinstance(messages, list):
         return ""
     for message in reversed(messages):
-        if not isinstance(message, AIMessage) or is_device_interaction_summary_message(
-            message
-        ):
+        if not isinstance(message, AIMessage) or is_device_interaction_summary_message(message):
             continue
         return text_from_message_content(message.content).strip()
     return ""

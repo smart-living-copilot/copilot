@@ -42,11 +42,7 @@ def is_device_interaction_summary_message(message: BaseMessage) -> bool:
 def without_device_interaction_summary_messages(
     messages: Sequence[BaseMessage],
 ) -> list[BaseMessage]:
-    return [
-        message
-        for message in messages
-        if not is_device_interaction_summary_message(message)
-    ]
+    return [message for message in messages if not is_device_interaction_summary_message(message)]
 
 
 def make_device_interaction_summary_node():
