@@ -1,10 +1,19 @@
 'use client';
 
-import { memo, useMemo, type ComponentProps } from 'react';
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactElement,
+} from 'react';
 import {
   CopilotChatAssistantMessage,
   CopilotChatMessageView,
 } from '@copilotkit/react-core/v2';
+import { Virtualizer } from 'virtua';
 
 import { WotInteractionSummaryCard } from '@/components/copilot/wot-summary/wot-interaction-summary-card';
 import { cn } from '@/lib/utils';
@@ -43,6 +52,56 @@ function isIntentPayloadMessage(message: { content?: unknown }) {
   } catch {
     return false;
   }
+}
+
+function findScrollableAncestor(element: HTMLElement) {
+  let parent = element.parentElement;
+
+  while (parent && parent !== document.body) {
+    const { overflowY } = window.getComputedStyle(parent);
+    if (overflowY === 'auto' || overflowY === 'scroll') {
+      return parent;
+    }
+    parent = parent.parentElement;
+  }
+
+  return null;
+}
+
+function VirtualizedMessageElements({
+  messageElements,
+}: {
+  messageElements: ReactElement[];
+}) {
+  const scrollRef = useRef<HTMLElement | null>(null);
+  const [hasScrollParent, setHasScrollParent] = useState(false);
+
+  const setContainerRef = useCallback((element: HTMLDivElement | null) => {
+    const scrollParent = element ? findScrollableAncestor(element) : null;
+    scrollRef.current = scrollParent;
+    setHasScrollParent(Boolean(scrollParent));
+  }, []);
+
+  return (
+    <div ref={setContainerRef} className="min-h-0">
+      {hasScrollParent ? (
+        <Virtualizer
+          data={messageElements}
+          itemSize={160}
+          keepMounted={
+            messageElements.length > 0 ? [messageElements.length - 1] : []
+          }
+          scrollRef={scrollRef}
+        >
+          {(element: ReactElement) => (
+            <div className="py-1.5">{element}</div>
+          )}
+        </Virtualizer>
+      ) : (
+        messageElements
+      )}
+    </div>
+  );
 }
 
 const AssistantMessageWithWotSummaryImpl = memo(
@@ -96,7 +155,28 @@ function MessageViewWithWotSummaryImpl({
         assistantMessage={AssistantMessageWithWotSummary}
         isRunning={isRunning}
         messages={displayMessages}
-      />
+      >
+        {({ interruptElement, isRunning, messageElements }) => {
+          const showCursor =
+            isRunning && displayMessages.at(-1)?.role !== 'reasoning';
+
+          return (
+            <div
+              className="copilotKitMessages flex min-h-0 flex-1 flex-col"
+              data-copilotkit
+              data-testid="copilot-message-list"
+            >
+              <VirtualizedMessageElements messageElements={messageElements} />
+              {interruptElement}
+              {showCursor ? (
+                <div className="mt-2">
+                  <CopilotChatMessageView.Cursor />
+                </div>
+              ) : null}
+            </div>
+          );
+        }}
+      </CopilotChatMessageView>
     </div>
   );
 }
