@@ -20,7 +20,7 @@ import {
   type RunCodeResult,
 } from '../chat-tool-call-model';
 
-function RunCodeOutput({ result }: { result: RunCodeResult }) {
+export function RunCodeArtifacts({ result }: { result: RunCodeResult }) {
   if (!(result.artifacts?.length ?? 0)) {
     return null;
   }
@@ -74,8 +74,9 @@ function RunCodeDetails({ result }: { result: RunCodeResult }) {
 export const RunCodeCard = memo(function RunCodeCard({
   args,
   result,
+  showArtifacts = true,
   status,
-}: CatchAllToolCallRenderProps) {
+}: CatchAllToolCallRenderProps & { showArtifacts?: boolean }) {
   const [showDetails, setShowDetails] = useState(false);
   const code = (args as { code?: string } | undefined)?.code ?? '';
   const parsedResult = useMemo(
@@ -140,8 +141,8 @@ export const RunCodeCard = memo(function RunCodeCard({
         </div>
       ) : null}
 
-      {status === 'complete' && hasArtifacts ? (
-        <RunCodeOutput result={parsedResult} />
+      {showArtifacts && status === 'complete' && hasArtifacts ? (
+        <RunCodeArtifacts result={parsedResult} />
       ) : null}
 
       {status === 'complete' &&

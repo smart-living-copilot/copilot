@@ -15,6 +15,7 @@ import {
 } from '@copilotkit/react-core/v2';
 import { Virtualizer } from 'virtua';
 
+import { GroupedToolCallsView } from '@/components/copilot/chat-tool-calls/grouped-tool-calls-view';
 import { WotInteractionSummaryCard } from '@/components/copilot/wot-summary/wot-interaction-summary-card';
 import { cn } from '@/lib/utils';
 import {
@@ -125,6 +126,7 @@ const AssistantMessageWithWotSummaryImpl = memo(
         isRunning={isRunning}
         message={message}
         messages={messages}
+        toolCallsView={GroupedToolCallsView}
       />
     );
   },
