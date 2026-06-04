@@ -106,7 +106,7 @@ services:
   wot-replay:
     image: ghcr.io/smart-living-copilot/wot-replay:latest
     volumes:
-      - ../data/dudopark.db:/app/fixtures.db:ro
+      - ../data/a4h.db:/app/fixtures.db:ro
     environment:
       REPLAY_BASE_URL: "http://wot-replay:9000"
       WOT_REGISTRY_URL: "http://copilot:8123"
