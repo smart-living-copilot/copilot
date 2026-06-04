@@ -153,7 +153,6 @@ export const RunCodeCard = memo(function RunCodeCard({
           No visible output.
         </p>
       ) : null}
-
     </Collapsible>
   );
 });

@@ -93,9 +93,7 @@ function VirtualizedMessageElements({
           }
           scrollRef={scrollRef}
         >
-          {(element: ReactElement) => (
-            <div className="py-1.5">{element}</div>
-          )}
+          {(element: ReactElement) => element}
         </Virtualizer>
       ) : (
         messageElements
