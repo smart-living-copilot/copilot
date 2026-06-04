@@ -8,7 +8,10 @@ import {
 
 import { WotInteractionSummaryCard } from '@/components/copilot/wot-summary/wot-interaction-summary-card';
 import { cn } from '@/lib/utils';
-import { getAssistantTurnWotInteractions } from '@/lib/wot-interactions';
+import {
+  looksLikeDeviceInteractionSummaryContent,
+  parseDeviceInteractionSummaryContent,
+} from '@/lib/wot-interactions';
 
 function isIntentPayloadMessage(message: { content?: unknown }) {
   const content = message.content;
@@ -50,25 +53,22 @@ const AssistantMessageWithWotSummaryImpl = memo(
     messages = [],
     ...props
   }: ComponentProps<typeof CopilotChatAssistantMessage>) {
-    const interactions = useMemo(
-      () => getAssistantTurnWotInteractions(messages, message.id),
-      [message.id, messages],
-    );
-    const showSummary = interactions.length > 0;
+    const interactions = parseDeviceInteractionSummaryContent(message.content);
+    if (interactions.length > 0) {
+      return <WotInteractionSummaryCard interactions={interactions} />;
+    }
+    if (looksLikeDeviceInteractionSummaryContent(message.content)) {
+      return null;
+    }
 
     return (
-      <div className="space-y-3">
-        <CopilotChatAssistantMessage
-          {...props}
-          className={className}
-          isRunning={isRunning}
-          message={message}
-          messages={messages}
-        />
-        {showSummary ? (
-          <WotInteractionSummaryCard interactions={interactions} />
-        ) : null}
-      </div>
+      <CopilotChatAssistantMessage
+        {...props}
+        className={className}
+        isRunning={isRunning}
+        message={message}
+        messages={messages}
+      />
     );
   },
 );

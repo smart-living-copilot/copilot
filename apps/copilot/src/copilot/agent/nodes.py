@@ -31,9 +31,11 @@ from copilot.agent.prompts import (
     RESPOND_PROMPT,
     ROUTER_PROMPT,
 )
+from copilot.agent.device_interactions import (
+    without_device_interaction_summary_messages,
+)
 
 logger = logging.getLogger(__name__)
-
 
 BACKGROUND_JOB_PROMPT = """\
 You are executing one background prompt job run for the Smart Living Copilot.
@@ -93,7 +95,7 @@ def _strip_wot_calls(message: BaseMessage) -> BaseMessage:
 
 def _trim_conversation(messages: Sequence[BaseMessage], max_tokens: int) -> list[BaseMessage]:
     trimmed = trim_messages(
-        messages,
+        without_device_interaction_summary_messages(messages),
         max_tokens=max_tokens,
         token_counter="approximate",
         strategy="last",
@@ -174,7 +176,7 @@ def _sanitize_message_sequence(messages: Sequence[BaseMessage]) -> list[BaseMess
 
 def _make_router_messages(messages: Sequence[BaseMessage], max_tokens: int) -> list[BaseMessage]:
     trimmed = trim_messages(
-        messages,
+        without_device_interaction_summary_messages(messages),
         max_tokens=max_tokens,
         token_counter="approximate",
         strategy="last",

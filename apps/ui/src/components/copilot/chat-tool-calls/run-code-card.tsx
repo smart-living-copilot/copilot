@@ -82,14 +82,16 @@ export const RunCodeCard = memo(function RunCodeCard({
     () => (status === 'complete' ? normalizeRunCodeResult(result) : {}),
     [status, result],
   );
+  const wotInteractions = parsedResult.wotInteractions ?? [];
   const hasArtifacts = (parsedResult.artifacts?.length ?? 0) > 0;
   const hasStdout = !!parsedResult.stdout?.trim();
   const hasError = !!parsedResult.error;
+  const hasWotInteractions = wotInteractions.length > 0;
   const artifactSummary = parsedResult.artifacts?.length
     ? formatArtifactSummary(parsedResult.artifacts)
     : '';
-  const wotInteractionSummary = parsedResult.wotInteractions?.length
-    ? formatWotInteractionSummary(parsedResult.wotInteractions)
+  const wotInteractionSummary = hasWotInteractions
+    ? formatWotInteractionSummary(wotInteractions)
     : '';
   const completedSummary = [wotInteractionSummary, artifactSummary]
     .filter(Boolean)
@@ -142,11 +144,16 @@ export const RunCodeCard = memo(function RunCodeCard({
         <RunCodeOutput result={parsedResult} />
       ) : null}
 
-      {status === 'complete' && !hasArtifacts && !hasStdout && !hasError ? (
+      {status === 'complete' &&
+      !hasArtifacts &&
+      !hasStdout &&
+      !hasError &&
+      !hasWotInteractions ? (
         <p className="px-0.5 text-[0.72rem] text-muted-foreground">
           No visible output.
         </p>
       ) : null}
+
     </Collapsible>
   );
 });

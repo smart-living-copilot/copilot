@@ -1,17 +1,5 @@
-import type { Message } from '@ag-ui/core';
-
-const WOT_DIRECT_TOOL_NAMES = new Set([
-  'wot_invoke_action',
-  'wot_read_property',
-  'wot_write_property',
-  'wot_observe_property',
-  'wot_subscribe_event',
-]);
-
-type ToolCallEntry = {
-  args: Record<string, unknown>;
-  name: string;
-};
+export const DEVICE_INTERACTION_SUMMARY_TYPE =
+  'smart_living_device_interactions';
 
 export type WotInteraction = {
   affordanceName: string;
@@ -31,18 +19,6 @@ function parseJsonRecord(value: unknown) {
   return value as Record<string, unknown>;
 }
 
-function parseToolArguments(value: unknown) {
-  if (typeof value === 'string') {
-    try {
-      return parseJsonRecord(JSON.parse(value));
-    } catch {
-      return {};
-    }
-  }
-
-  return parseJsonRecord(value);
-}
-
 function parseOptionalRecord(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined;
@@ -50,19 +26,6 @@ function parseOptionalRecord(value: unknown) {
 
   const record = value as Record<string, unknown>;
   return Object.keys(record).length ? record : undefined;
-}
-
-function isErrorResult(value: unknown) {
-  if (typeof value === 'string') {
-    return /^error\b/i.test(value.trim());
-  }
-
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return false;
-  }
-
-  const error = (value as { error?: unknown }).error;
-  return typeof error === 'string' && error.trim().length > 0;
 }
 
 function normalizeWotInteraction(value: unknown): WotInteraction | null {
@@ -100,38 +63,6 @@ function normalizeWotInteraction(value: unknown): WotInteraction | null {
   };
 }
 
-function parseDirectToolCall(
-  name: string,
-  args: Record<string, unknown>,
-  result: unknown,
-): WotInteraction | null {
-  if (!WOT_DIRECT_TOOL_NAMES.has(name)) {
-    return null;
-  }
-
-  const affordanceName =
-    (args.action_name as string) ||
-    (args.property_name as string) ||
-    (args.event_name as string) ||
-    '';
-  const uriVariables = parseOptionalRecord(args.uri_variables);
-  const thingId = typeof args.thing_id === 'string' ? args.thing_id : '';
-
-  if (!thingId) {
-    return null;
-  }
-
-  return {
-    affordanceName,
-    ok: !isErrorResult(result),
-    thingId,
-    type: name.replace('wot_', ''),
-    ...(args.input !== undefined ? { input: args.input } : {}),
-    ...(args.value !== undefined ? { value: args.value } : {}),
-    ...(uriVariables ? { uriVariables } : {}),
-  };
-}
-
 export function parseWotInteractionList(value: unknown): WotInteraction[] {
   let parsed = value;
 
@@ -157,113 +88,30 @@ export function parseWotInteractionList(value: unknown): WotInteraction[] {
   });
 }
 
-export function extractWotInteractions(messages: Message[]) {
-  const toolCallsById = new Map<string, ToolCallEntry>();
-
-  for (const message of messages) {
-    if (message.role !== 'assistant' || !message.toolCalls) {
-      continue;
-    }
-
-    for (const toolCall of message.toolCalls) {
-      toolCallsById.set(toolCall.id, {
-        args: parseToolArguments(toolCall.function?.arguments),
-        name: toolCall.function?.name ?? '',
-      });
-    }
+export function parseDeviceInteractionSummaryContent(value: unknown) {
+  if (typeof value !== 'string') {
+    return [];
   }
 
-  const interactions: WotInteraction[] = [];
-
-  for (const message of messages) {
-    if (message.role !== 'tool' || !message.toolCallId) {
-      continue;
-    }
-
-    const toolCall = toolCallsById.get(message.toolCallId);
-    if (!toolCall) {
-      continue;
-    }
-
-    const directInteraction = parseDirectToolCall(
-      toolCall.name,
-      toolCall.args,
-      message.content,
-    );
-    if (directInteraction) {
-      interactions.push(directInteraction);
-      continue;
-    }
-
-    if (toolCall.name === 'run_code') {
-      interactions.push(...parseWotInteractionList(message.content));
-    }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return [];
   }
 
-  return interactions;
+  const candidate = parseJsonRecord(parsed);
+  if (candidate.type !== DEVICE_INTERACTION_SUMMARY_TYPE) {
+    return [];
+  }
+
+  return parseWotInteractionList(candidate.interactions);
 }
 
-export function getAssistantTurnWotInteractions(
-  messages: Message[],
-  assistantMessageId: string,
-) {
-  const assistantIndex = messages.findIndex(
-    (message) =>
-      message.id === assistantMessageId && message.role === 'assistant',
+export function looksLikeDeviceInteractionSummaryContent(value: unknown) {
+  return (
+    typeof value === 'string' &&
+    value.trimStart().startsWith('{"type"') &&
+    value.includes(DEVICE_INTERACTION_SUMMARY_TYPE)
   );
-
-  if (assistantIndex < 0) {
-    return [];
-  }
-
-  let turnStartIndex = -1;
-  for (let index = assistantIndex; index >= 0; index -= 1) {
-    if (messages[index]?.role === 'user') {
-      turnStartIndex = index;
-      break;
-    }
-  }
-
-  if (turnStartIndex < 0) {
-    return [];
-  }
-
-  let turnEndIndex = messages.length;
-  for (let index = assistantIndex + 1; index < messages.length; index += 1) {
-    if (messages[index]?.role === 'user') {
-      turnEndIndex = index;
-      break;
-    }
-  }
-
-  let summaryAnchorIndex = -1;
-  for (let index = turnEndIndex - 1; index > turnStartIndex; index -= 1) {
-    if (messages[index]?.role === 'assistant') {
-      summaryAnchorIndex = index;
-      break;
-    }
-  }
-
-  if (assistantIndex !== summaryAnchorIndex) {
-    return [];
-  }
-
-  return extractWotInteractions(messages.slice(turnStartIndex, turnEndIndex));
-}
-
-export function getLastTurnWotInteractions(messages: Message[]) {
-  let lastUserIndex = -1;
-
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.role === 'user') {
-      lastUserIndex = index;
-      break;
-    }
-  }
-
-  if (lastUserIndex < 0) {
-    return [];
-  }
-
-  return extractWotInteractions(messages.slice(lastUserIndex));
 }

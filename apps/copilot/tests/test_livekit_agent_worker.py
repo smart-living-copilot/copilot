@@ -1,11 +1,14 @@
 import pickle
 import asyncio
+import json
 
+from copilot.agent.device_interactions import DEVICE_INTERACTION_SUMMARY_TYPE
 from copilot.core.settings import Settings
+from copilot.agent.voice import assistant_text_from_graph_result
 from copilot.workers import livekit
 from copilot.workers.livekit import speech as livekit_speech
 from copilot.workers.livekit.graph import VoiceSafeGraphStream
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 
 def test_livekit_session_handler_is_spawn_pickleable() -> None:
@@ -121,3 +124,28 @@ def test_livekit_voice_graph_filters_tool_and_router_output_chunks() -> None:
     message, metadata = events[0]
     assert message.content == "The light is on."
     assert metadata == {"langgraph_node": "respond"}
+
+
+def test_voice_final_text_skips_device_summary_marker() -> None:
+    result = {
+        "messages": [
+            AIMessage(content="The light is on."),
+            AIMessage(
+                content=json.dumps(
+                    {
+                        "type": DEVICE_INTERACTION_SUMMARY_TYPE,
+                        "interactions": [
+                            {
+                                "type": "write_property",
+                                "thingId": "urn:lamp",
+                                "affordanceName": "state",
+                                "ok": True,
+                            }
+                        ],
+                    }
+                )
+            ),
+        ]
+    }
+
+    assert assistant_text_from_graph_result(result) == "The light is on."
