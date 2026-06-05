@@ -5,11 +5,7 @@ import { RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { PanelFrame } from '@/components/copilot/chat-tool-calls/panel-frame';
-import {
-  type PanelRecord,
-  deletePanel,
-  fetchPanels,
-} from '@/lib/dashboards-api';
+import { type PanelRecord, deletePanel, fetchPanels } from '@/lib/panels-api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -57,7 +53,7 @@ function PanelTile({
         <PanelFrame
           capabilities={panel.capabilities}
           className="h-[24rem]"
-          src={`/api/dashboards/${encodeURIComponent(panel.id)}/render`}
+          src={`/api/panels/${encodeURIComponent(panel.id)}/render`}
           title={panel.title}
         />
       </CardContent>
@@ -65,7 +61,7 @@ function PanelTile({
   );
 }
 
-export function DashboardsList() {
+export function PanelsList() {
   const [panels, setPanels] = useState<PanelRecord[]>([]);
   const [isPending, setIsPending] = useState(true);
 
@@ -75,7 +71,7 @@ export function DashboardsList() {
       setPanels(await fetchPanels());
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : 'Failed to load dashboards',
+        error instanceof Error ? error.message : 'Failed to load panels',
       );
     } finally {
       setIsPending(false);
@@ -90,7 +86,7 @@ export function DashboardsList() {
     <div className="space-y-5">
       <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
-          <h1 className="text-3xl font-semibold tracking-tight">Dashboards</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Panels</h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
             Pinned interactive panels. Pin a panel from a chat to keep it here —
             it stays even if you delete the conversation.
@@ -132,7 +128,7 @@ export function DashboardsList() {
       ) : (
         <div className="rounded-md border border-dashed px-6 py-12 text-center">
           <h2 className="text-xl font-semibold tracking-tight">
-            No pinned dashboards
+            No pinned panels
           </h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
             Ask the assistant to build a control panel or dashboard, then click

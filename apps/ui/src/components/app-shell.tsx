@@ -35,8 +35,8 @@ function useBreadcrumbs(): BreadcrumbSegment[] {
     } else if (pathname !== '/jobs') {
       segments.push({ label: 'Detail' });
     }
-  } else if (pathname.startsWith('/dashboards')) {
-    segments.push({ label: 'Dashboards', href: '/dashboards' });
+  } else if (pathname.startsWith('/panels')) {
+    segments.push({ label: 'Panels', href: '/panels' });
   } else if (pathname.startsWith('/settings')) {
     segments.push({ label: 'Settings' });
   }

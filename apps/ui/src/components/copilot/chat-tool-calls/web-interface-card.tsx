@@ -30,7 +30,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { pinPanel } from '@/lib/dashboards-api';
+import { pinPanel } from '@/lib/panels-api';
 
 import {
   formatToolName,
@@ -65,7 +65,7 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
         sourceThreadId: chatMatch ? chatMatch[1] : null,
       });
       setPinned(true);
-      toast.success('Pinned to Dashboards');
+      toast.success('Pinned to Panels');
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : 'Failed to pin panel',
@@ -84,7 +84,7 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    aria-label="Pin to Dashboards"
+                    aria-label="Pin to Panels"
                     className="text-muted-foreground hover:text-foreground"
                     disabled={isPinning || pinned}
                     onClick={() => void handlePin()}
@@ -100,7 +100,7 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  {pinned ? 'Pinned' : 'Pin to Dashboards'}
+                  {pinned ? 'Pinned' : 'Pin to Panels'}
                 </TooltipContent>
               </Tooltip>
             ) : null}

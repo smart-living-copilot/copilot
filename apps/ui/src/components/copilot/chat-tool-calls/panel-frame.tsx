@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 /**
  * Sandboxed iframe for a generated WoT panel, wired to the capability-enforcing
  * postMessage bridge. Shared by ephemeral chat panels (src = artifact) and
- * pinned dashboard panels (src = panel render route).
+ * pinned panels (src = panel render route).
  */
 export const PanelFrame = memo(function PanelFrame({
   src,

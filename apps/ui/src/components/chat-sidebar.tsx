@@ -5,9 +5,9 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Clock3,
-  Gauge,
   HouseWifi,
   LayoutDashboard,
+  LayoutPanelTop,
   MessageSquarePlus,
   Settings,
 } from 'lucide-react';
@@ -298,12 +298,12 @@ export function AppSidebar({
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={pathname.startsWith('/dashboards')}
-                  tooltip="Dashboards"
+                  isActive={pathname.startsWith('/panels')}
+                  tooltip="Panels"
                 >
-                  <Link href="/dashboards">
-                    <Gauge />
-                    <span>Dashboards</span>
+                  <Link href="/panels">
+                    <LayoutPanelTop />
+                    <span>Panels</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

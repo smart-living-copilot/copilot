@@ -15,7 +15,7 @@ interface PanelListResponse {
 }
 
 export async function fetchPanels(): Promise<PanelRecord[]> {
-  const json = await httpJson<PanelListResponse>('/dashboards');
+  const json = await httpJson<PanelListResponse>('/panels');
   return json.items;
 }
 
@@ -25,7 +25,7 @@ export async function pinPanel(input: {
   capabilities: WotCapability[];
   sourceThreadId?: string | null;
 }): Promise<PanelRecord> {
-  return httpJson<PanelRecord>('/dashboards', {
+  return httpJson<PanelRecord>('/panels', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -41,7 +41,7 @@ export async function renamePanel(
   id: string,
   title: string,
 ): Promise<PanelRecord> {
-  return httpJson<PanelRecord>(`/dashboards/${encodeURIComponent(id)}`, {
+  return httpJson<PanelRecord>(`/panels/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
@@ -49,7 +49,7 @@ export async function renamePanel(
 }
 
 export async function deletePanel(id: string): Promise<void> {
-  await httpClient(`/dashboards/${encodeURIComponent(id)}`, {
+  await httpClient(`/panels/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
 }
