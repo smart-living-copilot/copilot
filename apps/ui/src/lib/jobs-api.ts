@@ -134,6 +134,9 @@ interface ListJobsResponse {
 
 interface ListJobRunsResponse {
   runs: JobRunRecord[];
+  total?: number;
+  limit?: number;
+  offset?: number;
 }
 
 interface ListJobRunEventsResponse {
@@ -246,11 +249,48 @@ export async function runJobNow(jobId: string): Promise<unknown> {
   });
 }
 
-export async function fetchJobRuns(jobId: string): Promise<JobRunRecord[]> {
+export interface JobRunPage {
+  runs: JobRunRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface FetchJobRunsOptions {
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchJobRunsPage(
+  jobId: string,
+  options: FetchJobRunsOptions = {},
+): Promise<JobRunPage> {
+  const query = new URLSearchParams();
+  if (options.limit != null) {
+    query.set('limit', String(options.limit));
+  }
+  if (options.offset != null) {
+    query.set('offset', String(options.offset));
+  }
+
+  const suffix = query.toString();
   const json = await httpJson<ListJobRunsResponse>(
-    `/jobs/${encodeURIComponent(jobId)}/runs`,
+    `/jobs/${encodeURIComponent(jobId)}/runs${suffix ? `?${suffix}` : ''}`,
   );
-  return json.runs;
+  return {
+    runs: json.runs,
+    total: json.total ?? json.runs.length,
+    limit: json.limit ?? json.runs.length,
+    offset: json.offset ?? 0,
+  };
+}
+
+export async function fetchJobRuns(
+  jobId: string,
+  options?: FetchJobRunsOptions,
+): Promise<JobRunRecord[]> {
+  const page = await fetchJobRunsPage(jobId, options);
+  return page.runs;
 }
 
 export async function fetchJobRunEvents(

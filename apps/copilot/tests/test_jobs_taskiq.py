@@ -2198,30 +2198,43 @@ class JobsEventsRouteTestCase(unittest.TestCase):
         now = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
 
         class FakeService:
-            async def list_job_runs(self, job_id):
-                return [
-                    JobRun(
-                        id="run-1",
-                        job_id=job_id,
-                        job_thread_id="job:job-1",
-                        source=JobRunSource.MANUAL,
-                        status=JobRunStatus.SKIPPED,
-                        trigger_payload={"source": "manual"},
-                        started_at=now,
-                        finished_at=now,
-                        created_at=now,
-                    )
-                ]
+            def __init__(self) -> None:
+                self.page_request = None
 
+            async def list_job_run_page(self, job_id, *, limit, offset):
+                self.page_request = (job_id, limit, offset)
+                return (
+                    [
+                        JobRun(
+                            id="run-1",
+                            job_id=job_id,
+                            job_thread_id="job:job-1",
+                            source=JobRunSource.MANUAL,
+                            status=JobRunStatus.SKIPPED,
+                            trigger_payload={"source": "manual"},
+                            started_at=now,
+                            finished_at=now,
+                            created_at=now,
+                        )
+                    ],
+                    42,
+                )
+
+        fake_service = FakeService()
         app = FastAPI()
-        app.state.service = FakeService()
+        app.state.service = fake_service
         app.include_router(jobs_router)
 
         with TestClient(app) as client:
-            response = client.get("/jobs/job-1/runs")
+            response = client.get("/jobs/job-1/runs?limit=10&offset=20")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["runs"][0]["status"], "skipped")
+        body = response.json()
+        self.assertEqual(body["runs"][0]["status"], "skipped")
+        self.assertEqual(body["total"], 42)
+        self.assertEqual(body["limit"], 10)
+        self.assertEqual(body["offset"], 20)
+        self.assertEqual(fake_service.page_request, ("job-1", 10, 20))
 
     def test_sse_events_include_redis_stream_id(self) -> None:
         class FakeService:

@@ -107,9 +107,27 @@ class JobService:
     async def list_jobs(self, created_from_thread_id: str | None = None) -> list[Job]:
         return await self._repo.list_jobs(created_from_thread_id)
 
-    async def list_job_runs(self, job_id: str) -> list[JobRun]:
+    async def list_job_runs(
+        self,
+        job_id: str,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[JobRun]:
         await self._repo.get_job(job_id)
-        return await self._repo.list_job_runs(job_id)
+        return await self._repo.list_job_runs(job_id, limit=limit, offset=offset)
+
+    async def list_job_run_page(
+        self,
+        job_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[JobRun], int]:
+        await self._repo.get_job(job_id)
+        total = await self._repo.count_job_runs(job_id)
+        runs = await self._repo.list_job_runs(job_id, limit=limit, offset=offset)
+        return runs, total
 
     async def list_job_run_events(self, job_id: str) -> list[JobRunEvent]:
         await self._repo.get_job(job_id)

@@ -27,6 +27,7 @@ export function JobDetailsPage({ jobId, onDeleted }: JobDetailsPageProps) {
   const {
     job,
     runs,
+    runPage,
     isLoading,
     isRunning,
     isReplying,
@@ -47,6 +48,7 @@ export function JobDetailsPage({ jobId, onDeleted }: JobDetailsPageProps) {
     latestSubmittedRecordSummary,
     load,
     handleRun,
+    handleRunPageChange,
     handleReply,
     handleVoiceAnswer,
     handleToggleEnabled,
@@ -152,7 +154,7 @@ export function JobDetailsPage({ jobId, onDeleted }: JobDetailsPageProps) {
                   value="runs"
                   className={JOB_TABS_TRIGGER_CLASSNAME}
                 >
-                  Runs ({runs.length})
+                  Runs ({runPage.total})
                 </TabsTrigger>
                 <TabsTrigger
                   value="definition"
@@ -185,8 +187,12 @@ export function JobDetailsPage({ jobId, onDeleted }: JobDetailsPageProps) {
             <TabsContent value="runs" className="mt-0">
               <JobRunHistoryCard
                 runs={runs}
+                totalRuns={runPage.total}
+                limit={runPage.limit}
+                offset={runPage.offset}
                 description="Recent starts, completion times, and captured outcomes."
                 outcome={formatJobRunOutcome}
+                onPageChange={handleRunPageChange}
                 readOutcome
                 showFinished
                 minWidthClassName="min-w-[860px]"

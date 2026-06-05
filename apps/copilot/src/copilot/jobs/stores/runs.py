@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from copilot.jobs.db import JobRecord, JobRunRecord
@@ -458,18 +458,43 @@ class JobRunStore(_JobStoreBase):
             session.commit()
             return count
 
-    async def list_job_runs(self, job_id: str) -> list[JobRun]:
-        return await asyncio.to_thread(self._list_job_runs_sync, job_id)
+    async def list_job_runs(
+        self,
+        job_id: str,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[JobRun]:
+        return await asyncio.to_thread(self._list_job_runs_sync, job_id, limit, offset)
 
-    def _list_job_runs_sync(self, job_id: str) -> list[JobRun]:
+    def _list_job_runs_sync(
+        self,
+        job_id: str,
+        limit: int | None,
+        offset: int,
+    ) -> list[JobRun]:
         statement = (
             select(JobRunRecord)
             .where(JobRunRecord.job_id == job_id)
             .order_by(JobRunRecord.started_at.desc())
         )
+        if offset:
+            statement = statement.offset(offset)
+        if limit is not None:
+            statement = statement.limit(limit)
         with self._session_factory() as session:
             rows = session.scalars(statement).all()
             return [_to_job_run(row) for row in rows]
+
+    async def count_job_runs(self, job_id: str) -> int:
+        return await asyncio.to_thread(self._count_job_runs_sync, job_id)
+
+    def _count_job_runs_sync(self, job_id: str) -> int:
+        statement = (
+            select(func.count()).select_from(JobRunRecord).where(JobRunRecord.job_id == job_id)
+        )
+        with self._session_factory() as session:
+            return int(session.scalar(statement) or 0)
 
 
 def _create_skipped_run(

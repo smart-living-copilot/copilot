@@ -1,4 +1,7 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ReadAloudButton } from '@/components/jobs/job-speech-controls';
 import {
   Card,
@@ -32,8 +35,12 @@ export function RunStatusBadge({ status }: { status: string }) {
 
 interface JobRunHistoryCardProps {
   runs: JobRunRecord[];
+  totalRuns?: number;
+  limit?: number;
+  offset?: number;
   description: string;
   outcome: (run: JobRunRecord) => string;
+  onPageChange?: (offset: number) => void;
   showFinished?: boolean;
   minWidthClassName?: string;
   readOutcome?: boolean;
@@ -41,12 +48,27 @@ interface JobRunHistoryCardProps {
 
 export function JobRunHistoryCard({
   runs,
+  totalRuns,
+  limit,
+  offset = 0,
   description,
   outcome,
+  onPageChange,
   showFinished = false,
   minWidthClassName = 'min-w-[760px]',
   readOutcome = false,
 }: JobRunHistoryCardProps) {
+  const total = totalRuns ?? runs.length;
+  const pageSize = limit ?? Math.max(runs.length, 1);
+  const firstVisibleRun = runs.length ? offset + 1 : 0;
+  const lastVisibleRun = runs.length
+    ? Math.min(offset + runs.length, total)
+    : 0;
+  const canGoBack = offset > 0;
+  const canGoForward = lastVisibleRun < total;
+  const showPagination =
+    Boolean(onPageChange) && (total > pageSize || offset > 0);
+
   return (
     <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
       <CardHeader className="border-b border-border/70">
@@ -55,7 +77,7 @@ export function JobRunHistoryCard({
             <CardTitle className="text-base">Run history</CardTitle>
             <CardDescription>{description}</CardDescription>
           </div>
-          <Badge variant="outline">{runs.length}</Badge>
+          <Badge variant="outline">{total}</Badge>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -108,9 +130,38 @@ export function JobRunHistoryCard({
           </div>
         ) : (
           <div className="p-4 text-sm text-muted-foreground">
-            No runs recorded yet.
+            {total ? 'No runs on this page.' : 'No runs recorded yet.'}
           </div>
         )}
+        {showPagination ? (
+          <div className="flex flex-col gap-3 border-t border-border/70 px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              Showing {firstVisibleRun}-{lastVisibleRun} of {total}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!canGoBack}
+                onClick={() => onPageChange?.(Math.max(0, offset - pageSize))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!canGoForward}
+                onClick={() => onPageChange?.(offset + pageSize)}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

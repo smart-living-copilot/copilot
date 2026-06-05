@@ -23,16 +23,19 @@ import {
 import { findLatestCodeResult } from '@/lib/job-run-output';
 import {
   type JobRecord,
+  type JobRunPage,
   type JobRunRecord,
   cancelJobRun,
   createClientReplyId,
   deleteJob,
   fetchJob,
-  fetchJobRuns,
+  fetchJobRunsPage,
   replyToJob,
   runJobNow,
   setJobEnabled,
 } from '@/lib/jobs-api';
+
+const RUN_HISTORY_PAGE_SIZE = 5;
 
 export function useJobDetails(
   jobId: string,
@@ -42,6 +45,13 @@ export function useJobDetails(
   const { onDeleted } = options;
   const [job, setJob] = useState<JobRecord | null>(null);
   const [runs, setRuns] = useState<JobRunRecord[]>([]);
+  const [latestRuns, setLatestRuns] = useState<JobRunRecord[]>([]);
+  const [runPage, setRunPage] = useState<JobRunPage>({
+    runs: [],
+    total: 0,
+    limit: RUN_HISTORY_PAGE_SIZE,
+    offset: 0,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [isReplying, setIsReplying] = useState(false);
@@ -53,20 +63,39 @@ export function useJobDetails(
     message: string;
     clientReplyId: string;
   } | null>(null);
+  const runOffsetRef = useRef(0);
 
   const load = useCallback(
-    async ({ silent = false }: { silent?: boolean } = {}) => {
+    async ({
+      silent = false,
+      runOffset = runOffsetRef.current,
+    }: { silent?: boolean; runOffset?: number } = {}) => {
       if (!silent) {
         setIsLoading(true);
       }
       setLoadError(null);
       try {
+        const runPageRequest = fetchJobRunsPage(jobId, {
+          limit: RUN_HISTORY_PAGE_SIZE,
+          offset: runOffset,
+        });
+        const latestRunPageRequest =
+          runOffset === 0
+            ? runPageRequest
+            : fetchJobRunsPage(jobId, {
+                limit: RUN_HISTORY_PAGE_SIZE,
+                offset: 0,
+              });
         const [jobRecord, runRecords] = await Promise.all([
           fetchJob(jobId),
-          fetchJobRuns(jobId),
+          runPageRequest,
         ]);
+        const latestRunRecords = await latestRunPageRequest;
         setJob(jobRecord);
-        setRuns(runRecords);
+        setRuns(runRecords.runs);
+        setLatestRuns(latestRunRecords.runs);
+        setRunPage(runRecords);
+        runOffsetRef.current = runRecords.offset;
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Failed to load job';
@@ -112,31 +141,44 @@ export function useJobDetails(
   const showSchemaTab = Boolean(
     job && (job.output_kind === 'structured_record' || hasEventFields),
   );
-  const latestCodeResult = useMemo(() => findLatestCodeResult(runs), [runs]);
+  const latestCodeResult = useMemo(
+    () => findLatestCodeResult(latestRuns),
+    [latestRuns],
+  );
   const degradedResourceMessages = useMemo(
     () => getDegradedResourceMessages(job),
     [job],
   );
   const latestSubmittedRecordSummary = useMemo(() => {
-    for (const run of runs) {
+    for (const run of latestRuns) {
       const summary = getSubmittedRecordResultSummary(run.result);
       if (summary) return summary;
     }
     return null;
-  }, [runs]);
+  }, [latestRuns]);
 
   const handleRun = useCallback(async () => {
     setIsRunning(true);
     try {
       await runJobNow(jobId);
       toast.success('Job run queued.');
-      await load();
+      runOffsetRef.current = 0;
+      await load({ runOffset: 0 });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to run job');
     } finally {
       setIsRunning(false);
     }
   }, [jobId, load]);
+
+  const handleRunPageChange = useCallback(
+    (offset: number) => {
+      const nextOffset = Math.max(0, offset);
+      runOffsetRef.current = nextOffset;
+      void load({ silent: true, runOffset: nextOffset });
+    },
+    [load],
+  );
 
   useEffect(() => {
     if (!isWaitingForReply) {
@@ -239,6 +281,7 @@ export function useJobDetails(
   return {
     job,
     runs,
+    runPage,
     isLoading,
     isRunning,
     isReplying,
@@ -259,6 +302,7 @@ export function useJobDetails(
     latestSubmittedRecordSummary,
     load,
     handleRun,
+    handleRunPageChange,
     handleReply,
     handleVoiceAnswer,
     handleToggleEnabled,

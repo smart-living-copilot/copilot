@@ -76,14 +76,28 @@ async def stream_job_events(request: Request):
 
 
 @router.get("/jobs/{job_id}/runs")
-async def list_job_runs(job_id: str, request: Request):
+async def list_job_runs(
+    job_id: str,
+    request: Request,
+    limit: int = Query(default=5, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
     verify_internal_api_key(request)
     service = request.app.state.service
     try:
-        runs = await service.list_job_runs(job_id)
+        runs, total = await service.list_job_run_page(
+            job_id,
+            limit=limit,
+            offset=offset,
+        )
     except KeyError:
         raise HTTPException(status_code=404, detail="job not found")
-    return {"runs": [run.model_dump() for run in runs]}
+    return {
+        "runs": [run.model_dump() for run in runs],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/jobs/{job_id}/run-events")

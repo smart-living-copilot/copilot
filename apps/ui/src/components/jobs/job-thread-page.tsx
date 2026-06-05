@@ -28,10 +28,11 @@ import { supportsJobReply, supportsJobThread } from '@/lib/job-formatters';
 import { formatJobRunOutcome } from '@/lib/job-run-output';
 import {
   type JobRecord,
+  type JobRunPage,
   type JobRunRecord,
   type JobThreadRecord,
   createClientReplyId,
-  fetchJobRuns,
+  fetchJobRunsPage,
   fetchJobThread,
   replyToJob,
 } from '@/lib/jobs-api';
@@ -42,11 +43,20 @@ interface JobThreadPageProps {
 
 type LoadOptions = {
   silent?: boolean;
+  runOffset?: number;
 };
+
+const RUN_HISTORY_PAGE_SIZE = 5;
 
 export function JobThreadPage({ jobId }: JobThreadPageProps) {
   const [thread, setThread] = useState<JobThreadRecord | null>(null);
   const [runs, setRuns] = useState<JobRunRecord[]>([]);
+  const [runPage, setRunPage] = useState<JobRunPage>({
+    runs: [],
+    total: 0,
+    limit: RUN_HISTORY_PAGE_SIZE,
+    offset: 0,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
@@ -56,9 +66,13 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
     message: string;
     clientReplyId: string;
   } | null>(null);
+  const runOffsetRef = useRef(0);
 
   const load = useCallback(
-    async ({ silent = false }: LoadOptions = {}) => {
+    async ({
+      silent = false,
+      runOffset = runOffsetRef.current,
+    }: LoadOptions = {}) => {
       if (!silent) {
         setIsLoading(true);
       }
@@ -66,10 +80,15 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
       try {
         const [threadRecord, runRecords] = await Promise.all([
           fetchJobThread(jobId),
-          fetchJobRuns(jobId),
+          fetchJobRunsPage(jobId, {
+            limit: RUN_HISTORY_PAGE_SIZE,
+            offset: runOffset,
+          }),
         ]);
         setThread(threadRecord);
-        setRuns(runRecords);
+        setRuns(runRecords.runs);
+        setRunPage(runRecords);
+        runOffsetRef.current = runRecords.offset;
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Failed to load job thread';
@@ -184,13 +203,22 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
     });
   }, []);
 
+  const handleRunPageChange = useCallback(
+    (offset: number) => {
+      const nextOffset = Math.max(0, offset);
+      runOffsetRef.current = nextOffset;
+      void load({ silent: true, runOffset: nextOffset });
+    },
+    [load],
+  );
+
   return (
     <div className="flex min-h-[calc(100dvh-8rem)] flex-col gap-5">
       <JobThreadHeader
         jobId={jobId}
         threadId={threadId}
         job={job}
-        runsCount={runs.length}
+        runsCount={runPage.total}
         eventsCount={events.length}
         messagesCount={messages.length}
         hasJobThread={hasJobThread}
@@ -262,8 +290,12 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
       {job ? (
         <JobRunHistoryCard
           runs={runs}
+          totalRuns={runPage.total}
+          limit={runPage.limit}
+          offset={runPage.offset}
           description="Execution attempts connected to this checkpoint thread."
           outcome={formatJobRunOutcome}
+          onPageChange={handleRunPageChange}
           readOutcome
         />
       ) : null}
