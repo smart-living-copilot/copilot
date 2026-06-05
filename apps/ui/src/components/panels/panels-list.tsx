@@ -1,24 +1,64 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Maximize2, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { PanelFrame } from '@/components/copilot/chat-tool-calls/panel-frame';
+import { PanelDialog } from '@/components/panels/panel-dialog';
 import { type PanelRecord, deletePanel, fetchPanels } from '@/lib/panels-api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
-function PanelTile({
+/** Renders children only once scrolled into view, to avoid mounting every
+ *  panel's live bridge at once. */
+function WhenVisible({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || visible) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [visible]);
+
+  return (
+    <div ref={ref} className="h-full w-full">
+      {visible ? children : null}
+    </div>
+  );
+}
+
+function PanelCard({
   panel,
+  onChanged,
   onDeleted,
 }: {
   panel: PanelRecord;
+  onChanged: (updated: PanelRecord) => void;
   onDeleted: (id: string) => void;
 }) {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -34,11 +74,13 @@ function PanelTile({
     }
   };
 
+  const deviceCount = new Set(panel.capabilities.map((c) => c.thingId)).size;
+
   return (
-    <Card className="gap-0 border-border/70 py-0 shadow-sm shadow-black/5">
-      <CardContent className="space-y-2 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="truncate text-sm font-medium">{panel.title}</h2>
+    <Card className="overflow-hidden py-0">
+      <CardHeader className="gap-0 border-b border-border/55 px-3 py-2.5">
+        <CardTitle className="truncate text-sm">{panel.title}</CardTitle>
+        <CardAction>
           <Button
             aria-label="Delete panel"
             disabled={isDeleting}
@@ -49,14 +91,52 @@ function PanelTile({
           >
             <Trash2 className="size-3.5" />
           </Button>
-        </div>
-        <PanelFrame
-          capabilities={panel.capabilities}
-          className="h-[24rem]"
-          src={`/api/panels/${encodeURIComponent(panel.id)}/render`}
-          title={panel.title}
-        />
+        </CardAction>
+      </CardHeader>
+
+      <CardContent className="p-0">
+        {/* Non-interactive preview: the overlay captures clicks and opens the
+            full interactive dialog instead of letting the iframe handle them. */}
+        <button
+          aria-label={`Open ${panel.title}`}
+          className="group relative block h-[18rem] w-full cursor-pointer"
+          onClick={() => setDialogOpen(true)}
+          type="button"
+        >
+          <div className="pointer-events-none absolute inset-0">
+            <WhenVisible>
+              <PanelFrame
+                capabilities={panel.capabilities}
+                className="h-full w-full rounded-none border-0"
+                src={`/api/panels/${encodeURIComponent(panel.id)}/render`}
+                title={panel.title}
+              />
+            </WhenVisible>
+          </div>
+          <div className="absolute inset-0 flex items-center justify-center bg-background/0 opacity-0 transition group-hover:bg-background/40 group-hover:opacity-100">
+            <span className="flex items-center gap-1.5 rounded-md bg-background/90 px-2.5 py-1 text-xs font-medium shadow-sm">
+              <Maximize2 className="size-3.5" />
+              Open
+            </span>
+          </div>
+        </button>
       </CardContent>
+
+      <CardFooter className="justify-between px-3 py-2 text-[0.7rem] text-muted-foreground">
+        <span>
+          {deviceCount} device{deviceCount === 1 ? '' : 's'}
+        </span>
+        {panel.created_at ? (
+          <span>{new Date(panel.created_at).toLocaleDateString()}</span>
+        ) : null}
+      </CardFooter>
+
+      <PanelDialog
+        onChanged={onChanged}
+        onOpenChange={setDialogOpen}
+        open={dialogOpen}
+        panel={panel}
+      />
     </Card>
   );
 }
@@ -82,6 +162,16 @@ export function PanelsList() {
     void loadData();
   }, [loadData]);
 
+  const handleChanged = useCallback((updated: PanelRecord) => {
+    setPanels((prev) =>
+      prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
+    );
+  }, []);
+
+  const handleDeleted = useCallback((id: string) => {
+    setPanels((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
   return (
     <div className="space-y-5">
       <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -89,7 +179,8 @@ export function PanelsList() {
           <h1 className="text-3xl font-semibold tracking-tight">Panels</h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
             Pinned interactive panels. Pin a panel from a chat to keep it here —
-            it stays even if you delete the conversation.
+            it stays even if you delete the conversation. Open one to interact,
+            edit it with the assistant, or tweak its code.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -108,20 +199,19 @@ export function PanelsList() {
       </section>
 
       {isPending ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {['s1', 's2'].map((key) => (
-            <Skeleton key={key} className="h-[28rem] w-full rounded-md" />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {['s1', 's2', 's3'].map((key) => (
+            <Skeleton key={key} className="h-[24rem] w-full rounded-xl" />
           ))}
         </div>
       ) : panels.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {panels.map((panel) => (
-            <PanelTile
+            <PanelCard
               key={panel.id}
               panel={panel}
-              onDeleted={(id) =>
-                setPanels((prev) => prev.filter((p) => p.id !== id))
-              }
+              onChanged={handleChanged}
+              onDeleted={handleDeleted}
             />
           ))}
         </div>

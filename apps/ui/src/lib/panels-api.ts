@@ -10,6 +10,10 @@ export interface PanelRecord {
   updated_at: string | null;
 }
 
+export interface PanelDetail extends PanelRecord {
+  html?: string;
+}
+
 interface PanelListResponse {
   items: PanelRecord[];
 }
@@ -37,14 +41,35 @@ export async function pinPanel(input: {
   });
 }
 
-export async function renamePanel(
+export async function fetchPanelSource(id: string): Promise<PanelDetail> {
+  return httpJson<PanelDetail>(
+    `/panels/${encodeURIComponent(id)}?include_html=true`,
+  );
+}
+
+export async function updatePanel(
   id: string,
-  title: string,
+  patch: {
+    title?: string;
+    html?: string;
+    capabilities?: WotCapability[];
+  },
 ): Promise<PanelRecord> {
   return httpJson<PanelRecord>(`/panels/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title }),
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function editPanel(
+  id: string,
+  instruction: string,
+): Promise<PanelRecord> {
+  return httpJson<PanelRecord>(`/panels/${encodeURIComponent(id)}/edit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instruction }),
   });
 }
 

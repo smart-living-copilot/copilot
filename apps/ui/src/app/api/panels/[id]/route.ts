@@ -4,9 +4,12 @@ import { wotFetch } from '@/lib/wot-api';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-export async function GET(_req: NextRequest, context: RouteContext) {
+export async function GET(req: NextRequest, context: RouteContext) {
   const { id } = await context.params;
-  const res = await wotFetch(`/panels/${encodeURIComponent(id)}`);
+  const query = req.nextUrl.searchParams.toString();
+  const res = await wotFetch(
+    `/panels/${encodeURIComponent(id)}${query ? `?${query}` : ''}`,
+  );
   return NextResponse.json(await res.json(), { status: res.status });
 }
 
