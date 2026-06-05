@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -14,6 +15,9 @@ class WebArtifactRouteTestCase(unittest.TestCase):
 
         self.app = app
         self.headers = {"Authorization": "Bearer test-key"}
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_store_then_serve_html_artifact(self) -> None:
         with TestClient(self.app) as client:

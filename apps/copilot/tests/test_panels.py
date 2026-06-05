@@ -24,10 +24,10 @@ class CleanCapabilitiesTestCase(unittest.TestCase):
                 {
                     "thingId": "urn:lamp",
                     "affordances": ["brightness", 5],
-                    "ops": ["writeProperty", 1],
+                    "ops": ["writeProperty", 1, "bogus"],
                 },
                 {"thingId": "", "ops": ["readProperty"]},  # no thing
-                {"thingId": "urn:x", "ops": []},  # no ops list content kept but...
+                {"thingId": "urn:x", "ops": []},  # no valid ops
                 "not a dict",
             ]
         )
@@ -39,7 +39,6 @@ class CleanCapabilitiesTestCase(unittest.TestCase):
                     "affordances": ["brightness"],
                     "ops": ["writeProperty"],
                 },
-                {"thingId": "urn:x", "affordances": [], "ops": []},
             ],
         )
 

@@ -151,7 +151,9 @@ function extractSubscriptionId(result: unknown): string | undefined {
 export function useWotBridge(
   iframeRef: RefObject<HTMLIFrameElement | null>,
   capabilities: WotCapability[],
+  options: { enabled?: boolean } = {},
 ) {
+  const enabled = options.enabled ?? true;
   const capsRef = useRef(capabilities);
 
   useEffect(() => {
@@ -159,6 +161,10 @@ export function useWotBridge(
   }, [capabilities]);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     const activeSubscriptions = new Set<string>();
     let eventSource: EventSource | null = null;
     let closed = false;
@@ -233,13 +239,19 @@ export function useWotBridge(
     async function handleUnsubscribe(req: BridgeRequest) {
       const subscriptionId = req.subscriptionId;
       if (!subscriptionId || !activeSubscriptions.has(subscriptionId)) {
+        postToFrame({ id: req.id, ok: true });
         return;
       }
       activeSubscriptions.delete(subscriptionId);
       syncEventSource();
-      await callRuntime('remove-subscription', {
+      const outcome = await callRuntime('remove-subscription', {
         subscription_id: subscriptionId,
       });
+      if (!outcome.ok) {
+        postToFrame({ id: req.id, ok: false, error: outcome.error });
+        return;
+      }
+      postToFrame({ id: req.id, ok: true });
     }
 
     async function handleRequest(req: BridgeRequest) {
@@ -334,5 +346,5 @@ export function useWotBridge(
       }
       activeSubscriptions.clear();
     };
-  }, [iframeRef]);
+  }, [iframeRef, enabled]);
 }

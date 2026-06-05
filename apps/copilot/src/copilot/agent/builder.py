@@ -46,9 +46,7 @@ def build_graph(
 
     vision_tools = [local_tool_groups.look_at_camera] if local_tool_groups.look_at_camera else []
     web_interface_tools = (
-        [local_tool_groups.create_web_interface]
-        if local_tool_groups.create_web_interface
-        else []
+        [local_tool_groups.create_web_interface] if local_tool_groups.create_web_interface else []
     )
     job_runtime_tools = [
         tool

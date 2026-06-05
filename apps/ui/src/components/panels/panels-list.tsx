@@ -122,6 +122,7 @@ function PanelPreview({ panel }: { panel: PanelRecord }) {
           <PanelFrame
             capabilities={panel.capabilities}
             className="h-full w-full rounded-none border-0"
+            interactive={false}
             src={`/api/panels/${encodeURIComponent(panel.id)}/render`}
             title={panel.title}
           />
@@ -178,8 +179,7 @@ function PanelCard({
       </CardHeader>
 
       <CardContent className="p-0">
-        {/* Non-interactive preview: the overlay captures clicks and opens the
-            full interactive dialog instead of letting the iframe handle them. */}
+        {/* Inert preview: scripts and bridge calls stay disabled until opened. */}
         <button
           aria-label={`Open ${panel.title}`}
           className="group relative block h-[18rem] w-full cursor-pointer"

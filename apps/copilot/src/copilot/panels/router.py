@@ -2,7 +2,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from copilot.auth import User, require_scopes
 from copilot.core.api_dependencies import SessionDep
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api", tags=["panels"])
 class CreatePanelBody(BaseModel):
     title: str = ""
     html: str
-    capabilities: list[dict[str, Any]] = []
+    capabilities: list[dict[str, Any]] = Field(default_factory=list)
     source_thread_id: str | None = None
 
 

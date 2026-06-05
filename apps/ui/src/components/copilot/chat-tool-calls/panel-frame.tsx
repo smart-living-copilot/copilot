@@ -16,15 +16,16 @@ export const PanelFrame = memo(function PanelFrame({
   capabilities,
   title,
   className,
+  interactive = true,
 }: {
   src: string;
   capabilities: WotCapability[];
   title: string;
   className?: string;
+  interactive?: boolean;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  // Enforces the capability allowlist and bridges runtime calls for this frame.
-  useWotBridge(iframeRef, capabilities);
+  useWotBridge(iframeRef, capabilities, { enabled: interactive });
 
   return (
     <iframe
@@ -33,9 +34,9 @@ export const PanelFrame = memo(function PanelFrame({
         'w-full rounded-lg border border-border/55 bg-background',
         className ?? 'h-[26rem]',
       )}
-      // Untrusted, LLM-authored content: scripts only, NO allow-same-origin, so
-      // the document runs in an opaque origin with no cookies/credentialed fetch.
-      sandbox="allow-scripts"
+      // Untrusted, LLM-authored content: interactive frames get scripts only,
+      // never allow-same-origin. Preview frames keep scripts disabled entirely.
+      sandbox={interactive ? 'allow-scripts' : ''}
       src={src}
       title={title}
     />

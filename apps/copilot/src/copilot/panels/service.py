@@ -12,6 +12,13 @@ from copilot.panels.models import Panel, PanelVersion
 
 VersionSource = str
 VERSION_SOURCES = {"initial", "manual", "ai", "restore"}
+ALLOWED_CAPABILITY_OPS = {
+    "readProperty",
+    "writeProperty",
+    "invokeAction",
+    "observeProperty",
+    "subscribeEvent",
+}
 
 
 def _serialize(panel: Panel, *, include_html: bool = False) -> dict[str, Any]:
@@ -52,9 +59,7 @@ class PanelService:
         self._session = session
 
     def list_panels(self) -> dict[str, Any]:
-        panels = self._session.scalars(
-            select(Panel).order_by(Panel.created_at.desc())
-        ).all()
+        panels = self._session.scalars(select(Panel).order_by(Panel.created_at.desc())).all()
         return {"items": [_serialize(panel) for panel in panels]}
 
     def create_panel(
@@ -180,9 +185,7 @@ class PanelService:
 
     def _ensure_initial_version(self, panel: Panel) -> None:
         existing_id = self._session.scalar(
-            select(PanelVersion.id)
-            .where(PanelVersion.panel_id == panel.id)
-            .limit(1)
+            select(PanelVersion.id).where(PanelVersion.panel_id == panel.id).limit(1)
         )
         if existing_id is None:
             self._append_version(panel, source="initial")
@@ -217,6 +220,9 @@ def _clean_capabilities(capabilities: Any) -> list[dict[str, Any]]:
         ops = entry.get("ops")
         if not isinstance(thing_id, str) or not thing_id or not isinstance(ops, list):
             continue
+        cleaned_ops = [op for op in ops if isinstance(op, str) and op in ALLOWED_CAPABILITY_OPS]
+        if not cleaned_ops:
+            continue
         affordances = entry.get("affordances")
         cleaned.append(
             {
@@ -224,7 +230,7 @@ def _clean_capabilities(capabilities: Any) -> list[dict[str, Any]]:
                 "affordances": [a for a in affordances if isinstance(a, str)]
                 if isinstance(affordances, list)
                 else [],
-                "ops": [op for op in ops if isinstance(op, str)],
+                "ops": cleaned_ops,
             }
         )
     return cleaned

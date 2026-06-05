@@ -43,8 +43,7 @@ export async function GET(
     pragma: 'no-cache',
     'x-content-type-options': 'nosniff',
   };
-  // Generated HTML panels run untrusted code: allow allowlisted CDN loads but
-  // block all data egress (connect-src 'none'). See lib/panel-csp.ts.
+  // Generated HTML panels run untrusted code under the shared panel CSP.
   if (contentType.includes('text/html')) {
     headers['content-security-policy'] = PANEL_CSP;
   }

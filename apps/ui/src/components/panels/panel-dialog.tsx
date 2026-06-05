@@ -217,9 +217,7 @@ export function PanelDialog({
       setVersionsLoaded(true);
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : 'Failed to load panel history',
+        error instanceof Error ? error.message : 'Failed to load panel history',
       );
     } finally {
       setIsVersionsLoading(false);
