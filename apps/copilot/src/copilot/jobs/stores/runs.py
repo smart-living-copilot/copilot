@@ -34,6 +34,8 @@ from copilot.jobs.stores.run_state import _has_active_run, _job_thread_id_for_ru
 
 
 class JobRunStore(_JobStoreBase):
+    """Persists job run state transitions with row-level locking."""
+
     async def cancel_active_run(self, job_id: str) -> Job:
         return await asyncio.to_thread(self._cancel_active_run_sync, job_id)
 

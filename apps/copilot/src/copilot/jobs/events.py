@@ -27,6 +27,8 @@ return 0
 
 
 class JobEventConsumer:
+    """Consumes WoT runtime event streams and enqueues matching event jobs."""
+
     def __init__(
         self,
         settings: Settings,

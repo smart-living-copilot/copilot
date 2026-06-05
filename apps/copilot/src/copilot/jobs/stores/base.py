@@ -170,5 +170,7 @@ def _to_job_run_event(row: JobRunEventRecord) -> JobRunEvent:
 
 
 class _JobStoreBase:
+    """Base store with the configured synchronous SQLAlchemy session factory."""
+
     def __init__(self, session_factory: sessionmaker[Session] | None = None) -> None:
         self._session_factory = session_factory or get_session_factory()

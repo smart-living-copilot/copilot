@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class EventSubscriptionReconciler:
+    """Keeps runtime event subscriptions aligned with enabled event jobs."""
+
     def __init__(
         self,
         *,

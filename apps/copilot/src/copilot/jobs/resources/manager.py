@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class PreparedJobResources:
+    """External resource handles prepared before the job row is committed."""
+
     next_run_at: datetime | None
     subscription_id: str | None
 

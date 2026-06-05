@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 
 class JobService:
+    """Application facade for job validation, persistence, resources, and runs."""
+
     def __init__(
         self,
         settings: Settings,

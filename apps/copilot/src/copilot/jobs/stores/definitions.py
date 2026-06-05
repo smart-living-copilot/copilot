@@ -25,6 +25,8 @@ from copilot.threads.models import DEFAULT_THREAD_TITLE, Thread, ThreadKind
 
 
 class JobDefinitionStore(_JobStoreBase):
+    """Persists job definitions and their associated hidden job threads."""
+
     async def create_job(
         self,
         request: CreateJobRequest,

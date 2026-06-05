@@ -46,6 +46,8 @@ logger = logging.getLogger(__name__)
 
 
 class BackgroundAgentRunner:
+    """Lazy LangGraph runtime used by prompt jobs running outside a chat request."""
+
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._graph: Any | None = None
@@ -119,6 +121,8 @@ class BackgroundAgentRunner:
 
 
 class JobExecutor:
+    """Runs queued job tasks and records their durable run state."""
+
     def __init__(
         self,
         settings: Settings,

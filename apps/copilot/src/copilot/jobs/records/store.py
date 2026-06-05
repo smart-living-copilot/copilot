@@ -22,6 +22,8 @@ from copilot.jobs.stores import _json_safe, iso, utc_now
 
 
 class VirtualRecordStore:
+    """Stores virtual Things and submitted records for structured-record jobs."""
+
     def __init__(self, session_factory: sessionmaker[Session] | None = None) -> None:
         self._session_factory = session_factory or get_session_factory()
 

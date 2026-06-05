@@ -4,6 +4,8 @@ from typing import Protocol
 
 
 class _ResourceHealthRepo(Protocol):
+    """Minimal store protocol needed to persist per-resource job health."""
+
     async def set_job_resource_health(
         self,
         job_id: str,

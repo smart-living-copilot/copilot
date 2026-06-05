@@ -10,6 +10,8 @@ from copilot.jobs.stores.base import _JobStoreBase, _to_job_run_event
 
 
 class JobRunEventStore(_JobStoreBase):
+    """Reads canonical timeline events for jobs and individual runs."""
+
     async def list_job_run_events(
         self,
         job_id: str,

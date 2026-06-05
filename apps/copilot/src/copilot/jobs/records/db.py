@@ -11,6 +11,8 @@ from copilot.core.orm import Base
 
 
 class VirtualRecordThing(Base):
+    """Catalog-backed Thing definition owned by a structured-record job."""
+
     __tablename__ = "virtual_record_things"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -28,6 +30,8 @@ class VirtualRecordThing(Base):
 
 
 class VirtualRecord(Base):
+    """Stored structured data submitted by one completed job run."""
+
     __tablename__ = "virtual_records"
     __table_args__ = (
         UniqueConstraint("thing_id", "source_run_id", name="uq_virtual_records_run"),

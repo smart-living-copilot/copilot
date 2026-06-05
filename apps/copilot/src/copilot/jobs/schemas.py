@@ -18,6 +18,8 @@ from copilot.jobs.enums import (
 
 
 class Job(BaseModel):
+    """API model for a persisted automation job and its latest run snapshot."""
+
     id: str
     name: str
     created_from_thread_id: str
@@ -64,6 +66,8 @@ class Job(BaseModel):
 
 
 class JobRun(BaseModel):
+    """API model for one execution attempt of a job."""
+
     id: str
     job_id: str
     job_thread_id: str
@@ -79,6 +83,8 @@ class JobRun(BaseModel):
 
 
 class JobRunEvent(BaseModel):
+    """API model for a timeline entry emitted while a job run executes."""
+
     id: int
     job_id: str
     run_id: str
@@ -89,6 +95,8 @@ class JobRunEvent(BaseModel):
 
 
 class CreateJobRequest(BaseModel):
+    """Request payload for creating time or event triggered automation jobs."""
+
     name: str = Field(min_length=1, max_length=120)
     created_from_thread_id: str | None = Field(default=None, max_length=120)
     action_kind: JobActionKind = JobActionKind.PROMPT
@@ -144,5 +152,7 @@ class UpdateJobRequest(BaseModel):
 
 
 class ReplyJobRequest(BaseModel):
+    """User reply payload for resuming a job waiting for input."""
+
     message: str = Field(min_length=1, max_length=8000)
     client_reply_id: str | None = Field(default=None, min_length=1, max_length=120)

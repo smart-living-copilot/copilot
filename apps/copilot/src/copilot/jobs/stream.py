@@ -7,6 +7,8 @@ import redis.asyncio as redis
 
 @dataclass
 class StreamConfig:
+    """Redis stream consumer settings shared by job event workers."""
+
     stream: str
     group: str
     consumer: str

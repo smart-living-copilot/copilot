@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class JobRunEventPublisher:
+    """Publishes compact job/run updates for clients subscribed to job activity."""
+
     def __init__(
         self,
         settings: Settings,
@@ -52,6 +54,8 @@ class JobRunEventPublisher:
 
 
 class JobRunEventStream:
+    """Reads job run update events from Redis for server-sent event clients."""
+
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
