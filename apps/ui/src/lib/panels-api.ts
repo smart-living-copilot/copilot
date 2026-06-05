@@ -14,8 +14,22 @@ export interface PanelDetail extends PanelRecord {
   html?: string;
 }
 
+export interface PanelVersion {
+  id: string;
+  panel_id: string;
+  version: number;
+  source: 'initial' | 'manual' | 'ai' | 'restore' | string;
+  title: string;
+  capabilities: WotCapability[];
+  created_at: string | null;
+}
+
 interface PanelListResponse {
   items: PanelRecord[];
+}
+
+interface PanelVersionsResponse {
+  items: PanelVersion[];
 }
 
 export async function fetchPanels(): Promise<PanelRecord[]> {
@@ -60,6 +74,23 @@ export async function updatePanel(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   });
+}
+
+export async function fetchPanelVersions(id: string): Promise<PanelVersion[]> {
+  const json = await httpJson<PanelVersionsResponse>(
+    `/panels/${encodeURIComponent(id)}/versions`,
+  );
+  return json.items;
+}
+
+export async function restorePanelVersion(
+  id: string,
+  versionId: string,
+): Promise<PanelRecord> {
+  return httpJson<PanelRecord>(
+    `/panels/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`,
+    { method: 'POST' },
+  );
 }
 
 export async function editPanel(

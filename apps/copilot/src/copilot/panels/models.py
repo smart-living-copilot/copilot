@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Text, text
+from sqlalchemy import DateTime, ForeignKey, Integer, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,7 +24,11 @@ class Panel(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     title: Mapped[str] = mapped_column(Text, nullable=False, default="")
     html: Mapped[str] = mapped_column(Text, nullable=False)
-    capabilities: Mapped[PanelCapabilities] = mapped_column(JSONB, nullable=False, default=list)
+    capabilities: Mapped[PanelCapabilities] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+    )
     source_thread_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -32,6 +36,37 @@ class Panel(Base):
         server_default=text("now()"),
     )
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+
+class PanelVersion(Base):
+    """Immutable saved state for a panel."""
+
+    __tablename__ = "panel_versions"
+    __table_args__ = (
+        UniqueConstraint("panel_id", "version", name="uq_panel_versions_panel_version"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    panel_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("panels.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_number: Mapped[int] = mapped_column("version", Integer, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="manual")
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    html: Mapped[str] = mapped_column(Text, nullable=False)
+    capabilities: Mapped[PanelCapabilities] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+    )
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=text("now()"),

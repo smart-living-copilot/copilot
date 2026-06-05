@@ -3,7 +3,14 @@
 import { html as htmlLanguage } from '@codemirror/lang-html';
 import { json as jsonLanguage } from '@codemirror/lang-json';
 import CodeMirror from '@uiw/react-codemirror';
-import { Code2, Loader2, Pencil, Sparkles } from 'lucide-react';
+import {
+  Code2,
+  History,
+  Loader2,
+  Pencil,
+  RotateCcw,
+  Sparkles,
+} from 'lucide-react';
 import { useCallback, useEffect, useState, type ComponentProps } from 'react';
 import {
   Group as PanelGroup,
@@ -15,8 +22,11 @@ import { toast } from 'sonner';
 import { PanelFrame } from '@/components/copilot/chat-tool-calls/panel-frame';
 import {
   type PanelRecord,
+  type PanelVersion,
   editPanel,
   fetchPanelSource,
+  fetchPanelVersions,
+  restorePanelVersion,
   updatePanel,
 } from '@/lib/panels-api';
 import { useTheme } from '@/components/theme-provider';
@@ -44,6 +54,29 @@ type CodeMirrorExtensions = ComponentProps<typeof CodeMirror>['extensions'];
 
 const htmlExtensions = [htmlLanguage()];
 const jsonExtensions = [jsonLanguage()];
+
+function formatVersionDate(value: string | null): string {
+  if (!value) {
+    return 'Unknown time';
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
+
+function versionSourceLabel(source: string): string {
+  switch (source) {
+    case 'initial':
+      return 'Initial version';
+    case 'ai':
+      return 'AI edit';
+    case 'restore':
+      return 'Restored';
+    default:
+      return 'Manual edit';
+  }
+}
 
 function SourceCodeEditor({
   disabled,
@@ -104,6 +137,7 @@ export function PanelDialog({
   const [sourceTab, setSourceTab] = useState<SourceTab>('html');
   const [renameOpen, setRenameOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [title, setTitle] = useState(panel.title);
   const [isRenaming, setIsRenaming] = useState(false);
 
@@ -118,6 +152,14 @@ export function PanelDialog({
   const [isSourceLoading, setIsSourceLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Version history state
+  const [versions, setVersions] = useState<PanelVersion[]>([]);
+  const [versionsLoaded, setVersionsLoaded] = useState(false);
+  const [isVersionsLoading, setIsVersionsLoading] = useState(false);
+  const [restoringVersionId, setRestoringVersionId] = useState<string | null>(
+    null,
+  );
+
   useEffect(() => {
     setTitle(panel.title);
   }, [panel.title]);
@@ -127,8 +169,11 @@ export function PanelDialog({
       setAiOpen(false);
       setInstruction('');
       setRenameOpen(false);
+      setHistoryOpen(false);
       setSourceOpen(false);
       setSourceTab('html');
+      setVersions([]);
+      setVersionsLoaded(false);
     }
   }, [open]);
 
@@ -144,6 +189,7 @@ export function PanelDialog({
       if (options.resetSource ?? true) {
         setSourceLoaded(false);
       }
+      setVersionsLoaded(false);
     },
     [onChanged],
   );
@@ -164,10 +210,27 @@ export function PanelDialog({
     }
   }, [panel.id]);
 
+  const loadVersions = useCallback(async () => {
+    setIsVersionsLoading(true);
+    try {
+      setVersions(await fetchPanelVersions(panel.id));
+      setVersionsLoaded(true);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to load panel history',
+      );
+    } finally {
+      setIsVersionsLoading(false);
+    }
+  }, [panel.id]);
+
   const handleRenameOpenChange = (nextOpen: boolean) => {
     setRenameOpen(nextOpen);
     if (nextOpen) {
       setAiOpen(false);
+      setHistoryOpen(false);
       setTitle(panel.title);
     }
   };
@@ -176,8 +239,20 @@ export function PanelDialog({
     setAiOpen(nextOpen);
     if (nextOpen) {
       setRenameOpen(false);
+      setHistoryOpen(false);
     } else if (!isEditing) {
       setInstruction('');
+    }
+  };
+
+  const handleHistoryOpenChange = (nextOpen: boolean) => {
+    setHistoryOpen(nextOpen);
+    if (nextOpen) {
+      setAiOpen(false);
+      setRenameOpen(false);
+      if (!versionsLoaded) {
+        void loadVersions();
+      }
     }
   };
 
@@ -191,6 +266,7 @@ export function PanelDialog({
     });
     setAiOpen(false);
     setRenameOpen(false);
+    setHistoryOpen(false);
   };
 
   const handleRename = async () => {
@@ -210,6 +286,9 @@ export function PanelDialog({
         reloadFrame: false,
         resetSource: false,
       });
+      if (historyOpen) {
+        void loadVersions();
+      }
       setRenameOpen(false);
       toast.success('Renamed');
     } catch (error) {
@@ -227,6 +306,9 @@ export function PanelDialog({
       setInstruction('');
       setAiOpen(false);
       setSourceOpen(false);
+      if (historyOpen) {
+        void loadVersions();
+      }
       toast.success('Panel updated');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Edit failed');
@@ -249,6 +331,9 @@ export function PanelDialog({
       applied(await updatePanel(panel.id, { html, capabilities }), {
         resetSource: false,
       });
+      if (historyOpen) {
+        void loadVersions();
+      }
       toast.success('Saved');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Save failed');
@@ -256,6 +341,25 @@ export function PanelDialog({
       setIsSaving(false);
     }
   };
+
+  const handleRestoreVersion = async (panelVersion: PanelVersion) => {
+    setRestoringVersionId(panelVersion.id);
+    try {
+      const updated = await restorePanelVersion(panel.id, panelVersion.id);
+      applied(updated);
+      if (sourceOpen) {
+        await loadSource();
+      }
+      await loadVersions();
+      toast.success('Version restored');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Restore failed');
+    } finally {
+      setRestoringVersionId(null);
+    }
+  };
+
+  const currentVersion = versions[0]?.version;
 
   const frame = (
     <PanelFrame
@@ -377,6 +481,93 @@ export function PanelDialog({
                       {isEditing ? 'Updating...' : 'Apply change'}
                     </Button>
                   </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Popover open={historyOpen} onOpenChange={handleHistoryOpenChange}>
+              <PopoverTrigger asChild>
+                <Button
+                  aria-label="Open panel history"
+                  size="sm"
+                  type="button"
+                  variant={historyOpen ? 'secondary' : 'ghost'}
+                >
+                  <History className="size-3.5" />
+                  <span className="hidden sm:inline">History</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="z-[60] w-96 max-w-[calc(100vw-2rem)]"
+              >
+                <PopoverHeader>
+                  <PopoverTitle>Panel History</PopoverTitle>
+                </PopoverHeader>
+                <div className="max-h-[22rem] overflow-y-auto pr-1">
+                  {isVersionsLoading ? (
+                    <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      Loading history
+                    </div>
+                  ) : versions.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {versions.map((panelVersion) => {
+                        const isCurrent =
+                          panelVersion.version === currentVersion;
+                        const isRestoring =
+                          restoringVersionId === panelVersion.id;
+                        return (
+                          <div
+                            className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-2.5 py-2"
+                            key={panelVersion.id}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium">
+                                  Version {panelVersion.version}
+                                </span>
+                                {isCurrent ? (
+                                  <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
+                                    Current
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="truncate text-xs text-muted-foreground">
+                                {versionSourceLabel(panelVersion.source)} -{' '}
+                                {formatVersionDate(panelVersion.created_at)}
+                              </div>
+                              <div className="truncate text-xs text-muted-foreground/85">
+                                {panelVersion.title}
+                              </div>
+                            </div>
+                            <Button
+                              aria-label={`Restore version ${panelVersion.version}`}
+                              disabled={
+                                isCurrent || restoringVersionId !== null
+                              }
+                              onClick={() =>
+                                void handleRestoreVersion(panelVersion)
+                              }
+                              size="icon-sm"
+                              type="button"
+                              variant="ghost"
+                            >
+                              {isRestoring ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <RotateCcw className="size-4" />
+                              )}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+                      No saved versions yet.
+                    </div>
+                  )}
                 </div>
               </PopoverContent>
             </Popover>

@@ -62,6 +62,25 @@ def get_panel(
     return PanelService(session).get_panel(panel_id, include_html=include_html)
 
 
+@router.get("/panels/{panel_id}/versions")
+def list_panel_versions(
+    panel_id: str,
+    session: SessionDep,
+    _user: User = Depends(require_scopes(["things:read"])),
+) -> dict[str, Any]:
+    return PanelService(session).list_versions(panel_id)
+
+
+@router.post("/panels/{panel_id}/versions/{version_id}/restore")
+def restore_panel_version(
+    panel_id: str,
+    version_id: str,
+    session: SessionDep,
+    _user: User = Depends(require_scopes(["things:write"])),
+) -> dict[str, Any]:
+    return PanelService(session).restore_version(panel_id, version_id)
+
+
 @router.get("/panels/{panel_id}/render", response_class=HTMLResponse)
 def render_panel(
     panel_id: str,
@@ -120,7 +139,12 @@ async def edit_panel(
         )
 
     new_html, new_capabilities = updated
-    return service.update_panel(panel_id, html=new_html, capabilities=new_capabilities)
+    return service.update_panel(
+        panel_id,
+        html=new_html,
+        capabilities=new_capabilities,
+        version_source="ai",
+    )
 
 
 @router.delete("/panels/{panel_id}")
