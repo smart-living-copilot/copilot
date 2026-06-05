@@ -20,7 +20,7 @@ from copilot.jobs.schedule import JobScheduleManager
 from copilot.jobs.schemas import CreateJobRequest, Job
 from copilot.jobs.stores import JobStore, utc_now
 from copilot.jobs.subscriptions import subscription_id_from_response
-from copilot.jobs.time_schedule import initial_next_run_at_from_flat
+from copilot.jobs.time_schedule import initial_next_run_at_for_request
 
 logger = logging.getLogger(__name__)
 
@@ -319,13 +319,7 @@ class JobResourceManager:
 
 
 def _next_run_at_for_time_request(request: CreateJobRequest) -> datetime | None:
-    return initial_next_run_at_from_flat(
-        trigger_kind=request.trigger_kind,
-        enabled=True,
-        schedule_kind=request.schedule_kind,
-        run_at=request.run_at,
-        interval_seconds=request.interval_seconds,
-        cron_expression=request.cron_expression,
-        cron_timezone=request.cron_timezone,
+    return initial_next_run_at_for_request(
+        request,
         now=utc_now(),
     )

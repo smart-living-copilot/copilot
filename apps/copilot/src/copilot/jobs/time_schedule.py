@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from copilot.jobs.cron import DEFAULT_CRON_TIMEZONE, next_cron_run_at, validate_cron_schedule
 from copilot.jobs.enums import JobTriggerKind, TimeTriggerKind
+from copilot.jobs.schemas import CreateJobRequest, Job
 
 
 SCHEDULE_FIELD_NAMES = frozenset(
@@ -100,6 +101,7 @@ TimeSchedule = Annotated[
     Field(discriminator="schedule_kind"),
 ]
 
+
 def time_schedule_from_flat(
     *,
     schedule_kind: TimeTriggerKind | str | None,
@@ -148,6 +150,40 @@ def time_schedule_from_flat(
     raise ValueError(f"Unsupported schedule_kind: {schedule_kind}")
 
 
+def time_schedule_from_request(
+    request: CreateJobRequest,
+    *,
+    default_cron_timezone: str = DEFAULT_CRON_TIMEZONE,
+) -> TimeSchedule:
+    if request.trigger_kind != JobTriggerKind.TIME:
+        raise ValueError("time schedule requires trigger_kind='time'")
+    return time_schedule_from_flat(
+        schedule_kind=request.schedule_kind,
+        run_at=request.run_at,
+        interval_seconds=request.interval_seconds,
+        cron_expression=request.cron_expression,
+        cron_timezone=request.cron_timezone,
+        default_cron_timezone=default_cron_timezone,
+    )
+
+
+def time_schedule_from_job(
+    job: Job,
+    *,
+    default_cron_timezone: str = DEFAULT_CRON_TIMEZONE,
+) -> TimeSchedule:
+    if job.trigger_kind != JobTriggerKind.TIME:
+        raise ValueError("time schedule requires trigger_kind='time'")
+    return time_schedule_from_flat(
+        schedule_kind=job.schedule_kind,
+        run_at=job.run_at,
+        interval_seconds=job.interval_seconds,
+        cron_expression=job.cron_expression,
+        cron_timezone=job.cron_timezone,
+        default_cron_timezone=default_cron_timezone,
+    )
+
+
 def normalize_time_schedule_update(
     job: Any,
     fields: dict[str, Any],
@@ -188,54 +224,49 @@ def normalize_time_schedule_update(
     return normalized
 
 
-def next_run_at_from_flat(
+def next_run_at_for_job(
+    job: Job,
     *,
-    trigger_kind: JobTriggerKind | str,
-    enabled: bool,
-    schedule_kind: TimeTriggerKind | str | None,
-    run_at: datetime | None,
-    interval_seconds: int | None,
-    cron_expression: str | None,
-    cron_timezone: str | None,
     now: datetime,
     default_cron_timezone: str = DEFAULT_CRON_TIMEZONE,
 ) -> datetime | None:
-    if trigger_kind != JobTriggerKind.TIME or not enabled:
+    if job.trigger_kind != JobTriggerKind.TIME or not job.enabled:
         return None
-    schedule = time_schedule_from_flat(
-        schedule_kind=schedule_kind,
-        run_at=run_at,
-        interval_seconds=interval_seconds,
-        cron_expression=cron_expression,
-        cron_timezone=cron_timezone,
+    return time_schedule_from_job(
+        job,
         default_cron_timezone=default_cron_timezone,
-    )
-    return schedule.next_after(now)
+    ).next_after(now)
 
 
-def initial_next_run_at_from_flat(
+def next_run_at_after_time_run(
+    job: Job,
     *,
-    trigger_kind: JobTriggerKind | str,
-    enabled: bool,
-    schedule_kind: TimeTriggerKind | str | None,
-    run_at: datetime | None,
-    interval_seconds: int | None,
-    cron_expression: str | None,
-    cron_timezone: str | None,
     now: datetime,
     default_cron_timezone: str = DEFAULT_CRON_TIMEZONE,
 ) -> datetime | None:
-    if trigger_kind != JobTriggerKind.TIME or not enabled:
-        return None
-    schedule = time_schedule_from_flat(
-        schedule_kind=schedule_kind,
-        run_at=run_at,
-        interval_seconds=interval_seconds,
-        cron_expression=cron_expression,
-        cron_timezone=cron_timezone,
+    return next_run_at_for_job(
+        job,
+        now=now,
         default_cron_timezone=default_cron_timezone,
     )
-    return schedule.initial_next_run_at(now)
+
+
+def initial_next_run_at_for_request(
+    request: CreateJobRequest,
+    *,
+    now: datetime,
+    default_cron_timezone: str = DEFAULT_CRON_TIMEZONE,
+) -> datetime | None:
+    if request.trigger_kind != JobTriggerKind.TIME:
+        return None
+    return time_schedule_from_request(
+        request,
+        default_cron_timezone=default_cron_timezone,
+    ).initial_next_run_at(now)
+
+
+def is_one_shot_time_job(job: Job) -> bool:
+    return job.trigger_kind == JobTriggerKind.TIME and job.schedule_kind == TimeTriggerKind.ONCE
 
 
 def _schedule_kind(value: TimeTriggerKind | str | None) -> TimeTriggerKind | None:

@@ -52,7 +52,7 @@ from copilot.jobs.schedule import (
 from copilot.jobs.record_summary import submitted_record_event_message
 from copilot.jobs.service import JobService
 from copilot.jobs.stores import JobNotWaitingForInput
-from copilot.jobs.time_schedule import next_run_at_from_flat
+from copilot.jobs.time_schedule import initial_next_run_at_for_request, next_run_at_for_job
 from copilot.agent.tools.submit_job_record import submit_job_record
 
 
@@ -1182,44 +1182,65 @@ class JobDomainTestCase(unittest.TestCase):
         self.assertEqual(fields["cron_expression"], "0 9 * * sun")
         self.assertEqual(fields["cron_timezone"], "Europe/Berlin")
 
-    def test_next_run_at_from_flat_handles_supported_time_schedules(self) -> None:
+    def test_time_schedule_helpers_handle_create_time_and_post_run_next_times(self) -> None:
         now = datetime(2026, 6, 2, 10, 0, tzinfo=timezone.utc)
+        one_shot_time = datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc)
 
-        interval_next = next_run_at_from_flat(
-            trigger_kind=JobTriggerKind.TIME,
-            enabled=True,
-            schedule_kind=TimeTriggerKind.INTERVAL,
-            run_at=None,
-            interval_seconds=60,
-            cron_expression=None,
-            cron_timezone=None,
+        interval_next = next_run_at_for_job(
+            _job(interval_seconds=60),
             now=now,
         )
-        cron_next = next_run_at_from_flat(
-            trigger_kind=JobTriggerKind.TIME,
-            enabled=True,
-            schedule_kind=TimeTriggerKind.CRON,
-            run_at=None,
-            interval_seconds=None,
-            cron_expression="0 9 * * sun",
-            cron_timezone="Europe/Berlin",
+        cron_next = next_run_at_for_job(
+            _job(
+                schedule_kind=TimeTriggerKind.CRON,
+                interval_seconds=None,
+                cron_expression="0 9 * * sun",
+                cron_timezone="Europe/Berlin",
+            ),
             now=now,
         )
-        once_next = next_run_at_from_flat(
-            trigger_kind=JobTriggerKind.TIME,
-            enabled=True,
-            schedule_kind=TimeTriggerKind.ONCE,
-            run_at=datetime(2026, 6, 3, 10, 0, tzinfo=timezone.utc),
-            interval_seconds=None,
-            cron_expression=None,
-            cron_timezone=None,
+        create_once_next = initial_next_run_at_for_request(
+            CreateJobRequest(
+                name="once",
+                prompt="check",
+                trigger_kind=JobTriggerKind.TIME,
+                schedule_kind=TimeTriggerKind.ONCE,
+                run_at=one_shot_time,
+            ),
+            now=now,
+        )
+        post_run_once_next = next_run_at_for_job(
+            _job(
+                schedule_kind=TimeTriggerKind.ONCE,
+                run_at=one_shot_time,
+                interval_seconds=None,
+            ),
+            now=now,
+        )
+        event_next = initial_next_run_at_for_request(
+            CreateJobRequest(
+                name="event",
+                prompt="check",
+                trigger_kind=JobTriggerKind.EVENT,
+                thing_id="thing-1",
+                event_name="changed",
+            ),
             now=now,
         )
 
         self.assertEqual(interval_next, now + timedelta(seconds=60))
         self.assertEqual(cron_next, datetime(2026, 6, 7, 7, 0, tzinfo=timezone.utc))
-        self.assertEqual(once_next, datetime(2026, 6, 3, 10, 0, tzinfo=timezone.utc))
+        self.assertEqual(create_once_next, one_shot_time)
+        self.assertIsNone(post_run_once_next)
+        self.assertIsNone(event_next)
 
+    def test_disabled_time_job_has_no_next_run(self) -> None:
+        next_run_at = next_run_at_for_job(
+            _job(enabled=False, interval_seconds=60),
+            now=datetime(2026, 6, 2, 10, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertIsNone(next_run_at)
 
 class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_run_job_now_waits_for_task_result(self) -> None:

@@ -28,7 +28,6 @@ from copilot.jobs.enums import (
     JobActionKind,
     JobRunSource,
     JobRunStatus,
-    TimeTriggerKind,
 )
 from copilot.jobs.schemas import Job, JobRun
 from copilot.jobs.graph_results import (
@@ -39,7 +38,7 @@ from copilot.jobs.graph_results import (
 )
 from copilot.jobs.results import JobRunEventPublisher
 from copilot.jobs.stores import JobStore, utc_now
-from copilot.jobs.time_schedule import next_run_at_from_flat
+from copilot.jobs.time_schedule import is_one_shot_time_job, next_run_at_after_time_run
 from copilot.search import ThingSearchService, set_active_search_service
 
 logger = logging.getLogger(__name__)
@@ -219,7 +218,7 @@ class JobExecutor:
         # A one-shot time job has fired its only run; disable it so startup
         # reconciliation does not re-create a schedule for it. The Redis schedule
         # itself is removed automatically by the source's post_send.
-        if is_scheduled_time_run and job.schedule_kind == TimeTriggerKind.ONCE:
+        if is_scheduled_time_run and is_one_shot_time_job(job):
             await self._repo.disable_job(job.id)
         await self._event_publisher.publish_job_run(job.id, run_id=run.id)
         return result
@@ -288,16 +287,7 @@ def _artifact_summary(artifacts: list[Any]) -> str:
 
 def _next_run_at_after_scheduled_time_run(job: Job, *, now: datetime) -> datetime | None:
     try:
-        return next_run_at_from_flat(
-            trigger_kind=job.trigger_kind,
-            enabled=job.enabled,
-            schedule_kind=job.schedule_kind,
-            run_at=job.run_at,
-            interval_seconds=job.interval_seconds,
-            cron_expression=job.cron_expression,
-            cron_timezone=job.cron_timezone,
-            now=now,
-        )
+        return next_run_at_after_time_run(job, now=now)
     except ValueError:
         return None
 

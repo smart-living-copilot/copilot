@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -12,6 +13,16 @@ from copilot.jobs.enums import (
     JobRunStatus,
 )
 from copilot.jobs.schemas import Job, JobRun
+
+
+@dataclass(frozen=True)
+class ParsedGraphResult:
+    assistant: str
+    waiting_question: str | None
+    submitted_record: dict[str, Any] | None
+    failed_record_submission: dict[str, Any] | None
+    code_result: dict[str, Any] | None
+    has_interrupt: bool
 
 
 def graph_input_for_run(job: Job, run: JobRun, message: str | None) -> Any:
@@ -47,56 +58,64 @@ def job_result_from_graph_result(
     message: str | None,
     trigger: dict[str, Any],
 ) -> dict[str, Any]:
-    submitted_record = submitted_record_from_graph_result(result)
-    failed_submission = failed_record_submission_from_graph_result(result)
-    waiting_question = waiting_question_from_graph_result(result)
-    assistant = assistant_text_from_graph_result(result)
-    code_result = code_result_from_graph_result(result)
+    parsed = parse_graph_result(result)
 
-    if waiting_question:
-        return _waiting_result(result, waiting_question, trigger)
+    if parsed.waiting_question:
+        return _waiting_result(result, parsed.waiting_question, trigger, parsed=parsed)
     if (
         job.output_kind == JobOutputKind.STRUCTURED_RECORD
-        and submitted_record is None
-        and _record_submission_needs_user_repair(failed_submission)
+        and parsed.submitted_record is None
+        and _record_submission_needs_user_repair(parsed.failed_record_submission)
     ):
-        error = _record_submission_error(failed_submission)
+        error = _record_submission_error(parsed.failed_record_submission)
         return _waiting_result(
             result,
             _record_repair_question(error),
             trigger,
             metadata={"record_submission_error": error},
+            parsed=parsed,
         )
     if (
         message is None
         and job.interaction_mode == JobInteractionMode.REQUIRED_CHECKIN
-        and assistant
+        and parsed.assistant
     ):
-        return _waiting_result(result, assistant, trigger)
-    if job.output_kind == JobOutputKind.STRUCTURED_RECORD and submitted_record is None:
+        return _waiting_result(result, parsed.assistant, trigger, parsed=parsed)
+    if job.output_kind == JobOutputKind.STRUCTURED_RECORD and parsed.submitted_record is None:
         return _failed_result(
             "Structured record job finished without submitting a valid record.",
             result,
             trigger,
         )
-    if not assistant and submitted_record is None and message is not None:
+    if not parsed.assistant and parsed.submitted_record is None and message is not None:
         return _failed_result(
             "Prompt job did not produce a response after the user reply.",
             result,
             trigger,
         )
-    if not assistant:
-        assistant = json.dumps(result, ensure_ascii=True, default=str)[:2000]
+    assistant = parsed.assistant or json.dumps(result, ensure_ascii=True, default=str)[:2000]
     job_result: dict[str, Any] = {
         "ok": True,
         "response": result,
         "assistant": assistant,
-        "submitted_record": submitted_record,
+        "submitted_record": parsed.submitted_record,
         "metadata": {"trigger": trigger},
     }
-    if code_result:
-        job_result.update(code_result)
+    if parsed.code_result:
+        job_result.update(parsed.code_result)
     return job_result
+
+
+def parse_graph_result(result: Any) -> ParsedGraphResult:
+    messages = _messages_after_latest_human(result)
+    return ParsedGraphResult(
+        assistant=_assistant_text_from_messages(messages),
+        waiting_question=_waiting_question_from_messages(result, messages),
+        submitted_record=_submitted_record_from_messages(messages),
+        failed_record_submission=_failed_record_submission_from_messages(messages),
+        code_result=_code_result_from_messages(messages),
+        has_interrupt=_graph_result_has_interrupt(result),
+    )
 
 
 def job_run_status_from_result(result: dict[str, Any]) -> JobRunStatus:
@@ -110,16 +129,11 @@ def job_run_status_from_result(result: dict[str, Any]) -> JobRunStatus:
 
 
 def assistant_text_from_graph_result(result: Any) -> str:
-    if not isinstance(result, dict):
-        return ""
-    messages = result.get("messages")
-    if not isinstance(messages, list):
-        return ""
-    latest_human_index = -1
-    for index, message in enumerate(messages):
-        if isinstance(message, HumanMessage):
-            latest_human_index = index
-    for message in reversed(messages[latest_human_index + 1 :]):
+    return parse_graph_result(result).assistant
+
+
+def _assistant_text_from_messages(messages: list[Any]) -> str:
+    for message in reversed(messages):
         if not isinstance(message, AIMessage):
             continue
         return _text_from_message_content(message.content).strip()
@@ -127,11 +141,15 @@ def assistant_text_from_graph_result(result: Any) -> str:
 
 
 def waiting_question_from_graph_result(result: Any) -> str | None:
+    return parse_graph_result(result).waiting_question
+
+
+def _waiting_question_from_messages(result: Any, messages: list[Any]) -> str | None:
     interrupt_question = _interrupt_question_from_graph_result(result)
     if interrupt_question:
         return interrupt_question
 
-    message = _tool_message_after_latest_human(result, "ask_job_user")
+    message = _latest_tool_message(messages, "ask_job_user")
     if message is None:
         return None
     content = message.content
@@ -150,7 +168,11 @@ def waiting_question_from_graph_result(result: Any) -> str | None:
 
 
 def submitted_record_from_graph_result(result: Any) -> dict[str, Any] | None:
-    message = _tool_message_after_latest_human(result, "submit_job_record")
+    return parse_graph_result(result).submitted_record
+
+
+def _submitted_record_from_messages(messages: list[Any]) -> dict[str, Any] | None:
+    message = _latest_tool_message(messages, "submit_job_record")
     if message is None:
         return None
     content = _parsed_tool_message_content(message)
@@ -161,7 +183,11 @@ def submitted_record_from_graph_result(result: Any) -> dict[str, Any] | None:
 
 
 def failed_record_submission_from_graph_result(result: Any) -> dict[str, Any] | None:
-    message = _tool_message_after_latest_human(result, "submit_job_record")
+    return parse_graph_result(result).failed_record_submission
+
+
+def _failed_record_submission_from_messages(messages: list[Any]) -> dict[str, Any] | None:
+    message = _latest_tool_message(messages, "submit_job_record")
     if message is None:
         return None
     content = _parsed_tool_message_content(message)
@@ -171,11 +197,15 @@ def failed_record_submission_from_graph_result(result: Any) -> dict[str, Any] | 
 
 
 def code_result_from_graph_result(result: Any) -> dict[str, Any] | None:
+    return parse_graph_result(result).code_result
+
+
+def _code_result_from_messages(messages: list[Any]) -> dict[str, Any] | None:
     stdout_parts: list[str] = []
     error_parts: list[str] = []
     artifacts: list[dict[str, str]] = []
 
-    for message in _tool_messages_after_latest_human(result, "run_code"):
+    for message in _tool_messages(messages, "run_code"):
         content = _parsed_tool_message_content(message)
         if not isinstance(content, dict):
             continue
@@ -304,9 +334,12 @@ def _waiting_result(
     trigger: dict[str, Any],
     *,
     metadata: dict[str, Any] | None = None,
+    parsed: ParsedGraphResult | None = None,
 ) -> dict[str, Any]:
     metadata = {"trigger": trigger, **(metadata or {})}
-    if _graph_result_has_interrupt(result):
+    if (parsed is not None and parsed.has_interrupt) or (
+        parsed is None and _graph_result_has_interrupt(result)
+    ):
         metadata["pending_interrupt"] = True
     return {
         "ok": True,
@@ -318,13 +351,21 @@ def _waiting_result(
     }
 
 
-def _tool_message_after_latest_human(result: Any, tool_name: str) -> ToolMessage | None:
-    for message in reversed(_tool_messages_after_latest_human(result, tool_name)):
+def _latest_tool_message(messages: list[Any], tool_name: str) -> ToolMessage | None:
+    for message in reversed(_tool_messages(messages, tool_name)):
         return message
     return None
 
 
-def _tool_messages_after_latest_human(result: Any, tool_name: str) -> list[ToolMessage]:
+def _tool_messages(messages: list[Any], tool_name: str) -> list[ToolMessage]:
+    return [
+        message
+        for message in messages
+        if isinstance(message, ToolMessage) and message.name == tool_name
+    ]
+
+
+def _messages_after_latest_human(result: Any) -> list[Any]:
     if not isinstance(result, dict):
         return []
     messages = result.get("messages")
@@ -334,12 +375,7 @@ def _tool_messages_after_latest_human(result: Any, tool_name: str) -> list[ToolM
     for index, message in enumerate(messages):
         if isinstance(message, HumanMessage):
             latest_human_index = index
-    tool_messages: list[ToolMessage] = []
-    for message in reversed(messages[latest_human_index + 1 :]):
-        if isinstance(message, ToolMessage) and message.name == tool_name:
-            tool_messages.append(message)
-    tool_messages.reverse()
-    return tool_messages
+    return messages[latest_human_index + 1 :]
 
 
 def _truncate_text(value: str, *, max_length: int) -> str:

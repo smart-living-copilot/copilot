@@ -20,7 +20,7 @@ from copilot.jobs.stores.base import (
     job_thread_id_for_job,
     utc_now,
 )
-from copilot.jobs.time_schedule import next_run_at_from_flat
+from copilot.jobs.time_schedule import next_run_at_for_job
 from copilot.threads.models import DEFAULT_THREAD_TITLE, Thread, ThreadKind
 
 
@@ -333,16 +333,6 @@ class JobDefinitionStore(_JobStoreBase):
         if row.trigger_kind != JobTriggerKind.TIME.value or not row.enabled:
             return None
         try:
-            return next_run_at_from_flat(
-                trigger_kind=JobTriggerKind(row.trigger_kind),
-                enabled=row.enabled,
-                schedule_kind=TimeTriggerKind(row.schedule_kind) if row.schedule_kind else None,
-                run_at=row.run_at,
-                interval_seconds=row.interval_seconds,
-                cron_expression=row.cron_expression,
-                cron_timezone=row.cron_timezone,
-                now=now,
-            )
+            return next_run_at_for_job(_to_job(row), now=now)
         except ValueError:
             return None
-        return None

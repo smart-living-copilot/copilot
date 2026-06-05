@@ -9,9 +9,11 @@ from taskiq_redis import ListRedisScheduleSource
 
 from copilot.core.settings import Settings
 from copilot.jobs.constants import JOB_SCHEDULE_PREFIX, RUN_JOB_TASK_NAME
-from copilot.jobs.enums import JobTriggerKind, TimeTriggerKind
+from copilot.jobs.enums import JobTriggerKind
 from copilot.jobs.schemas import Job
 from copilot.jobs.stores import JobStore
+from copilot.jobs.time_schedule import CronSchedule, IntervalSchedule, OnceSchedule
+from copilot.jobs.time_schedule import time_schedule_from_job
 
 logger = logging.getLogger(__name__)
 
@@ -53,14 +55,15 @@ def scheduled_task_for_job(job: Job) -> ScheduledTask:
         kwargs={"job_id": job.id, "trigger": {"source": "time"}},
         schedule_id=schedule_id_for_job(job.id),
     )
-    if job.schedule_kind == TimeTriggerKind.INTERVAL and job.interval_seconds is not None:
-        return ScheduledTask(interval=job.interval_seconds, **common)
-    if job.schedule_kind == TimeTriggerKind.ONCE and job.run_at is not None:
-        return ScheduledTask(time=_utc(job.run_at), **common)
-    if job.schedule_kind == TimeTriggerKind.CRON and job.cron_expression:
+    schedule = time_schedule_from_job(job)
+    if isinstance(schedule, IntervalSchedule):
+        return ScheduledTask(interval=schedule.interval_seconds, **common)
+    if isinstance(schedule, OnceSchedule):
+        return ScheduledTask(time=_utc(schedule.run_at), **common)
+    if isinstance(schedule, CronSchedule):
         return ScheduledTask(
-            cron=job.cron_expression,
-            cron_offset=job.cron_timezone,
+            cron=schedule.cron_expression,
+            cron_offset=schedule.cron_timezone,
             **common,
         )
     raise ValueError(f"Time job {job.id} has an invalid schedule")

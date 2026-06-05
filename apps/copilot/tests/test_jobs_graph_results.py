@@ -12,6 +12,7 @@ from copilot.jobs.graph_results import (
     graph_input_for_run,
     job_result_from_graph_result,
     job_run_status_from_result,
+    parse_graph_result,
     submitted_record_from_graph_result,
     waiting_question_from_graph_result,
 )
@@ -95,6 +96,42 @@ class JobGraphResultsTestCase(unittest.TestCase):
         }
 
         self.assertEqual(waiting_question_from_graph_result(result), "Which room?")
+
+    def test_parse_graph_result_collects_policy_inputs(self) -> None:
+        result = {
+            "messages": [
+                HumanMessage(content="plot and record"),
+                ToolMessage(
+                    content=(
+                        '{"stdout": "created plot", "artifacts": ['
+                        '{"ref": "plot", "kind": "image", "filename": "plot.png"}]}'
+                    ),
+                    name="run_code",
+                    tool_call_id="call-1",
+                ),
+                ToolMessage(
+                    content='{"ok": true, "record": {"data": {"mood": "good"}}}',
+                    name="submit_job_record",
+                    tool_call_id="call-2",
+                ),
+                AIMessage(content="Stored with a chart."),
+            ]
+        }
+
+        parsed = parse_graph_result(result)
+
+        self.assertEqual(parsed.assistant, "Stored with a chart.")
+        self.assertIsNone(parsed.waiting_question)
+        self.assertEqual(parsed.submitted_record["data"], {"mood": "good"})
+        self.assertIsNone(parsed.failed_record_submission)
+        self.assertEqual(
+            parsed.code_result,
+            {
+                "artifacts": [{"ref": "image_1", "kind": "image", "filename": "plot.png"}],
+                "stdout": "created plot",
+            },
+        )
+        self.assertFalse(parsed.has_interrupt)
 
     def test_resumed_ask_tool_result_is_not_waiting_again(self) -> None:
         result = {

@@ -56,6 +56,7 @@ JobAction = Annotated[
     Field(discriminator="action_kind"),
 ]
 
+
 class NarrativeOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -82,11 +83,19 @@ class StructuredRecordOutput(BaseModel):
             raise ValueError("structured record jobs require virtual_thing_id")
         return value
 
+    def to_flat_fields(self) -> dict[str, Any]:
+        return {
+            "record_schema": self.record_schema,
+            "record_schema_version": self.record_schema_version,
+            "virtual_thing_id": self.virtual_thing_id,
+        }
+
 
 JobOutput = Annotated[
     NarrativeOutput | StructuredRecordOutput,
     Field(discriminator="output_kind"),
 ]
+
 
 class TimeTrigger(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -141,6 +150,14 @@ class JobDefinition(BaseModel):
             raise ValueError("analysis jobs only support narrative output")
         return self
 
+    def normalized_create_fields(self) -> dict[str, Any]:
+        fields: dict[str, Any] = {}
+        if isinstance(self.trigger, TimeTrigger):
+            fields.update(self.trigger.schedule.to_flat_fields())
+        if isinstance(self.output, StructuredRecordOutput):
+            fields.update(self.output.to_flat_fields())
+        return fields
+
 
 def normalize_create_request(
     request: CreateJobRequest,
@@ -151,19 +168,7 @@ def normalize_create_request(
         request,
         default_cron_timezone=default_cron_timezone,
     )
-    updates: dict[str, Any] = {}
-
-    if isinstance(definition.trigger, TimeTrigger):
-        updates.update(definition.trigger.schedule.to_flat_fields())
-
-    if isinstance(definition.output, StructuredRecordOutput):
-        updates.update(
-            {
-                "record_schema": definition.output.record_schema,
-                "record_schema_version": definition.output.record_schema_version,
-                "virtual_thing_id": definition.output.virtual_thing_id,
-            }
-        )
+    updates = definition.normalized_create_fields()
     return request.model_copy(update=updates) if updates else request
 
 
@@ -193,28 +198,11 @@ def job_definition_from_create_request(
     *,
     default_cron_timezone: str,
 ) -> JobDefinition:
-    try:
-        return JobDefinition(
-            trigger=_trigger_from_create_request(request, default_cron_timezone),
-            action=_action_from_flat(
-                action_kind=request.action_kind,
-                prompt=request.prompt,
-                analysis_code=request.analysis_code,
-            ),
-            output=_output_from_flat(
-                output_kind=request.output_kind,
-                name=request.name,
-                record_schema=request.record_schema,
-                record_schema_version=request.record_schema_version,
-                virtual_thing_id=request.virtual_thing_id,
-                virtual_thing_title=request.virtual_thing_title,
-                virtual_thing_description=request.virtual_thing_description,
-                generate_missing_virtual_thing_id=True,
-            ),
-            interaction_mode=request.interaction_mode,
-        )
-    except ValidationError as exc:
-        raise ValueError(_validation_message(exc)) from exc
+    return _job_definition_from_flat_source(
+        request,
+        default_cron_timezone=default_cron_timezone,
+        generate_missing_virtual_thing_id=True,
+    )
 
 
 def job_definition_from_job(
@@ -222,25 +210,42 @@ def job_definition_from_job(
     *,
     default_cron_timezone: str,
 ) -> JobDefinition:
+    return _job_definition_from_flat_source(
+        job,
+        default_cron_timezone=default_cron_timezone,
+        generate_missing_virtual_thing_id=False,
+    )
+
+
+def _job_definition_from_flat_source(
+    source: CreateJobRequest | Job,
+    *,
+    default_cron_timezone: str,
+    generate_missing_virtual_thing_id: bool,
+) -> JobDefinition:
     try:
         return JobDefinition(
-            trigger=_trigger_from_job(job, default_cron_timezone),
+            trigger=_trigger_from_flat_source(source, default_cron_timezone),
             action=_action_from_flat(
-                action_kind=job.action_kind,
-                prompt=job.prompt,
-                analysis_code=job.analysis_code,
+                action_kind=source.action_kind,
+                prompt=source.prompt,
+                analysis_code=source.analysis_code,
             ),
             output=_output_from_flat(
-                output_kind=job.output_kind,
-                name=job.name,
-                record_schema=job.record_schema,
-                record_schema_version=job.record_schema_version,
-                virtual_thing_id=job.virtual_thing_id,
-                virtual_thing_title=None,
-                virtual_thing_description=None,
-                generate_missing_virtual_thing_id=False,
+                output_kind=source.output_kind,
+                name=source.name,
+                record_schema=source.record_schema,
+                record_schema_version=source.record_schema_version,
+                virtual_thing_id=source.virtual_thing_id,
+                virtual_thing_title=getattr(source, "virtual_thing_title", None),
+                virtual_thing_description=getattr(
+                    source,
+                    "virtual_thing_description",
+                    None,
+                ),
+                generate_missing_virtual_thing_id=generate_missing_virtual_thing_id,
             ),
-            interaction_mode=job.interaction_mode,
+            interaction_mode=source.interaction_mode,
         )
     except ValidationError as exc:
         raise ValueError(_validation_message(exc)) from exc
@@ -289,56 +294,37 @@ def _output_from_flat(
     return NarrativeOutput()
 
 
-def _trigger_from_create_request(
-    request: CreateJobRequest,
+def _trigger_from_flat_source(
+    source: CreateJobRequest | Job,
     default_cron_timezone: str,
 ) -> JobTrigger:
-    if request.trigger_kind == JobTriggerKind.TIME:
+    if source.trigger_kind == JobTriggerKind.TIME:
         return TimeTrigger(
             schedule=time_schedule_from_flat(
-                schedule_kind=request.schedule_kind,
-                run_at=request.run_at,
-                interval_seconds=request.interval_seconds,
-                cron_expression=request.cron_expression,
-                cron_timezone=request.cron_timezone,
+                schedule_kind=source.schedule_kind,
+                run_at=source.run_at,
+                interval_seconds=source.interval_seconds,
+                cron_expression=source.cron_expression,
+                cron_timezone=source.cron_timezone,
                 default_cron_timezone=default_cron_timezone,
             )
         )
 
-    _reject_time_schedule_fields(request)
+    _reject_time_schedule_fields(source)
     return EventTrigger(
-        thing_id=request.thing_id or "",
-        event_name=request.event_name or "",
-        subscription_input=request.subscription_input,
+        thing_id=source.thing_id or "",
+        event_name=source.event_name or "",
+        subscription_input=source.subscription_input,
     )
 
 
-def _trigger_from_job(job: Job, default_cron_timezone: str) -> JobTrigger:
-    if job.trigger_kind == JobTriggerKind.TIME:
-        return TimeTrigger(
-            schedule=time_schedule_from_flat(
-                schedule_kind=job.schedule_kind,
-                run_at=job.run_at,
-                interval_seconds=job.interval_seconds,
-                cron_expression=job.cron_expression,
-                cron_timezone=job.cron_timezone,
-                default_cron_timezone=default_cron_timezone,
-            )
-        )
-    return EventTrigger(
-        thing_id=job.thing_id or "",
-        event_name=job.event_name or "",
-        subscription_input=job.subscription_input,
-    )
-
-
-def _reject_time_schedule_fields(request: CreateJobRequest) -> None:
+def _reject_time_schedule_fields(source: CreateJobRequest | Job) -> None:
     if (
-        request.schedule_kind is not None
-        or request.run_at is not None
-        or request.interval_seconds is not None
-        or request.cron_expression is not None
-        or request.cron_timezone is not None
+        source.schedule_kind is not None
+        or source.run_at is not None
+        or source.interval_seconds is not None
+        or source.cron_expression is not None
+        or source.cron_timezone is not None
     ):
         raise ValueError("event jobs cannot include time schedule fields")
 
