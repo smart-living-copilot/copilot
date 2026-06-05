@@ -54,16 +54,38 @@ class PanelService:
         self._session.refresh(panel)
         return _serialize(panel)
 
-    def get_panel(self, panel_id: str) -> dict[str, Any]:
-        return _serialize(self._get_or_404(panel_id))
+    def get_panel(self, panel_id: str, *, include_html: bool = False) -> dict[str, Any]:
+        return _serialize(self._get_or_404(panel_id), include_html=include_html)
 
     def get_render_payload(self, panel_id: str) -> tuple[str, str]:
         panel = self._get_or_404(panel_id)
         return panel.html, panel.title
 
-    def rename_panel(self, panel_id: str, title: str) -> dict[str, Any]:
+    def get_render_payload_with_capabilities(self, panel_id: str) -> dict[str, Any]:
         panel = self._get_or_404(panel_id)
-        panel.title = title or panel.title
+        return {
+            "html": panel.html,
+            "title": panel.title,
+            "capabilities": panel.capabilities or [],
+        }
+
+    def update_panel(
+        self,
+        panel_id: str,
+        *,
+        title: str | None = None,
+        html: str | None = None,
+        capabilities: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        panel = self._get_or_404(panel_id)
+        if title is not None and title.strip():
+            panel.title = title
+        if html is not None:
+            if not html.strip():
+                raise HTTPException(status_code=422, detail="html must not be empty")
+            panel.html = html
+        if capabilities is not None:
+            panel.capabilities = _clean_capabilities(capabilities)
         self._session.commit()
         self._session.refresh(panel)
         return _serialize(panel)

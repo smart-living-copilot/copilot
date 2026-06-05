@@ -241,6 +241,7 @@ async def lifespan(app: FastAPI):
             )
             graph = graph.with_config(recursion_limit=settings.recursion_limit)
             _graph = graph
+            app.state.graph = graph
 
             logger.info(
                 "Graph created with %d registry tools, model=%s, recursion_limit=%d",

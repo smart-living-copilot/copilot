@@ -1,11 +1,12 @@
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from copilot.auth import User, require_scopes
 from copilot.core.api_dependencies import SessionDep
+from copilot.panels.edit import run_panel_edit
 from copilot.panels.render import wrap_panel_document
 from copilot.panels.service import PanelService
 
@@ -19,8 +20,14 @@ class CreatePanelBody(BaseModel):
     source_thread_id: str | None = None
 
 
-class RenamePanelBody(BaseModel):
-    title: str
+class UpdatePanelBody(BaseModel):
+    title: str | None = None
+    html: str | None = None
+    capabilities: list[dict[str, Any]] | None = None
+
+
+class EditPanelBody(BaseModel):
+    instruction: str
 
 
 @router.get("/panels")
@@ -49,9 +56,10 @@ def create_panel(
 def get_panel(
     panel_id: str,
     session: SessionDep,
+    include_html: bool = False,
     _user: User = Depends(require_scopes(["things:read"])),
 ) -> dict[str, Any]:
-    return PanelService(session).get_panel(panel_id)
+    return PanelService(session).get_panel(panel_id, include_html=include_html)
 
 
 @router.get("/panels/{panel_id}/render", response_class=HTMLResponse)
@@ -65,13 +73,54 @@ def render_panel(
 
 
 @router.patch("/panels/{panel_id}")
-def rename_panel(
+def update_panel(
     panel_id: str,
     session: SessionDep,
-    body: RenamePanelBody = Body(...),
+    body: UpdatePanelBody = Body(...),
     _user: User = Depends(require_scopes(["things:write"])),
 ) -> dict[str, Any]:
-    return PanelService(session).rename_panel(panel_id, body.title)
+    return PanelService(session).update_panel(
+        panel_id,
+        title=body.title,
+        html=body.html,
+        capabilities=body.capabilities,
+    )
+
+
+@router.post("/panels/{panel_id}/edit")
+async def edit_panel(
+    panel_id: str,
+    request: Request,
+    session: SessionDep,
+    body: EditPanelBody = Body(...),
+    _user: User = Depends(require_scopes(["things:write"])),
+) -> dict[str, Any]:
+    if not body.instruction.strip():
+        raise HTTPException(status_code=422, detail="instruction must not be empty")
+
+    service = PanelService(session)
+    panel = service.get_render_payload_with_capabilities(panel_id)
+
+    graph = getattr(request.app.state, "graph", None)
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Agent is not ready")
+    checkpointer = getattr(request.app.state, "checkpointer", None)
+
+    updated = await run_panel_edit(
+        graph=graph,
+        checkpointer=checkpointer,
+        html=panel["html"],
+        capabilities=panel["capabilities"],
+        instruction=body.instruction,
+    )
+    if updated is None:
+        raise HTTPException(
+            status_code=422,
+            detail="The assistant could not produce an updated panel for that request.",
+        )
+
+    new_html, new_capabilities = updated
+    return service.update_panel(panel_id, html=new_html, capabilities=new_capabilities)
 
 
 @router.delete("/panels/{panel_id}")
