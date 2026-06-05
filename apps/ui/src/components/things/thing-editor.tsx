@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { json as jsonLanguage } from '@codemirror/lang-json';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Loader2, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -12,9 +13,9 @@ import {
   fetchThing,
   updateThing,
 } from '@/lib/things-api';
+import { CodeEditor } from '@/components/code-editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
 
 const THING_TEMPLATE = `{
   "@context": ["https://www.w3.org/2022/wot/td/v1.1"],
@@ -32,7 +33,7 @@ const THING_TEMPLATE = `{
   "events": {}
 }`;
 
-const EDITOR_TAB = '  ';
+const jsonExtensions = [jsonLanguage()];
 
 function summarizeDocument(documentText: string) {
   try {
@@ -59,11 +60,9 @@ interface ThingEditorProps {
 
 export function ThingEditor({ mode, thingId }: ThingEditorProps) {
   const router = useRouter();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [documentText, setDocumentText] = useState(THING_TEMPLATE);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [scrollTop, setScrollTop] = useState(0);
   const [thing, setThing] = useState<ThingRecord | null>(null);
   const [isPending, setIsPending] = useState(mode === 'edit');
 
@@ -76,7 +75,6 @@ export function ThingEditor({ mode, thingId }: ThingEditorProps) {
         setThing(data);
         if (data.json) {
           setDocumentText(data.json);
-          setScrollTop(0);
         }
       })
       .catch((err) =>
@@ -88,11 +86,6 @@ export function ThingEditor({ mode, thingId }: ThingEditorProps) {
   }, [mode, thingId]);
 
   const summary = summarizeDocument(documentText);
-  const liveLineCount = documentText.split('\n').length;
-  const lineNumbers = Array.from(
-    { length: Math.max(liveLineCount, 1) },
-    (_, i) => i + 1,
-  );
   const isDirty =
     mode === 'create'
       ? documentText !== THING_TEMPLATE
@@ -104,34 +97,10 @@ export function ThingEditor({ mode, thingId }: ThingEditorProps) {
       const parsed = JSON.parse(documentText);
       const formatted = JSON.stringify(parsed, null, 2);
       setDocumentText(formatted);
-      setScrollTop(0);
       toast.success('Formatted JSON');
-      requestAnimationFrame(() => {
-        textareaRef.current?.setSelectionRange(0, 0);
-        textareaRef.current?.scrollTo({ top: 0 });
-      });
     } catch {
       toast.error('Fix the JSON before formatting');
     }
-  }
-
-  function handleEditorKeyDown(
-    event: React.KeyboardEvent<HTMLTextAreaElement>,
-  ) {
-    if (event.key !== 'Tab') return;
-    event.preventDefault();
-
-    const target = event.currentTarget;
-    const selectionStart = target.selectionStart ?? 0;
-    const selectionEnd = target.selectionEnd ?? selectionStart;
-    const nextText = `${documentText.slice(0, selectionStart)}${EDITOR_TAB}${documentText.slice(selectionEnd)}`;
-    const nextCursor = selectionStart + EDITOR_TAB.length;
-
-    setDocumentText(nextText);
-    requestAnimationFrame(() => {
-      target.selectionStart = nextCursor;
-      target.selectionEnd = nextCursor;
-    });
   }
 
   const handleSave = useCallback(async () => {
@@ -261,29 +230,13 @@ export function ThingEditor({ mode, thingId }: ThingEditorProps) {
           </div>
         )}
 
-        <div className="grid min-h-[720px] grid-cols-[56px_minmax(0,1fr)]">
-          <div
-            aria-hidden="true"
-            className="overflow-hidden border-r bg-muted/10 px-2 py-4 font-mono text-xs leading-6 text-muted-foreground"
-          >
-            <div
-              className="text-right"
-              style={{ transform: `translateY(-${scrollTop}px)` }}
-            >
-              {lineNumbers.map((lineNumber) => (
-                <div key={lineNumber}>{lineNumber}</div>
-              ))}
-            </div>
-          </div>
-
-          <Textarea
-            ref={textareaRef}
+        <div className="min-h-[720px]">
+          <CodeEditor
+            className="rounded-none border-0 text-[13px]"
+            extensions={jsonExtensions}
+            height="720px"
+            onChange={setDocumentText}
             value={documentText}
-            onChange={(event) => setDocumentText(event.target.value)}
-            onKeyDown={handleEditorKeyDown}
-            onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-            spellCheck={false}
-            className="min-h-[720px] resize-none rounded-none border-0 bg-background px-4 py-4 font-mono text-[13px] leading-6 shadow-none focus-visible:ring-0"
           />
         </div>
       </Card>

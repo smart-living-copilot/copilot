@@ -145,29 +145,55 @@ export function ThingDetailPageLayout({
         </div>
       </section>
 
-      <Tabs defaultValue="overview" className="space-y-5">
+      <section className="space-y-4">
+        <section className="grid gap-2 sm:grid-cols-2 xl:flex xl:flex-nowrap">
+          <FieldCard
+            label="Index status"
+            value={<ThingIndexStatusBadge status={indexStatus} />}
+          />
+          <FieldCard label="Security" value={securityStr} />
+          <FieldCard
+            label="Indexed at"
+            value={formatDateTime(indexStatus?.indexed_at)}
+          />
+          <FieldCard
+            label="Summary model"
+            value={indexStatus?.summary_model || 'Not indexed'}
+          />
+          <FieldCard label="Thing ID" value={thing.id} mono />
+        </section>
+
+        <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
+          <CardHeader className="border-b border-border/70">
+            <CardTitle className="text-base">Description</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
+              {description || 'No description provided.'}
+            </p>
+          </CardContent>
+        </Card>
+      </section>
+
+      <ThingSecuritySection
+        securityStr={securityStr}
+        securityDefs={securityDefs}
+        credentialMap={credentialMap}
+        onDeleteCredential={onDeleteCredential}
+        onOpenCredential={onOpenCredential}
+      />
+
+      <Tabs defaultValue="properties" className="space-y-5">
         <div className="overflow-x-auto">
           <TabsList
             variant="line"
             className="h-auto min-w-max gap-0 rounded-none border-b border-border/80 bg-transparent p-0"
           >
             <TabsTrigger
-              value="overview"
-              className={DETAIL_TABS_TRIGGER_CLASSNAME}
-            >
-              Overview
-            </TabsTrigger>
-            <TabsTrigger
               value="properties"
               className={DETAIL_TABS_TRIGGER_CLASSNAME}
             >
               Properties ({properties.length})
-            </TabsTrigger>
-            <TabsTrigger
-              value="actions"
-              className={DETAIL_TABS_TRIGGER_CLASSNAME}
-            >
-              Actions ({actions.length})
             </TabsTrigger>
             <TabsTrigger
               value="events"
@@ -176,60 +202,30 @@ export function ThingDetailPageLayout({
               Events ({events.length})
             </TabsTrigger>
             <TabsTrigger
+              value="actions"
+              className={DETAIL_TABS_TRIGGER_CLASSNAME}
+            >
+              Actions ({actions.length})
+            </TabsTrigger>
+            <TabsTrigger
               value="semantic"
               className={DETAIL_TABS_TRIGGER_CLASSNAME}
             >
-              Semantic summary
-            </TabsTrigger>
-            <TabsTrigger
-              value="security"
-              className={DETAIL_TABS_TRIGGER_CLASSNAME}
-            >
-              Security ({securityDefs.length})
+              Semantic Summary
             </TabsTrigger>
           </TabsList>
         </div>
-
-        <TabsContent value="overview" className="mt-0 space-y-4">
-          <section className="grid gap-2 sm:grid-cols-2 xl:flex xl:flex-nowrap">
-            <FieldCard
-              label="Index status"
-              value={<ThingIndexStatusBadge status={indexStatus} />}
-            />
-            <FieldCard label="Security" value={securityStr} />
-            <FieldCard
-              label="Indexed at"
-              value={formatDateTime(indexStatus?.indexed_at)}
-            />
-            <FieldCard
-              label="Summary model"
-              value={indexStatus?.summary_model || 'Not indexed'}
-            />
-            <FieldCard label="Thing ID" value={thing.id} mono />
-          </section>
-
-          <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
-            <CardHeader className="border-b border-border/70">
-              <CardTitle className="text-base">Description</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
-                {description || 'No description provided.'}
-              </p>
-            </CardContent>
-          </Card>
-        </TabsContent>
 
         <TabsContent value="properties" className="mt-0">
           <ThingPropertiesSection properties={properties} />
         </TabsContent>
 
-        <TabsContent value="actions" className="mt-0">
-          <ThingActionsSection actions={actions} />
-        </TabsContent>
-
         <TabsContent value="events" className="mt-0">
           <ThingEventsSection events={events} />
+        </TabsContent>
+
+        <TabsContent value="actions" className="mt-0">
+          <ThingActionsSection actions={actions} />
         </TabsContent>
 
         <TabsContent value="semantic" className="mt-0">
@@ -237,16 +233,6 @@ export function ThingDetailPageLayout({
             indexStatus={indexStatus}
             semanticSummary={semanticSummary}
             semanticIndexed={semanticIndexed}
-          />
-        </TabsContent>
-
-        <TabsContent value="security" className="mt-0">
-          <ThingSecuritySection
-            securityStr={securityStr}
-            securityDefs={securityDefs}
-            credentialMap={credentialMap}
-            onDeleteCredential={onDeleteCredential}
-            onOpenCredential={onOpenCredential}
           />
         </TabsContent>
       </Tabs>

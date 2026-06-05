@@ -2,7 +2,6 @@
 
 import { html as htmlLanguage } from '@codemirror/lang-html';
 import { json as jsonLanguage } from '@codemirror/lang-json';
-import CodeMirror from '@uiw/react-codemirror';
 import {
   Code2,
   History,
@@ -12,7 +11,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useState, type ComponentProps } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Group as PanelGroup,
   Panel as ResizablePanel,
@@ -20,6 +19,7 @@ import {
 } from 'react-resizable-panels';
 import { toast } from 'sonner';
 
+import { CodeEditor } from '@/components/code-editor';
 import { PanelFrame } from '@/components/copilot/chat-tool-calls/panel-frame';
 import {
   type PanelRecord,
@@ -30,7 +30,6 @@ import {
   restorePanelVersion,
   updatePanel,
 } from '@/lib/panels-api';
-import { useTheme } from '@/components/theme-provider';
 import { Button } from '@/components/ui/button';
 import {
   Drawer,
@@ -52,7 +51,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 
 type SourceTab = 'html' | 'capabilities';
-type CodeMirrorExtensions = ComponentProps<typeof CodeMirror>['extensions'];
 
 const htmlExtensions = [htmlLanguage()];
 const jsonExtensions = [jsonLanguage()];
@@ -78,48 +76,6 @@ function versionSourceLabel(source: string): string {
     default:
       return 'Manual edit';
   }
-}
-
-function SourceCodeEditor({
-  disabled,
-  extensions,
-  loading,
-  onChange,
-  value,
-}: {
-  disabled: boolean;
-  extensions: CodeMirrorExtensions;
-  loading: boolean;
-  onChange: (value: string) => void;
-  value: string;
-}) {
-  const { resolvedTheme } = useTheme();
-
-  return (
-    <div className="relative min-h-0 flex-1">
-      <CodeMirror
-        basicSetup={{
-          foldGutter: true,
-          highlightActiveLine: true,
-          lineNumbers: true,
-        }}
-        className="h-full overflow-hidden rounded-md border border-border/70 bg-background text-[12px] [&_.cm-activeLine]:bg-muted/50 [&_.cm-activeLineGutter]:bg-muted/70 [&_.cm-editor]:h-full [&_.cm-gutters]:border-border/70 [&_.cm-gutters]:bg-muted/30 [&_.cm-gutters]:text-muted-foreground [&_.cm-scroller]:overflow-auto"
-        editable={!disabled}
-        extensions={extensions}
-        height="100%"
-        onChange={onChange}
-        readOnly={disabled}
-        theme={resolvedTheme}
-        value={value}
-      />
-      {loading ? (
-        <div className="absolute inset-0 flex items-center justify-center rounded-md bg-background/70 text-sm text-muted-foreground backdrop-blur-[1px]">
-          <Loader2 className="mr-2 size-4 animate-spin" />
-          Loading source
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 export function PanelDrawer({
@@ -666,7 +622,7 @@ export function PanelDrawer({
                     hidden={sourceTab !== 'html'}
                     value="html"
                   >
-                    <SourceCodeEditor
+                    <CodeEditor
                       disabled={isSaving || isSourceLoading}
                       extensions={htmlExtensions}
                       loading={isSourceLoading}
@@ -681,7 +637,7 @@ export function PanelDrawer({
                     hidden={sourceTab !== 'capabilities'}
                     value="capabilities"
                   >
-                    <SourceCodeEditor
+                    <CodeEditor
                       disabled={isSaving || isSourceLoading}
                       extensions={jsonExtensions}
                       loading={isSourceLoading}
