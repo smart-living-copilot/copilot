@@ -2,13 +2,19 @@
 
 import json
 import os
+import uuid
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
 from code_executor.api.app import app
 from code_executor.api.dependencies import verify_api_key
-from code_executor.models import ExecuteRequest, ExecuteResponse
+from code_executor.models import (
+    ExecuteRequest,
+    ExecuteResponse,
+    WebArtifactRequest,
+    WebArtifactResponse,
+)
 from code_executor.utils import plotly_json_to_html
 
 
@@ -24,9 +30,27 @@ async def execute(req: ExecuteRequest, request: Request):
     return ExecuteResponse(**result)
 
 
+@app.post(
+    "/web-artifacts",
+    response_model=WebArtifactResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+async def store_web_artifact(req: WebArtifactRequest, request: Request):
+    """Persist a generated HTML interface and return its artifact filename."""
+    settings = request.app.state.settings
+    os.makedirs(settings.artifacts_dir, exist_ok=True)
+
+    filename = f"{uuid.uuid4().hex}.html"
+    filepath = os.path.join(settings.artifacts_dir, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(req.html)
+
+    return WebArtifactResponse(filename=filename)
+
+
 @app.get("/artifacts/{filename}", dependencies=[Depends(verify_api_key)])
 async def get_artifact(filename: str, request: Request):
-    """Serve an artifact file (PNG image or Plotly HTML from JSON)."""
+    """Serve an artifact file (PNG image, Plotly HTML from JSON, or HTML interface)."""
     settings = request.app.state.settings
 
     # Prevent path traversal
@@ -39,6 +63,10 @@ async def get_artifact(filename: str, request: Request):
 
     if filename.endswith(".png"):
         return FileResponse(filepath, media_type="image/png")
+
+    if filename.endswith(".html"):
+        with open(filepath, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
 
     if filename.endswith(".json"):
         with open(filepath, "r") as f:

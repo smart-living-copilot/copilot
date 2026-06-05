@@ -23,3 +23,11 @@ class ExecuteResponse(BaseModel):
     images: list[str]
     plotly: list[str]
     wot_calls: list[WotCall] = Field(default_factory=list)
+
+
+class WebArtifactRequest(BaseModel):
+    html: str
+
+
+class WebArtifactResponse(BaseModel):
+    filename: str
