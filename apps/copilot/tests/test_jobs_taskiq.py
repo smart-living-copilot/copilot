@@ -1561,6 +1561,74 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             [("job-1", "event_subscription", "healthy", None)],
         )
 
+    async def test_update_time_job_can_switch_schedule_kind_to_cron(self) -> None:
+        repo = _FakeServiceRepo(_job())
+        schedule_manager = _FakeScheduleManager()
+        service = JobService(
+            Settings(),
+            repo=repo,
+            runtime_client=_FakeServiceRuntimeClient(),
+            schedule_manager=schedule_manager,
+        )
+
+        updated = await service.update_job(
+            "job-1",
+            UpdateJobRequest(
+                schedule_kind=TimeTriggerKind.CRON,
+                cron_expression="0 9 * * *",
+                cron_timezone="Europe/Berlin",
+            ),
+        )
+
+        self.assertEqual(updated.schedule_kind, TimeTriggerKind.CRON)
+        self.assertIsNone(updated.interval_seconds)
+        self.assertIsNone(updated.run_at)
+        self.assertEqual(updated.cron_expression, "0 9 * * *")
+        self.assertEqual(updated.cron_timezone, "Europe/Berlin")
+        self.assertEqual(schedule_manager.removed, ["job-1"])
+        self.assertEqual(schedule_manager.added, ["job-1"])
+        self.assertEqual(
+            repo.resource_health_updates,
+            [("job-1", "schedule", "healthy", None)],
+        )
+
+    async def test_update_time_job_can_switch_schedule_kind_to_interval(self) -> None:
+        repo = _FakeServiceRepo(
+            _job(
+                schedule_kind=TimeTriggerKind.CRON,
+                interval_seconds=None,
+                cron_expression="0 9 * * *",
+                cron_timezone="Europe/Berlin",
+            )
+        )
+        schedule_manager = _FakeScheduleManager()
+        service = JobService(
+            Settings(),
+            repo=repo,
+            runtime_client=_FakeServiceRuntimeClient(),
+            schedule_manager=schedule_manager,
+        )
+
+        updated = await service.update_job(
+            "job-1",
+            UpdateJobRequest(
+                schedule_kind=TimeTriggerKind.INTERVAL,
+                interval_seconds=900,
+            ),
+        )
+
+        self.assertEqual(updated.schedule_kind, TimeTriggerKind.INTERVAL)
+        self.assertEqual(updated.interval_seconds, 900)
+        self.assertIsNone(updated.run_at)
+        self.assertIsNone(updated.cron_expression)
+        self.assertIsNone(updated.cron_timezone)
+        self.assertEqual(schedule_manager.removed, ["job-1"])
+        self.assertEqual(schedule_manager.added, ["job-1"])
+        self.assertEqual(
+            repo.resource_health_updates,
+            [("job-1", "schedule", "healthy", None)],
+        )
+
     async def test_disable_event_job_records_degraded_health_when_cleanup_fails(
         self,
     ) -> None:

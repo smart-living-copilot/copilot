@@ -1,7 +1,12 @@
+import { python as pythonLanguage } from '@codemirror/lang-python';
+
+import { CodeEditor } from '@/components/code-editor';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import { type JobActionKind } from './job-form-model';
+
+const pythonExtensions = [pythonLanguage()];
 
 interface JobActionFieldsProps {
   actionKind: JobActionKind;
@@ -45,11 +50,13 @@ function AnalysisCodeField({
       {showLabel ? (
         <label className="text-sm font-medium">Analysis code</label>
       ) : null}
-      <Textarea
-        rows={12}
+      <CodeEditor
+        className="text-[13px]"
+        extensions={pythonExtensions}
+        height="22rem"
+        loadingLabel="Loading code"
         value={analysisCode}
-        onChange={(event) => onAnalysisCodeChange(event.target.value)}
-        placeholder="print({'summary': '...', 'value': 0.8})"
+        onChange={onAnalysisCodeChange}
       />
     </div>
   );

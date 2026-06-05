@@ -132,18 +132,22 @@ export function JobDetailsPage({ jobId, onDeleted }: JobDetailsPageProps) {
             </Alert>
           ) : null}
 
-          <Tabs defaultValue="overview" className="space-y-5">
+          <JobDetailsOverviewTab
+            job={job}
+            status={status}
+            hasJobThread={hasJobThread}
+            hasTimeFields={hasTimeFields}
+            hasEventFields={hasEventFields}
+            latestCodeResult={latestCodeResult}
+            latestSubmittedRecordSummary={latestSubmittedRecordSummary}
+          />
+
+          <Tabs defaultValue="runs" className="space-y-5">
             <div className="overflow-x-auto">
               <TabsList
                 variant="line"
                 className="h-auto min-w-max gap-0 rounded-none border-b border-border/80 bg-transparent p-0"
               >
-                <TabsTrigger
-                  value="overview"
-                  className={JOB_TABS_TRIGGER_CLASSNAME}
-                >
-                  Overview
-                </TabsTrigger>
                 <TabsTrigger
                   value="runs"
                   className={JOB_TABS_TRIGGER_CLASSNAME}
@@ -177,18 +181,6 @@ export function JobDetailsPage({ jobId, onDeleted }: JobDetailsPageProps) {
                 ) : null}
               </TabsList>
             </div>
-
-            <TabsContent value="overview" className="mt-0 space-y-4">
-              <JobDetailsOverviewTab
-                job={job}
-                status={status}
-                hasJobThread={hasJobThread}
-                hasTimeFields={hasTimeFields}
-                hasEventFields={hasEventFields}
-                latestCodeResult={latestCodeResult}
-                latestSubmittedRecordSummary={latestSubmittedRecordSummary}
-              />
-            </TabsContent>
 
             <TabsContent value="runs" className="mt-0">
               <JobRunHistoryCard

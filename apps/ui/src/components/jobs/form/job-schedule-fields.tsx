@@ -114,7 +114,7 @@ export function JobScheduleFields({
     <div className={className}>
       {onScheduleKindChange ? (
         <div className="space-y-2">
-          <label className="text-sm font-medium">Schedule</label>
+          <label className="text-sm font-medium">Schedule type</label>
           <Select
             value={scheduleKind}
             onValueChange={(value) =>

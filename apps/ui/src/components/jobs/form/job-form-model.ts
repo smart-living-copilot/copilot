@@ -35,6 +35,7 @@ export interface EditJobFormState
   extends JobActionFormFields, JobScheduleFormFields {
   name: string;
   enabled: boolean;
+  scheduleKind: JobScheduleKind;
 }
 
 export function defaultCronTimezone(): string {
@@ -74,19 +75,20 @@ export function toEditJobFormState(job: JobRecord): EditJobFormState {
     name: job.name,
     prompt: job.prompt ?? '',
     analysisCode: job.analysis_code ?? '',
+    scheduleKind: job.schedule_kind ?? 'interval',
     intervalSeconds:
       job.interval_seconds != null ? String(job.interval_seconds) : '',
     runAt: toDatetimeLocal(job.run_at),
     cronExpression: job.cron_expression ?? '',
-    cronTimezone: job.cron_timezone ?? 'Europe/Berlin',
+    cronTimezone: job.cron_timezone ?? defaultCronTimezone(),
     enabled: job.enabled,
   };
 }
 
-export function getEditableScheduleKind(
-  job: Pick<JobRecord, 'schedule_kind' | 'trigger_kind'>,
-): JobScheduleKind | null {
-  return job.trigger_kind === 'time' ? job.schedule_kind : null;
+export function canEditTimeSchedule(
+  job: Pick<JobRecord, 'trigger_kind'>,
+): boolean {
+  return job.trigger_kind === 'time';
 }
 
 export function getSubscriptionInputError(
@@ -162,8 +164,9 @@ export function validateEditJobForm(
   const actionError = validateJobActionFields(job.action_kind, form);
   if (actionError) return actionError;
 
-  const scheduleKind = getEditableScheduleKind(job);
-  return scheduleKind ? validateTimeScheduleFields(scheduleKind, form) : null;
+  return canEditTimeSchedule(job)
+    ? validateTimeScheduleFields(form.scheduleKind, form)
+    : null;
 }
 
 export function toCreateJobPayload(form: CreateJobFormState): CreateJobPayload {
@@ -218,7 +221,10 @@ export function toUpdateJobPayload(
     payload.analysis_code = form.analysisCode.trim();
   }
 
-  const scheduleKind = getEditableScheduleKind(job);
+  const scheduleKind = canEditTimeSchedule(job) ? form.scheduleKind : null;
+  if (scheduleKind) {
+    payload.schedule_kind = scheduleKind;
+  }
   if (scheduleKind === 'interval') {
     payload.interval_seconds = Number(form.intervalSeconds);
   }

@@ -197,6 +197,7 @@ export interface UpdateJobPayload {
   name?: string;
   prompt?: string;
   analysis_code?: string;
+  schedule_kind?: 'once' | 'interval' | 'cron';
   interval_seconds?: number;
   run_at?: string;
   cron_expression?: string;

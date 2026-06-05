@@ -257,6 +257,7 @@ class JobDefinitionStore(_JobStoreBase):
         name: object = _UNSET,
         prompt: object = _UNSET,
         analysis_code: object = _UNSET,
+        schedule_kind: object = _UNSET,
         interval_seconds: object = _UNSET,
         run_at: object = _UNSET,
         cron_expression: object = _UNSET,
@@ -269,6 +270,7 @@ class JobDefinitionStore(_JobStoreBase):
             name,
             prompt,
             analysis_code,
+            schedule_kind,
             interval_seconds,
             run_at,
             cron_expression,
@@ -282,6 +284,7 @@ class JobDefinitionStore(_JobStoreBase):
         name: object,
         prompt: object,
         analysis_code: object,
+        schedule_kind: object,
         interval_seconds: object,
         run_at: object,
         cron_expression: object,
@@ -301,6 +304,12 @@ class JobDefinitionStore(_JobStoreBase):
                 row.prompt = prompt  # type: ignore[assignment]
             if analysis_code is not _UNSET:
                 row.analysis_code = analysis_code  # type: ignore[assignment]
+            if schedule_kind is not _UNSET:
+                row.schedule_kind = (  # type: ignore[assignment]
+                    schedule_kind.value
+                    if isinstance(schedule_kind, TimeTriggerKind)
+                    else schedule_kind
+                )
             if interval_seconds is not _UNSET:
                 row.interval_seconds = interval_seconds  # type: ignore[assignment]
             if run_at is not _UNSET:

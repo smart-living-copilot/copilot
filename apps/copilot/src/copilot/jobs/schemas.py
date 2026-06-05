@@ -135,6 +135,7 @@ class UpdateJobRequest(BaseModel):
         ),
     )
     analysis_code: str | None = None
+    schedule_kind: TimeTriggerKind | None = None
     interval_seconds: int | None = Field(default=None, ge=1)
     run_at: datetime | None = None
     cron_expression: str | None = Field(default=None, max_length=120)

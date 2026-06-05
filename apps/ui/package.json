@@ -15,6 +15,7 @@
   "dependencies": {
     "@codemirror/lang-html": "^6.4.11",
     "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-python": "^6.2.1",
     "@copilotkit/react-core": "^1.54.1",
     "@copilotkit/runtime": "^1.54.1",
     "@uiw/react-codemirror": "^4.25.10",

@@ -13,7 +13,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV APP_VERSION=$APP_VERSION
 ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
 
-CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0"]
+CMD ["sh", "./scripts/dev-entrypoint.sh"]
 
 FROM dev AS build
 

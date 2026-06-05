@@ -138,24 +138,35 @@ class JobService:
                 raise ValueError("analysis_code can only be set on analysis jobs")
             if not fields["analysis_code"] or not str(fields["analysis_code"]).strip():
                 raise ValueError("analysis jobs require non-empty analysis_code")
-        if "interval_seconds" in fields:
-            if (
-                job.trigger_kind != JobTriggerKind.TIME
-                or job.schedule_kind != TimeTriggerKind.INTERVAL
-            ):
-                raise ValueError("interval_seconds can only be set on interval jobs")
-        if "run_at" in fields:
-            if job.trigger_kind != JobTriggerKind.TIME or job.schedule_kind != TimeTriggerKind.ONCE:
-                raise ValueError("run_at can only be set on one-time jobs")
-        if "cron_expression" in fields or "cron_timezone" in fields:
-            if job.trigger_kind != JobTriggerKind.TIME or job.schedule_kind != TimeTriggerKind.CRON:
-                raise ValueError("cron fields can only be set on cron jobs")
-            expression = fields.get("cron_expression", job.cron_expression)
-            timezone_name = fields.get("cron_timezone", job.cron_timezone)
-            validate_cron_schedule(
-                expression,
-                timezone_name or self._settings.jobs_default_timezone,
-            )
+
+        schedule_fields = {
+            "schedule_kind",
+            "interval_seconds",
+            "run_at",
+            "cron_expression",
+            "cron_timezone",
+        }
+        if schedule_fields.intersection(fields):
+            if job.trigger_kind != JobTriggerKind.TIME:
+                raise ValueError("schedule fields can only be set on time jobs")
+            schedule_kind = fields.get("schedule_kind", job.schedule_kind)
+            if schedule_kind is None:
+                raise ValueError("time jobs require schedule_kind")
+            if schedule_kind == TimeTriggerKind.INTERVAL:
+                interval_seconds = fields.get("interval_seconds", job.interval_seconds)
+                if interval_seconds is None:
+                    raise ValueError("interval jobs require interval_seconds")
+            elif schedule_kind == TimeTriggerKind.ONCE:
+                run_at = fields.get("run_at", job.run_at)
+                if run_at is None:
+                    raise ValueError("one-time jobs require run_at")
+            elif schedule_kind == TimeTriggerKind.CRON:
+                expression = fields.get("cron_expression", job.cron_expression)
+                timezone_name = fields.get("cron_timezone", job.cron_timezone)
+                validate_cron_schedule(
+                    expression,
+                    timezone_name or self._settings.jobs_default_timezone,
+                )
 
     async def cancel_job_run(self, job_id: str) -> Job:
         return await self._repo.cancel_active_run(job_id)
@@ -362,12 +373,36 @@ class JobService:
         return request.model_copy(update=fields) if fields else request
 
     def _normalize_update_fields(self, job: Job, fields: dict[str, Any]) -> dict[str, Any]:
-        if "cron_expression" not in fields and "cron_timezone" not in fields:
+        if job.trigger_kind != JobTriggerKind.TIME:
             return fields
-        if job.trigger_kind != JobTriggerKind.TIME or job.schedule_kind != TimeTriggerKind.CRON:
-            return fields
-        expression = fields.get("cron_expression", job.cron_expression)
-        timezone_name = fields.get(
+
+        normalized = dict(fields)
+        schedule_kind = normalized.get("schedule_kind", job.schedule_kind)
+
+        if "schedule_kind" in normalized:
+            if schedule_kind == TimeTriggerKind.INTERVAL:
+                normalized.setdefault("run_at", None)
+                normalized.setdefault("cron_expression", None)
+                normalized.setdefault("cron_timezone", None)
+            elif schedule_kind == TimeTriggerKind.ONCE:
+                normalized.setdefault("interval_seconds", None)
+                normalized.setdefault("cron_expression", None)
+                normalized.setdefault("cron_timezone", None)
+            elif schedule_kind == TimeTriggerKind.CRON:
+                normalized.setdefault("interval_seconds", None)
+                normalized.setdefault("run_at", None)
+
+        if schedule_kind != TimeTriggerKind.CRON:
+            return normalized
+        if not (
+            "schedule_kind" in normalized
+            or "cron_expression" in normalized
+            or "cron_timezone" in normalized
+        ):
+            return normalized
+
+        expression = normalized.get("cron_expression", job.cron_expression)
+        timezone_name = normalized.get(
             "cron_timezone",
             job.cron_timezone or self._settings.jobs_default_timezone,
         )
@@ -375,11 +410,9 @@ class JobService:
             expression,
             timezone_name or self._settings.jobs_default_timezone,
         )
-        return {
-            **fields,
-            "cron_expression": expression,
-            "cron_timezone": timezone_name,
-        }
+        normalized["cron_expression"] = expression
+        normalized["cron_timezone"] = timezone_name
+        return normalized
 
 
 def _normalize_client_reply_id(client_reply_id: str | None) -> str | None:

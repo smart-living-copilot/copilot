@@ -21,9 +21,9 @@ import { JobEnabledField } from '@/components/jobs/form/job-enabled-field';
 import { JobFormCard } from '@/components/jobs/form/job-form-card';
 import { JobFormHeader } from '@/components/jobs/form/job-form-header';
 import {
+  canEditTimeSchedule,
   type EditJobFormState,
   type JobScheduleKind,
-  getEditableScheduleKind,
   toEditJobFormState,
   toUpdateJobPayload,
   validateEditJobForm,
@@ -44,6 +44,16 @@ function getScheduleDescription(scheduleKind: JobScheduleKind): string {
     return 'The cron expression and timezone for this recurring job.';
   }
   return 'When this one-time job runs.';
+}
+
+function getScheduleBadgeLabel(
+  job: JobRecord,
+  scheduleKind: JobScheduleKind | null,
+): string {
+  if (!scheduleKind) return getScheduleLabel(job);
+  if (scheduleKind === 'interval') return 'Interval';
+  if (scheduleKind === 'cron') return 'Cron';
+  return 'Once';
 }
 
 export function JobEditPage({ jobId }: JobEditPageProps) {
@@ -86,7 +96,8 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
     [],
   );
 
-  const scheduleKind = job ? getEditableScheduleKind(job) : null;
+  const scheduleKind =
+    job && form && canEditTimeSchedule(job) ? form.scheduleKind : null;
 
   const validationError = useMemo(() => {
     if (!job || !form) return null;
@@ -132,11 +143,31 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
     );
   }
 
+  const actionCard = (
+    <JobFormCard
+      title={job.action_kind === 'analysis' ? 'Analysis code' : 'Prompt'}
+      description="What the job runs each time it is triggered."
+    >
+      <JobActionFields
+        actionKind={job.action_kind}
+        prompt={form.prompt}
+        analysisCode={form.analysisCode}
+        onPromptChange={(value) => setField('prompt', value)}
+        onAnalysisCodeChange={(value) => setField('analysisCode', value)}
+        showLabels={false}
+      />
+    </JobFormCard>
+  );
+
+  const settingsDescription = scheduleKind
+    ? 'Name, enabled state, and schedule in one place.'
+    : 'Name and enabled state. Event bindings are fixed after creation.';
+
   return (
     <form className="space-y-5" onSubmit={(event) => void handleSubmit(event)}>
       <JobFormHeader
         title="Edit job"
-        description="Update the name, action, and schedule. The trigger type and event binding are fixed — recreate the job to change those."
+        description="Update the name, enabled state, schedule, and action content. The trigger source and event binding are fixed after creation."
         cancelHref={`/jobs/${job.id}`}
         submitLabel="Save"
         submitIcon={<Save className="h-4 w-4" />}
@@ -145,66 +176,64 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
       />
 
       <JobFormCard
-        title="Identity"
-        description="Name the background automation."
-        contentClassName="space-y-4"
+        title="Settings"
+        description={settingsDescription}
+        contentClassName={
+          scheduleKind
+            ? 'grid gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]'
+            : 'space-y-4'
+        }
         headerAction={
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline">{getStatusLabel(job.action_kind)}</Badge>
-            <Badge variant="outline">{getScheduleLabel(job)}</Badge>
+            <Badge variant="outline">
+              {getScheduleBadgeLabel(job, scheduleKind)}
+            </Badge>
           </div>
         }
       >
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Name</label>
-          <Input
-            value={form.name}
-            onChange={(event) => setField('name', event.target.value)}
-            placeholder="Morning energy summary"
+        <section className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Name</label>
+            <Input
+              value={form.name}
+              onChange={(event) => setField('name', event.target.value)}
+              placeholder="Morning energy summary"
+            />
+          </div>
+          <JobEnabledField
+            compact
+            enabled={form.enabled}
+            onEnabledChange={(value) => setField('enabled', value)}
           />
-        </div>
-        <JobEnabledField
-          enabled={form.enabled}
-          onEnabledChange={(value) => setField('enabled', value)}
-        />
+        </section>
+
+        {scheduleKind ? (
+          <section className="space-y-2">
+            <JobScheduleFields
+              scheduleKind={scheduleKind}
+              intervalSeconds={form.intervalSeconds}
+              runAt={form.runAt}
+              cronExpression={form.cronExpression}
+              cronTimezone={form.cronTimezone}
+              onIntervalSecondsChange={(value) =>
+                setField('intervalSeconds', value)
+              }
+              onRunAtChange={(value) => setField('runAt', value)}
+              onCronExpressionChange={(value) =>
+                setField('cronExpression', value)
+              }
+              onCronTimezoneChange={(value) => setField('cronTimezone', value)}
+              onScheduleKindChange={(value) => setField('scheduleKind', value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              {getScheduleDescription(scheduleKind)}
+            </p>
+          </section>
+        ) : null}
       </JobFormCard>
 
-      <JobFormCard
-        title={job.action_kind === 'analysis' ? 'Analysis code' : 'Prompt'}
-        description="What the job runs each time it is triggered."
-      >
-        <JobActionFields
-          actionKind={job.action_kind}
-          prompt={form.prompt}
-          analysisCode={form.analysisCode}
-          onPromptChange={(value) => setField('prompt', value)}
-          onAnalysisCodeChange={(value) => setField('analysisCode', value)}
-          showLabels={false}
-        />
-      </JobFormCard>
-
-      {scheduleKind ? (
-        <JobFormCard
-          title="Schedule"
-          description={getScheduleDescription(scheduleKind)}
-        >
-          <JobScheduleFields
-            scheduleKind={scheduleKind}
-            intervalSeconds={form.intervalSeconds}
-            runAt={form.runAt}
-            cronExpression={form.cronExpression}
-            cronTimezone={form.cronTimezone}
-            onIntervalSecondsChange={(value) =>
-              setField('intervalSeconds', value)
-            }
-            onRunAtChange={(value) => setField('runAt', value)}
-            onCronExpressionChange={(value) =>
-              setField('cronExpression', value)
-            }
-            onCronTimezoneChange={(value) => setField('cronTimezone', value)}
-          />
-        </JobFormCard>
-      ) : null}
+      {actionCard}
 
       {validationError ? (
         <p className="text-sm text-destructive">{validationError}</p>
