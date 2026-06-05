@@ -12,7 +12,7 @@ import { Maximize2, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { PanelFrame } from '@/components/copilot/chat-tool-calls/panel-frame';
-import { PanelDialog } from '@/components/panels/panel-dialog';
+import { PanelDrawer } from '@/components/panels/panel-drawer';
 import { type PanelRecord, deletePanel, fetchPanels } from '@/lib/panels-api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -142,7 +142,7 @@ function PanelCard({
   onDeleted: (id: string) => void;
 }) {
   const [isDeleting, setIsDeleting] = useState(false);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -183,7 +183,7 @@ function PanelCard({
         <button
           aria-label={`Open ${panel.title}`}
           className="group relative block h-[18rem] w-full cursor-pointer"
-          onClick={() => setDialogOpen(true)}
+          onClick={() => setDrawerOpen(true)}
           type="button"
         >
           <div className="pointer-events-none absolute inset-0">
@@ -207,10 +207,10 @@ function PanelCard({
         ) : null}
       </CardFooter>
 
-      <PanelDialog
+      <PanelDrawer
         onChanged={onChanged}
-        onOpenChange={setDialogOpen}
-        open={dialogOpen}
+        onOpenChange={setDrawerOpen}
+        open={drawerOpen}
         panel={panel}
       />
     </Card>

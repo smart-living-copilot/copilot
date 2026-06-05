@@ -20,6 +20,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { type ThingIndexStatus } from '@/components/things/thing-detail-model';
+import { ThingDetailDrawer } from '@/components/things/thing-detail-drawer';
 import { ThingIndexStatusBadge } from '@/components/things/thing-index-status-badge';
 
 const PER_PAGE = 12;
@@ -34,6 +35,7 @@ export function ThingsList() {
   const [indexStatuses, setIndexStatuses] = useState<
     Record<string, ThingIndexStatus>
   >({});
+  const [selectedThingId, setSelectedThingId] = useState<string | null>(null);
 
   useEffect(() => {
     setPage(1);
@@ -82,6 +84,17 @@ export function ThingsList() {
 
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
   const hasSearch = deferredSearch.trim().length > 0;
+
+  const handleDeleted = useCallback((thingId: string) => {
+    setSelectedThingId(null);
+    setData((current) => current.filter((record) => record.id !== thingId));
+    setTotal((current) => Math.max(0, current - 1));
+    setIndexStatuses((current) => {
+      const next = { ...current };
+      delete next[thingId];
+      return next;
+    });
+  }, []);
 
   return (
     <div className="space-y-5">
@@ -162,12 +175,13 @@ export function ThingsList() {
                       <TableRow key={record.id}>
                         <TableCell className="min-w-[280px]">
                           <div className="space-y-1">
-                            <Link
-                              href={`/things/${encodeURIComponent(record.id)}`}
+                            <button
                               className="font-medium transition-colors hover:text-primary"
+                              onClick={() => setSelectedThingId(record.id)}
+                              type="button"
                             >
                               {record.title}
-                            </Link>
+                            </button>
                             <p className="line-clamp-2 max-w-xl text-sm leading-5 text-muted-foreground">
                               {record.description || 'No description provided.'}
                             </p>
@@ -183,13 +197,14 @@ export function ThingsList() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end">
-                            <Button asChild variant="outline" size="sm">
-                              <Link
-                                href={`/things/${encodeURIComponent(record.id)}`}
-                              >
-                                <Eye className="h-3.5 w-3.5" />
-                                View
-                              </Link>
+                            <Button
+                              onClick={() => setSelectedThingId(record.id)}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              View
                             </Button>
                           </div>
                         </TableCell>
@@ -256,6 +271,17 @@ export function ThingsList() {
           )}
         </CardContent>
       </Card>
+
+      <ThingDetailDrawer
+        onDeleted={handleDeleted}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setSelectedThingId(null);
+          }
+        }}
+        open={selectedThingId !== null}
+        thingId={selectedThingId}
+      />
     </div>
   );
 }

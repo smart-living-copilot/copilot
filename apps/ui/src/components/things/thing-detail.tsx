@@ -25,7 +25,13 @@ import {
   type ThingIndexStatus,
 } from './thing-detail-model';
 
-export function ThingDetail({ thingId }: { thingId: string }) {
+export function ThingDetail({
+  thingId,
+  onDeleted,
+}: {
+  thingId: string;
+  onDeleted?: (thingId: string) => void;
+}) {
   const router = useRouter();
 
   const [thing, setThing] = useState<ThingRecord | null>(null);
@@ -152,13 +158,17 @@ export function ThingDetail({ thingId }: { thingId: string }) {
     try {
       await deleteThing(thing.id);
       toast.success(`Deleted ${thing.title}`);
-      router.push('/things');
+      if (onDeleted) {
+        onDeleted(thing.id);
+      } else {
+        router.push('/things');
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Delete failed');
     } finally {
       setIsDeleting(false);
     }
-  }, [router, thing]);
+  }, [onDeleted, router, thing]);
 
   const handleDeleteCredential = useCallback(
     async (securityName: string) => {

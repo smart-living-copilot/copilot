@@ -10,6 +10,7 @@ import {
   Pencil,
   RotateCcw,
   Sparkles,
+  X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState, type ComponentProps } from 'react';
 import {
@@ -32,12 +33,13 @@ import {
 import { useTheme } from '@/components/theme-provider';
 import { Button } from '@/components/ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
 import {
   Popover,
@@ -120,7 +122,7 @@ function SourceCodeEditor({
   );
 }
 
-export function PanelDialog({
+export function PanelDrawer({
   panel,
   open,
   onOpenChange,
@@ -370,20 +372,25 @@ export function PanelDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="flex h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100vw-1rem)]"
-        onInteractOutside={(event) => event.preventDefault()}
+    <Drawer
+      direction="right"
+      handleOnly
+      onOpenChange={onOpenChange}
+      open={open}
+    >
+      <DrawerContent
+        className="h-full gap-0 overflow-hidden p-0"
+        style={{ width: 'min(100vw, 88rem)', maxWidth: 'none' }}
       >
-        <DialogHeader className="flex-row items-center justify-between gap-3 border-b border-border/55 px-4 py-2.5 pr-12">
+        <DrawerHeader className="flex-row items-center justify-between gap-3 border-b border-border/55 px-4 py-2.5">
           <div className="min-w-0">
-            <DialogTitle className="truncate text-sm font-medium">
+            <DrawerTitle className="truncate text-sm font-medium">
               {panel.title}
-            </DialogTitle>
+            </DrawerTitle>
           </div>
-          <DialogDescription className="sr-only">
+          <DrawerDescription className="sr-only">
             View and edit the pinned panel.
-          </DialogDescription>
+          </DrawerDescription>
           <div className="flex shrink-0 items-center gap-1.5">
             <Popover open={renameOpen} onOpenChange={handleRenameOpenChange}>
               <PopoverTrigger asChild>
@@ -581,8 +588,19 @@ export function PanelDialog({
               <Code2 className="size-3.5" />
               <span className="hidden sm:inline">Source</span>
             </Button>
+
+            <DrawerClose asChild>
+              <Button
+                aria-label="Close"
+                size="icon-sm"
+                type="button"
+                variant="ghost"
+              >
+                <X className="size-3.5" />
+              </Button>
+            </DrawerClose>
           </div>
-        </DialogHeader>
+        </DrawerHeader>
 
         <div className="min-h-0 flex-1 bg-muted/25">
           {sourceOpen ? (
@@ -678,7 +696,7 @@ export function PanelDialog({
             <div className="h-full p-2 sm:p-3">{frame}</div>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+      </DrawerContent>
+    </Drawer>
   );
 }

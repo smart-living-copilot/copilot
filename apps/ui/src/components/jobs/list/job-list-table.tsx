@@ -1,5 +1,3 @@
-import Link from 'next/link';
-
 import {
   actionLabel,
   renderRelative,
@@ -40,6 +38,7 @@ interface JobListTableProps {
   onCancel: (jobId: string) => void;
   onClearSearch: () => void;
   onDelete: (job: JobRecord) => void;
+  onOpenDetails: (jobId: string) => void;
   onRun: (jobId: string) => void;
   onShowAll: () => void;
   onToggleEnabled: (job: JobRecord) => void;
@@ -58,6 +57,7 @@ export function JobListTable({
   onCancel,
   onClearSearch,
   onDelete,
+  onOpenDetails,
   onRun,
   onShowAll,
   onToggleEnabled,
@@ -105,12 +105,13 @@ export function JobListTable({
               <TableRow key={job.id}>
                 <TableCell className="align-middle">
                   <div className="min-w-0 space-y-1.5">
-                    <Link
-                      href={`/jobs/${job.id}`}
+                    <button
                       className="block max-w-full truncate font-medium transition-colors hover:text-primary"
+                      onClick={() => onOpenDetails(job.id)}
+                      type="button"
                     >
                       {job.name}
-                    </Link>
+                    </button>
                     <div className="flex flex-wrap gap-1.5">
                       <Badge variant="outline">{actionLabel(job)}</Badge>
                     </div>
@@ -160,6 +161,7 @@ export function JobListTable({
                     onToggleEnabled={() => onToggleEnabled(job)}
                     onCancel={() => onCancel(job.id)}
                     onDelete={() => onDelete(job)}
+                    onOpenDetails={() => onOpenDetails(job.id)}
                   />
                 </TableCell>
               </TableRow>

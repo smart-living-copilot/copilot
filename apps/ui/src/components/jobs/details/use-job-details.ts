@@ -34,8 +34,12 @@ import {
   setJobEnabled,
 } from '@/lib/jobs-api';
 
-export function useJobDetails(jobId: string) {
+export function useJobDetails(
+  jobId: string,
+  options: { onDeleted?: (jobId: string) => void } = {},
+) {
   const router = useRouter();
+  const { onDeleted } = options;
   const [job, setJob] = useState<JobRecord | null>(null);
   const [runs, setRuns] = useState<JobRunRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -219,14 +223,18 @@ export function useJobDetails(jobId: string) {
     try {
       await deleteJob(job.id);
       toast.success('Job deleted.');
-      router.push('/jobs');
+      if (onDeleted) {
+        onDeleted(job.id);
+      } else {
+        router.push('/jobs');
+      }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : 'Failed to delete job',
       );
       setIsDeleting(false);
     }
-  }, [job, router]);
+  }, [job, onDeleted, router]);
 
   return {
     job,

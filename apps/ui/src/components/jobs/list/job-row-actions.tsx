@@ -78,6 +78,7 @@ interface JobRowActionsProps {
   onToggleEnabled: () => void;
   onCancel: () => void;
   onDelete: () => void;
+  onOpenDetails: () => void;
 }
 
 export function JobRowActions({
@@ -88,6 +89,7 @@ export function JobRowActions({
   onToggleEnabled,
   onCancel,
   onDelete,
+  onOpenDetails,
 }: JobRowActionsProps) {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
@@ -138,18 +140,14 @@ export function JobRowActions({
         </Tooltip>
         <DropdownMenuContent align="end">
           {supportsJobReply(job) ? (
-            <DropdownMenuItem asChild>
-              <Link href={`/jobs/${job.id}`}>
-                <MessagesSquare className="h-4 w-4" />
-                Answer question
-              </Link>
+            <DropdownMenuItem onSelect={onOpenDetails}>
+              <MessagesSquare className="h-4 w-4" />
+              Answer question
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuItem asChild>
-            <Link href={`/jobs/${job.id}`}>
-              <Eye className="h-4 w-4" />
-              View details
-            </Link>
+          <DropdownMenuItem onSelect={onOpenDetails}>
+            <Eye className="h-4 w-4" />
+            View details
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link href={`/jobs/${job.id}/edit`}>

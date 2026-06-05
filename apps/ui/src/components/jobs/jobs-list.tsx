@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { Plus, RefreshCw } from 'lucide-react';
+import { useCallback, useState } from 'react';
 
+import { JobDetailsDrawer } from '@/components/jobs/job-details-drawer';
 import { VoiceModeToggle } from '@/components/jobs/job-speech-controls';
 import { JobListFilters } from '@/components/jobs/list/job-list-filters';
 import { JobListTable } from '@/components/jobs/list/job-list-table';
@@ -12,6 +14,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 export function JobsList() {
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const {
     activeTab,
     activeTabLabel,
@@ -32,6 +35,11 @@ export function JobsList() {
     handleCancel,
     handleDelete,
   } = useJobsList();
+
+  const handleDrawerDeleted = useCallback(() => {
+    setSelectedJobId(null);
+    void loadJobs();
+  }, [loadJobs]);
 
   return (
     <TooltipProvider>
@@ -91,6 +99,7 @@ export function JobsList() {
                 onCancel={(jobId) => void handleCancel(jobId)}
                 onClearSearch={() => setSearch('')}
                 onDelete={(job) => void handleDelete(job)}
+                onOpenDetails={setSelectedJobId}
                 onRun={(jobId) => void handleRun(jobId)}
                 onShowAll={() => setActiveTab('all')}
                 onToggleEnabled={(job) => void handleToggleEnabled(job)}
@@ -98,6 +107,17 @@ export function JobsList() {
             </CardContent>
           </Card>
         </section>
+
+        <JobDetailsDrawer
+          jobId={selectedJobId}
+          onDeleted={handleDrawerDeleted}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) {
+              setSelectedJobId(null);
+            }
+          }}
+          open={selectedJobId !== null}
+        />
       </div>
     </TooltipProvider>
   );
