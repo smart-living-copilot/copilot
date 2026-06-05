@@ -1,7 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Maximize2, RefreshCw, Trash2 } from 'lucide-react';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { Maximize2, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { PanelFrame } from '@/components/copilot/chat-tool-calls/panel-frame';
@@ -17,7 +24,29 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+
+const PANEL_PREVIEW_VIEWPORT = {
+  width: 1024,
+  height: 768,
+} as const;
+
+function getPanelSearchableText(panel: PanelRecord): string {
+  return [
+    panel.title,
+    panel.id,
+    panel.source_thread_id,
+    ...panel.capabilities.flatMap((capability) => [
+      capability.thingId,
+      ...capability.affordances,
+      ...capability.ops,
+    ]),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
 
 /** Renders children only once scrolled into view, to avoid mounting every
  *  panel's live bridge at once. */
@@ -44,6 +73,60 @@ function WhenVisible({ children }: { children: React.ReactNode }) {
   return (
     <div ref={ref} className="h-full w-full">
       {visible ? children : null}
+    </div>
+  );
+}
+
+function PanelPreview({ panel }: { panel: PanelRecord }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(0.36);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateScale = () => {
+      const rect = container.getBoundingClientRect();
+      const nextScale = Math.min(
+        rect.width / PANEL_PREVIEW_VIEWPORT.width,
+        rect.height / PANEL_PREVIEW_VIEWPORT.height,
+        1,
+      );
+
+      if (Number.isFinite(nextScale) && nextScale > 0) {
+        setScale(nextScale);
+      }
+    };
+
+    updateScale();
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden bg-muted/30"
+    >
+      <div
+        className="flex-none overflow-hidden rounded-md border border-border/55 bg-background shadow-sm"
+        style={{
+          height: PANEL_PREVIEW_VIEWPORT.height,
+          transform: `scale(${scale})`,
+          transformOrigin: 'center',
+          width: PANEL_PREVIEW_VIEWPORT.width,
+        }}
+      >
+        <WhenVisible>
+          <PanelFrame
+            capabilities={panel.capabilities}
+            className="h-full w-full rounded-none border-0"
+            src={`/api/panels/${encodeURIComponent(panel.id)}/render`}
+            title={panel.title}
+          />
+        </WhenVisible>
+      </div>
     </div>
   );
 }
@@ -104,14 +187,7 @@ function PanelCard({
           type="button"
         >
           <div className="pointer-events-none absolute inset-0">
-            <WhenVisible>
-              <PanelFrame
-                capabilities={panel.capabilities}
-                className="h-full w-full rounded-none border-0"
-                src={`/api/panels/${encodeURIComponent(panel.id)}/render`}
-                title={panel.title}
-              />
-            </WhenVisible>
+            <PanelPreview panel={panel} />
           </div>
           <div className="absolute inset-0 flex items-center justify-center bg-background/0 opacity-0 transition group-hover:bg-background/40 group-hover:opacity-100">
             <span className="flex items-center gap-1.5 rounded-md bg-background/90 px-2.5 py-1 text-xs font-medium shadow-sm">
@@ -142,6 +218,8 @@ function PanelCard({
 }
 
 export function PanelsList() {
+  const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [panels, setPanels] = useState<PanelRecord[]>([]);
   const [isPending, setIsPending] = useState(true);
 
@@ -172,9 +250,19 @@ export function PanelsList() {
     setPanels((prev) => prev.filter((p) => p.id !== id));
   }, []);
 
+  const visiblePanels = useMemo(() => {
+    const query = deferredSearch.trim().toLowerCase();
+    if (!query) return panels;
+    return panels.filter((panel) =>
+      getPanelSearchableText(panel).includes(query),
+    );
+  }, [deferredSearch, panels]);
+
+  const hasSearch = deferredSearch.trim().length > 0;
+
   return (
-    <div className="space-y-5">
-      <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="space-y-4">
+      <section className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight">Panels</h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
@@ -184,7 +272,6 @@ export function PanelsList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary">{panels.length} pinned</Badge>
           <Button
             variant="outline"
             onClick={() => void loadData()}
@@ -198,15 +285,35 @@ export function PanelsList() {
         </div>
       </section>
 
+      <div className="flex flex-col gap-2 rounded-md border border-border/70 bg-card/70 px-2.5 py-2 shadow-sm shadow-black/5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search panels"
+            className="h-8 pl-8"
+          />
+        </div>
+        <div className="flex min-h-7 items-center gap-1.5 text-xs text-muted-foreground">
+          <Badge variant="secondary" className="h-6 px-2 text-[11px]">
+            {visiblePanels.length} visible
+          </Badge>
+          <Badge variant="outline" className="h-6 px-2 text-[11px]">
+            {panels.length} pinned
+          </Badge>
+        </div>
+      </div>
+
       {isPending ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {['s1', 's2', 's3'].map((key) => (
             <Skeleton key={key} className="h-[24rem] w-full rounded-xl" />
           ))}
         </div>
-      ) : panels.length > 0 ? (
+      ) : visiblePanels.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {panels.map((panel) => (
+          {visiblePanels.map((panel) => (
             <PanelCard
               key={panel.id}
               panel={panel}
@@ -218,12 +325,20 @@ export function PanelsList() {
       ) : (
         <div className="rounded-md border border-dashed px-6 py-12 text-center">
           <h2 className="text-xl font-semibold tracking-tight">
-            No pinned panels
+            {hasSearch ? 'No panels found' : 'No pinned panels'}
           </h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            Ask the assistant to build a control panel or dashboard, then click
-            the pin icon to keep it here.
+            {hasSearch
+              ? `No panels match "${deferredSearch.trim()}".`
+              : 'Ask the assistant to build a control panel or dashboard, then click the pin icon to keep it here.'}
           </p>
+          {hasSearch ? (
+            <div className="mt-5 flex justify-center">
+              <Button variant="outline" onClick={() => setSearch('')}>
+                Clear search
+              </Button>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

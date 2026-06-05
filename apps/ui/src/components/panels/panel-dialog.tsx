@@ -1,7 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Sparkles } from 'lucide-react';
+import { html as htmlLanguage } from '@codemirror/lang-html';
+import { json as jsonLanguage } from '@codemirror/lang-json';
+import CodeMirror from '@uiw/react-codemirror';
+import { Code2, Loader2, Pencil, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useState, type ComponentProps } from 'react';
+import {
+  Group as PanelGroup,
+  Panel as ResizablePanel,
+  Separator as PanelResizeHandle,
+} from 'react-resizable-panels';
 import { toast } from 'sonner';
 
 import { PanelFrame } from '@/components/copilot/chat-tool-calls/panel-frame';
@@ -11,6 +19,7 @@ import {
   fetchPanelSource,
   updatePanel,
 } from '@/lib/panels-api';
+import { useTheme } from '@/components/theme-provider';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -20,8 +29,63 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import {
+  Popover,
+  PopoverContent,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+
+type SourceTab = 'html' | 'capabilities';
+type CodeMirrorExtensions = ComponentProps<typeof CodeMirror>['extensions'];
+
+const htmlExtensions = [htmlLanguage()];
+const jsonExtensions = [jsonLanguage()];
+
+function SourceCodeEditor({
+  disabled,
+  extensions,
+  loading,
+  onChange,
+  value,
+}: {
+  disabled: boolean;
+  extensions: CodeMirrorExtensions;
+  loading: boolean;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const { resolvedTheme } = useTheme();
+
+  return (
+    <div className="relative min-h-0 flex-1">
+      <CodeMirror
+        basicSetup={{
+          foldGutter: true,
+          highlightActiveLine: true,
+          lineNumbers: true,
+        }}
+        className="h-full overflow-hidden rounded-md border border-border/70 bg-background text-[12px] [&_.cm-activeLine]:bg-muted/50 [&_.cm-activeLineGutter]:bg-muted/70 [&_.cm-editor]:h-full [&_.cm-gutters]:border-border/70 [&_.cm-gutters]:bg-muted/30 [&_.cm-gutters]:text-muted-foreground [&_.cm-scroller]:overflow-auto"
+        editable={!disabled}
+        extensions={extensions}
+        height="100%"
+        onChange={onChange}
+        readOnly={disabled}
+        theme={resolvedTheme}
+        value={value}
+      />
+      {loading ? (
+        <div className="absolute inset-0 flex items-center justify-center rounded-md bg-background/70 text-sm text-muted-foreground backdrop-blur-[1px]">
+          <Loader2 className="mr-2 size-4 animate-spin" />
+          Loading source
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function PanelDialog({
   panel,
@@ -36,32 +100,56 @@ export function PanelDialog({
 }) {
   // Bumped on every successful edit to force the live iframe to reload.
   const [version, setVersion] = useState(0);
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [sourceTab, setSourceTab] = useState<SourceTab>('html');
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [title, setTitle] = useState(panel.title);
+  const [isRenaming, setIsRenaming] = useState(false);
 
   // AI edit state
   const [instruction, setInstruction] = useState('');
   const [isEditing, setIsEditing] = useState(false);
 
-  // Raw code state
+  // Raw source state
   const [html, setHtml] = useState('');
   const [capsText, setCapsText] = useState('');
   const [sourceLoaded, setSourceLoaded] = useState(false);
+  const [isSourceLoading, setIsSourceLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     setTitle(panel.title);
   }, [panel.title]);
 
+  useEffect(() => {
+    if (!open) {
+      setAiOpen(false);
+      setInstruction('');
+      setRenameOpen(false);
+      setSourceOpen(false);
+      setSourceTab('html');
+    }
+  }, [open]);
+
   const applied = useCallback(
-    (updated: PanelRecord) => {
+    (
+      updated: PanelRecord,
+      options: { reloadFrame?: boolean; resetSource?: boolean } = {},
+    ) => {
       onChanged(updated);
-      setVersion((v) => v + 1);
-      setSourceLoaded(false); // re-fetch source next time the Code tab opens
+      if (options.reloadFrame ?? true) {
+        setVersion((v) => v + 1);
+      }
+      if (options.resetSource ?? true) {
+        setSourceLoaded(false);
+      }
     },
     [onChanged],
   );
 
   const loadSource = useCallback(async () => {
+    setIsSourceLoading(true);
     try {
       const detail = await fetchPanelSource(panel.id);
       setHtml(detail.html ?? '');
@@ -71,16 +159,63 @@ export function PanelDialog({
       toast.error(
         error instanceof Error ? error.message : 'Failed to load panel source',
       );
+    } finally {
+      setIsSourceLoading(false);
     }
   }, [panel.id]);
 
+  const handleRenameOpenChange = (nextOpen: boolean) => {
+    setRenameOpen(nextOpen);
+    if (nextOpen) {
+      setAiOpen(false);
+      setTitle(panel.title);
+    }
+  };
+
+  const handleAiOpenChange = (nextOpen: boolean) => {
+    setAiOpen(nextOpen);
+    if (nextOpen) {
+      setRenameOpen(false);
+    } else if (!isEditing) {
+      setInstruction('');
+    }
+  };
+
+  const handleSourceToggle = () => {
+    setSourceOpen((current) => {
+      const nextOpen = !current;
+      if (nextOpen && !sourceLoaded) {
+        void loadSource();
+      }
+      return nextOpen;
+    });
+    setAiOpen(false);
+    setRenameOpen(false);
+  };
+
   const handleRename = async () => {
-    if (title.trim() === panel.title) return;
+    const nextTitle = title.trim();
+    if (!nextTitle) {
+      toast.error('Title is required');
+      setTitle(panel.title);
+      return;
+    }
+    if (nextTitle === panel.title) {
+      setRenameOpen(false);
+      return;
+    }
+    setIsRenaming(true);
     try {
-      applied(await updatePanel(panel.id, { title: title.trim() }));
+      applied(await updatePanel(panel.id, { title: nextTitle }), {
+        reloadFrame: false,
+        resetSource: false,
+      });
+      setRenameOpen(false);
       toast.success('Renamed');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Rename failed');
+    } finally {
+      setIsRenaming(false);
     }
   };
 
@@ -90,6 +225,8 @@ export function PanelDialog({
     try {
       applied(await editPanel(panel.id, instruction.trim()));
       setInstruction('');
+      setAiOpen(false);
+      setSourceOpen(false);
       toast.success('Panel updated');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Edit failed');
@@ -104,11 +241,14 @@ export function PanelDialog({
       capabilities = JSON.parse(capsText);
     } catch {
       toast.error('Capabilities is not valid JSON');
+      setSourceTab('capabilities');
       return;
     }
     setIsSaving(true);
     try {
-      applied(await updatePanel(panel.id, { html, capabilities }));
+      applied(await updatePanel(panel.id, { html, capabilities }), {
+        resetSource: false,
+      });
       toast.success('Saved');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Save failed');
@@ -117,117 +257,238 @@ export function PanelDialog({
     }
   };
 
+  const frame = (
+    <PanelFrame
+      key={version}
+      capabilities={panel.capabilities}
+      className="h-full min-h-[20rem] w-full rounded-lg"
+      src={`/api/panels/${encodeURIComponent(panel.id)}/render?v=${version}`}
+      title={panel.title}
+    />
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[88vh] max-w-[min(96vw,80rem)] flex-col gap-0 p-0 sm:max-w-[min(96vw,80rem)]">
-        <DialogHeader className="border-b border-border/55 px-4 py-3 pr-12">
-          <DialogTitle className="sr-only">{panel.title}</DialogTitle>
+      <DialogContent
+        className="flex h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100vw-1rem)]"
+        onInteractOutside={(event) => event.preventDefault()}
+      >
+        <DialogHeader className="flex-row items-center justify-between gap-3 border-b border-border/55 px-4 py-2.5 pr-12">
+          <div className="min-w-0">
+            <DialogTitle className="truncate text-sm font-medium">
+              {panel.title}
+            </DialogTitle>
+          </div>
           <DialogDescription className="sr-only">
             View and edit the pinned panel.
           </DialogDescription>
-          <Input
-            aria-label="Panel title"
-            className="h-8 max-w-md border-transparent bg-transparent px-1 text-sm font-medium shadow-none focus-visible:border-border focus-visible:bg-background"
-            onBlur={handleRename}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleRename();
-            }}
-            value={title}
-          />
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Popover open={renameOpen} onOpenChange={handleRenameOpenChange}>
+              <PopoverTrigger asChild>
+                <Button
+                  aria-label="Rename panel"
+                  size="sm"
+                  type="button"
+                  variant={renameOpen ? 'secondary' : 'ghost'}
+                >
+                  <Pencil className="size-3.5" />
+                  <span className="hidden sm:inline">Rename</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="z-[60] w-80">
+                <PopoverHeader>
+                  <PopoverTitle>Rename Panel</PopoverTitle>
+                </PopoverHeader>
+                <form
+                  className="space-y-3"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleRename();
+                  }}
+                >
+                  <Input
+                    autoFocus
+                    aria-label="Panel title"
+                    disabled={isRenaming}
+                    onChange={(event) => setTitle(event.target.value)}
+                    value={title}
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      disabled={isRenaming}
+                      onClick={() => {
+                        setTitle(panel.title);
+                        setRenameOpen(false);
+                      }}
+                      type="button"
+                      variant="outline"
+                    >
+                      Cancel
+                    </Button>
+                    <Button disabled={isRenaming} type="submit">
+                      {isRenaming ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : null}
+                      {isRenaming ? 'Saving...' : 'Save'}
+                    </Button>
+                  </div>
+                </form>
+              </PopoverContent>
+            </Popover>
+
+            <Popover open={aiOpen} onOpenChange={handleAiOpenChange}>
+              <PopoverTrigger asChild>
+                <Button
+                  aria-label="Ask AI to change panel"
+                  size="sm"
+                  type="button"
+                  variant={aiOpen ? 'secondary' : 'ghost'}
+                >
+                  <Sparkles className="size-3.5" />
+                  <span className="hidden sm:inline">Ask AI</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="z-[60] w-96 max-w-[calc(100vw-2rem)]"
+              >
+                <PopoverHeader>
+                  <PopoverTitle>Ask AI to Change</PopoverTitle>
+                </PopoverHeader>
+                <div className="space-y-3">
+                  <Textarea
+                    autoFocus
+                    className="min-h-32 resize-none"
+                    disabled={isEditing}
+                    onChange={(event) => setInstruction(event.target.value)}
+                    placeholder="Add a trend chart, change the layout, or include another device."
+                    value={instruction}
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      disabled={isEditing || !instruction.trim()}
+                      onClick={() => void handleAiEdit()}
+                    >
+                      {isEditing ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="size-4" />
+                      )}
+                      {isEditing ? 'Updating...' : 'Apply change'}
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Button
+              aria-label="Open source editor"
+              aria-pressed={sourceOpen}
+              onClick={handleSourceToggle}
+              size="sm"
+              type="button"
+              variant={sourceOpen ? 'secondary' : 'ghost'}
+            >
+              <Code2 className="size-3.5" />
+              <span className="hidden sm:inline">Source</span>
+            </Button>
+          </div>
         </DialogHeader>
 
-        <Tabs
-          className="flex min-h-0 flex-1 flex-col"
-          defaultValue="panel"
-          onValueChange={(v) => {
-            if (v === 'code' && !sourceLoaded) void loadSource();
-          }}
-        >
-          <TabsList className="mx-4 mt-3 w-fit">
-            <TabsTrigger value="panel">Panel</TabsTrigger>
-            <TabsTrigger value="edit">Edit with AI</TabsTrigger>
-            <TabsTrigger value="code">Code</TabsTrigger>
-          </TabsList>
-
-          <TabsContent
-            className="min-h-0 flex-1 overflow-auto p-4"
-            value="panel"
-          >
-            <PanelFrame
-              key={version}
-              capabilities={panel.capabilities}
-              className="h-full min-h-[24rem] w-full rounded-xl"
-              src={`/api/panels/${encodeURIComponent(panel.id)}/render?v=${version}`}
-              title={panel.title}
-            />
-          </TabsContent>
-
-          <TabsContent
-            className="min-h-0 flex-1 space-y-3 overflow-auto p-4"
-            value="edit"
-          >
-            <p className="text-sm text-muted-foreground">
-              Describe a change and the assistant will rebuild the panel — it
-              can discover new devices if needed.
-            </p>
-            <Textarea
-              className="min-h-28"
-              disabled={isEditing}
-              onChange={(e) => setInstruction(e.target.value)}
-              placeholder="e.g. add a humidity tile, use a dark theme, put the lights on the left"
-              value={instruction}
-            />
-            <div className="flex justify-end">
-              <Button
-                disabled={isEditing || !instruction.trim()}
-                onClick={() => void handleAiEdit()}
+        <div className="min-h-0 flex-1 bg-muted/25">
+          {sourceOpen ? (
+            <PanelGroup
+              className="h-full min-h-0"
+              defaultLayout={{ preview: 42, source: 58 }}
+              orientation="horizontal"
+            >
+              <ResizablePanel
+                className="min-w-0"
+                defaultSize="42%"
+                id="preview"
+                minSize="24%"
               >
-                {isEditing ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Sparkles className="size-4" />
-                )}
-                {isEditing ? 'Updating…' : 'Apply change'}
-              </Button>
-            </div>
-          </TabsContent>
+                <div className="h-full p-2 sm:p-3">{frame}</div>
+              </ResizablePanel>
 
-          <TabsContent
-            className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4"
-            value="code"
-          >
-            <div className="flex min-h-0 flex-1 flex-col gap-1">
-              <span className="text-xs text-muted-foreground">HTML</span>
-              <Textarea
-                className="min-h-0 flex-1 font-mono text-xs"
-                onChange={(e) => setHtml(e.target.value)}
-                spellCheck={false}
-                value={html}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">
-                Capabilities (JSON)
-              </span>
-              <Textarea
-                className="h-28 font-mono text-xs"
-                onChange={(e) => setCapsText(e.target.value)}
-                spellCheck={false}
-                value={capsText}
-              />
-            </div>
-            <div className="flex justify-end">
-              <Button
-                disabled={isSaving || !sourceLoaded}
-                onClick={() => void handleSaveCode()}
+              <PanelResizeHandle className="group relative flex w-2 shrink-0 cursor-col-resize touch-none items-center justify-center bg-border/40 transition-colors hover:bg-border focus-visible:bg-border focus-visible:outline-none">
+                <div className="h-12 w-1 rounded-full bg-muted-foreground/30 transition-colors group-hover:bg-muted-foreground/55" />
+              </PanelResizeHandle>
+
+              <ResizablePanel
+                className="min-w-0"
+                defaultSize="58%"
+                id="source"
+                maxSize="76%"
+                minSize="34%"
               >
-                {isSaving ? <Loader2 className="size-4 animate-spin" /> : null}
-                {isSaving ? 'Saving…' : 'Save'}
-              </Button>
-            </div>
-          </TabsContent>
-        </Tabs>
+                <Tabs
+                  className="flex h-full min-h-0 flex-col gap-0 border-l border-border/70 bg-background"
+                  onValueChange={(value) => setSourceTab(value as SourceTab)}
+                  value={sourceTab}
+                >
+                  <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border/55 px-3">
+                    <TabsList
+                      className="h-12 max-w-full overflow-x-auto"
+                      variant="line"
+                    >
+                      <TabsTrigger className="h-12 px-3" value="html">
+                        HTML
+                      </TabsTrigger>
+                      <TabsTrigger className="h-12 px-3" value="capabilities">
+                        Capabilities
+                      </TabsTrigger>
+                    </TabsList>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <Button
+                        disabled={isSaving || isSourceLoading || !sourceLoaded}
+                        onClick={() => void handleSaveCode()}
+                        type="button"
+                      >
+                        {isSaving ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : null}
+                        {isSaving ? 'Saving...' : 'Save'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <TabsContent
+                    className="min-h-0 flex-1 p-3"
+                    forceMount
+                    hidden={sourceTab !== 'html'}
+                    value="html"
+                  >
+                    <SourceCodeEditor
+                      disabled={isSaving || isSourceLoading}
+                      extensions={htmlExtensions}
+                      loading={isSourceLoading}
+                      onChange={setHtml}
+                      value={html}
+                    />
+                  </TabsContent>
+
+                  <TabsContent
+                    className="min-h-0 flex-1 p-3"
+                    forceMount
+                    hidden={sourceTab !== 'capabilities'}
+                    value="capabilities"
+                  >
+                    <SourceCodeEditor
+                      disabled={isSaving || isSourceLoading}
+                      extensions={jsonExtensions}
+                      loading={isSourceLoading}
+                      onChange={setCapsText}
+                      value={capsText}
+                    />
+                  </TabsContent>
+                </Tabs>
+              </ResizablePanel>
+            </PanelGroup>
+          ) : (
+            <div className="h-full p-2 sm:p-3">{frame}</div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
