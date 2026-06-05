@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Clock3,
+  Gauge,
   HouseWifi,
   LayoutDashboard,
   MessageSquarePlus,
@@ -291,6 +292,18 @@ export function AppSidebar({
                   <Link href="/jobs">
                     <Clock3 />
                     <span>Jobs</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith('/dashboards')}
+                  tooltip="Dashboards"
+                >
+                  <Link href="/dashboards">
+                    <Gauge />
+                    <span>Dashboards</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

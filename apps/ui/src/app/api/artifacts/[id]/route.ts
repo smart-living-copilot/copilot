@@ -2,6 +2,7 @@ import {
   backendUnavailableResponse,
   getCodeExecutorUrl,
 } from '@/lib/backend-env';
+import { PANEL_CSP } from '@/lib/panel-csp';
 
 export async function GET(
   _req: Request,
@@ -36,12 +37,17 @@ export async function GET(
     res.headers.get('content-type') || 'application/octet-stream';
   const body = await res.arrayBuffer();
 
-  return new Response(body, {
-    headers: {
-      'content-type': contentType,
-      'cache-control': 'private, no-store, max-age=0',
-      pragma: 'no-cache',
-      'x-content-type-options': 'nosniff',
-    },
-  });
+  const headers: Record<string, string> = {
+    'content-type': contentType,
+    'cache-control': 'private, no-store, max-age=0',
+    pragma: 'no-cache',
+    'x-content-type-options': 'nosniff',
+  };
+  // Generated HTML panels run untrusted code: allow allowlisted CDN loads but
+  // block all data egress (connect-src 'none'). See lib/panel-csp.ts.
+  if (contentType.includes('text/html')) {
+    headers['content-security-policy'] = PANEL_CSP;
+  }
+
+  return new Response(body, { headers });
 }

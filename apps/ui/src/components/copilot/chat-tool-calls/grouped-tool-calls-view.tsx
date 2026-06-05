@@ -15,6 +15,14 @@ import {
   RunCodeArtifacts,
   RunCodeCard,
 } from '@/components/copilot/chat-tool-calls/run-code-card';
+import {
+  WebInterfaceArtifactView,
+  WebInterfaceCard,
+} from '@/components/copilot/chat-tool-calls/web-interface-card';
+import {
+  enrichArtifactForPinning,
+  normalizeWebInterfaceResult,
+} from '@/components/copilot/chat-tool-calls/web-interface-model';
 import { Button } from '@/components/ui/button';
 import {
   Collapsible,
@@ -102,6 +110,31 @@ export function GroupedToolCallsView({
               <RunCodeArtifacts
                 key={`${toolCall.id}-artifacts`}
                 result={result}
+              />,
+            );
+          }
+          continue;
+        }
+
+        if (toolCall.function.name === 'create_web_interface') {
+          const parsed =
+            props.status === 'complete'
+              ? normalizeWebInterfaceResult(props.result)
+              : {};
+          hasError = hasError || Boolean(parsed.error);
+          renderedTools.push(
+            <WebInterfaceCard
+              key={toolCall.id}
+              {...props}
+              showInterface={false}
+            />,
+          );
+
+          if (props.status === 'complete' && parsed.artifact) {
+            renderedArtifacts.push(
+              <WebInterfaceArtifactView
+                key={`${toolCall.id}-interface`}
+                artifact={enrichArtifactForPinning(parsed.artifact, props.args)}
               />,
             );
           }
