@@ -611,6 +611,17 @@ class JobStoreTestCase(unittest.IsolatedAsyncioTestCase):
             ],
             2,
         )
+        # The LLM routinely passes the `latest_`-prefixed read-property name it
+        # sees on the TD; that must resolve to the same field, not return empty.
+        self.assertEqual(
+            records.invoke_action(
+                thing_id, "query_property_history", {"property": "latest_energy"}
+            )[0]["value"],
+            2,
+        )
+        # An unknown field fails loudly instead of silently returning nothing.
+        with self.assertRaises(KeyError):
+            records.invoke_action(thing_id, "query_property_history", {"property": "not_a_field"})
 
 
 if __name__ == "__main__":

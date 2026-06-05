@@ -14,6 +14,7 @@ from copilot.core.database import get_session_factory
 from copilot.jobs.records.db import VirtualRecord, VirtualRecordThing
 from copilot.jobs.records.schema import (
     field_name_for_property,
+    resolve_history_field,
     validate_record_data,
     validate_record_schema,
 )
@@ -169,6 +170,11 @@ class VirtualRecordStore:
             if not isinstance(field, str) or not field.strip():
                 raise ValueError("query_property_history requires property")
             return self.query_property_history(thing_id, field.strip(), input_data)
+        if action_name.startswith("history_"):
+            query = input_data if isinstance(input_data, dict) else {}
+            return self.query_property_history(
+                thing_id, action_name.removeprefix("history_"), query
+            )
         raise KeyError(action_name)
 
     def query_records(self, thing_id: str, query: dict[str, Any]) -> list[dict[str, Any]]:
@@ -186,7 +192,9 @@ class VirtualRecordStore:
     ) -> list[dict[str, Any]]:
         with self._session_factory() as session:
             thing = self._get_thing_or_404(session, thing_id)
-            real_field = field_name_for_property(thing.record_schema, field_name) or field_name
+            real_field = resolve_history_field(thing.record_schema, field_name)
+            if real_field is None:
+                raise KeyError(field_name)
             statement = self._filtered_records_statement(thing_id, query)
             rows = session.scalars(statement).all()
             return [

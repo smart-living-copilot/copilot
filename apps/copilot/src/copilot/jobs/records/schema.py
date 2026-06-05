@@ -64,3 +64,18 @@ def field_name_for_property(record_schema: Any, property_suffix: str) -> str | N
         if isinstance(field_name, str) and safe_affordance_name(field_name) == property_suffix:
             return field_name
     return None
+
+
+def resolve_history_field(record_schema: Any, name: str) -> str | None:
+    """Resolve a query_property_history `property` argument to a real schema field.
+
+    Accepts either the bare field affordance name (e.g. "answer") or the
+    `latest_`-prefixed read-property name (e.g. "latest_answer"), since the LLM
+    routinely passes the property name it sees on the Thing Description.
+    """
+    direct = field_name_for_property(record_schema, name)
+    if direct is not None:
+        return direct
+    if name.startswith("latest_"):
+        return field_name_for_property(record_schema, name.removeprefix("latest_"))
+    return None

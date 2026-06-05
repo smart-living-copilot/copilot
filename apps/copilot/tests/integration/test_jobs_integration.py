@@ -366,6 +366,8 @@ def test_virtual_record_store_persists_and_queries_generated_record_thing(
         )[0]["value"]
         == 2
     )
+    # The per-field history action resolves without a `property` argument.
+    assert records.invoke_action(thing_id, "history_energy", {})[0]["value"] == 2
 
 
 def test_job_resource_sync_repairs_missing_virtual_record_thing(
