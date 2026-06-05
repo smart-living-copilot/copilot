@@ -80,10 +80,16 @@ const RUNTIME_OPS: Record<string, RuntimeOp> = {
  * Unwraps the wot-runtime transport envelope into the decoded property/action
  * value the generated interface actually wants.
  *
- * The runtime returns `{ thing_id, property_name, result: { success, payload: {
- * kind: 'inline', data } } }`. We hand back `payload.data` so generated code can
- * use the value directly (e.g. `temp.value`), instead of leaking transport
- * details. Non-inline payloads or output-less writes resolve to `undefined`.
+ * The runtime nests the result differently per op:
+ *   read/write property : `{ result: { success, payload: { data } } }`
+ *   invoke action       : `{ outcome: 'completed_result',
+ *                            completed_result: { success, payload: { data } } }`
+ *                         or `{ outcome: 'operation_handle', operation_handle }`
+ *                         for async actions.
+ * We hand back `payload.data` so generated code uses the value directly (e.g.
+ * `rows.map(...)`) instead of the transport wrapper. Output-less writes and
+ * non-inline payloads resolve to `undefined`; async actions resolve to the
+ * operation handle.
  */
 function unwrapRuntimeResult(data: unknown): {
   ok: boolean;
@@ -93,11 +99,16 @@ function unwrapRuntimeResult(data: unknown): {
   if (!data || typeof data !== 'object') {
     return { ok: true, value: data };
   }
-  const result = (data as Record<string, unknown>).result;
-  if (!result || typeof result !== 'object') {
+  const record = data as Record<string, unknown>;
+  const candidate = record.result ?? record.completed_result;
+  if (!candidate || typeof candidate !== 'object') {
+    // Async action with no inline result: surface the operation handle.
+    if (record.outcome === 'operation_handle' && record.operation_handle) {
+      return { ok: true, value: record.operation_handle };
+    }
     return { ok: true, value: data };
   }
-  const envelope = result as Record<string, unknown>;
+  const envelope = candidate as Record<string, unknown>;
   if (envelope.success === false) {
     const error =
       typeof envelope.status_text === 'string'
