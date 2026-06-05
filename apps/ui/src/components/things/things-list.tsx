@@ -1,6 +1,12 @@
 'use client';
 
-import { useCallback, useDeferredValue, useEffect, useState } from 'react';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import Link from 'next/link';
 import { Eye, Plus, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
@@ -36,6 +42,15 @@ export function ThingsList() {
     Record<string, ThingIndexStatus>
   >({});
   const [selectedThingId, setSelectedThingId] = useState<string | null>(null);
+  const requestedIndexStatusIds = useRef<Set<string>>(new Set());
+  const isMounted = useRef(true);
+
+  useEffect(
+    () => () => {
+      isMounted.current = false;
+    },
+    [],
+  );
 
   useEffect(() => {
     setPage(1);
@@ -62,30 +77,45 @@ export function ThingsList() {
 
   // Lazy-load index statuses for visible things
   useEffect(() => {
-    if (!data || data.length === 0) return;
+    const missingRecords = data.filter(
+      (record) =>
+        indexStatuses[record.id] === undefined &&
+        !requestedIndexStatusIds.current.has(record.id),
+    );
+    if (missingRecords.length === 0) return;
 
-    for (const record of data) {
-      if (indexStatuses[record.id] !== undefined) continue;
-
-      fetch(`/api/index-status/${encodeURIComponent(record.id)}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((status) => {
-          if (status) {
-            setIndexStatuses((prev) => ({
-              ...prev,
-              [record.id]: status as ThingIndexStatus,
-            }));
+    for (const record of missingRecords) {
+      requestedIndexStatusIds.current.add(record.id);
+      void fetch(`/api/index-status/${encodeURIComponent(record.id)}`)
+        .then((res) => {
+          if (!res.ok) {
+            requestedIndexStatusIds.current.delete(record.id);
+            return null;
           }
+          return res.json();
         })
-        .catch(() => {});
+        .then((status) => {
+          if (!status) {
+            requestedIndexStatusIds.current.delete(record.id);
+            return;
+          }
+          if (!isMounted.current) return;
+          setIndexStatuses((prev) => ({
+            ...prev,
+            [record.id]: status as ThingIndexStatus,
+          }));
+        })
+        .catch(() => {
+          requestedIndexStatusIds.current.delete(record.id);
+        });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, indexStatuses]);
 
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
   const hasSearch = deferredSearch.trim().length > 0;
 
   const handleDeleted = useCallback((thingId: string) => {
+    requestedIndexStatusIds.current.delete(thingId);
     setSelectedThingId(null);
     setData((current) => current.filter((record) => record.id !== thingId));
     setTotal((current) => Math.max(0, current - 1));
