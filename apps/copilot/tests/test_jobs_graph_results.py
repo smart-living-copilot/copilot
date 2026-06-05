@@ -18,6 +18,7 @@ from copilot.jobs.graph_results import (
 from copilot.jobs.models import (
     Job,
     JobActionKind,
+    JobInteractionMode,
     JobOutputKind,
     JobRun,
     JobRunSource,
@@ -135,6 +136,33 @@ class JobGraphResultsTestCase(unittest.TestCase):
         )
 
         self.assertEqual(submitted_record["data"], {"mood": "good"})
+        self.assertTrue(job_result["ok"])
+        self.assertEqual(job_result["submitted_record"]["data"], {"mood": "good"})
+        self.assertEqual(job_run_status_from_result(job_result), JobRunStatus.SUCCEEDED)
+
+    def test_autonomous_record_prompt_completes_when_record_is_submitted(self) -> None:
+        result = {
+            "messages": [
+                HumanMessage(content="Observe and store mood"),
+                ToolMessage(
+                    content='{"ok": true, "record": {"data": {"mood": "good"}}}',
+                    name="submit_job_record",
+                    tool_call_id="call-1",
+                ),
+                AIMessage(content="Stored."),
+            ]
+        }
+
+        job_result = job_result_from_graph_result(
+            result,
+            job=_job(
+                interaction_mode=JobInteractionMode.AUTONOMOUS,
+                output_kind=JobOutputKind.STRUCTURED_RECORD,
+            ),
+            message=None,
+            trigger={"source": "manual"},
+        )
+
         self.assertTrue(job_result["ok"])
         self.assertEqual(job_result["submitted_record"]["data"], {"mood": "good"})
         self.assertEqual(job_run_status_from_result(job_result), JobRunStatus.SUCCEEDED)

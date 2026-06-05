@@ -14,6 +14,10 @@ from taskiq.exceptions import TaskiqResultTimeoutError
 
 from copilot.core.settings import Settings
 from copilot.jobs.events import JobEventConsumer
+from copilot.jobs.domain import (
+    job_definition_from_create_request,
+    normalize_update_fields,
+)
 from copilot.jobs.executor import (
     BackgroundAgentRunner,
     JobExecutor,
@@ -48,6 +52,7 @@ from copilot.jobs.schedule import (
 from copilot.jobs.record_summary import submitted_record_event_message
 from copilot.jobs.service import JobService
 from copilot.jobs.stores import JobNotWaitingForInput
+from copilot.jobs.time_schedule import next_run_at_from_flat
 from copilot.agent.tools.submit_job_record import submit_job_record
 
 
@@ -1103,6 +1108,119 @@ class _FakeRecordStore:
         self.existing.discard(thing_id)
 
 
+class JobDomainTestCase(unittest.TestCase):
+    def test_domain_allows_autonomous_structured_record_prompt(self) -> None:
+        request = CreateJobRequest(
+            name="morning",
+            created_from_thread_id="thread-1",
+            interaction_mode=JobInteractionMode.AUTONOMOUS,
+            output_kind=JobOutputKind.STRUCTURED_RECORD,
+            prompt="Observe and submit mood.",
+            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+            trigger_kind=JobTriggerKind.TIME,
+            schedule_kind=TimeTriggerKind.INTERVAL,
+            interval_seconds=60,
+        )
+
+        definition = job_definition_from_create_request(
+            request,
+            default_cron_timezone="Europe/Berlin",
+        )
+
+        self.assertEqual(definition.interaction_mode, JobInteractionMode.AUTONOMOUS)
+        self.assertEqual(definition.output.output_kind, JobOutputKind.STRUCTURED_RECORD)
+
+    def test_domain_rejects_record_fields_for_narrative_jobs(self) -> None:
+        request = CreateJobRequest(
+            name="narrative",
+            created_from_thread_id="thread-1",
+            prompt="summarize",
+            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+            trigger_kind=JobTriggerKind.TIME,
+            schedule_kind=TimeTriggerKind.INTERVAL,
+            interval_seconds=60,
+        )
+
+        with self.assertRaisesRegex(ValueError, "record fields require output_kind"):
+            job_definition_from_create_request(
+                request,
+                default_cron_timezone="Europe/Berlin",
+            )
+
+    def test_domain_keeps_analysis_structured_records_deferred(self) -> None:
+        request = CreateJobRequest(
+            name="analysis record",
+            created_from_thread_id="thread-1",
+            action_kind=JobActionKind.ANALYSIS,
+            analysis_code="print('ok')",
+            output_kind=JobOutputKind.STRUCTURED_RECORD,
+            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+            trigger_kind=JobTriggerKind.TIME,
+            schedule_kind=TimeTriggerKind.INTERVAL,
+            interval_seconds=60,
+        )
+
+        with self.assertRaisesRegex(ValueError, "analysis jobs only support narrative output"):
+            job_definition_from_create_request(
+                request,
+                default_cron_timezone="Europe/Berlin",
+            )
+
+    def test_schedule_update_switch_to_cron_clears_stale_fields_and_normalizes(self) -> None:
+        fields = normalize_update_fields(
+            _job(),
+            {
+                "schedule_kind": TimeTriggerKind.CRON,
+                "cron_expression": "  0 9 * * sun  ",
+            },
+            default_cron_timezone="Europe/Berlin",
+        )
+
+        self.assertEqual(fields["schedule_kind"], TimeTriggerKind.CRON)
+        self.assertIsNone(fields["interval_seconds"])
+        self.assertIsNone(fields["run_at"])
+        self.assertEqual(fields["cron_expression"], "0 9 * * sun")
+        self.assertEqual(fields["cron_timezone"], "Europe/Berlin")
+
+    def test_next_run_at_from_flat_handles_supported_time_schedules(self) -> None:
+        now = datetime(2026, 6, 2, 10, 0, tzinfo=timezone.utc)
+
+        interval_next = next_run_at_from_flat(
+            trigger_kind=JobTriggerKind.TIME,
+            enabled=True,
+            schedule_kind=TimeTriggerKind.INTERVAL,
+            run_at=None,
+            interval_seconds=60,
+            cron_expression=None,
+            cron_timezone=None,
+            now=now,
+        )
+        cron_next = next_run_at_from_flat(
+            trigger_kind=JobTriggerKind.TIME,
+            enabled=True,
+            schedule_kind=TimeTriggerKind.CRON,
+            run_at=None,
+            interval_seconds=None,
+            cron_expression="0 9 * * sun",
+            cron_timezone="Europe/Berlin",
+            now=now,
+        )
+        once_next = next_run_at_from_flat(
+            trigger_kind=JobTriggerKind.TIME,
+            enabled=True,
+            schedule_kind=TimeTriggerKind.ONCE,
+            run_at=datetime(2026, 6, 3, 10, 0, tzinfo=timezone.utc),
+            interval_seconds=None,
+            cron_expression=None,
+            cron_timezone=None,
+            now=now,
+        )
+
+        self.assertEqual(interval_next, now + timedelta(seconds=60))
+        self.assertEqual(cron_next, datetime(2026, 6, 7, 7, 0, tzinfo=timezone.utc))
+        self.assertEqual(once_next, datetime(2026, 6, 3, 10, 0, tzinfo=timezone.utc))
+
+
 class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_run_job_now_waits_for_task_result(self) -> None:
         service = JobService(Settings(), repo=_FakeRepo(_job()))
@@ -1308,6 +1426,43 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(created.virtual_thing_id, "virtual:records:morning")
         self.assertEqual(record_store.created[0]["thing_id"], "virtual:records:morning")
         self.assertEqual(record_store.created[0]["title"], "Morning Check-in")
+
+    async def test_create_autonomous_record_prompt_job_preserves_interaction_mode(self) -> None:
+        record_store = _FakeRecordStore()
+        repo = _FakeServiceRepo(
+            _job(
+                interaction_mode=JobInteractionMode.AUTONOMOUS,
+                output_kind=JobOutputKind.STRUCTURED_RECORD,
+                record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+                record_schema_version=1,
+                virtual_thing_id="virtual:records:morning",
+            )
+        )
+        service = JobService(
+            Settings(),
+            repo=repo,
+            schedule_manager=_FakeScheduleManager(),
+            record_store=record_store,
+        )
+        request = CreateJobRequest(
+            name="morning",
+            created_from_thread_id="thread-1",
+            interaction_mode=JobInteractionMode.AUTONOMOUS,
+            output_kind=JobOutputKind.STRUCTURED_RECORD,
+            prompt="Observe the morning mood and submit a record.",
+            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
+            virtual_thing_id="virtual:records:morning",
+            trigger_kind=JobTriggerKind.TIME,
+            schedule_kind=TimeTriggerKind.INTERVAL,
+            interval_seconds=60,
+        )
+
+        created = await service.create_job(request)
+
+        saved_request, _next_run_at, _subscription_id = repo.created[0]
+        self.assertEqual(created.interaction_mode, JobInteractionMode.AUTONOMOUS)
+        self.assertEqual(saved_request.interaction_mode, JobInteractionMode.AUTONOMOUS)
+        self.assertEqual(record_store.created[0]["thing_id"], "virtual:records:morning")
 
     async def test_create_time_job_deletes_record_when_schedule_registration_fails(self) -> None:
         repo = _FakeServiceRepo(_job(interval_seconds=60))

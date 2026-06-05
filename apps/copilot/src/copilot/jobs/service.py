@@ -9,22 +9,11 @@ from typing import Any
 from taskiq.exceptions import TaskiqResultTimeoutError
 
 from copilot.core.settings import Settings
-from copilot.jobs.cron import validate_cron_schedule
-from copilot.jobs.enums import (
-    JobActionKind,
-    JobInteractionMode,
-    JobOutputKind,
-    JobRunStatus,
-    JobTriggerKind,
-    TimeTriggerKind,
-)
+from copilot.jobs.domain import normalize_create_request, normalize_update_fields
+from copilot.jobs.enums import JobRunStatus
 from copilot.jobs.schemas import CreateJobRequest, Job, JobRun, JobRunEvent, UpdateJobRequest
 from copilot.jobs.results import JobRunEventStream
-from copilot.jobs.records import (
-    VirtualRecordStore,
-    make_virtual_record_thing_id,
-    validate_record_schema,
-)
+from copilot.jobs.records import VirtualRecordStore
 from copilot.jobs.resources import JobResourceManager
 from copilot.jobs.schedule import JobScheduleManager, build_schedule_source
 from copilot.jobs.stores import JobNotWaitingForInput, JobStore, utc_now
@@ -80,8 +69,10 @@ class JobService:
         await broker.shutdown()
 
     async def create_job(self, request: CreateJobRequest) -> Job:
-        request = self._normalize_create_request(request)
-        self._validate_request(request)
+        request = normalize_create_request(
+            request,
+            default_cron_timezone=self._settings.jobs_default_timezone,
+        )
         return await self._resources.create_job(request)
 
     async def get_job(self, job_id: str) -> Job:
@@ -138,55 +129,17 @@ class JobService:
     async def update_job(self, job_id: str, request: UpdateJobRequest) -> Job:
         job = await self._repo.get_job(job_id)
         fields = request.model_dump(exclude_unset=True)
-        fields = self._normalize_update_fields(job, fields)
-        self._validate_update(job, fields)
+        fields = normalize_update_fields(
+            job,
+            fields,
+            default_cron_timezone=self._settings.jobs_default_timezone,
+        )
 
         if not fields:
             return job
 
         updated = await self._repo.update_job(job_id, **fields)
         return await self._resources.update_job_resources(job, updated)
-
-    def _validate_update(self, job: Job, fields: dict[str, Any]) -> None:
-        if "prompt" in fields:
-            if job.action_kind != JobActionKind.PROMPT:
-                raise ValueError("prompt can only be set on prompt jobs")
-            if not fields["prompt"] or not str(fields["prompt"]).strip():
-                raise ValueError("prompt jobs require a non-empty prompt")
-        if "analysis_code" in fields:
-            if job.action_kind != JobActionKind.ANALYSIS:
-                raise ValueError("analysis_code can only be set on analysis jobs")
-            if not fields["analysis_code"] or not str(fields["analysis_code"]).strip():
-                raise ValueError("analysis jobs require non-empty analysis_code")
-
-        schedule_fields = {
-            "schedule_kind",
-            "interval_seconds",
-            "run_at",
-            "cron_expression",
-            "cron_timezone",
-        }
-        if schedule_fields.intersection(fields):
-            if job.trigger_kind != JobTriggerKind.TIME:
-                raise ValueError("schedule fields can only be set on time jobs")
-            schedule_kind = fields.get("schedule_kind", job.schedule_kind)
-            if schedule_kind is None:
-                raise ValueError("time jobs require schedule_kind")
-            if schedule_kind == TimeTriggerKind.INTERVAL:
-                interval_seconds = fields.get("interval_seconds", job.interval_seconds)
-                if interval_seconds is None:
-                    raise ValueError("interval jobs require interval_seconds")
-            elif schedule_kind == TimeTriggerKind.ONCE:
-                run_at = fields.get("run_at", job.run_at)
-                if run_at is None:
-                    raise ValueError("one-time jobs require run_at")
-            elif schedule_kind == TimeTriggerKind.CRON:
-                expression = fields.get("cron_expression", job.cron_expression)
-                timezone_name = fields.get("cron_timezone", job.cron_timezone)
-                validate_cron_schedule(
-                    expression,
-                    timezone_name or self._settings.jobs_default_timezone,
-                )
 
     async def cancel_job_run(self, job_id: str) -> Job:
         return await self._repo.cancel_active_run(job_id)
@@ -300,139 +253,6 @@ class JobService:
             job_id=job_id,
             trigger={"source": "manual"},
         )
-
-    def _validate_request(self, request: CreateJobRequest) -> None:
-        if request.action_kind == JobActionKind.ANALYSIS:
-            if not request.analysis_code or not request.analysis_code.strip():
-                raise ValueError("analysis jobs require analysis_code")
-            if request.output_kind != JobOutputKind.NARRATIVE:
-                raise ValueError("analysis jobs only support narrative output")
-        else:
-            if not request.prompt or not request.prompt.strip():
-                raise ValueError("prompt jobs require prompt")
-            if request.output_kind == JobOutputKind.STRUCTURED_RECORD:
-                if request.interaction_mode == JobInteractionMode.AUTONOMOUS:
-                    raise ValueError(
-                        "structured record prompt jobs require a non-autonomous interaction mode"
-                    )
-                if not request.virtual_thing_id:
-                    raise ValueError("structured record jobs require virtual_thing_id")
-                validate_record_schema(request.record_schema)
-            elif (
-                request.record_schema is not None
-                or request.record_schema_version is not None
-                or request.virtual_thing_id is not None
-                or request.virtual_thing_title is not None
-                or request.virtual_thing_description is not None
-            ):
-                raise ValueError("record fields require output_kind='structured_record'")
-
-        if request.trigger_kind == JobTriggerKind.TIME:
-            if request.schedule_kind is None:
-                raise ValueError("time jobs require schedule_kind")
-            if request.schedule_kind == TimeTriggerKind.ONCE:
-                if (
-                    request.run_at is None
-                    or request.interval_seconds is not None
-                    or request.cron_expression is not None
-                    or request.cron_timezone is not None
-                ):
-                    raise ValueError("one-time jobs require run_at only")
-            elif request.schedule_kind == TimeTriggerKind.INTERVAL:
-                if (
-                    request.interval_seconds is None
-                    or request.run_at is not None
-                    or request.cron_expression is not None
-                    or request.cron_timezone is not None
-                ):
-                    raise ValueError("interval jobs require interval_seconds only")
-            elif request.schedule_kind == TimeTriggerKind.CRON:
-                if (
-                    request.cron_expression is None
-                    or request.run_at is not None
-                    or request.interval_seconds is not None
-                ):
-                    raise ValueError("cron jobs require cron_expression only")
-                validate_cron_schedule(request.cron_expression, request.cron_timezone)
-            return
-
-        if (
-            request.schedule_kind is not None
-            or request.run_at is not None
-            or request.interval_seconds is not None
-            or request.cron_expression is not None
-            or request.cron_timezone is not None
-        ):
-            raise ValueError("event jobs cannot include time schedule fields")
-
-        if not request.thing_id:
-            raise ValueError("event jobs require thing_id")
-        if not request.event_name:
-            raise ValueError("event jobs require event_name")
-
-    def _normalize_create_request(self, request: CreateJobRequest) -> CreateJobRequest:
-        fields: dict[str, Any] = {}
-        if (
-            request.trigger_kind == JobTriggerKind.TIME
-            and request.schedule_kind == TimeTriggerKind.CRON
-        ):
-            expression, timezone_name = validate_cron_schedule(
-                request.cron_expression,
-                request.cron_timezone or self._settings.jobs_default_timezone,
-            )
-            fields["cron_expression"] = expression
-            fields["cron_timezone"] = timezone_name
-        if request.output_kind == JobOutputKind.STRUCTURED_RECORD:
-            fields["record_schema"] = validate_record_schema(request.record_schema)
-            fields["record_schema_version"] = request.record_schema_version or 1
-            fields["virtual_thing_id"] = request.virtual_thing_id or make_virtual_record_thing_id(
-                request.virtual_thing_title or request.name
-            )
-            if request.interaction_mode == JobInteractionMode.AUTONOMOUS:
-                fields["interaction_mode"] = JobInteractionMode.REQUIRED_CHECKIN
-        return request.model_copy(update=fields) if fields else request
-
-    def _normalize_update_fields(self, job: Job, fields: dict[str, Any]) -> dict[str, Any]:
-        if job.trigger_kind != JobTriggerKind.TIME:
-            return fields
-
-        normalized = dict(fields)
-        schedule_kind = normalized.get("schedule_kind", job.schedule_kind)
-
-        if "schedule_kind" in normalized:
-            if schedule_kind == TimeTriggerKind.INTERVAL:
-                normalized.setdefault("run_at", None)
-                normalized.setdefault("cron_expression", None)
-                normalized.setdefault("cron_timezone", None)
-            elif schedule_kind == TimeTriggerKind.ONCE:
-                normalized.setdefault("interval_seconds", None)
-                normalized.setdefault("cron_expression", None)
-                normalized.setdefault("cron_timezone", None)
-            elif schedule_kind == TimeTriggerKind.CRON:
-                normalized.setdefault("interval_seconds", None)
-                normalized.setdefault("run_at", None)
-
-        if schedule_kind != TimeTriggerKind.CRON:
-            return normalized
-        if not (
-            "schedule_kind" in normalized
-            or "cron_expression" in normalized
-            or "cron_timezone" in normalized
-        ):
-            return normalized
-
-        expression = normalized.get("cron_expression", job.cron_expression)
-        timezone_name = normalized.get(
-            "cron_timezone",
-            job.cron_timezone or self._settings.jobs_default_timezone,
-        )
-        expression, timezone_name = validate_cron_schedule(
-            expression,
-            timezone_name or self._settings.jobs_default_timezone,
-        )
-        normalized["cron_expression"] = expression
-        normalized["cron_timezone"] = timezone_name
-        return normalized
 
 
 def _normalize_client_reply_id(client_reply_id: str | None) -> str | None:

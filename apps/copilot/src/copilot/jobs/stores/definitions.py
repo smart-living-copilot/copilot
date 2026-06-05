@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import select
 
-from copilot.jobs.cron import CronScheduleError, next_cron_run_at
 from copilot.jobs.db import JobRecord
 from copilot.jobs.enums import JobTriggerKind, TimeTriggerKind
 from copilot.jobs.schemas import CreateJobRequest, Job
@@ -21,6 +20,7 @@ from copilot.jobs.stores.base import (
     job_thread_id_for_job,
     utc_now,
 )
+from copilot.jobs.time_schedule import next_run_at_from_flat
 from copilot.threads.models import DEFAULT_THREAD_TITLE, Thread, ThreadKind
 
 
@@ -332,20 +332,17 @@ class JobDefinitionStore(_JobStoreBase):
     def _compute_next_run_at(row: JobRecord, now: datetime) -> datetime | None:
         if row.trigger_kind != JobTriggerKind.TIME.value or not row.enabled:
             return None
-        if row.schedule_kind == TimeTriggerKind.INTERVAL.value and row.interval_seconds:
-            return now + timedelta(seconds=row.interval_seconds)
-        if row.schedule_kind == TimeTriggerKind.ONCE.value and row.run_at is not None:
-            run_at = row.run_at
-            if run_at.tzinfo is None:
-                run_at = run_at.replace(tzinfo=timezone.utc)
-            return run_at if run_at > now else None
-        if row.schedule_kind == TimeTriggerKind.CRON.value and row.cron_expression:
-            try:
-                return next_cron_run_at(
-                    row.cron_expression,
-                    row.cron_timezone,
-                    after=now,
-                )
-            except CronScheduleError:
-                return None
+        try:
+            return next_run_at_from_flat(
+                trigger_kind=JobTriggerKind(row.trigger_kind),
+                enabled=row.enabled,
+                schedule_kind=TimeTriggerKind(row.schedule_kind) if row.schedule_kind else None,
+                run_at=row.run_at,
+                interval_seconds=row.interval_seconds,
+                cron_expression=row.cron_expression,
+                cron_timezone=row.cron_timezone,
+                now=now,
+            )
+        except ValueError:
+            return None
         return None

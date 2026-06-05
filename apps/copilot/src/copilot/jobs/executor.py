@@ -24,7 +24,6 @@ from copilot.clients.code_executor import (
     CodeExecutorClient,
     format_code_execution_result,
 )
-from copilot.jobs.cron import CronScheduleError, next_cron_run_at
 from copilot.jobs.enums import (
     JobActionKind,
     JobRunSource,
@@ -40,6 +39,7 @@ from copilot.jobs.graph_results import (
 )
 from copilot.jobs.results import JobRunEventPublisher
 from copilot.jobs.stores import JobStore, utc_now
+from copilot.jobs.time_schedule import next_run_at_from_flat
 from copilot.search import ThingSearchService, set_active_search_service
 
 logger = logging.getLogger(__name__)
@@ -201,7 +201,7 @@ class JobExecutor:
         now = utc_now()
         is_scheduled_time_run = run_source == JobRunSource.TIME
         next_run_at = (
-            _next_run_at_after_scheduled_time_run(job, now) if is_scheduled_time_run else None
+            _next_run_at_after_scheduled_time_run(job, now=now) if is_scheduled_time_run else None
         )
         status = job_run_status_from_result(result)
 
@@ -286,19 +286,20 @@ def _artifact_summary(artifacts: list[Any]) -> str:
     return ", ".join(parts)
 
 
-def _next_run_at_after_scheduled_time_run(job: Job, now: datetime) -> datetime | None:
-    if job.schedule_kind == TimeTriggerKind.INTERVAL and job.interval_seconds is not None:
-        return now + timedelta(seconds=job.interval_seconds)
-    if job.schedule_kind == TimeTriggerKind.CRON and job.cron_expression:
-        try:
-            return next_cron_run_at(
-                job.cron_expression,
-                job.cron_timezone,
-                after=now,
-            )
-        except CronScheduleError:
-            return None
-    return None
+def _next_run_at_after_scheduled_time_run(job: Job, *, now: datetime) -> datetime | None:
+    try:
+        return next_run_at_from_flat(
+            trigger_kind=job.trigger_kind,
+            enabled=job.enabled,
+            schedule_kind=job.schedule_kind,
+            run_at=job.run_at,
+            interval_seconds=job.interval_seconds,
+            cron_expression=job.cron_expression,
+            cron_timezone=job.cron_timezone,
+            now=now,
+        )
+    except ValueError:
+        return None
 
 
 def _is_duplicate_reply_run(run: JobRun) -> bool:

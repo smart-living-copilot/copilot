@@ -4,11 +4,10 @@ import asyncio
 import logging
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from copilot.clients.wot_runtime import WotRuntimeClient
-from copilot.jobs.cron import next_cron_run_at
-from copilot.jobs.enums import JobOutputKind, JobTriggerKind, TimeTriggerKind
+from copilot.jobs.enums import JobOutputKind, JobTriggerKind
 from copilot.jobs.records import VirtualRecordStore
 from copilot.jobs.resources.constants import (
     RESOURCE_EVENT_SUBSCRIPTION,
@@ -21,6 +20,7 @@ from copilot.jobs.schedule import JobScheduleManager
 from copilot.jobs.schemas import CreateJobRequest, Job
 from copilot.jobs.stores import JobStore, utc_now
 from copilot.jobs.subscriptions import subscription_id_from_response
+from copilot.jobs.time_schedule import initial_next_run_at_from_flat
 
 logger = logging.getLogger(__name__)
 
@@ -319,14 +319,13 @@ class JobResourceManager:
 
 
 def _next_run_at_for_time_request(request: CreateJobRequest) -> datetime | None:
-    if request.schedule_kind == TimeTriggerKind.ONCE:
-        return request.run_at
-    if request.schedule_kind == TimeTriggerKind.INTERVAL:
-        return utc_now() + timedelta(seconds=request.interval_seconds)
-    if request.schedule_kind == TimeTriggerKind.CRON:
-        return next_cron_run_at(
-            request.cron_expression,
-            request.cron_timezone,
-            after=utc_now(),
-        )
-    return None
+    return initial_next_run_at_from_flat(
+        trigger_kind=request.trigger_kind,
+        enabled=True,
+        schedule_kind=request.schedule_kind,
+        run_at=request.run_at,
+        interval_seconds=request.interval_seconds,
+        cron_expression=request.cron_expression,
+        cron_timezone=request.cron_timezone,
+        now=utc_now(),
+    )
