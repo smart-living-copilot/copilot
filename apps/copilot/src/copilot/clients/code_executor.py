@@ -72,6 +72,23 @@ class CodeExecutorClient:
         token = self._settings.internal_api_key
         return {"Authorization": f"Bearer {token}"} if token else {}
 
+    async def store_web_artifact(self, *, html: str) -> str:
+        """Persist a generated HTML interface and return its artifact filename."""
+        async with httpx.AsyncClient(
+            timeout=self._settings.code_executor_timeout_seconds
+        ) as client:
+            response = await client.post(
+                f"{self._base_url}/web-artifacts",
+                json={"html": html},
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            body = response.json()
+        filename = body.get("filename") if isinstance(body, dict) else None
+        if not isinstance(filename, str) or not filename:
+            raise RuntimeError("Code executor did not return a web artifact filename")
+        return filename
+
     async def execute(self, *, session_id: str, code: str) -> dict[str, Any]:
         attempts = max(1, self._settings.code_executor_retry_attempts)
         base_backoff = max(0.0, self._settings.code_executor_retry_backoff_seconds)

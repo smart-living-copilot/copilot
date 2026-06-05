@@ -53,6 +53,7 @@ packages = ["src/copilot"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/copilot/catalog/td-schema.json" = "copilot/catalog/td-schema.json"
+"src/copilot/panels/wot_bridge.js" = "copilot/panels/wot_bridge.js"
 
 [tool.ruff]
 target-version = "py312"

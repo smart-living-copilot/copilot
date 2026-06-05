@@ -45,6 +45,11 @@ def build_graph(
     local_tool_groups = group_local_tools(local_tools, vision_enabled=vision_enabled)
 
     vision_tools = [local_tool_groups.look_at_camera] if local_tool_groups.look_at_camera else []
+    web_interface_tools = (
+        [local_tool_groups.create_web_interface]
+        if local_tool_groups.create_web_interface
+        else []
+    )
     job_runtime_tools = [
         tool
         for tool in (
@@ -57,6 +62,7 @@ def build_graph(
     control_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime
+        + web_interface_tools
         + vision_tools
         + job_runtime_tools
     )
@@ -64,6 +70,7 @@ def build_graph(
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime_read
         + [local_tool_groups.run_code]
+        + web_interface_tools
         + vision_tools
         + job_runtime_tools
     )

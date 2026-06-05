@@ -50,12 +50,14 @@ _RUNTIME_NAMES = _RUNTIME_READ_NAMES | _RUNTIME_WRITE_NAMES
 # new job-management tool in ``agent.tools`` needs no change here.
 _GET_CURRENT_TIME = "get_current_time"
 _RUN_CODE = "run_code"
+_CREATE_WEB_INTERFACE = "create_web_interface"
 _LOOK_AT_CAMERA = "look_at_camera"
 _ASK_JOB_USER = "ask_job_user"
 _SUBMIT_JOB_RECORD = "submit_job_record"
 _NAMED_LOCAL_NAMES = {
     _GET_CURRENT_TIME,
     _RUN_CODE,
+    _CREATE_WEB_INTERFACE,
     _LOOK_AT_CAMERA,
     _ASK_JOB_USER,
     _SUBMIT_JOB_RECORD,
@@ -78,6 +80,7 @@ class RegistryToolGroups:
 class LocalToolGroups:
     get_current_time: Any
     run_code: Any
+    create_web_interface: Any | None
     look_at_camera: Any | None
     ask_job_user: Any | None
     submit_job_record: Any | None
@@ -126,6 +129,7 @@ def group_local_tools(
     return LocalToolGroups(
         get_current_time=tools_by_name[_GET_CURRENT_TIME],
         run_code=tools_by_name[_RUN_CODE],
+        create_web_interface=tools_by_name.get(_CREATE_WEB_INTERFACE),
         look_at_camera=tools_by_name.get(_LOOK_AT_CAMERA) if vision_enabled else None,
         ask_job_user=tools_by_name.get(_ASK_JOB_USER),
         submit_job_record=tools_by_name.get(_SUBMIT_JOB_RECORD),

@@ -6,6 +6,7 @@ consumed by graph builders, while `REGISTRY_TOOLS` exposes discovered WoT tools.
 """
 
 from copilot.agent.tools.run_code import run_code
+from copilot.agent.tools.create_web_interface import create_web_interface
 from copilot.agent.tools.get_current_time import get_current_time
 from copilot.agent.tools.look_at_camera import look_at_camera
 from copilot.agent.tools.wot_registry import REGISTRY_TOOLS as REGISTRY_TOOLS
@@ -20,6 +21,7 @@ from copilot.agent.tools.job_scheduler import (
 
 LOCAL_TOOLS = [
     run_code,
+    create_web_interface,
     get_current_time,
     look_at_camera,
     create_prompt_job,
@@ -36,6 +38,7 @@ __all__ = [
     "create_analysis_job",
     "create_prompt_job",
     "create_record_prompt_job",
+    "create_web_interface",
     "delete_job",
     "get_current_time",
     "list_jobs",
