@@ -9,7 +9,7 @@ def plotly_json_to_html(fig_json: dict) -> str:
     return (
         "<!DOCTYPE html>"
         '<html><head><meta charset="utf-8"/>'
-        '<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>'
+        '<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2"></script>'
         "<style>*{margin:0;padding:0}html,body{width:100%;height:100%;overflow:hidden}</style>"
         "</head><body>"
         '<div id="plot" style="width:100%;height:100%;"></div>'
