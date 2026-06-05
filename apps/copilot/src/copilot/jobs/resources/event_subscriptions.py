@@ -5,7 +5,7 @@ import logging
 from copilot.clients.wot_runtime import WotRuntimeClient
 from copilot.jobs.resources.constants import RESOURCE_EVENT_SUBSCRIPTION
 from copilot.jobs.resources.health import mark_resource_health
-from copilot.jobs.schemas import CreateJobRequest, Job
+from copilot.jobs.schemas import CreateJobRequest, EventTrigger, Job
 from copilot.jobs.stores import JobStore
 from copilot.jobs.subscriptions import subscription_id_from_response
 
@@ -63,15 +63,19 @@ class EventSubscriptionReconciler:
         return synced
 
     async def subscribe_event_request(self, request: CreateJobRequest) -> dict:
+        if not isinstance(request.trigger, EventTrigger):
+            raise ValueError("event subscription requires event trigger")
         return await self._runtime_client.subscribe_event(
-            thing_id=request.thing_id or "",
-            event_name=request.event_name or "",
-            subscription_input=request.subscription_input,
+            thing_id=request.trigger.thing_id,
+            event_name=request.trigger.event_name,
+            subscription_input=request.trigger.subscription_input,
         )
 
     async def subscribe_event_job(self, job: Job) -> dict:
+        if not isinstance(job.trigger, EventTrigger):
+            raise ValueError("event subscription requires event trigger")
         return await self._runtime_client.subscribe_event(
-            thing_id=job.thing_id or "",
-            event_name=job.event_name or "",
-            subscription_input=job.subscription_input,
+            thing_id=job.trigger.thing_id,
+            event_name=job.trigger.event_name,
+            subscription_input=job.trigger.subscription_input,
         )

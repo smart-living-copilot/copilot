@@ -24,12 +24,8 @@ from copilot.clients.code_executor import (
     CodeExecutorClient,
     format_code_execution_result,
 )
-from copilot.jobs.enums import (
-    JobActionKind,
-    JobRunSource,
-    JobRunStatus,
-)
-from copilot.jobs.schemas import Job, JobRun
+from copilot.jobs.enums import JobRunSource, JobRunStatus
+from copilot.jobs.schemas import AnalysisAction, Job, JobRun
 from copilot.jobs.graph_results import (
     graph_config_for_run,
     graph_input_for_run,
@@ -38,7 +34,6 @@ from copilot.jobs.graph_results import (
 )
 from copilot.jobs.results import JobRunEventPublisher
 from copilot.jobs.stores import JobStore, utc_now
-from copilot.jobs.time_schedule import is_one_shot_time_job, next_run_at_after_time_run
 from copilot.search import ThingSearchService, set_active_search_service
 
 logger = logging.getLogger(__name__)
@@ -192,7 +187,7 @@ class JobExecutor:
 
         job = await self._repo.get_job(job_id)
 
-        if job.action_kind == JobActionKind.ANALYSIS:
+        if isinstance(job.action, AnalysisAction):
             result = await self._run_analysis_job(job, trigger=trigger)
         else:
             result = await self._run_prompt_job(job, run=run, trigger=trigger)
@@ -218,7 +213,7 @@ class JobExecutor:
         # A one-shot time job has fired its only run; disable it so startup
         # reconciliation does not re-create a schedule for it. The Redis schedule
         # itself is removed automatically by the source's post_send.
-        if is_scheduled_time_run and is_one_shot_time_job(job):
+        if is_scheduled_time_run and job.is_one_shot_time_job():
             await self._repo.disable_job(job.id)
         await self._event_publisher.publish_job_run(job.id, run_id=run.id)
         return result
@@ -240,7 +235,7 @@ class JobExecutor:
         try:
             response = await self._code_executor_client.execute(
                 session_id=f"job-analysis:{job.id}",
-                code=job.analysis_code or "",
+                code=job.action.analysis_code,
             )
             formatted = format_code_execution_result(response)
             stdout = str(formatted.get("stdout", "")).strip()
@@ -287,7 +282,7 @@ def _artifact_summary(artifacts: list[Any]) -> str:
 
 def _next_run_at_after_scheduled_time_run(job: Job, *, now: datetime) -> datetime | None:
     try:
-        return next_run_at_after_time_run(job, now=now)
+        return job.next_run_at_after(now=now, enabled=job.enabled)
     except ValueError:
         return None
 

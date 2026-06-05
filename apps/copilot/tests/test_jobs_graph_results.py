@@ -31,24 +31,79 @@ from copilot.jobs.models import (
 
 def _job(**overrides) -> Job:
     now = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
+    action_kind = overrides.pop("action_kind", JobActionKind.PROMPT)
+    prompt = overrides.pop("prompt", "Check the house")
+    analysis_code = overrides.pop("analysis_code", "print('ok')")
+    output_kind = overrides.pop("output_kind", JobOutputKind.NARRATIVE)
+    trigger_kind = overrides.pop("trigger_kind", JobTriggerKind.TIME)
+    schedule_kind = overrides.pop("schedule_kind", TimeTriggerKind.INTERVAL)
+    run_at = overrides.pop("run_at", None)
+    interval_seconds = overrides.pop("interval_seconds", 60)
+    cron_expression = overrides.pop("cron_expression", None)
+    cron_timezone = overrides.pop("cron_timezone", None)
+    thing_id = overrides.pop("thing_id", "thing-1")
+    event_name = overrides.pop("event_name", "changed")
+    subscription_input = overrides.pop("subscription_input", None)
+    record_schema = overrides.pop(
+        "record_schema",
+        {"type": "object", "properties": {"mood": {"type": "string"}}},
+    )
+    record_schema_version = overrides.pop("record_schema_version", 1)
+    virtual_thing_id = overrides.pop("virtual_thing_id", "virtual:records:demo")
+
+    if action_kind == JobActionKind.ANALYSIS:
+        action = {"kind": "analysis", "analysis_code": analysis_code}
+    else:
+        action = {"kind": "prompt", "prompt": prompt}
+
+    if trigger_kind == JobTriggerKind.EVENT:
+        trigger = {
+            "kind": "event",
+            "thing_id": thing_id,
+            "event_name": event_name,
+            "subscription_input": subscription_input,
+        }
+    elif schedule_kind == TimeTriggerKind.ONCE:
+        trigger = {"kind": "time", "schedule": {"kind": "once", "run_at": run_at or now}}
+    elif schedule_kind == TimeTriggerKind.CRON:
+        trigger = {
+            "kind": "time",
+            "schedule": {
+                "kind": "cron",
+                "expression": cron_expression or "0 9 * * sun",
+                "timezone": cron_timezone,
+            },
+        }
+    else:
+        trigger = {
+            "kind": "time",
+            "schedule": {
+                "kind": "interval",
+                "interval_seconds": interval_seconds or 60,
+            },
+        }
+
+    output = (
+        {
+            "kind": "structured_record",
+            "schema": record_schema,
+            "schema_version": record_schema_version,
+            "virtual_thing": {"id": virtual_thing_id},
+        }
+        if output_kind == JobOutputKind.STRUCTURED_RECORD
+        else {"kind": "narrative"}
+    )
     values = {
         "id": "job-1",
         "name": "Demo job",
         "created_from_thread_id": "thread-1",
         "job_thread_id": "job:job-1",
-        "action_kind": JobActionKind.PROMPT,
-        "prompt": "Check the house",
-        "analysis_code": None,
+        "action": action,
+        "output": output,
         "enabled": True,
-        "trigger_kind": JobTriggerKind.TIME,
-        "schedule_kind": TimeTriggerKind.INTERVAL,
-        "run_at": None,
-        "interval_seconds": 60,
+        "trigger": trigger,
         "next_run_at": now,
-        "thing_id": None,
-        "event_name": None,
         "subscription_id": None,
-        "subscription_input": None,
         "created_at": now,
         "updated_at": now,
         "last_run_id": None,

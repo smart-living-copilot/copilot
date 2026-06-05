@@ -34,6 +34,46 @@ def _thread_id_from_config(
     return created_from_thread_id or config.get("configurable", {}).get("thread_id", "default")
 
 
+def _trigger_payload(
+    *,
+    trigger_kind: str,
+    schedule_kind: str | None,
+    run_at: str | None,
+    interval_seconds: int | None,
+    cron_expression: str | None,
+    cron_timezone: str | None,
+    thing_id: str | None,
+    event_name: str | None,
+    subscription_input: Any,
+) -> dict[str, Any]:
+    if trigger_kind == "time":
+        if schedule_kind is None:
+            if cron_expression:
+                schedule_kind = "cron"
+            elif run_at:
+                schedule_kind = "once"
+            elif interval_seconds is not None:
+                schedule_kind = "interval"
+            else:
+                raise ValueError("time jobs require run_at or interval_seconds")
+        schedule: dict[str, Any] = {"kind": schedule_kind}
+        if schedule_kind == "once":
+            schedule["run_at"] = run_at
+        elif schedule_kind == "interval":
+            schedule["interval_seconds"] = interval_seconds
+        elif schedule_kind == "cron":
+            schedule["expression"] = cron_expression
+            if cron_timezone:
+                schedule["timezone"] = cron_timezone
+        return {"kind": "time", "schedule": schedule}
+    return {
+        "kind": "event",
+        "thing_id": thing_id,
+        "event_name": event_name,
+        "subscription_input": subscription_input,
+    }
+
+
 async def _run_job(service: JobService, job_id: str) -> dict[str, Any]:
     try:
         return await service.run_job_now(job_id)
@@ -54,7 +94,7 @@ async def _create_job(
     except Exception as exc:
         return {"error": str(exc)}
 
-    return job.model_dump(mode="json")
+    return job.model_dump(mode="json", by_alias=True)
 
 
 @tool
@@ -106,18 +146,21 @@ async def create_prompt_job(
             name=name,
             created_from_thread_id=_thread_id_from_config(config, created_from_thread_id),
             interaction_mode=interaction_mode,
-            prompt=run_instructions,
-            trigger_kind=trigger_kind,
-            schedule_kind=schedule_kind,
-            run_at=run_at,
-            interval_seconds=interval_seconds,
-            cron_expression=cron_expression,
-            cron_timezone=cron_timezone,
-            thing_id=thing_id,
-            event_name=event_name,
-            subscription_input=subscription_input,
+            action={"kind": "prompt", "prompt": run_instructions},
+            trigger=_trigger_payload(
+                trigger_kind=trigger_kind,
+                schedule_kind=schedule_kind,
+                run_at=run_at,
+                interval_seconds=interval_seconds,
+                cron_expression=cron_expression,
+                cron_timezone=cron_timezone,
+                thing_id=thing_id,
+                event_name=event_name,
+                subscription_input=subscription_input,
+            ),
+            output={"kind": "narrative"},
         )
-    except ValidationError as exc:
+    except (ValidationError, ValueError) as exc:
         return {"error": str(exc)}
     return await _create_job(service, request)
 
@@ -167,23 +210,29 @@ async def create_record_prompt_job(
             name=name,
             created_from_thread_id=_thread_id_from_config(config, created_from_thread_id),
             interaction_mode=interaction_mode,
-            output_kind=JobOutputKind.STRUCTURED_RECORD,
-            prompt=run_instructions,
-            record_schema=record_schema,
-            virtual_thing_id=virtual_thing_id,
-            virtual_thing_title=virtual_thing_title,
-            virtual_thing_description=virtual_thing_description,
-            trigger_kind=trigger_kind,
-            schedule_kind=schedule_kind,
-            run_at=run_at,
-            interval_seconds=interval_seconds,
-            cron_expression=cron_expression,
-            cron_timezone=cron_timezone,
-            thing_id=thing_id,
-            event_name=event_name,
-            subscription_input=subscription_input,
+            action={"kind": "prompt", "prompt": run_instructions},
+            output={
+                "kind": JobOutputKind.STRUCTURED_RECORD.value,
+                "schema": record_schema,
+                "virtual_thing": {
+                    "id": virtual_thing_id,
+                    "title": virtual_thing_title,
+                    "description": virtual_thing_description,
+                },
+            },
+            trigger=_trigger_payload(
+                trigger_kind=trigger_kind,
+                schedule_kind=schedule_kind,
+                run_at=run_at,
+                interval_seconds=interval_seconds,
+                cron_expression=cron_expression,
+                cron_timezone=cron_timezone,
+                thing_id=thing_id,
+                event_name=event_name,
+                subscription_input=subscription_input,
+            ),
         )
-    except ValidationError as exc:
+    except (ValidationError, ValueError) as exc:
         return {"error": str(exc)}
     return await _create_job(service, request)
 
@@ -222,19 +271,21 @@ async def create_analysis_job(
         request = CreateJobRequest(
             name=name,
             created_from_thread_id=_thread_id_from_config(config, created_from_thread_id),
-            action_kind=JobActionKind.ANALYSIS,
-            analysis_code=analysis_code,
-            trigger_kind=trigger_kind,
-            schedule_kind=schedule_kind,
-            run_at=run_at,
-            interval_seconds=interval_seconds,
-            cron_expression=cron_expression,
-            cron_timezone=cron_timezone,
-            thing_id=thing_id,
-            event_name=event_name,
-            subscription_input=subscription_input,
+            action={"kind": JobActionKind.ANALYSIS.value, "analysis_code": analysis_code},
+            output={"kind": JobOutputKind.NARRATIVE.value},
+            trigger=_trigger_payload(
+                trigger_kind=trigger_kind,
+                schedule_kind=schedule_kind,
+                run_at=run_at,
+                interval_seconds=interval_seconds,
+                cron_expression=cron_expression,
+                cron_timezone=cron_timezone,
+                thing_id=thing_id,
+                event_name=event_name,
+                subscription_input=subscription_input,
+            ),
         )
-    except ValidationError as exc:
+    except (ValidationError, ValueError) as exc:
         return {"error": str(exc)}
     return await _create_job(service, request)
 
@@ -249,7 +300,7 @@ async def list_jobs(created_from_thread_id: str | None = None) -> dict[str, Any]
     if service is None:
         return dict(_SERVICE_UNAVAILABLE)
     jobs = await service.list_jobs(created_from_thread_id=created_from_thread_id)
-    return {"jobs": [job.model_dump(mode="json") for job in jobs]}
+    return {"jobs": [job.model_dump(mode="json", by_alias=True) for job in jobs]}
 
 
 @tool
@@ -264,7 +315,7 @@ async def delete_job(job_id: str) -> dict[str, Any]:
         return {"error": "job not found"}
     except Exception as exc:
         return {"error": str(exc)}
-    return {"ok": True, "job": job.model_dump(mode="json")}
+    return {"ok": True, "job": job.model_dump(mode="json", by_alias=True)}
 
 
 @tool

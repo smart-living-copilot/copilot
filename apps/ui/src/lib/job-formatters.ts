@@ -123,7 +123,7 @@ export function getJobStatus(job: JobRecord, now: Date): JobDisplayStatus {
   if (job.last_run_status === 'skipped') return 'skipped';
   if (job.last_run_status === 'failed') return 'failed';
   if (!job.enabled) return 'disabled';
-  if (job.trigger_kind === 'event') return 'waiting-event';
+  if (job.trigger.kind === 'event') return 'waiting-event';
   if (!job.next_run_at)
     return job.last_run_status === 'succeeded' ? 'succeeded' : 'queued';
 
@@ -135,39 +135,37 @@ export function getJobStatus(job: JobRecord, now: Date): JobDisplayStatus {
 }
 
 export function getScheduleLabel(job: JobRecord): string {
-  if (job.trigger_kind === 'event') {
-    return job.event_name
-      ? `On event: ${job.event_name}`
+  if (job.trigger.kind === 'event') {
+    return job.trigger.event_name
+      ? `On event: ${job.trigger.event_name}`
       : 'On subscribed event';
   }
-  if (job.interval_seconds) {
-    return `Every ${formatInterval(job.interval_seconds)}`;
+  const schedule = job.trigger.schedule;
+  if (schedule.kind === 'interval') {
+    return `Every ${formatInterval(schedule.interval_seconds)}`;
   }
-  if (job.schedule_kind === 'cron' && job.cron_expression) {
-    return job.cron_timezone
-      ? `Cron ${job.cron_expression} (${job.cron_timezone})`
-      : `Cron ${job.cron_expression}`;
+  if (schedule.kind === 'cron') {
+    return schedule.timezone
+      ? `Cron ${schedule.expression} (${schedule.timezone})`
+      : `Cron ${schedule.expression}`;
   }
-  if (job.run_at) {
-    return `Once at ${formatDateTime(job.run_at)}`;
-  }
-  return 'Manual or pending schedule';
+  return `Once at ${formatDateTime(schedule.run_at)}`;
 }
 
 export function getPurposePreview(job: JobRecord): {
   label: string;
   content: string;
 } {
-  if (job.action_kind === 'analysis') {
+  if (job.action.kind === 'analysis') {
     return {
       label: 'Analysis code',
-      content: job.analysis_code?.trim() || '(empty analysis code)',
+      content: job.action.analysis_code.trim() || '(empty analysis code)',
     };
   }
 
   return {
     label: 'Prompt',
-    content: job.prompt?.trim() || '(empty prompt)',
+    content: job.action.prompt.trim() || '(empty prompt)',
   };
 }
 
@@ -197,14 +195,12 @@ export function getSubmittedRecordResultSummary(
   return `Structured record: ${truncateText(preview, 320)}`;
 }
 
-export function supportsJobThread(
-  job: Pick<JobRecord, 'action_kind'>,
-): boolean {
-  return job.action_kind === 'prompt';
+export function supportsJobThread(job: Pick<JobRecord, 'action'>): boolean {
+  return job.action.kind === 'prompt';
 }
 
 export function supportsJobReply(
-  job: Pick<JobRecord, 'action_kind' | 'last_run_status' | 'waiting_question'>,
+  job: Pick<JobRecord, 'action' | 'last_run_status' | 'waiting_question'>,
 ): boolean {
   return (
     supportsJobThread(job) &&
@@ -213,16 +209,12 @@ export function supportsJobReply(
   );
 }
 
-export function supportsTimeFields(
-  job: Pick<JobRecord, 'trigger_kind'>,
-): boolean {
-  return job.trigger_kind === 'time';
+export function supportsTimeFields(job: Pick<JobRecord, 'trigger'>): boolean {
+  return job.trigger.kind === 'time';
 }
 
-export function supportsEventFields(
-  job: Pick<JobRecord, 'trigger_kind'>,
-): boolean {
-  return job.trigger_kind === 'event';
+export function supportsEventFields(job: Pick<JobRecord, 'trigger'>): boolean {
+  return job.trigger.kind === 'event';
 }
 
 export function getStatusBadgeVariant(

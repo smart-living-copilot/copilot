@@ -7,8 +7,8 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from copilot.jobs.db import JobRecord
-from copilot.jobs.enums import JobTriggerKind, TimeTriggerKind
-from copilot.jobs.schemas import CreateJobRequest, Job
+from copilot.jobs.enums import JobTriggerKind
+from copilot.jobs.schemas import CreateJobRequest, Job, JobDefinition
 from copilot.jobs.stores.base import (
     _JobStoreBase,
     _UNSET,
@@ -20,7 +20,6 @@ from copilot.jobs.stores.base import (
     job_thread_id_for_job,
     utc_now,
 )
-from copilot.jobs.time_schedule import next_run_at_for_job
 from copilot.threads.models import DEFAULT_THREAD_TITLE, Thread, ThreadKind
 
 
@@ -55,27 +54,13 @@ class JobDefinitionStore(_JobStoreBase):
                 action_kind=request.action_kind.value,
                 interaction_mode=request.interaction_mode.value,
                 output_kind=request.output_kind.value,
-                prompt=request.prompt,
-                analysis_code=request.analysis_code,
-                record_schema=_json_safe(request.record_schema)
-                if request.record_schema is not None
-                else None,
-                record_schema_version=request.record_schema_version,
-                virtual_thing_id=request.virtual_thing_id,
+                action=_json_safe(request.action.model_dump(mode="json", by_alias=True)),
+                trigger=_json_safe(request.trigger.model_dump(mode="json", by_alias=True)),
+                output=_json_safe(request.output.model_dump(mode="json", by_alias=True)),
                 enabled=True,
                 trigger_kind=request.trigger_kind.value,
-                schedule_kind=request.schedule_kind.value if request.schedule_kind else None,
-                run_at=request.run_at,
-                interval_seconds=request.interval_seconds,
-                cron_expression=request.cron_expression,
-                cron_timezone=request.cron_timezone,
                 next_run_at=next_run_at,
-                thing_id=request.thing_id,
-                event_name=request.event_name,
                 subscription_id=subscription_id,
-                subscription_input=_json_safe(request.subscription_input)
-                if request.subscription_input is not None
-                else None,
                 resource_health=None,
                 created_at=now,
                 updated_at=now,
@@ -257,40 +242,28 @@ class JobDefinitionStore(_JobStoreBase):
         job_id: str,
         *,
         name: object = _UNSET,
-        prompt: object = _UNSET,
-        analysis_code: object = _UNSET,
-        schedule_kind: object = _UNSET,
-        interval_seconds: object = _UNSET,
-        run_at: object = _UNSET,
-        cron_expression: object = _UNSET,
-        cron_timezone: object = _UNSET,
+        enabled: object = _UNSET,
+    ) -> Job:
+        return await self.update_job_metadata(job_id, name=name, enabled=enabled)
+
+    async def update_job_metadata(
+        self,
+        job_id: str,
+        *,
+        name: object = _UNSET,
         enabled: object = _UNSET,
     ) -> Job:
         return await asyncio.to_thread(
-            self._update_job_sync,
+            self._update_job_metadata_sync,
             job_id,
             name,
-            prompt,
-            analysis_code,
-            schedule_kind,
-            interval_seconds,
-            run_at,
-            cron_expression,
-            cron_timezone,
             enabled,
         )
 
-    def _update_job_sync(
+    def _update_job_metadata_sync(
         self,
         job_id: str,
         name: object,
-        prompt: object,
-        analysis_code: object,
-        schedule_kind: object,
-        interval_seconds: object,
-        run_at: object,
-        cron_expression: object,
-        cron_timezone: object,
         enabled: object,
     ) -> Job:
         now = utc_now()
@@ -302,28 +275,53 @@ class JobDefinitionStore(_JobStoreBase):
 
             if name is not _UNSET:
                 row.name = name  # type: ignore[assignment]
-            if prompt is not _UNSET:
-                row.prompt = prompt  # type: ignore[assignment]
-            if analysis_code is not _UNSET:
-                row.analysis_code = analysis_code  # type: ignore[assignment]
-            if schedule_kind is not _UNSET:
-                row.schedule_kind = (  # type: ignore[assignment]
-                    schedule_kind.value
-                    if isinstance(schedule_kind, TimeTriggerKind)
-                    else schedule_kind
-                )
-            if interval_seconds is not _UNSET:
-                row.interval_seconds = interval_seconds  # type: ignore[assignment]
-            if run_at is not _UNSET:
-                row.run_at = run_at  # type: ignore[assignment]
-            if cron_expression is not _UNSET:
-                row.cron_expression = cron_expression  # type: ignore[assignment]
-            if cron_timezone is not _UNSET:
-                row.cron_timezone = cron_timezone  # type: ignore[assignment]
             if enabled is not _UNSET:
                 row.enabled = bool(enabled)
 
             row.next_run_at = self._compute_next_run_at(row, now)
+            row.updated_at = now
+            session.commit()
+            return _to_job(row)
+
+    async def replace_job_definition(
+        self,
+        job_id: str,
+        definition: JobDefinition,
+        *,
+        next_run_at: datetime | None,
+        subscription_id: str | None,
+    ) -> Job:
+        return await asyncio.to_thread(
+            self._replace_job_definition_sync,
+            job_id,
+            definition,
+            next_run_at,
+            subscription_id,
+        )
+
+    def _replace_job_definition_sync(
+        self,
+        job_id: str,
+        definition: JobDefinition,
+        next_run_at: datetime | None,
+        subscription_id: str | None,
+    ) -> Job:
+        now = utc_now()
+        with self._session_factory() as session:
+            statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
+            row = session.scalars(statement).one_or_none()
+            if row is None:
+                raise KeyError(job_id)
+
+            row.interaction_mode = definition.interaction_mode.value
+            row.action_kind = definition.action_kind.value
+            row.trigger_kind = definition.trigger_kind.value
+            row.output_kind = definition.output_kind.value
+            row.action = _json_safe(definition.action.model_dump(mode="json", by_alias=True))
+            row.trigger = _json_safe(definition.trigger.model_dump(mode="json", by_alias=True))
+            row.output = _json_safe(definition.output.model_dump(mode="json", by_alias=True))
+            row.next_run_at = next_run_at
+            row.subscription_id = subscription_id
             row.updated_at = now
             session.commit()
             return _to_job(row)
@@ -333,6 +331,6 @@ class JobDefinitionStore(_JobStoreBase):
         if row.trigger_kind != JobTriggerKind.TIME.value or not row.enabled:
             return None
         try:
-            return next_run_at_for_job(_to_job(row), now=now)
+            return _to_job(row).next_run_at_after(now=now, enabled=row.enabled)
         except ValueError:
             return None

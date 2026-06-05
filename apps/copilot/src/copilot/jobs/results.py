@@ -35,7 +35,7 @@ class JobRunEventPublisher:
 
         payload = {
             "type": "job_run",
-            "job": job.model_dump(mode="json"),
+            "job": job.model_dump(mode="json", by_alias=True),
         }
         if run_id is not None:
             try:

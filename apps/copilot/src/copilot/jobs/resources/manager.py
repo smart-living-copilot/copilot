@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from copilot.clients.wot_runtime import WotRuntimeClient
-from copilot.jobs.enums import JobOutputKind, JobTriggerKind
 from copilot.jobs.records import VirtualRecordStore
 from copilot.jobs.resources.constants import (
     RESOURCE_EVENT_SUBSCRIPTION,
@@ -17,10 +16,16 @@ from copilot.jobs.resources.constants import (
 from copilot.jobs.resources.event_subscriptions import EventSubscriptionReconciler
 from copilot.jobs.resources.health import mark_resource_health
 from copilot.jobs.schedule import JobScheduleManager
-from copilot.jobs.schemas import CreateJobRequest, Job
+from copilot.jobs.schemas import (
+    CreateJobRequest,
+    EventTrigger,
+    Job,
+    JobDefinition,
+    StructuredRecordOutput,
+    TimeTrigger,
+)
 from copilot.jobs.stores import JobStore, utc_now
 from copilot.jobs.subscriptions import subscription_id_from_response
-from copilot.jobs.time_schedule import initial_next_run_at_for_request
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +72,9 @@ class JobResourceManager:
         jobs = await self._repo.list_jobs()
         repaired = 0
         for job in jobs:
-            if job.output_kind != JobOutputKind.STRUCTURED_RECORD:
+            if not isinstance(job.output, StructuredRecordOutput):
                 continue
-            if not job.virtual_thing_id:
+            if not job.output.virtual_thing_id:
                 logger.warning(
                     "Structured record job %s has no virtual Thing id during sync.",
                     job.id,
@@ -77,7 +82,7 @@ class JobResourceManager:
                 continue
             exists = await asyncio.to_thread(
                 self._record_store.thing_exists,
-                job.virtual_thing_id,
+                job.output.virtual_thing_id,
             )
             if exists:
                 await mark_resource_health(
@@ -131,13 +136,36 @@ class JobResourceManager:
         return job
 
     async def prepare_create(self, request: CreateJobRequest) -> PreparedJobResources:
-        if request.trigger_kind == JobTriggerKind.TIME:
+        if isinstance(request.trigger, TimeTrigger):
             return PreparedJobResources(
-                next_run_at=_next_run_at_for_time_request(request),
+                next_run_at=request.initial_next_run_at(now=utc_now()),
                 subscription_id=None,
             )
 
         subscription_response = await self._event_subscriptions.subscribe_event_request(request)
+        return PreparedJobResources(
+            next_run_at=None,
+            subscription_id=subscription_id_from_response(subscription_response),
+        )
+
+    async def prepare_definition(
+        self,
+        definition: JobDefinition,
+        *,
+        enabled: bool,
+    ) -> PreparedJobResources:
+        if isinstance(definition.trigger, TimeTrigger):
+            return PreparedJobResources(
+                next_run_at=definition.initial_next_run_at(now=utc_now(), enabled=enabled),
+                subscription_id=None,
+            )
+        if not enabled:
+            return PreparedJobResources(next_run_at=None, subscription_id=None)
+        subscription_response = await self._runtime_client.subscribe_event(
+            thing_id=definition.trigger.thing_id,
+            event_name=definition.trigger.event_name,
+            subscription_input=definition.trigger.subscription_input,
+        )
         return PreparedJobResources(
             next_run_at=None,
             subscription_id=subscription_id_from_response(subscription_response),
@@ -149,9 +177,9 @@ class JobResourceManager:
         *,
         request: CreateJobRequest | None = None,
     ) -> None:
-        if job.output_kind == JobOutputKind.STRUCTURED_RECORD:
+        if isinstance(job.output, StructuredRecordOutput):
             await self._create_or_update_record_thing(job, request=request)
-        if job.trigger_kind == JobTriggerKind.TIME:
+        if isinstance(job.trigger, TimeTrigger):
             try:
                 await self._schedule_manager.add_job(job)
             except Exception as exc:
@@ -166,7 +194,39 @@ class JobResourceManager:
             await mark_resource_health(self._repo, job.id, RESOURCE_SCHEDULE, "healthy")
 
     async def update_job_resources(self, previous: Job, updated: Job) -> Job:
-        if updated.trigger_kind == JobTriggerKind.TIME:
+        if isinstance(previous.trigger, TimeTrigger) and (
+            not isinstance(updated.trigger, TimeTrigger) or not updated.enabled
+        ):
+            await self._schedule_manager.remove_job(previous.id)
+
+        if previous.subscription_id and (
+            not isinstance(updated.trigger, EventTrigger)
+            or previous.subscription_id != updated.subscription_id
+        ):
+            await self._runtime_client.remove_subscription(
+                subscription_id=previous.subscription_id,
+            )
+            if previous.subscription_id == updated.subscription_id:
+                await self._repo.set_subscription_id(updated.id, None)
+                updated = await self._repo.get_job(updated.id)
+
+        previous_thing_id = (
+            previous.output.virtual_thing_id
+            if isinstance(previous.output, StructuredRecordOutput)
+            else None
+        )
+        updated_thing_id = (
+            updated.output.virtual_thing_id
+            if isinstance(updated.output, StructuredRecordOutput)
+            else None
+        )
+        if previous_thing_id and previous_thing_id != updated_thing_id:
+            await asyncio.to_thread(self._record_store.delete_thing, previous_thing_id)
+
+        if isinstance(updated.output, StructuredRecordOutput):
+            await self._create_or_update_record_thing(updated, request=None)
+
+        if isinstance(updated.trigger, TimeTrigger):
             try:
                 await self._schedule_manager.remove_job(updated.id)
                 if updated.enabled:
@@ -188,7 +248,7 @@ class JobResourceManager:
             )
             return updated
 
-        if updated.trigger_kind == JobTriggerKind.EVENT:
+        if isinstance(updated.trigger, EventTrigger):
             return await self._update_event_job_resources(previous, updated)
 
         return updated
@@ -225,7 +285,7 @@ class JobResourceManager:
             )
             return updated
 
-        needs_subscription = not updated.subscription_id or not previous.enabled
+        needs_subscription = updated.enabled and not updated.subscription_id
         if not needs_subscription:
             return updated
 
@@ -260,14 +320,17 @@ class JobResourceManager:
         return await self._repo.delete_job(job_id)
 
     async def delete_job_resources(self, job: Job) -> None:
-        if job.trigger_kind == JobTriggerKind.TIME:
+        if isinstance(job.trigger, TimeTrigger):
             await self._schedule_manager.remove_job(job.id)
         if job.subscription_id:
             await self._runtime_client.remove_subscription(
                 subscription_id=job.subscription_id,
             )
-        if job.virtual_thing_id:
-            await asyncio.to_thread(self._record_store.delete_thing, job.virtual_thing_id)
+        if isinstance(job.output, StructuredRecordOutput) and job.output.virtual_thing_id:
+            await asyncio.to_thread(
+                self._record_store.delete_thing,
+                job.output.virtual_thing_id,
+            )
 
     async def cleanup_prepared_create(self, prepared: PreparedJobResources) -> None:
         if not prepared.subscription_id:
@@ -299,14 +362,17 @@ class JobResourceManager:
         *,
         request: CreateJobRequest | None,
     ) -> None:
-        title = request.virtual_thing_title if request is not None else None
-        description = request.virtual_thing_description if request is not None else None
+        if not isinstance(job.output, StructuredRecordOutput):
+            return
+        virtual_thing = job.output.virtual_thing
+        title = virtual_thing.title if virtual_thing is not None else None
+        description = virtual_thing.description if virtual_thing is not None else None
         await asyncio.to_thread(
             self._record_store.create_or_update_thing,
-            thing_id=job.virtual_thing_id or "",
+            thing_id=job.output.virtual_thing_id or "",
             source_job_id=job.id,
-            schema_version=job.record_schema_version or 1,
-            record_schema=job.record_schema or {},
+            schema_version=job.output.schema_version,
+            record_schema=job.output.schema or {},
             title=title or job.name,
             description=description or f"Structured records collected by the {job.name} job.",
         )
@@ -316,10 +382,3 @@ class JobResourceManager:
             RESOURCE_VIRTUAL_RECORD_THING,
             "healthy",
         )
-
-
-def _next_run_at_for_time_request(request: CreateJobRequest) -> datetime | None:
-    return initial_next_run_at_for_request(
-        request,
-        now=utc_now(),
-    )

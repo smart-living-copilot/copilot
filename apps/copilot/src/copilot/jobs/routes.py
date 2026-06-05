@@ -36,7 +36,7 @@ async def create_job(payload: CreateJobRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return job.model_dump()
+    return job.model_dump(mode="json", by_alias=True)
 
 
 @router.get("/jobs")
@@ -47,7 +47,7 @@ async def list_jobs(
     verify_internal_api_key(request)
     service = request.app.state.service
     jobs = await service.list_jobs(created_from_thread_id=created_from_thread_id)
-    return {"jobs": [job.model_dump() for job in jobs]}
+    return {"jobs": [job.model_dump(mode="json", by_alias=True) for job in jobs]}
 
 
 @router.get("/jobs/events")
@@ -147,7 +147,7 @@ async def get_job_thread(job_id: str, request: Request):
             messages = await checkpoint_thread_messages(checkpointer, thread_id)
     return {
         **record,
-        "job": job.model_dump(),
+        "job": job.model_dump(mode="json", by_alias=True),
         "run": run.model_dump() if run is not None else None,
         "events": [event.model_dump(mode="json") for event in events],
         "messages": messages,
@@ -180,7 +180,7 @@ async def get_job(job_id: str, request: Request):
         job = await service.get_job(job_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="job not found")
-    return job.model_dump()
+    return job.model_dump(mode="json", by_alias=True)
 
 
 @router.patch("/jobs/{job_id}")
@@ -195,7 +195,7 @@ async def update_job(job_id: str, payload: UpdateJobRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return job.model_dump()
+    return job.model_dump(mode="json", by_alias=True)
 
 
 @router.post("/jobs/{job_id}/cancel")
@@ -210,7 +210,7 @@ async def cancel_job(job_id: str, request: Request):
         raise HTTPException(status_code=409, detail="job has no active run to cancel") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return {"ok": True, "job": job.model_dump()}
+    return {"ok": True, "job": job.model_dump(mode="json", by_alias=True)}
 
 
 @router.delete("/jobs/{job_id}")
@@ -223,7 +223,7 @@ async def delete_job(job_id: str, request: Request):
         raise HTTPException(status_code=404, detail="job not found")
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return {"ok": True, "job": job.model_dump()}
+    return {"ok": True, "job": job.model_dump(mode="json", by_alias=True)}
 
 
 @router.post("/jobs/{job_id}/run", status_code=202)

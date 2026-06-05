@@ -145,11 +145,11 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
 
   const actionCard = (
     <JobFormCard
-      title={job.action_kind === 'analysis' ? 'Analysis code' : 'Prompt'}
+      title={job.action.kind === 'analysis' ? 'Analysis code' : 'Prompt'}
       description="What the job runs each time it is triggered."
     >
       <JobActionFields
-        actionKind={job.action_kind}
+        actionKind={job.action.kind}
         prompt={form.prompt}
         analysisCode={form.analysisCode}
         onPromptChange={(value) => setField('prompt', value)}
@@ -185,7 +185,7 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
         }
         headerAction={
           <div className="flex flex-wrap gap-2">
-            <Badge variant="outline">{getStatusLabel(job.action_kind)}</Badge>
+            <Badge variant="outline">{getStatusLabel(job.action.kind)}</Badge>
             <Badge variant="outline">
               {getScheduleBadgeLabel(job, scheduleKind)}
             </Badge>

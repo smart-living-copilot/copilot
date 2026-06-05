@@ -9,7 +9,6 @@ from typing import Any
 from taskiq.exceptions import TaskiqResultTimeoutError
 
 from copilot.core.settings import Settings
-from copilot.jobs.domain import normalize_create_request, normalize_update_fields
 from copilot.jobs.enums import JobRunStatus
 from copilot.jobs.schemas import CreateJobRequest, Job, JobRun, JobRunEvent, UpdateJobRequest
 from copilot.jobs.results import JobRunEventStream
@@ -69,9 +68,8 @@ class JobService:
         await broker.shutdown()
 
     async def create_job(self, request: CreateJobRequest) -> Job:
-        request = normalize_create_request(
-            request,
-            default_cron_timezone=self._settings.jobs_default_timezone,
+        request = request.normalized_request(
+            default_cron_timezone=self._settings.jobs_default_timezone
         )
         return await self._resources.create_job(request)
 
@@ -127,19 +125,40 @@ class JobService:
         return await self._repo.list_job_run_events(job_id)
 
     async def update_job(self, job_id: str, request: UpdateJobRequest) -> Job:
-        job = await self._repo.get_job(job_id)
-        fields = request.model_dump(exclude_unset=True)
-        fields = normalize_update_fields(
-            job,
-            fields,
-            default_cron_timezone=self._settings.jobs_default_timezone,
-        )
+        previous = await self._repo.get_job(job_id)
+        updated = previous
 
-        if not fields:
-            return job
+        metadata_fields: dict[str, Any] = {}
+        if request.name is not None:
+            metadata_fields["name"] = request.name
+        if request.enabled is not None:
+            metadata_fields["enabled"] = request.enabled
+        if metadata_fields:
+            updated = await self._repo.update_job_metadata(job_id, **metadata_fields)
 
-        updated = await self._repo.update_job(job_id, **fields)
-        return await self._resources.update_job_resources(job, updated)
+        if request.definition is not None:
+            definition = request.definition.normalized(
+                name=updated.name,
+                default_cron_timezone=self._settings.jobs_default_timezone,
+            )
+            prepared = await self._resources.prepare_definition(
+                definition,
+                enabled=updated.enabled,
+            )
+            try:
+                updated = await self._repo.replace_job_definition(
+                    job_id,
+                    definition,
+                    next_run_at=prepared.next_run_at,
+                    subscription_id=prepared.subscription_id,
+                )
+            except Exception:
+                await self._resources.cleanup_prepared_create(prepared)
+                raise
+
+        if updated == previous:
+            return previous
+        return await self._resources.update_job_resources(previous, updated)
 
     async def cancel_job_run(self, job_id: str) -> Job:
         return await self._repo.cancel_active_run(job_id)

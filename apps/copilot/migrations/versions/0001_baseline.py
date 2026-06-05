@@ -278,11 +278,9 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("'narrative'"),
         ),
-        sa.Column("prompt", sa.Text()),
-        sa.Column("analysis_code", sa.Text()),
-        sa.Column("record_schema", postgresql.JSONB()),
-        sa.Column("record_schema_version", sa.Integer()),
-        sa.Column("virtual_thing_id", sa.Text()),
+        sa.Column("action", postgresql.JSONB(), nullable=False),
+        sa.Column("trigger", postgresql.JSONB(), nullable=False),
+        sa.Column("output", postgresql.JSONB(), nullable=False),
         sa.Column(
             "enabled",
             sa.Boolean(),
@@ -290,16 +288,8 @@ def upgrade() -> None:
             server_default=sa.text("true"),
         ),
         sa.Column("trigger_kind", sa.Text(), nullable=False),
-        sa.Column("schedule_kind", sa.Text()),
-        sa.Column("run_at", sa.DateTime(timezone=True)),
-        sa.Column("interval_seconds", sa.Integer()),
-        sa.Column("cron_expression", sa.Text()),
-        sa.Column("cron_timezone", sa.Text()),
         sa.Column("next_run_at", sa.DateTime(timezone=True)),
-        sa.Column("thing_id", sa.Text()),
-        sa.Column("event_name", sa.Text()),
         sa.Column("subscription_id", sa.Text()),
-        sa.Column("subscription_input", postgresql.JSONB()),
         sa.Column("resource_health", postgresql.JSONB()),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
@@ -335,8 +325,16 @@ def upgrade() -> None:
             name="ck_jobs_output_kind",
         ),
         sa.CheckConstraint(
-            "schedule_kind IS NULL OR schedule_kind IN ('once', 'interval', 'cron')",
-            name="ck_jobs_schedule_kind",
+            "(\"action\" ->> 'kind') = action_kind",
+            name="ck_jobs_action_json_kind",
+        ),
+        sa.CheckConstraint(
+            "(\"trigger\" ->> 'kind') = trigger_kind",
+            name="ck_jobs_trigger_json_kind",
+        ),
+        sa.CheckConstraint(
+            "(\"output\" ->> 'kind') = output_kind",
+            name="ck_jobs_output_json_kind",
         ),
         sa.CheckConstraint(
             "last_run_status IS NULL OR last_run_status IN ("
@@ -351,7 +349,6 @@ def upgrade() -> None:
         sa.UniqueConstraint("job_thread_id"),
         if_not_exists=True,
     )
-    _repair_legacy_jobs_columns()
     op.create_index(
         "idx_jobs_due",
         "jobs",
@@ -548,60 +545,6 @@ def upgrade() -> None:
         "idx_virtual_records_source_run",
         "virtual_records",
         ["source_run_id"],
-        if_not_exists=True,
-    )
-
-
-def _repair_legacy_jobs_columns() -> None:
-    """Keep pre-Alembic databases bootable during the baseline transition."""
-    op.add_column(
-        "jobs",
-        sa.Column(
-            "interaction_mode",
-            sa.Text(),
-            nullable=False,
-            server_default=sa.text("'autonomous'"),
-        ),
-        if_not_exists=True,
-    )
-    op.add_column(
-        "jobs",
-        sa.Column(
-            "output_kind",
-            sa.Text(),
-            nullable=False,
-            server_default=sa.text("'narrative'"),
-        ),
-        if_not_exists=True,
-    )
-    op.add_column(
-        "jobs",
-        sa.Column("record_schema", postgresql.JSONB()),
-        if_not_exists=True,
-    )
-    op.add_column(
-        "jobs",
-        sa.Column("record_schema_version", sa.Integer()),
-        if_not_exists=True,
-    )
-    op.add_column(
-        "jobs",
-        sa.Column("virtual_thing_id", sa.Text()),
-        if_not_exists=True,
-    )
-    op.add_column(
-        "jobs",
-        sa.Column("resource_health", postgresql.JSONB()),
-        if_not_exists=True,
-    )
-    op.add_column(
-        "jobs",
-        sa.Column("cron_expression", sa.Text()),
-        if_not_exists=True,
-    )
-    op.add_column(
-        "jobs",
-        sa.Column("cron_timezone", sa.Text()),
         if_not_exists=True,
     )
 

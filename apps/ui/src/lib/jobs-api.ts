@@ -5,30 +5,13 @@ export interface JobRecord {
   name: string;
   created_from_thread_id: string;
   job_thread_id: string;
-  action_kind: 'prompt' | 'analysis';
-  interaction_mode:
-    | 'autonomous'
-    | 'ask_when_needed'
-    | 'required_checkin'
-    | 'approval_gate';
-  output_kind: 'narrative' | 'structured_record';
-  prompt: string | null;
-  analysis_code: string | null;
-  record_schema: unknown | null;
-  record_schema_version: number | null;
-  virtual_thing_id: string | null;
+  interaction_mode: JobInteractionMode;
+  action: JobAction;
+  trigger: JobTrigger;
+  output: JobOutput;
   enabled: boolean;
-  trigger_kind: 'time' | 'event';
-  schedule_kind: 'once' | 'interval' | 'cron' | null;
-  run_at: string | null;
-  interval_seconds: number | null;
-  cron_expression: string | null;
-  cron_timezone: string | null;
   next_run_at: string | null;
-  thing_id: string | null;
-  event_name: string | null;
   subscription_id: string | null;
-  subscription_input: unknown | null;
   resource_health: JobResourceHealth | null;
   created_at: string;
   updated_at: string;
@@ -49,6 +32,79 @@ export interface JobRecord {
   active_run_started_at: string | null;
   active_run_source: 'manual' | 'time' | 'event' | null;
   waiting_question: string | null;
+}
+
+export type JobAction = PromptJobAction | AnalysisJobAction;
+
+export interface PromptJobAction {
+  kind: 'prompt';
+  prompt: string;
+}
+
+export interface AnalysisJobAction {
+  kind: 'analysis';
+  analysis_code: string;
+}
+
+export type JobTrigger = TimeJobTrigger | EventJobTrigger;
+
+export interface TimeJobTrigger {
+  kind: 'time';
+  schedule: JobSchedule;
+}
+
+export interface EventJobTrigger {
+  kind: 'event';
+  thing_id: string;
+  event_name: string;
+  subscription_input?: unknown | null;
+}
+
+export type JobSchedule =
+  | OnceJobSchedule
+  | IntervalJobSchedule
+  | CronJobSchedule;
+
+export interface OnceJobSchedule {
+  kind: 'once';
+  run_at: string;
+}
+
+export interface IntervalJobSchedule {
+  kind: 'interval';
+  interval_seconds: number;
+}
+
+export interface CronJobSchedule {
+  kind: 'cron';
+  expression: string;
+  timezone?: string | null;
+}
+
+export type JobOutput = NarrativeJobOutput | StructuredRecordJobOutput;
+
+export type JobInteractionMode = 'autonomous' | 'required_checkin';
+
+export interface NarrativeJobOutput {
+  kind: 'narrative';
+}
+
+export interface StructuredRecordJobOutput {
+  kind: 'structured_record';
+  schema: unknown;
+  schema_version: number;
+  virtual_thing?: {
+    id?: string | null;
+    title?: string | null;
+    description?: string | null;
+  } | null;
+}
+
+export interface JobDefinitionPayload {
+  interaction_mode?: JobInteractionMode;
+  action: JobAction;
+  trigger: JobTrigger;
+  output: JobOutput;
 }
 
 export interface JobResourceHealthEntry {
@@ -146,29 +202,10 @@ interface ListJobRunEventsResponse {
 export interface CreateJobPayload {
   name: string;
   created_from_thread_id?: string;
-  action_kind: 'prompt' | 'analysis';
-  interaction_mode?:
-    | 'autonomous'
-    | 'ask_when_needed'
-    | 'required_checkin'
-    | 'approval_gate';
-  output_kind?: 'narrative' | 'structured_record';
-  prompt?: string;
-  analysis_code?: string;
-  record_schema?: unknown;
-  record_schema_version?: number;
-  virtual_thing_id?: string;
-  virtual_thing_title?: string;
-  virtual_thing_description?: string;
-  trigger_kind: 'time' | 'event';
-  schedule_kind?: 'once' | 'interval' | 'cron';
-  run_at?: string;
-  interval_seconds?: number;
-  cron_expression?: string;
-  cron_timezone?: string;
-  thing_id?: string;
-  event_name?: string;
-  subscription_input?: unknown;
+  interaction_mode?: JobInteractionMode;
+  action: JobAction;
+  trigger: JobTrigger;
+  output?: JobOutput;
 }
 
 export async function fetchJobs(threadId?: string): Promise<JobRecord[]> {
@@ -198,14 +235,8 @@ export async function fetchJob(jobId: string): Promise<JobRecord> {
 
 export interface UpdateJobPayload {
   name?: string;
-  prompt?: string;
-  analysis_code?: string;
-  schedule_kind?: 'once' | 'interval' | 'cron';
-  interval_seconds?: number;
-  run_at?: string;
-  cron_expression?: string;
-  cron_timezone?: string;
   enabled?: boolean;
+  definition?: JobDefinitionPayload;
 }
 
 export async function updateJob(

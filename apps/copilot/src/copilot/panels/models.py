@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Text, UniqueConstraint, text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -48,6 +48,7 @@ class PanelVersion(Base):
     __tablename__ = "panel_versions"
     __table_args__ = (
         UniqueConstraint("panel_id", "version", name="uq_panel_versions_panel_version"),
+        Index("ix_panel_versions_panel_id_created_at", "panel_id", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)

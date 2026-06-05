@@ -9,11 +9,9 @@ from taskiq_redis import ListRedisScheduleSource
 
 from copilot.core.settings import Settings
 from copilot.jobs.constants import JOB_SCHEDULE_PREFIX, RUN_JOB_TASK_NAME
-from copilot.jobs.enums import JobTriggerKind
-from copilot.jobs.schemas import Job
+from copilot.jobs.schemas import Job, TimeTrigger
 from copilot.jobs.stores import JobStore
 from copilot.jobs.time_schedule import CronSchedule, IntervalSchedule, OnceSchedule
-from copilot.jobs.time_schedule import time_schedule_from_job
 
 logger = logging.getLogger(__name__)
 
@@ -55,15 +53,17 @@ def scheduled_task_for_job(job: Job) -> ScheduledTask:
         kwargs={"job_id": job.id, "trigger": {"source": "time"}},
         schedule_id=schedule_id_for_job(job.id),
     )
-    schedule = time_schedule_from_job(job)
+    if not isinstance(job.trigger, TimeTrigger):
+        raise ValueError(f"Job {job.id} is not time-triggered")
+    schedule = job.trigger.schedule
     if isinstance(schedule, IntervalSchedule):
         return ScheduledTask(interval=schedule.interval_seconds, **common)
     if isinstance(schedule, OnceSchedule):
         return ScheduledTask(time=_utc(schedule.run_at), **common)
     if isinstance(schedule, CronSchedule):
         return ScheduledTask(
-            cron=schedule.cron_expression,
-            cron_offset=schedule.cron_timezone,
+            cron=schedule.expression,
+            cron_offset=schedule.timezone,
             **common,
         )
     raise ValueError(f"Time job {job.id} has an invalid schedule")
@@ -88,7 +88,7 @@ class JobScheduleManager:
         self._repo = repo or JobStore()
 
     async def add_job(self, job: Job) -> None:
-        if job.trigger_kind != JobTriggerKind.TIME:
+        if not isinstance(job.trigger, TimeTrigger):
             return
         await self._source.add_schedule(scheduled_task_for_job(job))
 

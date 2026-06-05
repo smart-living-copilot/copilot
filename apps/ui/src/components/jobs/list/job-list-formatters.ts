@@ -31,23 +31,21 @@ export function getJobSearchableText(job: JobRecord): string {
     job.name,
     job.id,
     job.job_thread_id,
-    job.action_kind,
+    job.action.kind,
     job.interaction_mode,
-    job.output_kind,
-    job.trigger_kind,
-    job.schedule_kind,
-    job.cron_expression,
-    job.cron_timezone,
-    job.thing_id,
-    job.event_name,
+    job.output.kind,
+    job.trigger.kind,
     job.last_error,
     job.last_response,
     job.last_run_status,
     job.waiting_question,
-    job.virtual_thing_id,
-    job.prompt,
-    job.analysis_code,
-    job.record_schema ? JSON.stringify(job.record_schema) : null,
+    job.action.kind === 'prompt' ? job.action.prompt : job.action.analysis_code,
+    job.trigger.kind === 'time'
+      ? JSON.stringify(job.trigger.schedule)
+      : `${job.trigger.thing_id} ${job.trigger.event_name}`,
+    job.output.kind === 'structured_record'
+      ? `${job.output.virtual_thing?.id ?? ''} ${JSON.stringify(job.output.schema)}`
+      : null,
   ]
     .filter(Boolean)
     .join(' ')
@@ -63,25 +61,23 @@ export function renderRelative(
 }
 
 export function actionLabel(job: JobRecord): string {
-  if (job.output_kind === 'structured_record') return 'Record prompt';
-  return job.action_kind === 'analysis' ? 'Analysis' : 'Prompt';
+  if (job.output.kind === 'structured_record') return 'Record prompt';
+  return job.action.kind === 'analysis' ? 'Analysis' : 'Prompt';
 }
 
 export function triggerLabel(job: JobRecord): string {
-  if (job.trigger_kind === 'event') return job.event_name || 'Event';
-  if (job.schedule_kind === 'once') return 'Once';
-  if (job.schedule_kind === 'cron' && job.cron_expression) {
-    return `Cron ${job.cron_expression}`;
+  if (job.trigger.kind === 'event') return job.trigger.event_name || 'Event';
+  const schedule = job.trigger.schedule;
+  if (schedule.kind === 'once') return 'Once';
+  if (schedule.kind === 'cron') {
+    return `Cron ${schedule.expression}`;
   }
-  if (job.interval_seconds) {
-    return `Every ${formatInterval(job.interval_seconds)}`;
-  }
-  return 'Time';
+  return `Every ${formatInterval(schedule.interval_seconds)}`;
 }
 
 export function targetLabel(job: JobRecord): string {
-  if (job.trigger_kind === 'event') {
-    return job.thing_id || 'Unbound event target';
+  if (job.trigger.kind === 'event') {
+    return job.trigger.thing_id || 'Unbound event target';
   }
   return 'Time trigger';
 }
@@ -99,8 +95,8 @@ export function jobMatchesTab(
   if (tab === 'active') return status === 'running' || status === 'queued';
   if (tab === 'waiting') return status === 'waiting_for_input';
   if (tab === 'failed') return status === 'failed';
-  if (tab === 'time') return job.trigger_kind === 'time';
-  if (tab === 'event') return job.trigger_kind === 'event';
+  if (tab === 'time') return job.trigger.kind === 'time';
+  if (tab === 'event') return job.trigger.kind === 'event';
   return status === 'disabled';
 }
 
@@ -112,8 +108,8 @@ export function getJobTabCounts(jobs: JobRecord[], now: Date): JobTabCounts {
       if (status === 'running' || status === 'queued') acc.active += 1;
       if (status === 'waiting_for_input') acc.waiting += 1;
       if (status === 'failed') acc.failed += 1;
-      if (job.trigger_kind === 'time') acc.time += 1;
-      if (job.trigger_kind === 'event') acc.event += 1;
+      if (job.trigger.kind === 'time') acc.time += 1;
+      if (job.trigger.kind === 'event') acc.event += 1;
       if (status === 'disabled') acc.disabled += 1;
       return acc;
     },

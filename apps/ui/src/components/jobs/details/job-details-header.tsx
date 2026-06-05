@@ -74,7 +74,7 @@ export function JobDetailsHeader({
                 {getStatusLabel(status)}
               </Badge>
             ) : null}
-            <Badge variant="outline">{getStatusLabel(job.action_kind)}</Badge>
+            <Badge variant="outline">{getStatusLabel(job.action.kind)}</Badge>
             <Badge variant="outline">{getScheduleLabel(job)}</Badge>
           </div>
         ) : null}

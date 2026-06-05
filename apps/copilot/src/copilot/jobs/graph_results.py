@@ -9,10 +9,9 @@ from langgraph.types import Command
 
 from copilot.jobs.enums import (
     JobInteractionMode,
-    JobOutputKind,
     JobRunStatus,
 )
-from copilot.jobs.schemas import Job, JobRun
+from copilot.jobs.schemas import Job, JobRun, PromptAction, StructuredRecordOutput
 
 
 @dataclass(frozen=True)
@@ -43,10 +42,20 @@ def graph_config_for_run(job: Job, run: JobRun, recursion_limit: int) -> dict[st
             "thread_id": run.job_thread_id,
             "job_id": job.id,
             "run_id": run.id,
-            "job_output_kind": job.output_kind.value,
-            "record_schema": job.record_schema,
-            "record_schema_version": job.record_schema_version,
-            "virtual_thing_id": job.virtual_thing_id,
+            "job_output_kind": job.output.kind,
+            "record_schema": job.output.schema
+            if isinstance(job.output, StructuredRecordOutput)
+            else None,
+            "record_schema_version": (
+                job.output.schema_version
+                if isinstance(job.output, StructuredRecordOutput)
+                else None
+            ),
+            "virtual_thing_id": (
+                job.output.virtual_thing_id
+                if isinstance(job.output, StructuredRecordOutput)
+                else None
+            ),
         },
     }
 
@@ -63,7 +72,7 @@ def job_result_from_graph_result(
     if parsed.waiting_question:
         return _waiting_result(result, parsed.waiting_question, trigger, parsed=parsed)
     if (
-        job.output_kind == JobOutputKind.STRUCTURED_RECORD
+        isinstance(job.output, StructuredRecordOutput)
         and parsed.submitted_record is None
         and _record_submission_needs_user_repair(parsed.failed_record_submission)
     ):
@@ -81,7 +90,7 @@ def job_result_from_graph_result(
         and parsed.assistant
     ):
         return _waiting_result(result, parsed.assistant, trigger, parsed=parsed)
-    if job.output_kind == JobOutputKind.STRUCTURED_RECORD and parsed.submitted_record is None:
+    if isinstance(job.output, StructuredRecordOutput) and parsed.submitted_record is None:
         return _failed_result(
             "Structured record job finished without submitting a valid record.",
             result,
@@ -305,11 +314,12 @@ def result_has_pending_interrupt(result: Any) -> bool:
 
 
 def job_run_prompt(job: Job) -> str:
-    if job.output_kind != JobOutputKind.STRUCTURED_RECORD:
-        return job.prompt or ""
-    schema = json.dumps(job.record_schema or {}, ensure_ascii=True, indent=2)
+    prompt = job.action.prompt if isinstance(job.action, PromptAction) else ""
+    if not isinstance(job.output, StructuredRecordOutput):
+        return prompt
+    schema = json.dumps(job.output.schema or {}, ensure_ascii=True, indent=2)
     return (
-        f"{job.prompt or ''}\n\n"
+        f"{prompt}\n\n"
         "## Structured Record Contract\n"
         "This background job must store exactly one validated record before it "
         "finishes successfully. If user input is needed, call ask_job_user and stop. "

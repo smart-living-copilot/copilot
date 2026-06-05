@@ -15,19 +15,67 @@ from copilot.jobs.active import set_active_job_service
 
 def _job(**overrides) -> Job:
     now = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
+    action_kind = overrides.pop("action_kind", JobActionKind.PROMPT)
+    prompt = overrides.pop("prompt", "check")
+    analysis_code = overrides.pop("analysis_code", "print('ok')")
+    output_kind = overrides.pop("output_kind", JobOutputKind.NARRATIVE)
+    trigger_kind = overrides.pop("trigger_kind", JobTriggerKind.TIME)
+    schedule_kind = overrides.pop("schedule_kind", TimeTriggerKind.INTERVAL)
+    run_at = overrides.pop("run_at", None)
+    interval_seconds = overrides.pop("interval_seconds", 10)
+    cron_expression = overrides.pop("cron_expression", None)
+    cron_timezone = overrides.pop("cron_timezone", None)
+
+    action = (
+        {"kind": "analysis", "analysis_code": analysis_code}
+        if action_kind == JobActionKind.ANALYSIS
+        else {"kind": "prompt", "prompt": prompt}
+    )
+    if trigger_kind == JobTriggerKind.EVENT:
+        trigger = {
+            "kind": "event",
+            "thing_id": overrides.pop("thing_id", "thing-1"),
+            "event_name": overrides.pop("event_name", "changed"),
+            "subscription_input": overrides.pop("subscription_input", None),
+        }
+    elif schedule_kind == TimeTriggerKind.CRON:
+        trigger = {
+            "kind": "time",
+            "schedule": {
+                "kind": "cron",
+                "expression": cron_expression or "0 9 * * sun",
+                "timezone": cron_timezone,
+            },
+        }
+    elif schedule_kind == TimeTriggerKind.ONCE:
+        trigger = {"kind": "time", "schedule": {"kind": "once", "run_at": run_at or now}}
+    else:
+        trigger = {
+            "kind": "time",
+            "schedule": {"kind": "interval", "interval_seconds": interval_seconds or 10},
+        }
+    output = (
+        {
+            "kind": "structured_record",
+            "schema": overrides.pop(
+                "record_schema",
+                {"type": "object", "properties": {"mood": {"type": "string"}}},
+            ),
+            "schema_version": overrides.pop("record_schema_version", 1),
+            "virtual_thing": {"id": overrides.pop("virtual_thing_id", "virtual:records:demo")},
+        }
+        if output_kind == JobOutputKind.STRUCTURED_RECORD
+        else {"kind": "narrative"}
+    )
     values = {
         "id": "job-123",
         "name": "demo",
         "created_from_thread_id": "thread-1",
         "job_thread_id": "job:job-123",
-        "action_kind": JobActionKind.PROMPT,
-        "prompt": "check",
-        "analysis_code": None,
+        "action": action,
+        "output": output,
         "enabled": True,
-        "trigger_kind": JobTriggerKind.TIME,
-        "schedule_kind": TimeTriggerKind.INTERVAL,
-        "run_at": None,
-        "interval_seconds": 10,
+        "trigger": trigger,
         "next_run_at": now,
         "created_at": now,
         "updated_at": now,
@@ -52,20 +100,10 @@ class _FakeService:
         return _job(
             name=request.name,
             created_from_thread_id=request.created_from_thread_id,
-            action_kind=request.action_kind,
+            action=request.action,
             interaction_mode=request.interaction_mode,
-            output_kind=request.output_kind,
-            prompt=request.prompt,
-            analysis_code=request.analysis_code,
-            record_schema=request.record_schema,
-            record_schema_version=request.record_schema_version,
-            virtual_thing_id=request.virtual_thing_id,
-            trigger_kind=request.trigger_kind,
-            schedule_kind=request.schedule_kind,
-            run_at=request.run_at,
-            interval_seconds=request.interval_seconds,
-            cron_expression=request.cron_expression,
-            cron_timezone=request.cron_timezone,
+            output=request.output,
+            trigger=request.trigger,
         )
 
     async def run_job_now(self, job_id: str) -> dict:
@@ -110,7 +148,7 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("test_run", result)
         self.assertEqual(service.ran, [])
         self.assertEqual(service.deleted, [])
-        self.assertEqual(service.created_requests[0].action_kind, JobActionKind.ANALYSIS)
+        self.assertEqual(service.created_requests[0].action.kind, "analysis")
 
     async def test_create_prompt_job_returns_created_job_without_running(self) -> None:
         service = _FakeService(run_result={"ok": True, "response": "ran"})
@@ -130,7 +168,9 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["id"], "job-123")
         self.assertNotIn("test_run", result)
         self.assertEqual(service.created_requests[0].created_from_thread_id, "thread-1")
-        self.assertEqual(service.created_requests[0].interval_seconds, 10)
+        schedule = service.created_requests[0].trigger.schedule
+        self.assertEqual(schedule.kind, "interval")
+        self.assertEqual(schedule.interval_seconds, 10)
         self.assertEqual(service.ran, [])
         self.assertEqual(service.deleted, [])
 
@@ -150,11 +190,11 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
             config={"configurable": {"thread_id": "thread-1"}},
         )
 
-        self.assertEqual(result["schedule_kind"], "cron")
+        self.assertEqual(result["trigger"]["schedule"]["kind"], "cron")
         request = service.created_requests[0]
-        self.assertEqual(request.schedule_kind, TimeTriggerKind.CRON)
-        self.assertEqual(request.cron_expression, "0 9 * * sun")
-        self.assertEqual(request.cron_timezone, "Europe/Berlin")
+        self.assertEqual(request.trigger.schedule.kind, "cron")
+        self.assertEqual(request.trigger.schedule.expression, "0 9 * * sun")
+        self.assertEqual(request.trigger.schedule.timezone, "Europe/Berlin")
 
     async def test_create_record_prompt_job_passes_schema_contract(self) -> None:
         service = _FakeService()
@@ -177,11 +217,11 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
             config={"configurable": {"thread_id": "thread-1"}},
         )
 
-        self.assertEqual(result["output_kind"], "structured_record")
+        self.assertEqual(result["output"]["kind"], "structured_record")
         request = service.created_requests[0]
-        self.assertEqual(request.output_kind, JobOutputKind.STRUCTURED_RECORD)
-        self.assertEqual(request.record_schema["required"], ["mood"])
-        self.assertEqual(request.virtual_thing_title, "Morning Check-ins")
+        self.assertEqual(request.output.kind, JobOutputKind.STRUCTURED_RECORD.value)
+        self.assertEqual(request.output.schema["required"], ["mood"])
+        self.assertEqual(request.output.virtual_thing.title, "Morning Check-ins")
 
     async def test_create_prompt_job_reports_validation_error(self) -> None:
         service = _FakeService(

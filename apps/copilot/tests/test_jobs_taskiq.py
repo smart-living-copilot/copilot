@@ -14,10 +14,7 @@ from taskiq.exceptions import TaskiqResultTimeoutError
 
 from copilot.core.settings import Settings
 from copilot.jobs.events import JobEventConsumer
-from copilot.jobs.domain import (
-    job_definition_from_create_request,
-    normalize_update_fields,
-)
+from copilot.jobs.domain import JobDefinition
 from copilot.jobs.executor import (
     BackgroundAgentRunner,
     JobExecutor,
@@ -52,30 +49,177 @@ from copilot.jobs.schedule import (
 from copilot.jobs.record_summary import submitted_record_event_message
 from copilot.jobs.service import JobService
 from copilot.jobs.stores import JobNotWaitingForInput
-from copilot.jobs.time_schedule import initial_next_run_at_for_request, next_run_at_for_job
 from copilot.agent.tools.submit_job_record import submit_job_record
+
+_CreateJobRequestModel = CreateJobRequest
+_UpdateJobRequestModel = UpdateJobRequest
+
+
+def CreateJobRequest(**values):  # noqa: N802 - test helper shadows imported model.
+    if "action" in values and "trigger" in values:
+        return _CreateJobRequestModel(**values)
+
+    action_kind = values.pop("action_kind", JobActionKind.PROMPT)
+    prompt = values.pop("prompt", None)
+    analysis_code = values.pop("analysis_code", None)
+    output_kind = values.pop("output_kind", JobOutputKind.NARRATIVE)
+    trigger_kind = values.pop("trigger_kind")
+    schedule_kind = values.pop("schedule_kind", None)
+    run_at = values.pop("run_at", None)
+    interval_seconds = values.pop("interval_seconds", None)
+    cron_expression = values.pop("cron_expression", None)
+    cron_timezone = values.pop("cron_timezone", None)
+    thing_id = values.pop("thing_id", None)
+    event_name = values.pop("event_name", None)
+    subscription_input = values.pop("subscription_input", None)
+    record_schema = values.pop("record_schema", None)
+    record_schema_version = values.pop("record_schema_version", None)
+    virtual_thing_id = values.pop("virtual_thing_id", None)
+    virtual_thing_title = values.pop("virtual_thing_title", None)
+    virtual_thing_description = values.pop("virtual_thing_description", None)
+
+    if action_kind == JobActionKind.ANALYSIS:
+        values["action"] = {"kind": "analysis", "analysis_code": analysis_code or ""}
+    else:
+        values["action"] = {"kind": "prompt", "prompt": prompt or ""}
+
+    if trigger_kind == JobTriggerKind.EVENT:
+        values["trigger"] = {
+            "kind": "event",
+            "thing_id": thing_id,
+            "event_name": event_name,
+            "subscription_input": subscription_input,
+        }
+    elif schedule_kind == TimeTriggerKind.ONCE:
+        values["trigger"] = {"kind": "time", "schedule": {"kind": "once", "run_at": run_at}}
+    elif schedule_kind == TimeTriggerKind.CRON:
+        values["trigger"] = {
+            "kind": "time",
+            "schedule": {
+                "kind": "cron",
+                "expression": cron_expression,
+                "timezone": cron_timezone,
+            },
+        }
+    else:
+        values["trigger"] = {
+            "kind": "time",
+            "schedule": {"kind": "interval", "interval_seconds": interval_seconds},
+        }
+
+    if output_kind == JobOutputKind.STRUCTURED_RECORD:
+        values["output"] = {
+            "kind": "structured_record",
+            "schema": record_schema,
+            "schema_version": record_schema_version or 1,
+            "virtual_thing": {
+                "id": virtual_thing_id,
+                "title": virtual_thing_title,
+                "description": virtual_thing_description,
+            },
+        }
+    else:
+        values["output"] = {"kind": "narrative"}
+    return _CreateJobRequestModel(**values)
+
+
+def UpdateJobRequest(**values):  # noqa: N802 - test helper shadows imported model.
+    if "definition" in values:
+        return _UpdateJobRequestModel(**values)
+    schedule_fields = {
+        key: values.pop(key)
+        for key in list(values)
+        if key
+        in {"schedule_kind", "interval_seconds", "run_at", "cron_expression", "cron_timezone"}
+    }
+    action_fields = {
+        key: values.pop(key) for key in list(values) if key in {"prompt", "analysis_code"}
+    }
+    if schedule_fields or action_fields:
+        job = _job(**schedule_fields, **action_fields)
+        values["definition"] = JobDefinition(
+            interaction_mode=job.interaction_mode,
+            action=job.action,
+            trigger=job.trigger,
+            output=job.output,
+        )
+    return _UpdateJobRequestModel(**values)
 
 
 def _job(**overrides) -> Job:
     now = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
+    action_kind = overrides.pop("action_kind", JobActionKind.PROMPT)
+    prompt = overrides.pop("prompt", "Check the house")
+    analysis_code = overrides.pop("analysis_code", "print('ok')")
+    output_kind = overrides.pop("output_kind", JobOutputKind.NARRATIVE)
+    trigger_kind = overrides.pop("trigger_kind", JobTriggerKind.TIME)
+    schedule_kind = overrides.pop("schedule_kind", TimeTriggerKind.INTERVAL)
+    run_at = overrides.pop("run_at", None)
+    interval_seconds = overrides.pop("interval_seconds", 60)
+    cron_expression = overrides.pop("cron_expression", None)
+    cron_timezone = overrides.pop("cron_timezone", None)
+    thing_id = overrides.pop("thing_id", "thing-1")
+    event_name = overrides.pop("event_name", "changed")
+    subscription_input = overrides.pop("subscription_input", None)
+    record_schema = overrides.pop(
+        "record_schema",
+        {"type": "object", "properties": {"mood": {"type": "string"}}},
+    )
+    record_schema_version = overrides.pop("record_schema_version", 1)
+    virtual_thing_id = overrides.pop("virtual_thing_id", "virtual:records:demo")
+
+    action = (
+        {"kind": "analysis", "analysis_code": analysis_code}
+        if action_kind == JobActionKind.ANALYSIS
+        else {"kind": "prompt", "prompt": prompt}
+    )
+    if trigger_kind == JobTriggerKind.EVENT:
+        trigger = {
+            "kind": "event",
+            "thing_id": thing_id,
+            "event_name": event_name,
+            "subscription_input": subscription_input,
+        }
+    elif schedule_kind == TimeTriggerKind.ONCE:
+        trigger = {"kind": "time", "schedule": {"kind": "once", "run_at": run_at or now}}
+    elif schedule_kind == TimeTriggerKind.CRON:
+        trigger = {
+            "kind": "time",
+            "schedule": {
+                "kind": "cron",
+                "expression": cron_expression or "0 9 * * sun",
+                "timezone": cron_timezone,
+            },
+        }
+    else:
+        trigger = {
+            "kind": "time",
+            "schedule": {
+                "kind": "interval",
+                "interval_seconds": interval_seconds or 60,
+            },
+        }
+    output = (
+        {
+            "kind": "structured_record",
+            "schema": record_schema,
+            "schema_version": record_schema_version,
+            "virtual_thing": {"id": virtual_thing_id},
+        }
+        if output_kind == JobOutputKind.STRUCTURED_RECORD
+        else {"kind": "narrative"}
+    )
     values = {
         "id": "job-1",
         "name": "Demo job",
         "created_from_thread_id": "thread-1",
         "job_thread_id": "job:job-1",
-        "action_kind": JobActionKind.PROMPT,
-        "prompt": "Check the house",
-        "analysis_code": None,
+        "action": action,
+        "output": output,
         "enabled": True,
-        "trigger_kind": JobTriggerKind.TIME,
-        "schedule_kind": TimeTriggerKind.INTERVAL,
-        "run_at": None,
-        "interval_seconds": 60,
+        "trigger": trigger,
         "next_run_at": now,
-        "thing_id": None,
-        "event_name": None,
         "subscription_id": None,
-        "subscription_input": None,
         "created_at": now,
         "updated_at": now,
         "last_run_id": None,
@@ -995,6 +1139,19 @@ class _FakeServiceRepo:
         if self.create_error is not None:
             raise self.create_error
         self.created.append((request, next_run_at, subscription_id))
+        self.job = self.job.model_copy(
+            update={
+                "name": request.name,
+                "created_from_thread_id": request.created_from_thread_id or self.job.id,
+                "interaction_mode": request.interaction_mode,
+                "action": request.action,
+                "trigger": request.trigger,
+                "output": request.output,
+                "next_run_at": next_run_at,
+                "subscription_id": subscription_id,
+            }
+        )
+        self.jobs = [self.job if job.id == self.job.id else job for job in self.jobs]
         return self.job
 
     async def get_job(self, job_id: str) -> Job:
@@ -1030,6 +1187,50 @@ class _FakeServiceRepo:
         if job_id != self.job.id:
             raise KeyError(job_id)
         self.job = self.job.model_copy(update=fields)
+        self.jobs = [self.job if job.id == job_id else job for job in self.jobs]
+        return self.job
+
+    async def update_job_metadata(self, job_id: str, **fields) -> Job:
+        self.updated.append((job_id, fields))
+        if job_id != self.job.id:
+            raise KeyError(job_id)
+        updates = dict(fields)
+        if updates.get("enabled") is False:
+            updates["next_run_at"] = None
+        self.job = self.job.model_copy(update=updates)
+        self.jobs = [self.job if job.id == job_id else job for job in self.jobs]
+        return self.job
+
+    async def replace_job_definition(
+        self,
+        job_id: str,
+        definition: JobDefinition,
+        *,
+        next_run_at,
+        subscription_id,
+    ) -> Job:
+        self.updated.append(
+            (
+                job_id,
+                {
+                    "definition": definition,
+                    "next_run_at": next_run_at,
+                    "subscription_id": subscription_id,
+                },
+            )
+        )
+        if job_id != self.job.id:
+            raise KeyError(job_id)
+        self.job = self.job.model_copy(
+            update={
+                "interaction_mode": definition.interaction_mode,
+                "action": definition.action,
+                "trigger": definition.trigger,
+                "output": definition.output,
+                "next_run_at": next_run_at,
+                "subscription_id": subscription_id,
+            }
+        )
         self.jobs = [self.job if job.id == job_id else job for job in self.jobs]
         return self.job
 
@@ -1122,111 +1323,99 @@ class JobDomainTestCase(unittest.TestCase):
             interval_seconds=60,
         )
 
-        definition = job_definition_from_create_request(
-            request,
-            default_cron_timezone="Europe/Berlin",
-        )
+        definition = request.normalized_request(default_cron_timezone="Europe/Berlin")
 
         self.assertEqual(definition.interaction_mode, JobInteractionMode.AUTONOMOUS)
-        self.assertEqual(definition.output.output_kind, JobOutputKind.STRUCTURED_RECORD)
+        self.assertEqual(definition.output_kind, JobOutputKind.STRUCTURED_RECORD)
 
     def test_domain_rejects_record_fields_for_narrative_jobs(self) -> None:
-        request = CreateJobRequest(
-            name="narrative",
-            created_from_thread_id="thread-1",
-            prompt="summarize",
-            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
-            trigger_kind=JobTriggerKind.TIME,
-            schedule_kind=TimeTriggerKind.INTERVAL,
-            interval_seconds=60,
-        )
-
-        with self.assertRaisesRegex(ValueError, "record fields require output_kind"):
-            job_definition_from_create_request(
-                request,
-                default_cron_timezone="Europe/Berlin",
+        with self.assertRaisesRegex(ValueError, "Extra inputs are not permitted"):
+            _CreateJobRequestModel(
+                name="narrative",
+                created_from_thread_id="thread-1",
+                action={"kind": "prompt", "prompt": "summarize"},
+                output={
+                    "kind": "narrative",
+                    "schema": {"type": "object", "properties": {"mood": {"type": "string"}}},
+                },
+                trigger={
+                    "kind": "time",
+                    "schedule": {"kind": "interval", "interval_seconds": 60},
+                },
             )
 
     def test_domain_keeps_analysis_structured_records_deferred(self) -> None:
-        request = CreateJobRequest(
-            name="analysis record",
-            created_from_thread_id="thread-1",
-            action_kind=JobActionKind.ANALYSIS,
-            analysis_code="print('ok')",
-            output_kind=JobOutputKind.STRUCTURED_RECORD,
-            record_schema={"type": "object", "properties": {"mood": {"type": "string"}}},
-            trigger_kind=JobTriggerKind.TIME,
-            schedule_kind=TimeTriggerKind.INTERVAL,
-            interval_seconds=60,
-        )
-
         with self.assertRaisesRegex(ValueError, "analysis jobs only support narrative output"):
-            job_definition_from_create_request(
-                request,
-                default_cron_timezone="Europe/Berlin",
+            _CreateJobRequestModel(
+                name="analysis record",
+                created_from_thread_id="thread-1",
+                action={"kind": "analysis", "analysis_code": "print('ok')"},
+                output={
+                    "kind": "structured_record",
+                    "schema": {"type": "object", "properties": {"mood": {"type": "string"}}},
+                },
+                trigger={
+                    "kind": "time",
+                    "schedule": {"kind": "interval", "interval_seconds": 60},
+                },
             )
 
     def test_schedule_update_switch_to_cron_clears_stale_fields_and_normalizes(self) -> None:
-        fields = normalize_update_fields(
-            _job(),
-            {
-                "schedule_kind": TimeTriggerKind.CRON,
-                "cron_expression": "  0 9 * * sun  ",
+        current = _job()
+        definition = JobDefinition(
+            interaction_mode=current.interaction_mode,
+            action=current.action,
+            trigger={
+                "kind": "time",
+                "schedule": {
+                    "kind": "cron",
+                    "expression": "  0 9 * * sun  ",
+                },
             },
-            default_cron_timezone="Europe/Berlin",
-        )
+            output=current.output,
+        ).normalized(name=current.name, default_cron_timezone="Europe/Berlin")
+        schedule = definition.trigger.schedule
 
-        self.assertEqual(fields["schedule_kind"], TimeTriggerKind.CRON)
-        self.assertIsNone(fields["interval_seconds"])
-        self.assertIsNone(fields["run_at"])
-        self.assertEqual(fields["cron_expression"], "0 9 * * sun")
-        self.assertEqual(fields["cron_timezone"], "Europe/Berlin")
+        self.assertEqual(schedule.kind, TimeTriggerKind.CRON)
+        self.assertEqual(
+            schedule.model_dump(mode="json"),
+            {
+                "kind": "cron",
+                "expression": "0 9 * * sun",
+                "timezone": "Europe/Berlin",
+            },
+        )
 
     def test_time_schedule_helpers_handle_create_time_and_post_run_next_times(self) -> None:
         now = datetime(2026, 6, 2, 10, 0, tzinfo=timezone.utc)
         one_shot_time = datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc)
 
-        interval_next = next_run_at_for_job(
-            _job(interval_seconds=60),
-            now=now,
-        )
-        cron_next = next_run_at_for_job(
-            _job(
-                schedule_kind=TimeTriggerKind.CRON,
-                interval_seconds=None,
-                cron_expression="0 9 * * sun",
-                cron_timezone="Europe/Berlin",
-            ),
-            now=now,
-        )
-        create_once_next = initial_next_run_at_for_request(
-            CreateJobRequest(
-                name="once",
-                prompt="check",
-                trigger_kind=JobTriggerKind.TIME,
-                schedule_kind=TimeTriggerKind.ONCE,
-                run_at=one_shot_time,
-            ),
-            now=now,
-        )
-        post_run_once_next = next_run_at_for_job(
-            _job(
-                schedule_kind=TimeTriggerKind.ONCE,
-                run_at=one_shot_time,
-                interval_seconds=None,
-            ),
-            now=now,
-        )
-        event_next = initial_next_run_at_for_request(
-            CreateJobRequest(
-                name="event",
-                prompt="check",
-                trigger_kind=JobTriggerKind.EVENT,
-                thing_id="thing-1",
-                event_name="changed",
-            ),
-            now=now,
-        )
+        interval_next = _job(interval_seconds=60).next_run_at_after(now=now)
+        cron_next = _job(
+            schedule_kind=TimeTriggerKind.CRON,
+            interval_seconds=None,
+            cron_expression="0 9 * * sun",
+            cron_timezone="Europe/Berlin",
+        ).next_run_at_after(now=now)
+        create_once_next = CreateJobRequest(
+            name="once",
+            prompt="check",
+            trigger_kind=JobTriggerKind.TIME,
+            schedule_kind=TimeTriggerKind.ONCE,
+            run_at=one_shot_time,
+        ).initial_next_run_at(now=now)
+        post_run_once_next = _job(
+            schedule_kind=TimeTriggerKind.ONCE,
+            run_at=one_shot_time,
+            interval_seconds=None,
+        ).next_run_at_after(now=now)
+        event_next = CreateJobRequest(
+            name="event",
+            prompt="check",
+            trigger_kind=JobTriggerKind.EVENT,
+            thing_id="thing-1",
+            event_name="changed",
+        ).initial_next_run_at(now=now)
 
         self.assertEqual(interval_next, now + timedelta(seconds=60))
         self.assertEqual(cron_next, datetime(2026, 6, 7, 7, 0, tzinfo=timezone.utc))
@@ -1235,12 +1424,14 @@ class JobDomainTestCase(unittest.TestCase):
         self.assertIsNone(event_next)
 
     def test_disabled_time_job_has_no_next_run(self) -> None:
-        next_run_at = next_run_at_for_job(
-            _job(enabled=False, interval_seconds=60),
+        job = _job(enabled=False, interval_seconds=60)
+        next_run_at = job.next_run_at_after(
             now=datetime(2026, 6, 2, 10, 0, tzinfo=timezone.utc),
+            enabled=job.enabled,
         )
 
         self.assertIsNone(next_run_at)
+
 
 class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_run_job_now_waits_for_task_result(self) -> None:
@@ -1405,8 +1596,8 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(created.id, "job-1")
         saved_request, next_run_at, subscription_id = repo.created[0]
-        self.assertEqual(saved_request.cron_expression, "0 9 * * sun")
-        self.assertEqual(saved_request.cron_timezone, "Europe/Berlin")
+        self.assertEqual(saved_request.trigger.schedule.expression, "0 9 * * sun")
+        self.assertEqual(saved_request.trigger.schedule.timezone, "Europe/Berlin")
         self.assertIsNotNone(next_run_at)
         self.assertIsNone(subscription_id)
         self.assertEqual(schedule.added, ["job-1"])
@@ -1444,7 +1635,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
 
         created = await service.create_job(request)
 
-        self.assertEqual(created.virtual_thing_id, "virtual:records:morning")
+        self.assertEqual(created.output.virtual_thing_id, "virtual:records:morning")
         self.assertEqual(record_store.created[0]["thing_id"], "virtual:records:morning")
         self.assertEqual(record_store.created[0]["title"], "Morning Check-in")
 
@@ -1756,11 +1947,9 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        self.assertEqual(updated.schedule_kind, TimeTriggerKind.CRON)
-        self.assertIsNone(updated.interval_seconds)
-        self.assertIsNone(updated.run_at)
-        self.assertEqual(updated.cron_expression, "0 9 * * *")
-        self.assertEqual(updated.cron_timezone, "Europe/Berlin")
+        self.assertEqual(updated.trigger.schedule.kind, TimeTriggerKind.CRON)
+        self.assertEqual(updated.trigger.schedule.expression, "0 9 * * *")
+        self.assertEqual(updated.trigger.schedule.timezone, "Europe/Berlin")
         self.assertEqual(schedule_manager.removed, ["job-1"])
         self.assertEqual(schedule_manager.added, ["job-1"])
         self.assertEqual(
@@ -1793,11 +1982,8 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        self.assertEqual(updated.schedule_kind, TimeTriggerKind.INTERVAL)
-        self.assertEqual(updated.interval_seconds, 900)
-        self.assertIsNone(updated.run_at)
-        self.assertIsNone(updated.cron_expression)
-        self.assertIsNone(updated.cron_timezone)
+        self.assertEqual(updated.trigger.schedule.kind, TimeTriggerKind.INTERVAL)
+        self.assertEqual(updated.trigger.schedule.interval_seconds, 900)
         self.assertEqual(schedule_manager.removed, ["job-1"])
         self.assertEqual(schedule_manager.added, ["job-1"])
         self.assertEqual(

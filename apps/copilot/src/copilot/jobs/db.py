@@ -43,8 +43,16 @@ class JobRecord(Base):
             name="ck_jobs_output_kind",
         ),
         CheckConstraint(
-            "schedule_kind IS NULL OR schedule_kind IN ('once', 'interval', 'cron')",
-            name="ck_jobs_schedule_kind",
+            "(\"action\" ->> 'kind') = action_kind",
+            name="ck_jobs_action_json_kind",
+        ),
+        CheckConstraint(
+            "(\"trigger\" ->> 'kind') = trigger_kind",
+            name="ck_jobs_trigger_json_kind",
+        ),
+        CheckConstraint(
+            "(\"output\" ->> 'kind') = output_kind",
+            name="ck_jobs_output_json_kind",
         ),
         CheckConstraint(
             "last_run_status IS NULL OR last_run_status IN "
@@ -80,23 +88,13 @@ class JobRecord(Base):
         nullable=False,
         default=JobOutputKind.NARRATIVE.value,
     )
-    prompt: Mapped[str | None] = mapped_column(Text)
-    analysis_code: Mapped[str | None] = mapped_column(Text)
-    record_schema: Mapped[Any | None] = mapped_column(JSONB)
-    record_schema_version: Mapped[int | None] = mapped_column(Integer)
-    virtual_thing_id: Mapped[str | None] = mapped_column(Text)
+    action: Mapped[Any] = mapped_column(JSONB, nullable=False)
+    trigger: Mapped[Any] = mapped_column(JSONB, nullable=False)
+    output: Mapped[Any] = mapped_column(JSONB, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     trigger_kind: Mapped[str] = mapped_column(Text, nullable=False)
-    schedule_kind: Mapped[str | None] = mapped_column(Text)
-    run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    interval_seconds: Mapped[int | None] = mapped_column(Integer)
-    cron_expression: Mapped[str | None] = mapped_column(Text)
-    cron_timezone: Mapped[str | None] = mapped_column(Text)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    thing_id: Mapped[str | None] = mapped_column(Text)
-    event_name: Mapped[str | None] = mapped_column(Text)
     subscription_id: Mapped[str | None] = mapped_column(Text)
-    subscription_input: Mapped[Any | None] = mapped_column(JSONB)
     resource_health: Mapped[Any | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

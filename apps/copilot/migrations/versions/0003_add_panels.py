@@ -1,7 +1,7 @@
 """add pinned panels table
 
 Revision ID: 0003_add_panels
-Revises: 0002_add_job_cron_schedule
+Revises: 0001_baseline
 Create Date: 2026-06-04 00:00:00
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "0003_add_panels"
-down_revision = "0002_add_job_cron_schedule"
+down_revision = "0001_baseline"
 branch_labels = None
 depends_on = None
 

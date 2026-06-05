@@ -1,11 +1,12 @@
 """Automation jobs domain.
 
 Jobs are background automations created by the agent or the jobs UI. A job has
-two independent concepts:
+three nested definition concepts:
 
-* ``trigger_kind`` says when it runs: time-based schedules or WoT events.
-* ``action_kind`` says what it does: prompt jobs invoke the LangGraph agent,
-  while analysis jobs run deterministic Python in the code-executor service.
+* ``trigger`` says when it runs: time-based schedules or WoT events.
+* ``action`` says what it does: prompt jobs invoke the LangGraph agent, while
+  analysis jobs run deterministic Python in the code-executor service.
+* ``output`` says what the run produces: narrative text or a structured record.
 
 The API layer in ``routes`` delegates to ``JobService``. The service validates
 requests, creates external schedules/subscriptions, starts Taskiq jobs, and

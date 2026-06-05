@@ -89,9 +89,14 @@ export function JobDetailsOverviewTab({
   latestSubmittedRecordSummary,
 }: JobDetailsOverviewTabProps) {
   const actionLabel =
-    job.output_kind === 'structured_record'
+    job.output.kind === 'structured_record'
       ? 'Record prompt'
-      : getStatusLabel(job.action_kind);
+      : getStatusLabel(job.action.kind);
+  const schedule = job.trigger.kind === 'time' ? job.trigger.schedule : null;
+  const virtualThingId =
+    job.output.kind === 'structured_record'
+      ? (job.output.virtual_thing?.id ?? null)
+      : null;
 
   return (
     <>
@@ -112,7 +117,7 @@ export function JobDetailsOverviewTab({
               ) : null}
               <Badge variant="outline">{actionLabel}</Badge>
               <Badge variant="outline">
-                {getStatusLabel(job.trigger_kind)}
+                {getStatusLabel(job.trigger.kind)}
               </Badge>
               <Badge
                 variant={resourceHealthBadgeVariant(
@@ -136,28 +141,28 @@ export function JobDetailsOverviewTab({
                   />
                   <SummaryItem
                     label="Schedule kind"
-                    value={job.schedule_kind || 'Time trigger'}
+                    value={schedule?.kind || 'Time trigger'}
                   />
-                  {job.interval_seconds ? (
+                  {schedule?.kind === 'interval' ? (
                     <SummaryItem
                       label="Interval"
-                      value={`${job.interval_seconds}s`}
+                      value={`${schedule.interval_seconds}s`}
                     />
                   ) : null}
-                  {job.cron_expression ? (
+                  {schedule?.kind === 'cron' ? (
                     <SummaryItem
                       label="Cron"
-                      value={job.cron_expression}
+                      value={schedule.expression}
                       mono
                     />
                   ) : null}
-                  {job.cron_timezone ? (
-                    <SummaryItem label="Timezone" value={job.cron_timezone} />
+                  {schedule?.kind === 'cron' && schedule.timezone ? (
+                    <SummaryItem label="Timezone" value={schedule.timezone} />
                   ) : null}
-                  {job.run_at ? (
+                  {schedule?.kind === 'once' ? (
                     <SummaryItem
                       label="Run once at"
-                      value={formatDateTime(job.run_at)}
+                      value={formatDateTime(schedule.run_at)}
                     />
                   ) : null}
                 </>
@@ -166,12 +171,20 @@ export function JobDetailsOverviewTab({
                 <>
                   <SummaryItem
                     label="Thing"
-                    value={job.thing_id || 'Unbound'}
+                    value={
+                      job.trigger.kind === 'event'
+                        ? job.trigger.thing_id
+                        : 'Unbound'
+                    }
                     mono
                   />
                   <SummaryItem
                     label="Event"
-                    value={job.event_name || 'Unbound'}
+                    value={
+                      job.trigger.kind === 'event'
+                        ? job.trigger.event_name
+                        : 'Unbound'
+                    }
                   />
                   {job.subscription_id ? (
                     <SummaryItem
@@ -192,22 +205,22 @@ export function JobDetailsOverviewTab({
                   mono
                 />
               ) : null}
-              {job.virtual_thing_id ? (
+              {virtualThingId ? (
                 <SummaryItem
                   label="Virtual thing"
-                  value={job.virtual_thing_id}
+                  value={virtualThingId}
                   mono
                 />
               ) : null}
-              {job.output_kind === 'structured_record' ? (
+              {job.output.kind === 'structured_record' ? (
                 <SummaryItem
                   label="Schema version"
-                  value={job.record_schema_version || 'Unversioned'}
+                  value={job.output.schema_version || 'Unversioned'}
                 />
               ) : null}
               {!hasJobThread &&
-              !job.virtual_thing_id &&
-              job.output_kind !== 'structured_record' ? (
+              !virtualThingId &&
+              job.output.kind !== 'structured_record' ? (
                 <SummaryItem label="Linked resources" value="None" />
               ) : null}
             </SummarySection>
@@ -242,7 +255,7 @@ export function JobDetailsOverviewTab({
         </CardContent>
       </Card>
 
-      {job.action_kind === 'analysis' ? (
+      {job.action.kind === 'analysis' ? (
         <CodeOutputPanel
           result={latestCodeResult ?? {}}
           title="Latest output"
@@ -254,12 +267,12 @@ export function JobDetailsOverviewTab({
         <>
           <TextPanel
             title={
-              job.output_kind === 'structured_record'
+              job.output.kind === 'structured_record'
                 ? 'Latest record'
                 : 'Last result'
             }
             description={
-              job.output_kind === 'structured_record'
+              job.output.kind === 'structured_record'
                 ? 'The latest structured record captured from an execution.'
                 : 'The latest response captured from an execution.'
             }

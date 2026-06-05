@@ -16,11 +16,11 @@ class CronScheduleError(ValueError):
 def normalize_cron_expression(value: str | None) -> str:
     expression = " ".join((value or "").strip().split())
     if not expression:
-        raise CronScheduleError("cron jobs require cron_expression")
+        raise CronScheduleError("cron jobs require expression")
     parts = expression.split(" ")
     if len(parts) != 5:
         raise CronScheduleError(
-            "cron_expression must use five fields: minute hour day month weekday"
+            "cron expression must use five fields: minute hour day month weekday"
         )
     return expression
 
@@ -30,7 +30,7 @@ def normalize_cron_timezone(value: str | None, *, default: str = DEFAULT_CRON_TI
     try:
         ZoneInfo(timezone_name)
     except Exception as exc:
-        raise CronScheduleError(f"Unknown cron_timezone: {timezone_name}") from exc
+        raise CronScheduleError(f"Unknown cron timezone: {timezone_name}") from exc
     return timezone_name
 
 
@@ -52,7 +52,7 @@ def next_cron_run_at(
         candidate += timedelta(minutes=1)
 
     raise CronScheduleError(
-        f"cron_expression does not produce a run within five years: {cron_expression}"
+        f"cron expression does not produce a run within five years: {cron_expression}"
     )
 
 

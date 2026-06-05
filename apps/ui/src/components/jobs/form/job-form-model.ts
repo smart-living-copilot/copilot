@@ -1,12 +1,14 @@
 import {
   type CreateJobPayload,
+  type EventJobTrigger,
   type JobRecord,
+  type JobSchedule,
   type UpdateJobPayload,
 } from '@/lib/jobs-api';
 
-export type JobActionKind = JobRecord['action_kind'];
-export type JobTriggerKind = JobRecord['trigger_kind'];
-export type JobScheduleKind = NonNullable<JobRecord['schedule_kind']>;
+export type JobActionKind = JobRecord['action']['kind'];
+export type JobTriggerKind = JobRecord['trigger']['kind'];
+export type JobScheduleKind = JobSchedule['kind'];
 
 export interface JobActionFormFields {
   prompt: string;
@@ -71,24 +73,27 @@ export function toDatetimeLocal(iso: string | null): string {
 }
 
 export function toEditJobFormState(job: JobRecord): EditJobFormState {
+  const schedule = job.trigger.kind === 'time' ? job.trigger.schedule : null;
   return {
     name: job.name,
-    prompt: job.prompt ?? '',
-    analysisCode: job.analysis_code ?? '',
-    scheduleKind: job.schedule_kind ?? 'interval',
+    prompt: job.action.kind === 'prompt' ? job.action.prompt : '',
+    analysisCode:
+      job.action.kind === 'analysis' ? job.action.analysis_code : '',
+    scheduleKind: schedule?.kind ?? 'interval',
     intervalSeconds:
-      job.interval_seconds != null ? String(job.interval_seconds) : '',
-    runAt: toDatetimeLocal(job.run_at),
-    cronExpression: job.cron_expression ?? '',
-    cronTimezone: job.cron_timezone ?? defaultCronTimezone(),
+      schedule?.kind === 'interval' ? String(schedule.interval_seconds) : '',
+    runAt: toDatetimeLocal(schedule?.kind === 'once' ? schedule.run_at : null),
+    cronExpression: schedule?.kind === 'cron' ? schedule.expression : '',
+    cronTimezone:
+      schedule?.kind === 'cron'
+        ? (schedule.timezone ?? defaultCronTimezone())
+        : defaultCronTimezone(),
     enabled: job.enabled,
   };
 }
 
-export function canEditTimeSchedule(
-  job: Pick<JobRecord, 'trigger_kind'>,
-): boolean {
-  return job.trigger_kind === 'time';
+export function canEditTimeSchedule(job: Pick<JobRecord, 'trigger'>): boolean {
+  return job.trigger.kind === 'time';
 }
 
 export function getSubscriptionInputError(
@@ -161,7 +166,7 @@ export function validateEditJobForm(
 ): string | null {
   if (!form.name.trim()) return 'Name is required.';
 
-  const actionError = validateJobActionFields(job.action_kind, form);
+  const actionError = validateJobActionFields(job.action.kind, form);
   if (actionError) return actionError;
 
   return canEditTimeSchedule(job)
@@ -172,37 +177,16 @@ export function validateEditJobForm(
 export function toCreateJobPayload(form: CreateJobFormState): CreateJobPayload {
   const payload: CreateJobPayload = {
     name: form.name.trim(),
-    action_kind: form.actionKind,
-    trigger_kind: form.triggerKind,
+    action:
+      form.actionKind === 'analysis'
+        ? { kind: 'analysis', analysis_code: form.analysisCode.trim() }
+        : { kind: 'prompt', prompt: form.prompt.trim() },
+    trigger:
+      form.triggerKind === 'time'
+        ? { kind: 'time', schedule: schedulePayload(form) }
+        : eventTriggerPayload(form),
+    output: { kind: 'narrative' },
   };
-
-  if (form.actionKind === 'analysis') {
-    payload.analysis_code = form.analysisCode.trim();
-  } else {
-    payload.prompt = form.prompt.trim();
-  }
-
-  if (payload.trigger_kind === 'time') {
-    payload.schedule_kind = form.scheduleKind;
-    if (form.scheduleKind === 'interval' && form.intervalSeconds.trim()) {
-      payload.interval_seconds = Number(form.intervalSeconds);
-    }
-    if (form.scheduleKind === 'once' && form.runAt.trim()) {
-      payload.run_at = new Date(form.runAt).toISOString();
-    }
-    if (form.scheduleKind === 'cron' && form.cronExpression.trim()) {
-      payload.cron_expression = form.cronExpression.trim();
-      if (form.cronTimezone.trim()) {
-        payload.cron_timezone = form.cronTimezone.trim();
-      }
-    }
-  } else {
-    payload.thing_id = form.thingId.trim();
-    payload.event_name = form.eventName.trim();
-    if (form.subscriptionInput.trim()) {
-      payload.subscription_input = JSON.parse(form.subscriptionInput);
-    }
-  }
 
   return payload;
 }
@@ -214,27 +198,47 @@ export function toUpdateJobPayload(
   const payload: UpdateJobPayload = {
     name: form.name.trim(),
     enabled: form.enabled,
+    definition: {
+      interaction_mode: job.interaction_mode,
+      action:
+        job.action.kind === 'analysis'
+          ? { kind: 'analysis', analysis_code: form.analysisCode.trim() }
+          : { kind: 'prompt', prompt: form.prompt.trim() },
+      trigger:
+        job.trigger.kind === 'time'
+          ? { kind: 'time', schedule: schedulePayload(form) }
+          : job.trigger,
+      output: job.output,
+    },
   };
-  if (job.action_kind === 'prompt') {
-    payload.prompt = form.prompt.trim();
-  } else {
-    payload.analysis_code = form.analysisCode.trim();
-  }
-
-  const scheduleKind = canEditTimeSchedule(job) ? form.scheduleKind : null;
-  if (scheduleKind) {
-    payload.schedule_kind = scheduleKind;
-  }
-  if (scheduleKind === 'interval') {
-    payload.interval_seconds = Number(form.intervalSeconds);
-  }
-  if (scheduleKind === 'once') {
-    payload.run_at = new Date(form.runAt).toISOString();
-  }
-  if (scheduleKind === 'cron') {
-    payload.cron_expression = form.cronExpression.trim();
-    payload.cron_timezone = form.cronTimezone.trim();
-  }
 
   return payload;
+}
+
+function schedulePayload(
+  form: JobScheduleFormFields & { scheduleKind: JobScheduleKind },
+): JobSchedule {
+  if (form.scheduleKind === 'once') {
+    return { kind: 'once', run_at: new Date(form.runAt).toISOString() };
+  }
+  if (form.scheduleKind === 'cron') {
+    return {
+      kind: 'cron',
+      expression: form.cronExpression.trim(),
+      timezone: form.cronTimezone.trim() || null,
+    };
+  }
+  return { kind: 'interval', interval_seconds: Number(form.intervalSeconds) };
+}
+
+function eventTriggerPayload(form: CreateJobFormState): EventJobTrigger {
+  const trigger: EventJobTrigger = {
+    kind: 'event' as const,
+    thing_id: form.thingId.trim(),
+    event_name: form.eventName.trim(),
+  };
+  if (form.subscriptionInput.trim()) {
+    trigger.subscription_input = JSON.parse(form.subscriptionInput);
+  }
+  return trigger;
 }

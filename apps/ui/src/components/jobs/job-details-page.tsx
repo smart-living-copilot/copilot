@@ -160,14 +160,14 @@ export function JobDetailsPage({ jobId, onDeleted }: JobDetailsPageProps) {
                   value="definition"
                   className={JOB_TABS_TRIGGER_CLASSNAME}
                 >
-                  {job.action_kind === 'analysis' ? 'Code' : 'Prompt'}
+                  {job.action.kind === 'analysis' ? 'Code' : 'Prompt'}
                 </TabsTrigger>
                 {showSchemaTab ? (
                   <TabsTrigger
                     value="schema"
                     className={JOB_TABS_TRIGGER_CLASSNAME}
                   >
-                    {job.output_kind === 'structured_record'
+                    {job.output.kind === 'structured_record'
                       ? 'Schema'
                       : 'Subscription'}
                   </TabsTrigger>
@@ -209,11 +209,11 @@ export function JobDetailsPage({ jobId, onDeleted }: JobDetailsPageProps) {
 
             {showSchemaTab ? (
               <TabsContent value="schema" className="mt-0 space-y-4">
-                {job.output_kind === 'structured_record' ? (
+                {job.output.kind === 'structured_record' ? (
                   <TextPanel
                     title="Record schema"
                     description="JSON Schema used to parse and validate submitted records."
-                    value={formatJsonValue(job.record_schema)}
+                    value={formatJsonValue(job.output.schema)}
                     compact
                   />
                 ) : null}
@@ -222,7 +222,11 @@ export function JobDetailsPage({ jobId, onDeleted }: JobDetailsPageProps) {
                   <TextPanel
                     title="Subscription input"
                     description="Stored event subscription payload for event-triggered jobs."
-                    value={formatJsonValue(job.subscription_input)}
+                    value={formatJsonValue(
+                      job.trigger.kind === 'event'
+                        ? job.trigger.subscription_input
+                        : null,
+                    )}
                     compact
                   />
                 ) : null}

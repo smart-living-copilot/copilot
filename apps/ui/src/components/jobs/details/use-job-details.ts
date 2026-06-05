@@ -139,7 +139,7 @@ export function useJobDetails(
   const hasTimeFields = job ? supportsTimeFields(job) : false;
   const hasEventFields = job ? supportsEventFields(job) : false;
   const showSchemaTab = Boolean(
-    job && (job.output_kind === 'structured_record' || hasEventFields),
+    job && (job.output.kind === 'structured_record' || hasEventFields),
   );
   const latestCodeResult = useMemo(
     () => findLatestCodeResult(latestRuns),

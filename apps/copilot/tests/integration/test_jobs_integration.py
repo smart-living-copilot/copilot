@@ -15,6 +15,7 @@ from copilot.jobs.executor import JobExecutor
 from copilot.jobs.graph_results import job_result_from_graph_result
 from copilot.jobs.models import (
     CreateJobRequest,
+    JobActionKind,
     JobInteractionMode,
     JobOutputKind,
     JobRunEventType,
@@ -38,6 +39,77 @@ pytestmark = pytest.mark.integration
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+_CreateJobRequestModel = CreateJobRequest
+
+
+def CreateJobRequest(**values):  # noqa: N802 - test helper shadows imported model.
+    if "action" in values and "trigger" in values:
+        return _CreateJobRequestModel(**values)
+
+    action_kind = values.pop("action_kind", JobActionKind.PROMPT)
+    prompt = values.pop("prompt", None)
+    analysis_code = values.pop("analysis_code", None)
+    output_kind = values.pop("output_kind", JobOutputKind.NARRATIVE)
+    trigger_kind = values.pop("trigger_kind")
+    schedule_kind = values.pop("schedule_kind", None)
+    run_at = values.pop("run_at", None)
+    interval_seconds = values.pop("interval_seconds", None)
+    cron_expression = values.pop("cron_expression", None)
+    cron_timezone = values.pop("cron_timezone", None)
+    thing_id = values.pop("thing_id", None)
+    event_name = values.pop("event_name", None)
+    subscription_input = values.pop("subscription_input", None)
+    record_schema = values.pop("record_schema", None)
+    record_schema_version = values.pop("record_schema_version", None)
+    virtual_thing_id = values.pop("virtual_thing_id", None)
+    virtual_thing_title = values.pop("virtual_thing_title", None)
+    virtual_thing_description = values.pop("virtual_thing_description", None)
+
+    if action_kind == JobActionKind.ANALYSIS:
+        values["action"] = {"kind": "analysis", "analysis_code": analysis_code or ""}
+    else:
+        values["action"] = {"kind": "prompt", "prompt": prompt or ""}
+
+    if trigger_kind == JobTriggerKind.EVENT:
+        values["trigger"] = {
+            "kind": "event",
+            "thing_id": thing_id,
+            "event_name": event_name,
+            "subscription_input": subscription_input,
+        }
+    elif schedule_kind == TimeTriggerKind.ONCE:
+        values["trigger"] = {"kind": "time", "schedule": {"kind": "once", "run_at": run_at}}
+    elif schedule_kind == TimeTriggerKind.CRON:
+        values["trigger"] = {
+            "kind": "time",
+            "schedule": {
+                "kind": "cron",
+                "expression": cron_expression,
+                "timezone": cron_timezone,
+            },
+        }
+    else:
+        values["trigger"] = {
+            "kind": "time",
+            "schedule": {"kind": "interval", "interval_seconds": interval_seconds},
+        }
+
+    if output_kind == JobOutputKind.STRUCTURED_RECORD:
+        values["output"] = {
+            "kind": "structured_record",
+            "schema": record_schema,
+            "schema_version": record_schema_version or 1,
+            "virtual_thing": {
+                "id": virtual_thing_id,
+                "title": virtual_thing_title,
+                "description": virtual_thing_description,
+            },
+        }
+    else:
+        values["output"] = {"kind": "narrative"}
+    return _CreateJobRequestModel(**values)
 
 
 def _get_schedules(settings: Settings):
@@ -107,10 +179,12 @@ def test_jobs_api_persists_time_job_and_syncs_redis_schedule(
             json={
                 "name": "check doors",
                 "created_from_thread_id": "thread-1",
-                "prompt": "Check all exterior doors",
-                "trigger_kind": "time",
-                "schedule_kind": "interval",
-                "interval_seconds": 60,
+                "action": {"kind": "prompt", "prompt": "Check all exterior doors"},
+                "trigger": {
+                    "kind": "time",
+                    "schedule": {"kind": "interval", "interval_seconds": 60},
+                },
+                "output": {"kind": "narrative"},
             },
         )
 
@@ -119,8 +193,14 @@ def test_jobs_api_persists_time_job_and_syncs_redis_schedule(
         assert created["name"] == "check doors"
         assert created["created_from_thread_id"] == "thread-1"
         assert created["job_thread_id"] == f"job:{created['id']}"
-        assert created["trigger_kind"] == "time"
-        assert created["action_kind"] == "prompt"
+        assert created["trigger"]["kind"] == "time"
+        assert created["trigger"]["schedule"]["kind"] == "interval"
+        assert created["action"]["kind"] == "prompt"
+        assert created["output"]["kind"] == "narrative"
+        assert "trigger_kind" not in created
+        assert "action_kind" not in created
+        assert "schedule_kind" not in created
+        assert "prompt" not in created
         assert created["enabled"] is True
         assert created["next_run_at"] is not None
         assert [thread["id"] for thread in list_threads()] == []
@@ -337,7 +417,7 @@ def test_job_resource_sync_repairs_missing_virtual_record_thing(
     assert records.thing_exists(thing_id) is True
     assert records.read_property(thing_id, "record_count") == 0
     assert records.read_property(thing_id, "latest_mood") is None
-    assert _run(repo.get_job(job.id)).virtual_thing_id == thing_id
+    assert _run(repo.get_job(job.id)).output.virtual_thing_id == thing_id
 
 
 def test_job_resource_sync_replaces_event_subscription_id(
