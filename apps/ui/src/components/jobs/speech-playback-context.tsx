@@ -96,7 +96,14 @@ export function SpeechPlaybackProvider({
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [status, setStatus] = useState<PlaybackStatus>('idle');
-  const [voiceMode, setVoiceMode] = useState<boolean>(storedVoiceMode);
+  // Start from the SSR-safe default so the first client render matches the
+  // server HTML, then sync the persisted preference after mount to avoid a
+  // hydration mismatch.
+  const [voiceMode, setVoiceMode] = useState<boolean>(false);
+
+  useEffect(() => {
+    setVoiceMode(storedVoiceMode());
+  }, []);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
