@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -25,7 +26,8 @@ from copilot.clients.code_executor import (
     format_code_execution_result,
 )
 from copilot.jobs.enums import JobRunSource, JobRunStatus
-from copilot.jobs.schemas import AnalysisAction, Job, JobRun
+from copilot.jobs.records import VirtualRecordStore
+from copilot.jobs.schemas import AnalysisAction, Job, JobRun, StructuredRecordOutput
 from copilot.jobs.graph_results import (
     graph_config_for_run,
     graph_input_for_run,
@@ -188,7 +190,7 @@ class JobExecutor:
         job = await self._repo.get_job(job_id)
 
         if isinstance(job.action, AnalysisAction):
-            result = await self._run_analysis_job(job, trigger=trigger)
+            result = await self._run_analysis_job(job, run=run, trigger=trigger)
         else:
             result = await self._run_prompt_job(job, run=run, trigger=trigger)
 
@@ -231,12 +233,19 @@ class JobExecutor:
             logger.error("Failed prompt job %s: %s", job.id, exc, exc_info=exc)
             return {"ok": False, "error": str(exc), "metadata": {"trigger": trigger}}
 
-    async def _run_analysis_job(self, job: Job, *, trigger: dict[str, Any]) -> dict[str, Any]:
+    async def _run_analysis_job(
+        self,
+        job: Job,
+        *,
+        run: JobRun,
+        trigger: dict[str, Any],
+    ) -> dict[str, Any]:
         try:
             response = await self._code_executor_client.execute(
                 session_id=f"job-analysis:{job.id}",
                 code=job.action.analysis_code,
             )
+            stored_records = await self._store_analysis_records(job, run=run, response=response)
             formatted = format_code_execution_result(response)
             stdout = str(formatted.get("stdout", "")).strip()
             artifacts = formatted.get("artifacts", [])
@@ -246,6 +255,10 @@ class JobExecutor:
                 parts.append(stdout)
             if isinstance(artifacts, list) and artifacts:
                 parts.append(_artifact_summary(artifacts))
+            if stored_records:
+                parts.append(
+                    f"{len(stored_records)} record{'s' if len(stored_records) != 1 else ''}"
+                )
             if not parts:
                 parts.append("(no output)")
 
@@ -253,12 +266,56 @@ class JobExecutor:
                 "ok": True,
                 "response": response,
                 **formatted,
+                "records": stored_records,
                 "assistant": "\n".join(parts)[:4000],
                 "metadata": {"trigger": trigger},
             }
         except Exception as exc:
             logger.error("Failed analysis job %s: %s", job.id, exc, exc_info=exc)
             return {"ok": False, "error": str(exc), "metadata": {"trigger": trigger}}
+
+    async def _store_analysis_records(
+        self,
+        job: Job,
+        *,
+        run: JobRun,
+        response: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Validate and persist a record emitted via the sandbox ``store_record`` helper.
+
+        Reuses the same ``VirtualRecordStore.submit_record`` validation/idempotency the
+        prompt path uses. A run stores at most one record (the virtual-record model keys
+        on one record per run); a schema-rejected record raises, failing the run with a
+        clear error so the analysis code can be fixed (deterministic code cannot
+        self-correct).
+        """
+        output = job.output
+        if not isinstance(output, StructuredRecordOutput):
+            return []
+        raw_records = response.get("records")
+        if not isinstance(raw_records, list) or not raw_records:
+            return []
+        if len(raw_records) > 1:
+            raise ValueError(
+                "store_record may be called at most once per analysis run; "
+                f"it was called {len(raw_records)} times"
+            )
+        thing_id = output.virtual_thing_id
+        if not thing_id:
+            logger.warning("Analysis job %s has structured output but no virtual Thing id.", job.id)
+            return []
+
+        entry = raw_records[0]
+        stored = await asyncio.to_thread(
+            VirtualRecordStore().submit_record,
+            thing_id=thing_id,
+            source_job_id=job.id,
+            source_run_id=run.id,
+            data=entry.get("data"),
+            raw_input=entry.get("raw_input"),
+            confidence=entry.get("confidence"),
+        )
+        return [stored]
 
 
 def _artifact_summary(artifacts: list[Any]) -> str:

@@ -252,6 +252,10 @@ async def create_analysis_job(
     thing_id: str | None = None,
     event_name: str | None = None,
     subscription_input: Any = None,
+    record_schema: dict[str, Any] | None = None,
+    virtual_thing_title: str | None = None,
+    virtual_thing_description: str | None = None,
+    virtual_thing_id: str | None = None,
 ) -> dict[str, Any]:
     """Create an analysis job that runs Python in the code-executor sandbox.
 
@@ -263,16 +267,33 @@ async def create_analysis_job(
     - "once": run one time at run_at
     - "interval": run every interval_seconds
     - "cron": run on cron_expression, with optional cron_timezone such as "Europe/Berlin"
+
+    record_schema (optional): when given, the job produces a virtual Thing whose
+    properties/history come from records the analysis code stores. The code calls
+    store_record(data: dict, raw_input=None, confidence=None) for each record; data
+    must satisfy this JSON Schema. Omit for plain narrative (stdout/chart) output.
     """
     service = get_active_job_service()
     if service is None:
         return dict(_SERVICE_UNAVAILABLE)
+    if record_schema is not None:
+        output: dict[str, Any] = {
+            "kind": JobOutputKind.STRUCTURED_RECORD.value,
+            "schema": record_schema,
+            "virtual_thing": {
+                "id": virtual_thing_id,
+                "title": virtual_thing_title,
+                "description": virtual_thing_description,
+            },
+        }
+    else:
+        output = {"kind": JobOutputKind.NARRATIVE.value}
     try:
         request = CreateJobRequest(
             name=name,
             created_from_thread_id=_thread_id_from_config(config, created_from_thread_id),
             action={"kind": JobActionKind.ANALYSIS.value, "analysis_code": analysis_code},
-            output={"kind": JobOutputKind.NARRATIVE.value},
+            output=output,
             trigger=_trigger_payload(
                 trigger_kind=trigger_kind,
                 schedule_kind=schedule_kind,

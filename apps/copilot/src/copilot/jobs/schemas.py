@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from copilot.jobs.enums import (
     JobActionKind,
@@ -144,15 +144,6 @@ class JobDefinition(BaseModel):
     action: JobAction
     trigger: JobTrigger
     output: JobOutput = Field(default_factory=NarrativeOutput)
-
-    @model_validator(mode="after")
-    def _analysis_records_are_deferred(self) -> JobDefinition:
-        if isinstance(self.action, AnalysisAction) and isinstance(
-            self.output,
-            StructuredRecordOutput,
-        ):
-            raise ValueError("analysis jobs only support narrative output")
-        return self
 
     @property
     def action_kind(self) -> JobActionKind:

@@ -28,6 +28,7 @@ class ExecutionEnvironment:
         self.images: list[str] = []
         self.plotly: list[str] = []
         self.wot_calls: list[dict[str, Any]] = []
+        self.records: list[dict[str, Any]] = []
 
         self._prepare_process_environment()
         self._load_runtime_modules()
@@ -45,6 +46,7 @@ class ExecutionEnvironment:
         self.images.clear()
         self.plotly.clear()
         self.wot_calls.clear()
+        self.records.clear()
         stdout_buffer = io.StringIO()
 
         original_plt_show = self.plt.show
@@ -68,10 +70,12 @@ class ExecutionEnvironment:
 
         images = self.images.copy()
         plotly = self.plotly.copy()
+        records = self.records.copy()
         if not success:
             self._delete_artifacts(images + plotly)
             images = []
             plotly = []
+            records = []
 
         return {
             "ok": success,
@@ -79,6 +83,7 @@ class ExecutionEnvironment:
             "images": images,
             "plotly": plotly,
             "wot_calls": self.wot_calls.copy(),
+            "records": records,
         }
 
     @staticmethod
@@ -135,8 +140,32 @@ class ExecutionEnvironment:
             "print": print,
             "pio": self.pio,
             "save_image": self.save_image,
+            "store_record": self.store_record,
             "wot": self.wot,
         }
+
+    def store_record(
+        self,
+        data: Any,
+        *,
+        raw_input: str | None = None,
+        confidence: float | None = None,
+    ) -> None:
+        """Queue one structured record for a structured-record analysis job.
+
+        The record is only validated against the job's schema and persisted by
+        copilot after the run succeeds (mirroring image/plotly artifacts, which
+        are discarded on failure). The sandbox merely collects the raw payload.
+        """
+        if not isinstance(data, dict):
+            raise TypeError(f"store_record expects a dict for data. Got {type(data)}")
+        self.records.append(
+            {
+                "data": data,
+                "raw_input": raw_input,
+                "confidence": confidence,
+            }
+        )
 
     def _capture_matplotlib_figure(self) -> None:
         filename = f"{uuid.uuid4()}.png"

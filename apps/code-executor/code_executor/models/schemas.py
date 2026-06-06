@@ -18,11 +18,18 @@ class WotCall(BaseModel):
     uri_variables: dict[str, Any] | None = None
 
 
+class StoredRecord(BaseModel):
+    data: dict[str, Any]
+    raw_input: str | None = None
+    confidence: float | None = None
+
+
 class ExecuteResponse(BaseModel):
     stdout: str
     images: list[str]
     plotly: list[str]
     wot_calls: list[WotCall] = Field(default_factory=list)
+    records: list[StoredRecord] = Field(default_factory=list)
 
 
 class WebArtifactRequest(BaseModel):

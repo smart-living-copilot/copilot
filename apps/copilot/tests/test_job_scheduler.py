@@ -150,6 +150,52 @@ class JobSchedulerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.deleted, [])
         self.assertEqual(service.created_requests[0].action.kind, "analysis")
 
+    async def test_create_analysis_job_with_record_schema_emits_structured_output(self) -> None:
+        service = _FakeService()
+        set_active_job_service(service)
+
+        schema = {
+            "type": "object",
+            "properties": {"avg_temp": {"type": "number"}},
+            "required": ["avg_temp"],
+        }
+        result = await job_scheduler.create_analysis_job.ainvoke(
+            {
+                "name": "daily avg temp",
+                "analysis_code": "store_record({'avg_temp': 21.5})",
+                "trigger_kind": "time",
+                "schedule_kind": "interval",
+                "interval_seconds": 3600,
+                "record_schema": schema,
+                "virtual_thing_title": "Daily Avg Temp",
+            },
+            config={"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(result["id"], "job-123")
+        request = service.created_requests[0]
+        self.assertEqual(request.action.kind, "analysis")
+        self.assertEqual(request.output.kind, "structured_record")
+        self.assertEqual(request.output.schema, schema)
+        self.assertEqual(request.output.virtual_thing.title, "Daily Avg Temp")
+
+    async def test_create_analysis_job_without_record_schema_stays_narrative(self) -> None:
+        service = _FakeService()
+        set_active_job_service(service)
+
+        await job_scheduler.create_analysis_job.ainvoke(
+            {
+                "name": "demo job",
+                "analysis_code": "print('hello')",
+                "trigger_kind": "time",
+                "schedule_kind": "interval",
+                "interval_seconds": 60,
+            },
+            config={"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(service.created_requests[0].output.kind, "narrative")
+
     async def test_create_prompt_job_returns_created_job_without_running(self) -> None:
         service = _FakeService(run_result={"ok": True, "response": "ran"})
         set_active_job_service(service)

@@ -1344,21 +1344,27 @@ class JobDomainTestCase(unittest.TestCase):
                 },
             )
 
-    def test_domain_keeps_analysis_structured_records_deferred(self) -> None:
-        with self.assertRaisesRegex(ValueError, "analysis jobs only support narrative output"):
-            _CreateJobRequestModel(
-                name="analysis record",
-                created_from_thread_id="thread-1",
-                action={"kind": "analysis", "analysis_code": "print('ok')"},
-                output={
-                    "kind": "structured_record",
-                    "schema": {"type": "object", "properties": {"mood": {"type": "string"}}},
-                },
-                trigger={
-                    "kind": "time",
-                    "schedule": {"kind": "interval", "interval_seconds": 60},
-                },
-            )
+    def test_domain_allows_analysis_structured_records(self) -> None:
+        request = _CreateJobRequestModel(
+            name="analysis record",
+            created_from_thread_id="thread-1",
+            action={"kind": "analysis", "analysis_code": "store_record({'mood': 'good'})"},
+            output={
+                "kind": "structured_record",
+                "schema": {"type": "object", "properties": {"mood": {"type": "string"}}},
+            },
+            trigger={
+                "kind": "time",
+                "schedule": {"kind": "interval", "interval_seconds": 60},
+            },
+        )
+
+        definition = request.normalized_request(default_cron_timezone="Europe/Berlin")
+
+        self.assertEqual(definition.action_kind, JobActionKind.ANALYSIS)
+        self.assertEqual(definition.output_kind, JobOutputKind.STRUCTURED_RECORD)
+        # The virtual Thing id is provisioned regardless of action kind.
+        self.assertTrue(definition.output.virtual_thing_id)
 
     def test_schedule_update_switch_to_cron_clears_stale_fields_and_normalizes(self) -> None:
         current = _job()
