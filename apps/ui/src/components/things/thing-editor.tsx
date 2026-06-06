@@ -1,11 +1,12 @@
 'use client';
 
 import { json as jsonLanguage } from '@codemirror/lang-json';
-import { useCallback, useEffect, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Loader2, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { FormPageHeader } from '@/components/form-page-header';
 import {
   type ThingRecord,
   createThing,
@@ -16,6 +17,7 @@ import {
 import { CodeEditor } from '@/components/code-editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { getLocalReturnTo, isCollectionReturnTo } from '@/lib/return-to';
 
 const THING_TEMPLATE = `{
   "@context": ["https://www.w3.org/2022/wot/td/v1.1"],
@@ -55,10 +57,11 @@ function summarizeDocument(documentText: string) {
 
 interface ThingEditorProps {
   mode: 'create' | 'edit';
+  returnTo?: string;
   thingId?: string;
 }
 
-export function ThingEditor({ mode, thingId }: ThingEditorProps) {
+export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
   const router = useRouter();
   const [documentText, setDocumentText] = useState(THING_TEMPLATE);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -91,6 +94,13 @@ export function ThingEditor({ mode, thingId }: ThingEditorProps) {
       ? documentText !== THING_TEMPLATE
       : documentText !== (thing?.json ?? '');
   const canSave = !('error' in summary) && (mode === 'create' || isDirty);
+  const fallbackDetailHref = thingId
+    ? `/things/${encodeURIComponent(thingId)}`
+    : '/things';
+  const cancelHref = getLocalReturnTo(
+    returnTo,
+    mode === 'create' ? '/things' : fallbackDetailHref,
+  );
 
   function handleFormatDocument() {
     try {
@@ -104,10 +114,12 @@ export function ThingEditor({ mode, thingId }: ThingEditorProps) {
   }
 
   const handleSave = useCallback(async () => {
-    if (!('document' in summary) || !summary.document) {
-      toast.error(
-        'error' in summary ? summary.error : 'Invalid Thing Description',
-      );
+    if ('error' in summary) {
+      toast.error(summary.error);
+      return;
+    }
+
+    if (isSubmitting || !canSave || !summary.document) {
       return;
     }
 
@@ -117,15 +129,30 @@ export function ThingEditor({ mode, thingId }: ThingEditorProps) {
         mode === 'create'
           ? await createThing(summary.document)
           : await updateThing(thingId ?? '', summary.document);
+      const savedDetailHref = `/things/${encodeURIComponent(result.id)}`;
+      const saveHref =
+        mode === 'edit' &&
+        returnTo &&
+        isCollectionReturnTo(getLocalReturnTo(returnTo, ''), '/things')
+          ? getLocalReturnTo(returnTo, savedDetailHref)
+          : savedDetailHref;
 
       toast.success(mode === 'create' ? 'Thing created' : 'Thing updated');
-      router.push(`/things/${encodeURIComponent(result.id)}`);
+      router.push(saveHref);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Save failed');
     } finally {
       setIsSubmitting(false);
     }
-  }, [summary, mode, thingId, router]);
+  }, [canSave, isSubmitting, summary, mode, returnTo, thingId, router]);
+
+  const handleSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      void handleSave();
+    },
+    [handleSave],
+  );
 
   // Cmd+S save shortcut
   useEffect(() => {
@@ -156,6 +183,14 @@ export function ThingEditor({ mode, thingId }: ThingEditorProps) {
     }
   }
 
+  const headerTitle = mode === 'create' ? 'Create thing' : 'Edit thing';
+  const headerDescription =
+    mode === 'create'
+      ? 'Write or paste a W3C Thing Description JSON document.'
+      : thing
+        ? `Update the Thing Description JSON for ${thing.title}.`
+        : 'Update the Thing Description JSON.';
+
   if (mode === 'edit' && isPending) {
     return (
       <Card>
@@ -167,57 +202,44 @@ export function ThingEditor({ mode, thingId }: ThingEditorProps) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h1
-            className={
-              mode === 'create'
-                ? 'text-2xl font-semibold text-foreground md:text-3xl'
-                : 'truncate text-3xl font-semibold text-foreground md:text-4xl'
-            }
-          >
-            {mode === 'create'
-              ? 'Create thing'
-              : thing?.title ||
-                ('title' in summary ? summary.title : null) ||
-                'Edit thing'}
-          </h1>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleFormatDocument}>
-            Format JSON
-          </Button>
-          {mode === 'edit' && thing && (
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <FormPageHeader
+        title={headerTitle}
+        description={headerDescription}
+        cancelHref={cancelHref}
+        extraActions={
+          <>
             <Button
-              variant="destructive"
+              onClick={handleFormatDocument}
               size="sm"
-              onClick={() => void handleDeleteThing()}
-              disabled={isDeleting}
+              type="button"
+              variant="outline"
             >
-              {isDeleting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
-              Remove
+              Format JSON
             </Button>
-          )}
-          <Button
-            size="sm"
-            onClick={() => void handleSave()}
-            disabled={isSubmitting || !canSave}
-          >
-            {isSubmitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            {mode === 'create' ? 'Create thing' : 'Save changes'}
-          </Button>
-        </div>
-      </div>
+            {mode === 'edit' && thing ? (
+              <Button
+                disabled={isDeleting}
+                onClick={() => void handleDeleteThing()}
+                size="sm"
+                type="button"
+                variant="destructive"
+              >
+                {isDeleting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                Remove
+              </Button>
+            ) : null}
+          </>
+        }
+        submitLabel={mode === 'create' ? 'Create thing' : 'Save changes'}
+        submitIcon={<Save className="h-4 w-4" />}
+        isSubmitting={isSubmitting}
+        disabled={isSubmitting || !canSave}
+      />
 
       <Card className="overflow-hidden">
         {'error' in summary && (
@@ -240,6 +262,6 @@ export function ThingEditor({ mode, thingId }: ThingEditorProps) {
           />
         </div>
       </Card>
-    </div>
+    </form>
   );
 }

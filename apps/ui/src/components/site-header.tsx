@@ -40,18 +40,35 @@ export function SiteHeader({ breadcrumbs = [], children }: SiteHeaderProps) {
             <BreadcrumbList>
               {breadcrumbs.map((segment, i) => {
                 const isLast = i === breadcrumbs.length - 1;
+                const key = `${segment.href ?? 'current'}-${segment.label}-${i}`;
                 return isLast ? (
-                  <BreadcrumbItem key={segment.label}>
-                    <BreadcrumbPage>{segment.label}</BreadcrumbPage>
+                  <BreadcrumbItem key={key}>
+                    <BreadcrumbPage
+                      className="max-w-[14rem] truncate md:max-w-[24rem]"
+                      title={segment.label}
+                    >
+                      {segment.label}
+                    </BreadcrumbPage>
                   </BreadcrumbItem>
                 ) : (
-                  <BreadcrumbItem key={segment.label}>
+                  <BreadcrumbItem key={key}>
                     {segment.href ? (
                       <BreadcrumbLink asChild>
-                        <Link href={segment.href}>{segment.label}</Link>
+                        <Link
+                          className="max-w-[12rem] truncate md:max-w-[20rem]"
+                          href={segment.href}
+                          title={segment.label}
+                        >
+                          {segment.label}
+                        </Link>
                       </BreadcrumbLink>
                     ) : (
-                      <BreadcrumbPage>{segment.label}</BreadcrumbPage>
+                      <BreadcrumbPage
+                        className="max-w-[12rem] truncate md:max-w-[20rem]"
+                        title={segment.label}
+                      >
+                        {segment.label}
+                      </BreadcrumbPage>
                     )}
                     <BreadcrumbSeparator />
                   </BreadcrumbItem>

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { type ReactNode } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 
@@ -10,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { type ThingRecord } from '@/lib/things-api';
+import { withReturnTo } from '@/lib/return-to';
 
 import {
   type ActionDef,
@@ -99,6 +101,12 @@ export function ThingDetailPageLayout({
   onDeleteCredential,
   onOpenCredential,
 }: ThingDetailLayoutProps) {
+  const pathname = usePathname();
+  const editHref = withReturnTo(
+    `/things/${encodeURIComponent(thing.id)}/edit`,
+    pathname,
+  );
+
   return (
     <div className="space-y-5">
       <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -125,7 +133,7 @@ export function ThingDetailPageLayout({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline">
-            <Link href={`/things/${encodeURIComponent(thing.id)}/edit`}>
+            <Link href={editHref}>
               <Pencil className="h-4 w-4" />
               Edit JSON
             </Link>

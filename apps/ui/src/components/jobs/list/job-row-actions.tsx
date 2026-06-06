@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/tooltip';
 import { supportsJobReply } from '@/lib/job-formatters';
 import { type JobRecord } from '@/lib/jobs-api';
+import { withReturnTo } from '@/lib/return-to';
 
 interface IconActionProps {
   label: string;
@@ -92,6 +93,7 @@ export function JobRowActions({
   onOpenDetails,
 }: JobRowActionsProps) {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const editHref = withReturnTo(`/jobs/${job.id}/edit`, '/jobs');
 
   return (
     <div className="flex justify-end gap-1.5">
@@ -150,7 +152,7 @@ export function JobRowActions({
             View details
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href={`/jobs/${job.id}/edit`}>
+            <Link href={editHref}>
               <Pencil className="h-4 w-4" />
               Edit
             </Link>

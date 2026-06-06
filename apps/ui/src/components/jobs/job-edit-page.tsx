@@ -19,7 +19,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { JobActionFields } from '@/components/jobs/form/job-action-fields';
 import { JobEnabledField } from '@/components/jobs/form/job-enabled-field';
 import { JobFormCard } from '@/components/jobs/form/job-form-card';
-import { JobFormHeader } from '@/components/jobs/form/job-form-header';
+import { FormPageHeader } from '@/components/form-page-header';
 import {
   canEditTimeSchedule,
   type EditJobFormState,
@@ -31,9 +31,11 @@ import {
 import { JobScheduleFields } from '@/components/jobs/form/job-schedule-fields';
 import { getScheduleLabel, getStatusLabel } from '@/lib/job-formatters';
 import { type JobRecord, fetchJob, updateJob } from '@/lib/jobs-api';
+import { getLocalReturnTo } from '@/lib/return-to';
 
 interface JobEditPageProps {
   jobId: string;
+  returnTo?: string;
 }
 
 function getScheduleDescription(scheduleKind: JobScheduleKind): string {
@@ -56,7 +58,7 @@ function getScheduleBadgeLabel(
   return 'Once';
 }
 
-export function JobEditPage({ jobId }: JobEditPageProps) {
+export function JobEditPage({ jobId, returnTo }: JobEditPageProps) {
   const router = useRouter();
   const [job, setJob] = useState<JobRecord | null>(null);
   const [form, setForm] = useState<EditJobFormState | null>(null);
@@ -98,6 +100,7 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
 
   const scheduleKind =
     job && form && canEditTimeSchedule(job) ? form.scheduleKind : null;
+  const cancelHref = getLocalReturnTo(returnTo, `/jobs/${jobId}`);
 
   const validationError = useMemo(() => {
     if (!job || !form) return null;
@@ -111,9 +114,12 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
 
       setIsSubmitting(true);
       try {
-        await updateJob(job.id, toUpdateJobPayload(job, form));
+        const updatedJob = await updateJob(
+          job.id,
+          toUpdateJobPayload(job, form),
+        );
         toast.success('Job updated.');
-        router.push(`/jobs/${job.id}`);
+        router.push(getLocalReturnTo(returnTo, `/jobs/${updatedJob.id}`));
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : 'Failed to update job',
@@ -121,7 +127,7 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
         setIsSubmitting(false);
       }
     },
-    [form, job, router, validationError],
+    [form, job, returnTo, router, validationError],
   );
 
   if (isLoading) {
@@ -165,10 +171,10 @@ export function JobEditPage({ jobId }: JobEditPageProps) {
 
   return (
     <form className="space-y-5" onSubmit={(event) => void handleSubmit(event)}>
-      <JobFormHeader
+      <FormPageHeader
         title="Edit job"
         description="Update the name, enabled state, schedule, and action content. The trigger source and event binding are fixed after creation."
-        cancelHref={`/jobs/${job.id}`}
+        cancelHref={cancelHref}
         submitLabel="Save"
         submitIcon={<Save className="h-4 w-4" />}
         isSubmitting={isSubmitting}

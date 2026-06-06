@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   Ban,
   Pause,
@@ -21,6 +24,7 @@ import {
   type JobDisplayStatus,
 } from '@/lib/job-formatters';
 import { type JobRecord } from '@/lib/jobs-api';
+import { withReturnTo } from '@/lib/return-to';
 
 interface JobDetailsHeaderProps {
   jobId: string;
@@ -52,6 +56,8 @@ export function JobDetailsHeader({
   onDelete,
 }: JobDetailsHeaderProps) {
   const disabled = isLoading || isRunning || isDeleting || isBusy;
+  const pathname = usePathname();
+  const editHref = withReturnTo(`/jobs/${jobId}/edit`, pathname);
 
   return (
     <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -88,7 +94,7 @@ export function JobDetailsHeader({
         </Button>
         {job ? (
           <Button variant="outline" asChild>
-            <Link href={`/jobs/${jobId}/edit`}>
+            <Link href={editHref}>
               <Pencil className="h-4 w-4" />
               Edit
             </Link>

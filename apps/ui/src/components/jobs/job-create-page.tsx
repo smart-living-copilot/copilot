@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { JobActionFields } from '@/components/jobs/form/job-action-fields';
 import { JobEventTriggerFields } from '@/components/jobs/form/job-event-trigger-fields';
 import { JobFormCard } from '@/components/jobs/form/job-form-card';
-import { JobFormHeader } from '@/components/jobs/form/job-form-header';
+import { FormPageHeader } from '@/components/form-page-header';
 import {
   INITIAL_CREATE_JOB_FORM,
   type CreateJobFormState,
@@ -66,7 +66,7 @@ export function JobCreatePage() {
 
   return (
     <form className="space-y-5" onSubmit={(event) => void handleSubmit(event)}>
-      <JobFormHeader
+      <FormPageHeader
         title="Create job"
         description="Define one action and one trigger for a background automation."
         cancelHref="/jobs"
