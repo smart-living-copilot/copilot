@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from copilot.jobs.db import JobRecord, JobRunRecord
@@ -30,7 +30,12 @@ from copilot.jobs.stores.replies import (
     _reply_payload_has_client_reply_id,
 )
 from copilot.jobs.stores.run_events import _add_finish_events, _add_job_run_event
-from copilot.jobs.stores.run_state import _has_active_run, _job_thread_id_for_run_row
+from copilot.jobs.stores.run_state import (
+    _active_or_last_run_id,
+    _has_active_run,
+    _job_thread_id_for_run_row,
+    _required_run_row,
+)
 
 
 class JobRunStore(_JobStoreBase):
@@ -241,104 +246,6 @@ class JobRunStore(_JobStoreBase):
             session.commit()
             return _to_job_run(run_row)
 
-    async def get_active_or_last_job_run(self, job_id: str) -> JobRun:
-        return await asyncio.to_thread(self._get_active_or_last_job_run_sync, job_id)
-
-    def _get_active_or_last_job_run_sync(self, job_id: str) -> JobRun:
-        with self._session_factory() as session:
-            row = session.get(JobRecord, job_id)
-            if row is None:
-                raise KeyError(job_id)
-            run_id = _active_or_last_run_id(row, missing_key=job_id)
-            return _to_job_run(_required_run_row(session, run_id))
-
-    async def get_job_by_active_run_thread_id(self, job_thread_id: str) -> Job:
-        return await asyncio.to_thread(self._get_job_by_active_run_thread_id_sync, job_thread_id)
-
-    def _get_job_by_active_run_thread_id_sync(self, job_thread_id: str) -> Job:
-        with self._session_factory() as session:
-            statement = (
-                select(JobRecord)
-                .join(JobRunRecord, JobRunRecord.id == JobRecord.active_run_id)
-                .where(JobRunRecord.job_thread_id == job_thread_id)
-            )
-            row = session.scalars(statement).one_or_none()
-            if row is None:
-                raise KeyError(job_thread_id)
-            return _to_job(row)
-
-    async def get_job_run(self, run_id: str) -> JobRun:
-        return await asyncio.to_thread(self._get_job_run_sync, run_id)
-
-    def _get_job_run_sync(self, run_id: str) -> JobRun:
-        with self._session_factory() as session:
-            row = session.get(JobRunRecord, run_id)
-            if row is None:
-                raise KeyError(run_id)
-            return _to_job_run(row)
-
-    async def get_job_run_by_client_reply_id(
-        self,
-        job_id: str,
-        client_reply_id: str,
-    ) -> JobRun | None:
-        return await asyncio.to_thread(
-            self._get_job_run_by_client_reply_id_sync,
-            job_id,
-            client_reply_id,
-        )
-
-    def _get_job_run_by_client_reply_id_sync(
-        self,
-        job_id: str,
-        client_reply_id: str,
-    ) -> JobRun | None:
-        normalized = _normalize_client_reply_id(client_reply_id)
-        if normalized is None:
-            return None
-        statement = (
-            select(JobRunRecord)
-            .where(JobRunRecord.job_id == job_id)
-            .order_by(JobRunRecord.started_at.desc())
-        )
-        with self._session_factory() as session:
-            rows = session.scalars(statement).all()
-            for row in rows:
-                if _reply_payload_has_client_reply_id(row.trigger_payload, normalized):
-                    return _duplicate_reply_run(row)
-        return None
-
-    async def get_latest_job_run(self, job_id: str) -> JobRun | None:
-        return await asyncio.to_thread(self._get_latest_job_run_sync, job_id)
-
-    def _get_latest_job_run_sync(self, job_id: str) -> JobRun | None:
-        statement = (
-            select(JobRunRecord)
-            .where(JobRunRecord.job_id == job_id)
-            .order_by(JobRunRecord.started_at.desc())
-            .limit(1)
-        )
-        with self._session_factory() as session:
-            row = session.scalars(statement).one_or_none()
-            return _to_job_run(row) if row is not None else None
-
-    async def get_job_by_thread_id_any(self, job_thread_id: str) -> Job:
-        try:
-            return await self.get_job_by_thread_id(job_thread_id)
-        except KeyError:
-            return await self.get_job_by_active_run_thread_id(job_thread_id)
-
-    async def get_job_run_by_thread_id(self, job_thread_id: str) -> JobRun:
-        return await asyncio.to_thread(self._get_job_run_by_thread_id_sync, job_thread_id)
-
-    def _get_job_run_by_thread_id_sync(self, job_thread_id: str) -> JobRun:
-        statement = select(JobRunRecord).where(JobRunRecord.job_thread_id == job_thread_id)
-        with self._session_factory() as session:
-            row = session.scalars(statement).one_or_none()
-            if row is None:
-                raise KeyError(job_thread_id)
-            return _to_job_run(row)
-
     async def finish_job_run(
         self,
         *,
@@ -460,44 +367,6 @@ class JobRunStore(_JobStoreBase):
             session.commit()
             return count
 
-    async def list_job_runs(
-        self,
-        job_id: str,
-        *,
-        limit: int | None = None,
-        offset: int = 0,
-    ) -> list[JobRun]:
-        return await asyncio.to_thread(self._list_job_runs_sync, job_id, limit, offset)
-
-    def _list_job_runs_sync(
-        self,
-        job_id: str,
-        limit: int | None,
-        offset: int,
-    ) -> list[JobRun]:
-        statement = (
-            select(JobRunRecord)
-            .where(JobRunRecord.job_id == job_id)
-            .order_by(JobRunRecord.started_at.desc())
-        )
-        if offset:
-            statement = statement.offset(offset)
-        if limit is not None:
-            statement = statement.limit(limit)
-        with self._session_factory() as session:
-            rows = session.scalars(statement).all()
-            return [_to_job_run(row) for row in rows]
-
-    async def count_job_runs(self, job_id: str) -> int:
-        return await asyncio.to_thread(self._count_job_runs_sync, job_id)
-
-    def _count_job_runs_sync(self, job_id: str) -> int:
-        statement = (
-            select(func.count()).select_from(JobRunRecord).where(JobRunRecord.job_id == job_id)
-        )
-        with self._session_factory() as session:
-            return int(session.scalar(statement) or 0)
-
 
 def _create_skipped_run(
     session: Session,
@@ -562,20 +431,6 @@ def _locked_job_row(session: Session, job_id: str) -> JobRecord:
 def _locked_job_row_or_none(session: Session, job_id: str) -> JobRecord | None:
     statement = select(JobRecord).where(JobRecord.id == job_id).with_for_update()
     return session.scalars(statement).one_or_none()
-
-
-def _active_or_last_run_id(row: JobRecord, *, missing_key: str) -> str:
-    run_id = row.active_run_id or row.last_run_id
-    if not run_id:
-        raise KeyError(missing_key)
-    return run_id
-
-
-def _required_run_row(session: Session, run_id: str) -> JobRunRecord:
-    run_row = session.get(JobRunRecord, run_id)
-    if run_row is None:
-        raise KeyError(run_id)
-    return run_row
 
 
 def _reply_trigger_payload(
