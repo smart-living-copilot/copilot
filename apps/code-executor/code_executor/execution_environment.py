@@ -29,6 +29,7 @@ class ExecutionEnvironment:
         self.plotly: list[str] = []
         self.wot_calls: list[dict[str, Any]] = []
         self.records: list[dict[str, Any]] = []
+        self.reports: list[str] = []
 
         self._prepare_process_environment()
         self._load_runtime_modules()
@@ -47,6 +48,7 @@ class ExecutionEnvironment:
         self.plotly.clear()
         self.wot_calls.clear()
         self.records.clear()
+        self.reports.clear()
         stdout_buffer = io.StringIO()
 
         original_plt_show = self.plt.show
@@ -71,11 +73,13 @@ class ExecutionEnvironment:
         images = self.images.copy()
         plotly = self.plotly.copy()
         records = self.records.copy()
+        reports = self.reports.copy()
         if not success:
             self._delete_artifacts(images + plotly)
             images = []
             plotly = []
             records = []
+            reports = []
 
         return {
             "ok": success,
@@ -84,6 +88,7 @@ class ExecutionEnvironment:
             "plotly": plotly,
             "wot_calls": self.wot_calls.copy(),
             "records": records,
+            "reports": reports,
         }
 
     @staticmethod
@@ -141,8 +146,22 @@ class ExecutionEnvironment:
             "pio": self.pio,
             "save_image": self.save_image,
             "store_record": self.store_record,
+            "report": self.report,
             "wot": self.wot,
         }
+
+    def report(self, message: Any) -> None:
+        """Set the human-facing headline for an analysis run.
+
+        Lets deterministic analysis code emit a clean, human-readable summary
+        (e.g. "Living room averaged 21 °C") without an LLM. copilot prefers this
+        over raw stdout when surfacing the run in toasts and notifications. May be
+        called more than once; the messages are joined in order. Reports are
+        discarded if the run fails, mirroring artifacts and records.
+        """
+        if not isinstance(message, str):
+            raise TypeError(f"report expects a string. Got {type(message)}")
+        self.reports.append(message)
 
     def store_record(
         self,

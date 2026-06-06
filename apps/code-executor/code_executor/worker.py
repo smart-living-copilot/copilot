@@ -209,6 +209,7 @@ def _session_response(result: dict[str, Any]) -> dict[str, Any]:
         "plotly": result["plotly"],
         "wot_calls": result.get("wot_calls", []),
         "records": result.get("records", []),
+        "reports": result.get("reports", []),
     }
 
 

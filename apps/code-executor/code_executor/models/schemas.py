@@ -30,6 +30,7 @@ class ExecuteResponse(BaseModel):
     plotly: list[str]
     wot_calls: list[WotCall] = Field(default_factory=list)
     records: list[StoredRecord] = Field(default_factory=list)
+    reports: list[str] = Field(default_factory=list)
 
 
 class WebArtifactRequest(BaseModel):
