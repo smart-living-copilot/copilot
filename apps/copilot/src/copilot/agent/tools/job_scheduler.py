@@ -268,10 +268,14 @@ async def create_analysis_job(
     - "interval": run every interval_seconds
     - "cron": run on cron_expression, with optional cron_timezone such as "Europe/Berlin"
 
+    analysis_code should call report("...") with one plain-language sentence
+    summarizing the result; that headline is what the user sees in toasts and
+    notifications (print output stays in the run details).
+
     record_schema (optional): when given, the job produces a virtual Thing whose
     properties/history come from records the analysis code stores. The code calls
     store_record(data: dict, raw_input=None, confidence=None) for each record; data
-    must satisfy this JSON Schema. Omit for plain narrative (stdout/chart) output.
+    must satisfy this JSON Schema. Omit for plain narrative (report/chart) output.
     """
     service = get_active_job_service()
     if service is None:
