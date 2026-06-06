@@ -3,23 +3,20 @@
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import asdict
 from datetime import UTC, datetime
 from threading import Lock
 from typing import Any
 
+from copilot.core.settings import Settings
 from copilot.media.models import MediaSessionStats
 
 logger = logging.getLogger(__name__)
+_settings = Settings()
 
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
-
-
-_VISION_MAX_DIMENSION = int(os.getenv("VISION_MAX_IMAGE_DIMENSION", "1024"))
-_VISION_JPEG_QUALITY = int(os.getenv("VISION_JPEG_QUALITY", "85"))
 
 
 def encode_frame_to_jpeg(frame: Any) -> bytes | None:
@@ -49,9 +46,10 @@ def encode_frame_to_jpeg(frame: Any) -> bytes | None:
         image = Image.fromarray(array)
         if image.mode not in ("RGB", "L"):
             image = image.convert("RGB")
-        image.thumbnail((_VISION_MAX_DIMENSION, _VISION_MAX_DIMENSION))
+        max_dimension = _settings.vision_max_image_dimension
+        image.thumbnail((max_dimension, max_dimension))
         buffer = BytesIO()
-        image.save(buffer, format="JPEG", quality=_VISION_JPEG_QUALITY)
+        image.save(buffer, format="JPEG", quality=_settings.vision_jpeg_quality)
         return buffer.getvalue()
     except Exception:
         logger.debug("Failed to encode video frame to JPEG", exc_info=True)

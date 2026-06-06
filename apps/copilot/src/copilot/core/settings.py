@@ -1,12 +1,26 @@
 import os
 import socket
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _normalize_database_url(value: str) -> str:
+    if value.startswith("postgresql+psycopg://"):
+        return value.replace("postgresql+psycopg://", "postgresql://", 1)
+    return value
+
+
+def _optional(value: str) -> str | None:
+    return value or None
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        populate_by_name=True,
+    )
 
     # LLM
     openai_api_key: str = ""
@@ -15,6 +29,19 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("OPENAI_BASE_URL", "OPENAI_API_BASE_URL"),
     )
+    openai_embedding_api_base_url: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "OPENAI_EMBEDDING_API_BASE_URL",
+            "OPENAI_API_BASE_URL",
+            "OPENAI_BASE_URL",
+        ),
+    )
+    openai_embedding_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("OPENAI_EMBEDDING_API_KEY", "OPENAI_API_KEY"),
+    )
+    openai_embedding_model: str = "mxbai-embed-large"
 
     # Agent
     max_iterations: int = 20
@@ -23,8 +50,12 @@ class Settings(BaseSettings):
     parallel_tool_calls: bool = False
     agent_state_database_url: str = ""
 
-    # Security
+    # Registry and security
     internal_api_key: str = ""
+    init_admin_token: str = ""
+    wot_runtime_registry_token: str = ""
+    registry_database_url: str = "postgresql://copilot:copilot@localhost:5432/copilot"
+    registry_public_url: str = "http://localhost:8000"
 
     # LiveKit media ingress
     livekit_url: str = ""
@@ -64,7 +95,21 @@ class Settings(BaseSettings):
     code_executor_retry_attempts: int = 3
     code_executor_retry_backoff_seconds: float = 1.0
 
-    # Jobs
+    # Search and Thing indexing
+    search_vector_dimensions: int = Field(default=1024, gt=0)
+    thing_events_stream: str = "thing_events"
+    thing_event_outbox_batch_size: int = Field(default=20, gt=0)
+    thing_event_outbox_poll_interval_seconds: float = Field(default=0.5, gt=0)
+    search_indexer_events_group: str = "thing_search_indexer"
+    search_indexer_events_consumer: str = Field(
+        default_factory=lambda: f"{socket.gethostname()}-{os.getpid()}"
+    )
+    search_indexer_poll_block_ms: int = 5000
+    search_indexer_batch_size: int = 20
+    search_indexer_claim_idle_ms: int = 60000
+    search_indexer_retry_seconds: float = 5
+
+    # Jobs and WoT runtime
     job_task_timeout_seconds: int = 300
     job_run_stale_after_seconds: int = 900
     jobs_default_timezone: str = "Europe/Berlin"
@@ -72,6 +117,8 @@ class Settings(BaseSettings):
     wot_runtime_url: str = "http://wot-runtime:3003"
     wot_runtime_api_token: str = ""
     wot_runtime_stream: str = "wot_runtime_events"
+    wot_runtime_timeout_seconds: int = 15
+    wot_runtime_subscription_timeout_seconds: int = 5
     jobs_events_group: str = "job_runner"
     jobs_events_consumer: str = Field(
         default_factory=lambda: f"{socket.gethostname()}-{os.getpid()}"
@@ -83,3 +130,130 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    @field_validator("registry_database_url")
+    @classmethod
+    def _normalize_registry_database_url(cls, value: str) -> str:
+        return _normalize_database_url(value)
+
+    @model_validator(mode="after")
+    def _apply_fallback_settings(self) -> "Settings":
+        if not self.openai_embedding_api_base_url:
+            self.openai_embedding_api_base_url = self.openai_base_url
+        if not self.openai_embedding_api_key:
+            self.openai_embedding_api_key = self.openai_api_key
+        return self
+
+    def validate_runtime_security_settings(self) -> None:
+        missing: list[str] = []
+        if not self.wot_runtime_registry_token:
+            missing.append("WOT_RUNTIME_REGISTRY_TOKEN")
+        if not self.wot_runtime_api_token:
+            missing.append("WOT_RUNTIME_API_TOKEN")
+
+        if missing:
+            missing_values = ", ".join(missing)
+            raise RuntimeError(
+                "WoT runtime integration requires shared auth token(s). "
+                f"Missing required setting(s): {missing_values}."
+            )
+
+    @property
+    def DATABASE_URL(self) -> str:
+        return self.registry_database_url
+
+    @property
+    def REDIS_URL(self) -> str:
+        return self.redis_url
+
+    @property
+    def THING_EVENTS_STREAM(self) -> str:
+        return self.thing_events_stream
+
+    @property
+    def THING_EVENT_OUTBOX_BATCH_SIZE(self) -> int:
+        return self.thing_event_outbox_batch_size
+
+    @property
+    def THING_EVENT_OUTBOX_POLL_INTERVAL_SECONDS(self) -> float:
+        return self.thing_event_outbox_poll_interval_seconds
+
+    @property
+    def INIT_ADMIN_TOKEN(self) -> str | None:
+        return _optional(self.init_admin_token)
+
+    @property
+    def WOT_RUNTIME_REGISTRY_TOKEN(self) -> str | None:
+        return _optional(self.wot_runtime_registry_token)
+
+    @property
+    def WOT_RUNTIME_API_TOKEN(self) -> str | None:
+        return _optional(self.wot_runtime_api_token)
+
+    @property
+    def SEARCH_VECTOR_DIMENSIONS(self) -> int:
+        return self.search_vector_dimensions
+
+    @property
+    def SEARCH_INDEXER_EVENTS_GROUP(self) -> str:
+        return self.search_indexer_events_group
+
+    @property
+    def SEARCH_INDEXER_EVENTS_CONSUMER(self) -> str:
+        return self.search_indexer_events_consumer
+
+    @property
+    def SEARCH_INDEXER_POLL_BLOCK_MS(self) -> int:
+        return self.search_indexer_poll_block_ms
+
+    @property
+    def SEARCH_INDEXER_BATCH_SIZE(self) -> int:
+        return self.search_indexer_batch_size
+
+    @property
+    def SEARCH_INDEXER_CLAIM_IDLE_MS(self) -> int:
+        return self.search_indexer_claim_idle_ms
+
+    @property
+    def SEARCH_INDEXER_RETRY_SECONDS(self) -> float:
+        return self.search_indexer_retry_seconds
+
+    @property
+    def OPENAI_API_BASE_URL(self) -> str | None:
+        return _optional(self.openai_base_url)
+
+    @property
+    def OPENAI_API_KEY(self) -> str | None:
+        return _optional(self.openai_api_key)
+
+    @property
+    def OPENAI_MODEL(self) -> str | None:
+        return _optional(self.openai_model)
+
+    @property
+    def OPENAI_EMBEDDING_API_BASE_URL(self) -> str | None:
+        return _optional(self.openai_embedding_api_base_url)
+
+    @property
+    def OPENAI_EMBEDDING_API_KEY(self) -> str | None:
+        return _optional(self.openai_embedding_api_key)
+
+    @property
+    def OPENAI_EMBEDDING_MODEL(self) -> str:
+        return self.openai_embedding_model
+
+    @property
+    def WOT_RUNTIME_URL(self) -> str:
+        return self.wot_runtime_url
+
+    @property
+    def WOT_RUNTIME_TIMEOUT_SECONDS(self) -> int:
+        return self.wot_runtime_timeout_seconds
+
+    @property
+    def WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS(self) -> int:
+        return self.wot_runtime_subscription_timeout_seconds
+
+    @property
+    def REGISTRY_PUBLIC_URL(self) -> str:
+        return self.registry_public_url

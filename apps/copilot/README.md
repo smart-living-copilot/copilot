@@ -104,7 +104,7 @@ Container-backed integration tests start disposable pgvector Postgres and Valkey
 
 ## Environment
 
-The root [`.env.example`](../../.env.example) documents required and optional settings. Runtime settings are defined in [`src/copilot/core/settings.py`](./src/copilot/core/settings.py). Registry database settings live in [`src/copilot/core/config.py`](./src/copilot/core/config.py).
+The root [`.env.example`](../../.env.example) documents required and optional settings. Runtime settings are defined in [`src/copilot/core/settings.py`](./src/copilot/core/settings.py). [`src/copilot/core/config.py`](./src/copilot/core/config.py) keeps the legacy cached `get_settings()` import path.
 
 Common groups:
 

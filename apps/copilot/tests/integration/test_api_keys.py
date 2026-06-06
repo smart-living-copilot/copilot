@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 
 from copilot.api_keys.store import (
@@ -65,7 +63,8 @@ def test_init_admin_key_is_refreshed_with_sqlalchemy(jobs_integration_environmen
 
 
 def test_backend_bootstrap_creates_init_admin_key(jobs_integration_environment) -> None:
-    bootstrap_persistent_state(settings=replace(get_settings(), INIT_ADMIN_TOKEN="bootstrap-token"))
+    settings = get_settings().model_copy(update={"init_admin_token": "bootstrap-token"})
+    bootstrap_persistent_state(settings=settings)
 
     session_factory = get_session_factory()
     with session_factory() as session:

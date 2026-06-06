@@ -26,8 +26,8 @@ async def test_backend_startup_requires_runtime_security_tokens(monkeypatch):
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
     monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
     monkeypatch.setenv("OPENAI_MODEL", "gpt-test")
-    monkeypatch.delenv("WOT_RUNTIME_REGISTRY_TOKEN", raising=False)
-    monkeypatch.delenv("WOT_RUNTIME_API_TOKEN", raising=False)
+    monkeypatch.setenv("WOT_RUNTIME_REGISTRY_TOKEN", "")
+    monkeypatch.setenv("WOT_RUNTIME_API_TOKEN", "")
 
     get_settings.cache_clear()
     get_connection_pool.cache_clear()

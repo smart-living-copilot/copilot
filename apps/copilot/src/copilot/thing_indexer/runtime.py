@@ -13,7 +13,7 @@ class ThingIndexerStreamConfig:
     batch_size: int
     poll_block_ms: int
     claim_idle_ms: int
-    retry_seconds: int
+    retry_seconds: float
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "ThingIndexerStreamConfig":
