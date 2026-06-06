@@ -18,6 +18,7 @@ from copilot.jobs.domain import JobDefinition
 from copilot.jobs.executor import (
     BackgroundAgentRunner,
     JobExecutor,
+    _analysis_assistant,
 )
 from copilot.jobs.graph_results import (
     assistant_text_from_graph_result,
@@ -940,6 +941,57 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("1 image", result["assistant"])
         agent_runner.run.assert_not_called()
 
+    async def test_analysis_job_report_is_preferred_headline(self) -> None:
+        repo = _FakeRepo(
+            _job(
+                action_kind=JobActionKind.ANALYSIS,
+                prompt=None,
+                analysis_code="report('Living room averaged 21 C')",
+            )
+        )
+        publisher = _FakePublisher()
+        code_executor = AsyncMock()
+        code_executor.execute.return_value = {
+            "stdout": '{"observed_value": 21}\n',
+            "plotly": ["chart-1.json"],
+            "reports": ["Living room averaged 21 C"],
+        }
+        executor = JobExecutor(
+            Settings(),
+            repo=repo,
+            code_executor_client=code_executor,
+            agent_runner=AsyncMock(),
+            event_publisher=publisher,
+        )
+
+        result = await executor.run_job("job-1", {"source": "manual"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["assistant"], "Living room averaged 21 C")
+
+    async def test_analysis_job_without_output_reports_finished(self) -> None:
+        repo = _FakeRepo(
+            _job(
+                action_kind=JobActionKind.ANALYSIS,
+                prompt=None,
+                analysis_code="pass",
+            )
+        )
+        publisher = _FakePublisher()
+        code_executor = AsyncMock()
+        code_executor.execute.return_value = {"plotly": ["chart-1.json"]}
+        executor = JobExecutor(
+            Settings(),
+            repo=repo,
+            code_executor_client=code_executor,
+            agent_runner=AsyncMock(),
+            event_publisher=publisher,
+        )
+
+        result = await executor.run_job("job-1", {"source": "manual"})
+
+        self.assertEqual(result["assistant"], "1 chart · Analysis finished")
+
     async def test_one_shot_time_job_disabled_after_scheduled_run(self) -> None:
         run_at = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
         repo = _FakeRepo(
@@ -1307,6 +1359,34 @@ class _FakeRecordStore:
         if self.delete_error is not None:
             raise self.delete_error
         self.existing.discard(thing_id)
+
+
+class AnalysisAssistantTestCase(unittest.TestCase):
+    def test_report_wins_over_everything(self) -> None:
+        assistant = _analysis_assistant(
+            report="All quiet overnight",
+            stdout="debug noise",
+            artifacts=[{"kind": "plotly"}],
+            records=[{"data": {"mood": "good"}}],
+        )
+        self.assertEqual(assistant, "All quiet overnight")
+
+    def test_record_content_surfaces_in_headline(self) -> None:
+        assistant = _analysis_assistant(
+            report="",
+            stdout="",
+            artifacts=[{"kind": "plotly"}],
+            records=[{"data": {"mood": "good", "energy": "high"}}],
+        )
+        self.assertEqual(
+            assistant, "1 chart, mood=good, energy=high · Analysis finished"
+        )
+
+    def test_falls_back_to_finished_with_no_output(self) -> None:
+        assistant = _analysis_assistant(
+            report="", stdout="", artifacts=[], records=[]
+        )
+        self.assertEqual(assistant, "Analysis finished")
 
 
 class JobDomainTestCase(unittest.TestCase):

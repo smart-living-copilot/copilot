@@ -27,6 +27,7 @@ from copilot.clients.code_executor import (
 )
 from copilot.jobs.enums import JobRunSource, JobRunStatus
 from copilot.jobs.records import VirtualRecordStore
+from copilot.jobs.record_summary import submitted_record_summary
 from copilot.jobs.schemas import AnalysisAction, Job, JobRun, StructuredRecordOutput
 from copilot.jobs.graph_results import (
     graph_config_for_run,
@@ -249,25 +250,22 @@ class JobExecutor:
             formatted = format_code_execution_result(response)
             stdout = str(formatted.get("stdout", "")).strip()
             artifacts = formatted.get("artifacts", [])
+            if not isinstance(artifacts, list):
+                artifacts = []
 
-            parts: list[str] = []
-            if stdout and stdout != "(no output)":
-                parts.append(stdout)
-            if isinstance(artifacts, list) and artifacts:
-                parts.append(_artifact_summary(artifacts))
-            if stored_records:
-                parts.append(
-                    f"{len(stored_records)} record{'s' if len(stored_records) != 1 else ''}"
-                )
-            if not parts:
-                parts.append("(no output)")
+            assistant = _analysis_assistant(
+                report=_joined_report(response),
+                stdout=stdout,
+                artifacts=artifacts,
+                records=stored_records,
+            )
 
             return {
                 "ok": True,
                 "response": response,
                 **formatted,
                 "records": stored_records,
-                "assistant": "\n".join(parts)[:4000],
+                "assistant": assistant[:4000],
                 "metadata": {"trigger": trigger},
             }
         except Exception as exc:
@@ -316,6 +314,51 @@ class JobExecutor:
             confidence=entry.get("confidence"),
         )
         return [stored]
+
+
+def _joined_report(response: dict[str, Any]) -> str:
+    """Join the human-facing headlines emitted via the sandbox ``report`` helper."""
+    raw = response.get("reports")
+    if not isinstance(raw, list):
+        return ""
+    messages = [str(item).strip() for item in raw if isinstance(item, str) and item.strip()]
+    return "\n".join(messages)
+
+
+def _analysis_assistant(
+    *,
+    report: str,
+    stdout: str,
+    artifacts: list[Any],
+    records: list[Any],
+) -> str:
+    """Pick the headline for an analysis run, preferring authored over technical output.
+
+    Order: an explicit ``report`` headline wins; otherwise raw ``stdout`` (with a
+    note of what was produced); otherwise a summary of artifacts/records plus a
+    generic "finished" so a chart-only run still reads cleanly.
+    """
+    if report:
+        return report
+
+    produced = _produced_summary(artifacts, records)
+    if stdout and stdout != "(no output)":
+        return "\n".join(part for part in (stdout, produced) if part)
+    if produced:
+        return f"{produced} · Analysis finished"
+    return "Analysis finished"
+
+
+def _produced_summary(artifacts: list[Any], records: list[Any]) -> str:
+    """One-line summary of what a run produced: charts, images, and record content."""
+    parts: list[str] = []
+    artifact_summary = _artifact_summary(artifacts)
+    if artifact_summary:
+        parts.append(artifact_summary)
+    if records:
+        # One record per run; surface its field values, falling back to a count.
+        parts.append(submitted_record_summary(records[0]) or "1 record")
+    return ", ".join(parts)
 
 
 def _artifact_summary(artifacts: list[Any]) -> str:
