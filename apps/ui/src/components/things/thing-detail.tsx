@@ -152,7 +152,6 @@ export function ThingDetail({
 
   const handleDelete = useCallback(async () => {
     if (!thing) return;
-    if (!window.confirm(`Delete "${thing.title}"?`)) return;
 
     setIsDeleting(true);
     try {

@@ -7,6 +7,7 @@ import { Pencil, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -138,18 +139,23 @@ export function ThingDetailPageLayout({
               Edit JSON
             </Link>
           </Button>
-          <Button
-            variant="destructive"
-            onClick={() => void onDelete()}
-            disabled={isDeleting}
-          >
-            {isDeleting ? (
-              <Spinner className="size-4" />
-            ) : (
-              <Trash2 className="h-4 w-4" />
-            )}
-            {isDeleting ? 'Removing...' : 'Remove Thing'}
-          </Button>
+          <ConfirmDialog
+            destructive
+            confirmLabel={isDeleting ? 'Removing...' : 'Remove'}
+            description="This permanently removes the Thing Description and related credentials. This cannot be undone."
+            onConfirm={onDelete}
+            title={`Remove "${thing.title}"?`}
+            trigger={
+              <Button variant="destructive" disabled={isDeleting}>
+                {isDeleting ? (
+                  <Spinner className="size-4" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                {isDeleting ? 'Removing...' : 'Remove Thing'}
+              </Button>
+            }
+          />
         </div>
       </section>
 

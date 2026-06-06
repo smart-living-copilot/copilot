@@ -12,7 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
-import { ConfirmDialog } from '@/components/jobs/confirm-dialog';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PulseDot } from '@/components/jobs/details/pulse-dot';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

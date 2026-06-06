@@ -12,7 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
-import { ConfirmDialog } from '@/components/jobs/confirm-dialog';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { hasActiveRun } from '@/components/jobs/list/job-list-formatters';
 import { Button } from '@/components/ui/button';
 import {

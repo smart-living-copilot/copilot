@@ -7,6 +7,7 @@ import { AlertTriangle, Loader2, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { FormPageHeader } from '@/components/form-page-header';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   type ThingRecord,
   createThing,
@@ -18,6 +19,7 @@ import { CodeEditor } from '@/components/code-editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { getLocalReturnTo, isCollectionReturnTo } from '@/lib/return-to';
+import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 
 const THING_TEMPLATE = `{
   "@context": ["https://www.w3.org/2022/wot/td/v1.1"],
@@ -102,6 +104,11 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
     mode === 'create' ? '/things' : fallbackDetailHref,
   );
 
+  useUnsavedChangesGuard(
+    Boolean(isDirty && !isSubmitting && !isDeleting),
+    'You have unsaved Thing Description changes. Leave without saving?',
+  );
+
   function handleFormatDocument() {
     try {
       const parsed = JSON.parse(documentText);
@@ -169,7 +176,6 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
 
   async function handleDeleteThing() {
     if (!thing) return;
-    if (!window.confirm(`Delete "${thing.title}"?`)) return;
 
     setIsDeleting(true);
     try {
@@ -218,20 +224,28 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
               Format JSON
             </Button>
             {mode === 'edit' && thing ? (
-              <Button
-                disabled={isDeleting}
-                onClick={() => void handleDeleteThing()}
-                size="sm"
-                type="button"
-                variant="destructive"
-              >
-                {isDeleting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4" />
-                )}
-                Remove
-              </Button>
+              <ConfirmDialog
+                destructive
+                confirmLabel={isDeleting ? 'Removing...' : 'Remove'}
+                description="This permanently removes the Thing Description and related credentials. This cannot be undone."
+                onConfirm={handleDeleteThing}
+                title={`Remove "${thing.title}"?`}
+                trigger={
+                  <Button
+                    disabled={isDeleting}
+                    size="sm"
+                    type="button"
+                    variant="destructive"
+                  >
+                    {isDeleting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                    Remove
+                  </Button>
+                }
+              />
             ) : null}
           </>
         }

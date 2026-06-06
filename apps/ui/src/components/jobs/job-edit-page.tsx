@@ -32,6 +32,7 @@ import { JobScheduleFields } from '@/components/jobs/form/job-schedule-fields';
 import { getScheduleLabel, getStatusLabel } from '@/lib/job-formatters';
 import { type JobRecord, fetchJob, updateJob } from '@/lib/jobs-api';
 import { getLocalReturnTo } from '@/lib/return-to';
+import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 
 interface JobEditPageProps {
   jobId: string;
@@ -101,6 +102,15 @@ export function JobEditPage({ jobId, returnTo }: JobEditPageProps) {
   const scheduleKind =
     job && form && canEditTimeSchedule(job) ? form.scheduleKind : null;
   const cancelHref = getLocalReturnTo(returnTo, `/jobs/${jobId}`);
+  const isDirty =
+    job && form
+      ? JSON.stringify(form) !== JSON.stringify(toEditJobFormState(job))
+      : false;
+
+  useUnsavedChangesGuard(
+    Boolean(isDirty && !isSubmitting),
+    'You have unsaved job changes. Leave without saving?',
+  );
 
   const validationError = useMemo(() => {
     if (!job || !form) return null;
