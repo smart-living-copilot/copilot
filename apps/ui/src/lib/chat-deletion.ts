@@ -8,6 +8,50 @@ export function buildInternalHeaders(internalApiKey?: string) {
   };
 }
 
+export interface ChatDeletionCandidate {
+  id: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export type ChatBatchDeleteRequest =
+  | { mode: 'all' }
+  | { mode: 'before'; before: string };
+
+export interface ChatCleanupResult {
+  chatId: string;
+  failures: string[];
+}
+
+function getChatDeletionTime(chat: ChatDeletionCandidate) {
+  const updatedTime = chat.updatedAt ? Date.parse(chat.updatedAt) : Number.NaN;
+  if (Number.isFinite(updatedTime)) {
+    return updatedTime;
+  }
+
+  const createdTime = chat.createdAt ? Date.parse(chat.createdAt) : Number.NaN;
+  return Number.isFinite(createdTime) ? createdTime : null;
+}
+
+export function selectChatsForBatchDeletion(
+  chats: ChatDeletionCandidate[],
+  request: ChatBatchDeleteRequest,
+) {
+  if (request.mode === 'all') {
+    return chats;
+  }
+
+  const cutoffTime = Date.parse(request.before);
+  if (!Number.isFinite(cutoffTime)) {
+    return [];
+  }
+
+  return chats.filter((chat) => {
+    const chatTime = getChatDeletionTime(chat);
+    return chatTime !== null && chatTime <= cutoffTime;
+  });
+}
+
 export async function deleteRemoteResource(
   url: string,
   headers: HeadersInit | undefined,
@@ -70,4 +114,31 @@ export async function cleanupChatResources({
 
   const failures = await Promise.all(cleanupResults);
   return failures.filter((value): value is string => Boolean(value));
+}
+
+export async function cleanupChatResourcesBatch({
+  chatIds,
+  copilotUrl,
+  executorUrl,
+  fetchImpl,
+  internalApiKey,
+}: {
+  chatIds: string[];
+  copilotUrl?: string;
+  executorUrl?: string;
+  fetchImpl?: typeof fetch;
+  internalApiKey?: string;
+}): Promise<ChatCleanupResult[]> {
+  return Promise.all(
+    chatIds.map(async (chatId) => ({
+      chatId,
+      failures: await cleanupChatResources({
+        chatId,
+        copilotUrl,
+        executorUrl,
+        fetchImpl,
+        internalApiKey,
+      }),
+    })),
+  );
 }

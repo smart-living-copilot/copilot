@@ -33,6 +33,7 @@ import {
   getCachedChatList,
   removeCachedChat,
   replaceCachedChatList,
+  subscribeToChatListChanges,
   type ChatSummary,
   upsertCachedChat,
 } from '@/lib/chat-list-cache';
@@ -96,6 +97,17 @@ export function AppSidebar({
       setChatList(cachedChats);
     }
   }, [activeChatId]);
+
+  useEffect(
+    () =>
+      subscribeToChatListChanges(() => {
+        const cachedChats = getCachedChatList();
+        if (cachedChats) {
+          setChatList(cachedChats);
+        }
+      }),
+    [],
+  );
 
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {

@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildInternalHeaders,
+  cleanupChatResourcesBatch,
   cleanupChatResources,
   deleteRemoteResource,
+  selectChatsForBatchDeletion,
 } from './chat-deletion';
 
 test('buildInternalHeaders omits auth when no key is configured', () => {
@@ -53,4 +55,87 @@ test('cleanupChatResources reports backend cleanup failures', async () => {
   });
   assert.equal(calls[0]?.url, 'http://executor.test/sessions/chat-123');
   assert.equal(calls[1]?.url, 'http://copilot.test/threads/chat-123');
+});
+
+test('selectChatsForBatchDeletion selects all chats', () => {
+  const chats = [
+    {
+      id: 'chat-1',
+      createdAt: '2026-01-01T10:00:00.000Z',
+      updatedAt: '2026-01-02T10:00:00.000Z',
+    },
+    {
+      id: 'chat-2',
+      createdAt: '2026-01-03T10:00:00.000Z',
+      updatedAt: '2026-01-04T10:00:00.000Z',
+    },
+  ];
+
+  assert.deepEqual(
+    selectChatsForBatchDeletion(chats, { mode: 'all' }).map((chat) => chat.id),
+    ['chat-1', 'chat-2'],
+  );
+});
+
+test('selectChatsForBatchDeletion filters by last updated date inclusively', () => {
+  const chats = [
+    {
+      id: 'old-chat',
+      createdAt: '2026-01-01T10:00:00.000Z',
+      updatedAt: '2026-01-02T10:00:00.000Z',
+    },
+    {
+      id: 'created-fallback',
+      createdAt: '2026-01-02T10:00:00.000Z',
+      updatedAt: null,
+    },
+    {
+      id: 'new-chat',
+      createdAt: '2026-01-01T10:00:00.000Z',
+      updatedAt: '2026-01-03T10:00:00.000Z',
+    },
+    {
+      id: 'invalid-date',
+      createdAt: 'not-a-date',
+      updatedAt: 'still-not-a-date',
+    },
+  ];
+
+  assert.deepEqual(
+    selectChatsForBatchDeletion(chats, {
+      mode: 'before',
+      before: '2026-01-02T10:00:00.000Z',
+    }).map((chat) => chat.id),
+    ['old-chat', 'created-fallback'],
+  );
+});
+
+test('cleanupChatResourcesBatch preserves per-chat cleanup failures', async () => {
+  const calls: string[] = [];
+
+  const results = await cleanupChatResourcesBatch({
+    chatIds: ['chat-1', 'chat-2'],
+    copilotUrl: 'http://copilot.test',
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+
+      if (String(url).endsWith('/chat-2')) {
+        return new Response(null, { status: 500 });
+      }
+
+      return new Response(null, { status: 204 });
+    },
+  });
+
+  assert.deepEqual(results, [
+    { chatId: 'chat-1', failures: [] },
+    {
+      chatId: 'chat-2',
+      failures: ['Copilot thread cleanup failed (500)'],
+    },
+  ]);
+  assert.deepEqual(calls, [
+    'http://copilot.test/threads/chat-1',
+    'http://copilot.test/threads/chat-2',
+  ]);
 });

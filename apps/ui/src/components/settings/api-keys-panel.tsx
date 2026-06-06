@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
 
 const DEFAULT_SCOPES = [
   'things:read',
@@ -147,72 +148,79 @@ export function ApiKeysPanel() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">API Keys</h2>
-          <p className="text-sm text-muted-foreground">
-            Create and manage API keys for programmatic access.
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="mr-2 size-4" />
-          Create Key
-        </Button>
-      </div>
-
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      ) : keys.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <KeyRound className="mb-4 size-12 text-muted-foreground" />
+    <div className="space-y-8">
+      <section className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <KeyRound className="size-5 text-muted-foreground" />
+              <h3 className="text-lg font-medium">API keys</h3>
+            </div>
             <p className="text-sm text-muted-foreground">
-              No API keys yet. Create one to get started.
+              Create and manage API keys for programmatic access.
             </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {keys.map((k) => (
-            <Card key={k.id}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="text-base">{k.name}</CardTitle>
-                    <CardDescription className="font-mono text-xs">
-                      {k.key_prefix}...
-                    </CardDescription>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setRevokeTarget(k)}
-                  >
-                    <Trash2 className="size-4 text-destructive" />
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-1.5">
-                  {k.scopes.map((s) => (
-                    <Badge key={s} variant="secondary">
-                      {s}
-                    </Badge>
-                  ))}
-                </div>
-                <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
-                  <span>Created {formatDate(k.created_at)}</span>
-                  <span>Last used {formatDate(k.last_used_at)}</span>
-                  {k.expires_at && (
-                    <span>Expires {formatDate(k.expires_at)}</span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+          </div>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="mr-2 size-4" />
+            Create Key
+          </Button>
         </div>
-      )}
+
+        <Separator />
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        ) : keys.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <KeyRound className="mb-4 size-12 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                No API keys yet. Create one to get started.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {keys.map((k) => (
+              <Card key={k.id}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <CardTitle className="text-base">{k.name}</CardTitle>
+                      <CardDescription className="font-mono text-xs">
+                        {k.key_prefix}...
+                      </CardDescription>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setRevokeTarget(k)}
+                    >
+                      <Trash2 className="size-4 text-destructive" />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-1.5">
+                    {k.scopes.map((s) => (
+                      <Badge key={s} variant="secondary">
+                        {s}
+                      </Badge>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
+                    <span>Created {formatDate(k.created_at)}</span>
+                    <span>Last used {formatDate(k.last_used_at)}</span>
+                    {k.expires_at && (
+                      <span>Expires {formatDate(k.expires_at)}</span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Create dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

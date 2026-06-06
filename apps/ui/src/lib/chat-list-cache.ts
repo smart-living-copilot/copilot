@@ -8,6 +8,23 @@ export interface ChatSummary {
 let cachedChats: ChatSummary[] | null = null;
 let inflightChatListRequest: Promise<ChatSummary[]> | null = null;
 
+const chatListChangedEvent = 'chat-list-cache:changed';
+
+function notifyChatListChanged() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(chatListChangedEvent));
+  }
+}
+
+export function subscribeToChatListChanges(listener: () => void) {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  window.addEventListener(chatListChangedEvent, listener);
+  return () => window.removeEventListener(chatListChangedEvent, listener);
+}
+
 function sortChatsByUpdatedAt(chats: ChatSummary[]) {
   return [...chats].sort((a, b) => {
     const updatedDiff =
@@ -26,6 +43,7 @@ export function getCachedChatList() {
 
 export function replaceCachedChatList(chats: ChatSummary[]) {
   cachedChats = sortChatsByUpdatedAt(chats);
+  notifyChatListChanged();
   return cachedChats;
 }
 
@@ -33,6 +51,7 @@ export function mutateCachedChatList(
   updater: (current: ChatSummary[]) => ChatSummary[],
 ) {
   cachedChats = sortChatsByUpdatedAt(updater(cachedChats ?? []));
+  notifyChatListChanged();
   return cachedChats;
 }
 
