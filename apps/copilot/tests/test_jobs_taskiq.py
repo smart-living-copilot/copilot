@@ -1378,14 +1378,10 @@ class AnalysisAssistantTestCase(unittest.TestCase):
             artifacts=[{"kind": "plotly"}],
             records=[{"data": {"mood": "good", "energy": "high"}}],
         )
-        self.assertEqual(
-            assistant, "1 chart, mood=good, energy=high · Analysis finished"
-        )
+        self.assertEqual(assistant, "1 chart, mood=good, energy=high · Analysis finished")
 
     def test_falls_back_to_finished_with_no_output(self) -> None:
-        assistant = _analysis_assistant(
-            report="", stdout="", artifacts=[], records=[]
-        )
+        assistant = _analysis_assistant(report="", stdout="", artifacts=[], records=[])
         self.assertEqual(assistant, "Analysis finished")
 
 
