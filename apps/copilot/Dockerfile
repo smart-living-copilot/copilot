@@ -5,8 +5,8 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src/ src/
 RUN pip install --no-cache-dir .
-COPY alembic.ini ./
-COPY migrations/ migrations/
+# alembic.ini and migrations/ ship inside the installed package (see
+# pyproject force-include), so no separate COPY is needed.
 
 EXPOSE 8123
 

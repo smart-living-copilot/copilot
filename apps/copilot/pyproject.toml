@@ -54,6 +54,11 @@ packages = ["src/copilot"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/copilot/catalog/td-schema.json" = "copilot/catalog/td-schema.json"
 "src/copilot/panels/wot_bridge.js" = "copilot/panels/wot_bridge.js"
+# Alembic config + the revision template are non-Python assets, so they must be
+# force-included for the runtime ``alembic upgrade head`` to find them in the
+# installed wheel. The ``env.py`` and ``versions/*.py`` ship as package code.
+"src/copilot/alembic.ini" = "copilot/alembic.ini"
+"src/copilot/migrations/script.py.mako" = "copilot/migrations/script.py.mako"
 
 [tool.ruff]
 target-version = "py312"

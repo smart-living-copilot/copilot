@@ -1,6 +1,5 @@
 from collections.abc import Iterator
 from functools import lru_cache
-from pathlib import Path
 
 import psycopg
 from psycopg.rows import DictRow, dict_row
@@ -61,12 +60,15 @@ def get_session() -> Iterator[Session]:
 
 
 def _run_alembic_upgrade() -> None:
+    from importlib.resources import files
+
     from alembic import command
     from alembic.config import Config
 
-    app_root = Path(__file__).resolve().parents[3]
-    config = Config(str(app_root / "alembic.ini"))
-    config.set_main_option("script_location", str(app_root / "migrations"))
+    # The alembic config and migrations ship inside the ``copilot`` package, so
+    # they sit next to the code in every install mode. The ini resolves
+    # ``script_location`` via ``%(here)s``, so no path overrides are needed.
+    config = Config(str(files("copilot") / "alembic.ini"))
     with psycopg.connect(psycopg_conninfo(get_settings().DATABASE_URL)) as connection:
         connection.execute("SELECT pg_advisory_lock(%s, %s)", _MIGRATION_LOCK_KEY)
         try:

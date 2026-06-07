@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from importlib.resources import files
 
 from alembic import command
 from alembic.config import Config
@@ -10,10 +10,9 @@ pytestmark = pytest.mark.integration
 
 
 def _alembic_config() -> Config:
-    app_root = Path(__file__).resolve().parents[2]
-    config = Config(str(app_root / "alembic.ini"))
-    config.set_main_option("script_location", str(app_root / "migrations"))
-    return config
+    # Mirror the runtime: the config + migrations ship inside the package and the
+    # ini resolves ``script_location`` via ``%(here)s``.
+    return Config(str(files("copilot") / "alembic.ini"))
 
 
 def test_alembic_metadata_has_no_pending_schema_drift(jobs_integration_environment) -> None:

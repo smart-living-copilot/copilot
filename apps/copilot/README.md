@@ -54,14 +54,14 @@ Live voice uses a self-hosted LiveKit Server plus the `copilot livekit-agent` wo
 
 ## Persistence And Migrations
 
-The application schema is owned by Alembic migrations in [`migrations`](./migrations). App startup calls `alembic upgrade head`, so API, worker, LiveKit, and indexer processes share the same schema path.
+The application schema is owned by Alembic migrations in [`src/copilot/migrations`](./src/copilot/migrations). They ship inside the `copilot` package so `alembic upgrade head` resolves them in every install mode. App startup calls `alembic upgrade head`, so API, worker, LiveKit, and indexer processes share the same schema path.
 
-Run migrations manually from `apps/copilot` when needed:
+Run migrations manually from `apps/copilot` when needed (the config lives in the package, so pass it with `-c`):
 
 ```bash
-python -m alembic upgrade head
-python -m alembic current
-python -m alembic check
+python -m alembic -c src/copilot/alembic.ini upgrade head
+python -m alembic -c src/copilot/alembic.ini current
+python -m alembic -c src/copilot/alembic.ini check
 ```
 
 LangGraph checkpoints use `AGENT_STATE_DATABASE_URL` when set, otherwise `REGISTRY_DATABASE_URL`. Keep `SEARCH_VECTOR_DIMENSIONS` stable for an existing database because the pgvector column is migrated with that dimension.
@@ -133,7 +133,7 @@ Shared internal credentials protect service-to-service calls when configured. Re
 - [`src/copilot/search`](./src/copilot/search): embedding and vector search for Things.
 - [`src/copilot/thing_indexer`](./src/copilot/thing_indexer): Thing indexing worker.
 - [`src/copilot/workers`](./src/copilot/workers): process role implementations.
-- [`migrations`](./migrations): Alembic migrations.
+- [`src/copilot/migrations`](./src/copilot/migrations): Alembic migrations.
 
 ## Contributor Notes
 
