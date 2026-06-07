@@ -15,4 +15,4 @@ COPY code_executor/ code_executor/
 RUN useradd -m appuser
 USER appuser
 
-ENTRYPOINT ["uvicorn", "code_executor.api:app", "--host", "0.0.0.0", "--port", "8888"]
+ENTRYPOINT ["uvicorn", "code_executor.api.app:app", "--host", "0.0.0.0", "--port", "8888"]

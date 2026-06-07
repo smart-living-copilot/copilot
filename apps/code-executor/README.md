@@ -83,7 +83,7 @@ The dev override builds the `builder` stage, bind-mounts the package, exposes po
 ```bash
 cd apps/code-executor
 pip install -e .
-uvicorn code_executor.api:app --host 0.0.0.0 --port 8888 --reload
+uvicorn code_executor.api.app:app --host 0.0.0.0 --port 8888 --reload
 ```
 
 ## Environment
