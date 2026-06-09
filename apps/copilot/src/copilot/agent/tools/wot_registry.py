@@ -59,6 +59,30 @@ def _bounded_int(value: int | None, *, default: int, minimum: int, maximum: int)
     return min(max(value, minimum), maximum)
 
 
+def _decoded_runtime_value(result: Any) -> Any:
+    """Extract the value shape exposed by generated panels and run_code."""
+    if not isinstance(result, dict):
+        return result
+
+    candidate = result.get("result") or result.get("completed_result")
+    if isinstance(candidate, dict):
+        if candidate.get("success") is False:
+            error = candidate.get("status_text") or candidate.get("statusText")
+            return {"error": error if isinstance(error, str) and error else "Interaction failed"}
+
+        payload = candidate.get("payload")
+        if isinstance(payload, dict):
+            if "data" in payload:
+                return payload.get("data")
+            return payload
+        return None
+
+    if result.get("outcome") == "operation_handle" and result.get("operation_handle"):
+        return result.get("operation_handle")
+
+    return result
+
+
 async def _get_affordance(
     thing_id: str,
     affordance_type: str,
@@ -205,13 +229,15 @@ async def wot_read_property(
     property_name: str,
     uri_variables: dict[str, Any] | None = None,
     form_index: int | None = None,
-) -> dict[str, Any]:
-    """Read a live WoT property through wot_runtime."""
-    return await _runtime_client().read_property(
-        thing_id=thing_id,
-        property_name=property_name,
-        uri_variables=uri_variables,
-        form_index=form_index,
+) -> Any:
+    """Read a live WoT property and return the decoded property value directly."""
+    return _decoded_runtime_value(
+        await _runtime_client().read_property(
+            thing_id=thing_id,
+            property_name=property_name,
+            uri_variables=uri_variables,
+            form_index=form_index,
+        )
     )
 
 
@@ -224,16 +250,18 @@ async def wot_write_property(
     value_base64: str | None = None,
     uri_variables: dict[str, Any] | None = None,
     form_index: int | None = None,
-) -> dict[str, Any]:
-    """Write a live WoT property through wot_runtime."""
-    return await _runtime_client().write_property(
-        thing_id=thing_id,
-        property_name=property_name,
-        value=value,
-        value_content_type=value_content_type,
-        value_base64=value_base64,
-        uri_variables=uri_variables,
-        form_index=form_index,
+) -> Any:
+    """Write a live WoT property and return the decoded response value directly."""
+    return _decoded_runtime_value(
+        await _runtime_client().write_property(
+            thing_id=thing_id,
+            property_name=property_name,
+            value=value,
+            value_content_type=value_content_type,
+            value_base64=value_base64,
+            uri_variables=uri_variables,
+            form_index=form_index,
+        )
     )
 
 
@@ -247,17 +275,19 @@ async def wot_invoke_action(
     uri_variables: dict[str, Any] | None = None,
     form_index: int | None = None,
     idempotency_key: str | None = None,
-) -> dict[str, Any]:
-    """Invoke a live WoT action through wot_runtime."""
-    return await _runtime_client().invoke_action(
-        thing_id=thing_id,
-        action_name=action_name,
-        input=input,
-        input_content_type=input_content_type,
-        input_base64=input_base64,
-        uri_variables=uri_variables,
-        form_index=form_index,
-        idempotency_key=idempotency_key,
+) -> Any:
+    """Invoke a live WoT action and return the decoded response value directly."""
+    return _decoded_runtime_value(
+        await _runtime_client().invoke_action(
+            thing_id=thing_id,
+            action_name=action_name,
+            input=input,
+            input_content_type=input_content_type,
+            input_base64=input_base64,
+            uri_variables=uri_variables,
+            form_index=form_index,
+            idempotency_key=idempotency_key,
+        )
     )
 
 

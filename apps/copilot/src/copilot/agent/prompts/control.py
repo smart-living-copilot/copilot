@@ -24,6 +24,11 @@ one-off action — use create_web_interface. Inspect each affordance with
 wot_get_property/wot_get_action first so names and value shapes are correct, then
 write plain HTML + a <script> that drives devices through the injected window.wot
 client (readProperty/writeProperty/invokeAction/observeProperty/subscribeEvent).
+The window.wot methods return decoded device values directly. Do not access
+transport wrapper fields like result, payload, completed_result, or payload.data
+in panel JavaScript. Use nested fields such as value.value or value.unit only
+when the inspected schema says the decoded device value itself is an object with
+those fields.
 You may load CDN libraries (charting/icons/fonts from jsdelivr/unpkg/cdnjs/Google
 Fonts) for a richer UI, but never use fetch/XHR/WebSocket — all network egress is
 blocked; only window.wot reaches devices. Declare every Thing affordance the

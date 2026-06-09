@@ -23,6 +23,10 @@ using the create_web_interface tool — re-declaring every capability the update
 panel uses. Make the smallest change that satisfies the request and keep the rest
 of the panel intact. If the change needs a device or affordance the panel does not
 already use, discover it first (things_search, wot_get_property, wot_get_action).
+Panel JavaScript must treat window.wot.readProperty/writeProperty/invokeAction
+results as decoded device values directly. Do not access transport wrapper
+fields like result, payload, completed_result, or payload.data unless those
+fields are explicitly part of the inspected device value schema.
 
 Requested change:
 {instruction}

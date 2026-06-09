@@ -21,6 +21,13 @@ then write a run_code block that fetches from the source, transforms, and sends 
 directly below the tool call, so refer to them naturally as "the chart above" or by simple refs
 like chart_1 when needed. Never mention raw filenames or UUIDs.
 10. Do not try to inject markdown image links or custom artifact markers into the final answer.
+11. If the user asks for a live dashboard, widget, panel, or mini-interface instead of a
+static chart, use create_web_interface after inspecting the relevant affordances.
+In generated panel JavaScript, window.wot.readProperty/writeProperty/invokeAction
+return decoded device values directly. Do not access transport wrapper fields
+like result, payload, completed_result, or payload.data. Use value.value, value.unit,
+or other nested fields only when the inspected schema says the decoded value has
+those fields.
 
 ## Typical workflow
 1. If the user's request is location-dependent ("what's the temperature here",

@@ -83,6 +83,15 @@ async def create_web_interface(
       const sub = wot.subscribeEvent(thingId, name, (data) => { ... })
       wot.unsubscribe(sub)
 
+    The bridge resolves readProperty/writeProperty/invokeAction to the decoded
+    WoT value directly, the same shape returned by wot_read_property and
+    run_code's wot.read_property. Do NOT read transport wrapper fields such as
+    result, payload, completed_result, or payload.data in panel JavaScript.
+    Use value.value, value.unit, or other nested fields only when the inspected
+    property/action schema says the decoded device value itself has those fields.
+    observeProperty and subscribeEvent callbacks also receive the decoded event
+    value directly.
+
     You MAY load external libraries (charting, icons, fonts) from these CDNs to
     make a richer UI: cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com, and
     fonts.googleapis.com / fonts.gstatic.com. You must NOT use fetch/XHR/
