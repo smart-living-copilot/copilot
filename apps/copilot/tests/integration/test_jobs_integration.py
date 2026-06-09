@@ -14,8 +14,6 @@ from copilot.core.settings import Settings
 from copilot.jobs.executor import JobExecutor
 from copilot.jobs.graph_results import job_result_from_graph_result
 from copilot.jobs.models import (
-    CreateJobRequest,
-    JobActionKind,
     JobInteractionMode,
     JobOutputKind,
     JobRunEventType,
@@ -33,83 +31,13 @@ from copilot.jobs.schedule import build_schedule_source, schedule_id_for_job
 from copilot.jobs.service import JobService
 from copilot.jobs.stores import JobStore, utc_now
 from copilot.threads.store import get_thread, list_threads
+from tests.job_helpers import create_job_request
 
 pytestmark = pytest.mark.integration
 
 
 def _run(coro):
     return asyncio.run(coro)
-
-
-_CreateJobRequestModel = CreateJobRequest
-
-
-def CreateJobRequest(**values):  # noqa: N802 - test helper shadows imported model.
-    if "action" in values and "trigger" in values:
-        return _CreateJobRequestModel(**values)
-
-    action_kind = values.pop("action_kind", JobActionKind.PROMPT)
-    prompt = values.pop("prompt", None)
-    analysis_code = values.pop("analysis_code", None)
-    output_kind = values.pop("output_kind", JobOutputKind.NARRATIVE)
-    trigger_kind = values.pop("trigger_kind")
-    schedule_kind = values.pop("schedule_kind", None)
-    run_at = values.pop("run_at", None)
-    interval_seconds = values.pop("interval_seconds", None)
-    cron_expression = values.pop("cron_expression", None)
-    cron_timezone = values.pop("cron_timezone", None)
-    thing_id = values.pop("thing_id", None)
-    event_name = values.pop("event_name", None)
-    subscription_input = values.pop("subscription_input", None)
-    record_schema = values.pop("record_schema", None)
-    record_schema_version = values.pop("record_schema_version", None)
-    virtual_thing_id = values.pop("virtual_thing_id", None)
-    virtual_thing_title = values.pop("virtual_thing_title", None)
-    virtual_thing_description = values.pop("virtual_thing_description", None)
-
-    if action_kind == JobActionKind.ANALYSIS:
-        values["action"] = {"kind": "analysis", "analysis_code": analysis_code or ""}
-    else:
-        values["action"] = {"kind": "prompt", "prompt": prompt or ""}
-
-    if trigger_kind == JobTriggerKind.EVENT:
-        values["trigger"] = {
-            "kind": "event",
-            "thing_id": thing_id,
-            "event_name": event_name,
-            "subscription_input": subscription_input,
-        }
-    elif schedule_kind == TimeTriggerKind.ONCE:
-        values["trigger"] = {"kind": "time", "schedule": {"kind": "once", "run_at": run_at}}
-    elif schedule_kind == TimeTriggerKind.CRON:
-        values["trigger"] = {
-            "kind": "time",
-            "schedule": {
-                "kind": "cron",
-                "expression": cron_expression,
-                "timezone": cron_timezone,
-            },
-        }
-    else:
-        values["trigger"] = {
-            "kind": "time",
-            "schedule": {"kind": "interval", "interval_seconds": interval_seconds},
-        }
-
-    if output_kind == JobOutputKind.STRUCTURED_RECORD:
-        values["output"] = {
-            "kind": "structured_record",
-            "schema": record_schema,
-            "schema_version": record_schema_version or 1,
-            "virtual_thing": {
-                "id": virtual_thing_id,
-                "title": virtual_thing_title,
-                "description": virtual_thing_description,
-            },
-        }
-    else:
-        values["output"] = {"kind": "narrative"}
-    return _CreateJobRequestModel(**values)
 
 
 def _get_schedules(settings: Settings):
@@ -238,7 +166,7 @@ def test_job_run_event_publisher_writes_current_job_snapshot_to_redis_stream(
     now = utc_now()
     job = _run(
         repo.create_job(
-            CreateJobRequest(
+            create_job_request(
                 name="daily check",
                 created_from_thread_id="thread-2",
                 prompt="summarize system status",
@@ -313,7 +241,7 @@ def test_virtual_record_store_persists_and_queries_generated_record_thing(
     }
     job = _run(
         repo.create_job(
-            CreateJobRequest(
+            create_job_request(
                 name="morning wellbeing",
                 created_from_thread_id="thread-3",
                 interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
@@ -387,7 +315,7 @@ def test_job_resource_sync_repairs_missing_virtual_record_thing(
     }
     job = _run(
         repo.create_job(
-            CreateJobRequest(
+            create_job_request(
                 name="repaired wellbeing",
                 created_from_thread_id="thread-4",
                 interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
@@ -429,7 +357,7 @@ def test_job_resource_sync_replaces_event_subscription_id(
     runtime_client = _RecordingRuntimeClient()
     job = _run(
         repo.create_job(
-            CreateJobRequest(
+            create_job_request(
                 name="overheat watcher",
                 created_from_thread_id="thread-5",
                 prompt="Summarize the event payload.",
@@ -471,7 +399,7 @@ def test_event_job_toggle_updates_runtime_subscription(
     runtime_client = _RecordingRuntimeClient()
     job = _run(
         repo.create_job(
-            CreateJobRequest(
+            create_job_request(
                 name="toggle watcher",
                 created_from_thread_id="thread-6",
                 prompt="Summarize the event payload.",
@@ -534,7 +462,7 @@ def test_structured_record_reply_replay_writes_one_reply_event_and_record(
     }
     job = _run(
         service.create_job(
-            CreateJobRequest(
+            create_job_request(
                 name="evening wellbeing",
                 created_from_thread_id="thread-4",
                 interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
@@ -667,7 +595,7 @@ def test_structured_record_bad_answer_waits_for_repair_then_completes(
     }
     job = _run(
         repo.create_job(
-            CreateJobRequest(
+            create_job_request(
                 name="repair wellbeing",
                 created_from_thread_id="thread-repair",
                 prompt="Ask for a short wellbeing check-in and store it.",

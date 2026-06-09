@@ -25,7 +25,7 @@ from copilot.jobs.graph_results import (
     waiting_question_from_graph_result,
 )
 from copilot.jobs.models import (
-    CreateJobRequest,
+    CreateJobRequest as CreateJobRequestModel,
     Job,
     JobActionKind,
     JobInteractionMode,
@@ -37,7 +37,7 @@ from copilot.jobs.models import (
     JobRunStatus,
     JobTriggerKind,
     TimeTriggerKind,
-    UpdateJobRequest,
+    UpdateJobRequest as UpdateJobRequestModel,
 )
 from copilot.jobs.routes import router as jobs_router
 from copilot.jobs.routes import _messages_from_job_run_events
@@ -51,82 +51,12 @@ from copilot.jobs.record_summary import submitted_record_event_message
 from copilot.jobs.service import JobService
 from copilot.jobs.stores import JobNotWaitingForInput
 from copilot.agent.tools.submit_job_record import submit_job_record
-
-_CreateJobRequestModel = CreateJobRequest
-_UpdateJobRequestModel = UpdateJobRequest
+from tests.job_helpers import create_job_request
 
 
-def CreateJobRequest(**values):  # noqa: N802 - test helper shadows imported model.
-    if "action" in values and "trigger" in values:
-        return _CreateJobRequestModel(**values)
-
-    action_kind = values.pop("action_kind", JobActionKind.PROMPT)
-    prompt = values.pop("prompt", None)
-    analysis_code = values.pop("analysis_code", None)
-    output_kind = values.pop("output_kind", JobOutputKind.NARRATIVE)
-    trigger_kind = values.pop("trigger_kind")
-    schedule_kind = values.pop("schedule_kind", None)
-    run_at = values.pop("run_at", None)
-    interval_seconds = values.pop("interval_seconds", None)
-    cron_expression = values.pop("cron_expression", None)
-    cron_timezone = values.pop("cron_timezone", None)
-    thing_id = values.pop("thing_id", None)
-    event_name = values.pop("event_name", None)
-    subscription_input = values.pop("subscription_input", None)
-    record_schema = values.pop("record_schema", None)
-    record_schema_version = values.pop("record_schema_version", None)
-    virtual_thing_id = values.pop("virtual_thing_id", None)
-    virtual_thing_title = values.pop("virtual_thing_title", None)
-    virtual_thing_description = values.pop("virtual_thing_description", None)
-
-    if action_kind == JobActionKind.ANALYSIS:
-        values["action"] = {"kind": "analysis", "analysis_code": analysis_code or ""}
-    else:
-        values["action"] = {"kind": "prompt", "prompt": prompt or ""}
-
-    if trigger_kind == JobTriggerKind.EVENT:
-        values["trigger"] = {
-            "kind": "event",
-            "thing_id": thing_id,
-            "event_name": event_name,
-            "subscription_input": subscription_input,
-        }
-    elif schedule_kind == TimeTriggerKind.ONCE:
-        values["trigger"] = {"kind": "time", "schedule": {"kind": "once", "run_at": run_at}}
-    elif schedule_kind == TimeTriggerKind.CRON:
-        values["trigger"] = {
-            "kind": "time",
-            "schedule": {
-                "kind": "cron",
-                "expression": cron_expression,
-                "timezone": cron_timezone,
-            },
-        }
-    else:
-        values["trigger"] = {
-            "kind": "time",
-            "schedule": {"kind": "interval", "interval_seconds": interval_seconds},
-        }
-
-    if output_kind == JobOutputKind.STRUCTURED_RECORD:
-        values["output"] = {
-            "kind": "structured_record",
-            "schema": record_schema,
-            "schema_version": record_schema_version or 1,
-            "virtual_thing": {
-                "id": virtual_thing_id,
-                "title": virtual_thing_title,
-                "description": virtual_thing_description,
-            },
-        }
-    else:
-        values["output"] = {"kind": "narrative"}
-    return _CreateJobRequestModel(**values)
-
-
-def UpdateJobRequest(**values):  # noqa: N802 - test helper shadows imported model.
+def update_job_request(**values):
     if "definition" in values:
-        return _UpdateJobRequestModel(**values)
+        return UpdateJobRequestModel(**values)
     schedule_fields = {
         key: values.pop(key)
         for key in list(values)
@@ -144,7 +74,7 @@ def UpdateJobRequest(**values):  # noqa: N802 - test helper shadows imported mod
             trigger=job.trigger,
             output=job.output,
         )
-    return _UpdateJobRequestModel(**values)
+    return UpdateJobRequestModel(**values)
 
 
 def _job(**overrides) -> Job:
@@ -1387,7 +1317,7 @@ class AnalysisAssistantTestCase(unittest.TestCase):
 
 class JobDomainTestCase(unittest.TestCase):
     def test_domain_allows_autonomous_structured_record_prompt(self) -> None:
-        request = CreateJobRequest(
+        request = create_job_request(
             name="morning",
             created_from_thread_id="thread-1",
             interaction_mode=JobInteractionMode.AUTONOMOUS,
@@ -1406,7 +1336,7 @@ class JobDomainTestCase(unittest.TestCase):
 
     def test_domain_rejects_record_fields_for_narrative_jobs(self) -> None:
         with self.assertRaisesRegex(ValueError, "Extra inputs are not permitted"):
-            _CreateJobRequestModel(
+            CreateJobRequestModel(
                 name="narrative",
                 created_from_thread_id="thread-1",
                 action={"kind": "prompt", "prompt": "summarize"},
@@ -1421,7 +1351,7 @@ class JobDomainTestCase(unittest.TestCase):
             )
 
     def test_domain_allows_analysis_structured_records(self) -> None:
-        request = _CreateJobRequestModel(
+        request = CreateJobRequestModel(
             name="analysis record",
             created_from_thread_id="thread-1",
             action={"kind": "analysis", "analysis_code": "store_record({'mood': 'good'})"},
@@ -1479,7 +1409,7 @@ class JobDomainTestCase(unittest.TestCase):
             cron_expression="0 9 * * sun",
             cron_timezone="Europe/Berlin",
         ).next_run_at_after(now=now)
-        create_once_next = CreateJobRequest(
+        create_once_next = create_job_request(
             name="once",
             prompt="check",
             trigger_kind=JobTriggerKind.TIME,
@@ -1491,7 +1421,7 @@ class JobDomainTestCase(unittest.TestCase):
             run_at=one_shot_time,
             interval_seconds=None,
         ).next_run_at_after(now=now)
-        event_next = CreateJobRequest(
+        event_next = create_job_request(
             name="event",
             prompt="check",
             trigger_kind=JobTriggerKind.EVENT,
@@ -1636,7 +1566,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             repo=_FakeServiceRepo(_job(interval_seconds=60)),
             schedule_manager=schedule,
         )
-        request = CreateJobRequest(
+        request = create_job_request(
             name="recurring",
             created_from_thread_id="thread-1",
             prompt="check",
@@ -1665,7 +1595,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             repo=repo,
             schedule_manager=schedule,
         )
-        request = CreateJobRequest(
+        request = create_job_request(
             name="weekly",
             created_from_thread_id="thread-1",
             prompt="check",
@@ -1701,7 +1631,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             schedule_manager=schedule,
             record_store=record_store,
         )
-        request = CreateJobRequest(
+        request = create_job_request(
             name="morning",
             created_from_thread_id="thread-1",
             interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
@@ -1738,7 +1668,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             schedule_manager=_FakeScheduleManager(),
             record_store=record_store,
         )
-        request = CreateJobRequest(
+        request = create_job_request(
             name="morning",
             created_from_thread_id="thread-1",
             interaction_mode=JobInteractionMode.AUTONOMOUS,
@@ -1766,7 +1696,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             repo=repo,
             schedule_manager=schedule,
         )
-        request = CreateJobRequest(
+        request = create_job_request(
             name="recurring",
             created_from_thread_id="thread-1",
             prompt="check",
@@ -1802,7 +1732,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             schedule_manager=schedule,
             record_store=record_store,
         )
-        request = CreateJobRequest(
+        request = create_job_request(
             name="morning",
             created_from_thread_id="thread-1",
             interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
@@ -1844,7 +1774,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             schedule_manager=schedule,
             record_store=record_store,
         )
-        request = CreateJobRequest(
+        request = create_job_request(
             name="morning",
             created_from_thread_id="thread-1",
             interaction_mode=JobInteractionMode.REQUIRED_CHECKIN,
@@ -1884,7 +1814,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             runtime_client=runtime_client,
             schedule_manager=_FakeScheduleManager(),
         )
-        request = CreateJobRequest(
+        request = create_job_request(
             name="event check",
             created_from_thread_id="thread-1",
             prompt="check",
@@ -1999,7 +1929,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             schedule_manager=_FakeScheduleManager(),
         )
 
-        updated = await service.update_job("job-1", UpdateJobRequest(enabled=False))
+        updated = await service.update_job("job-1", update_job_request(enabled=False))
 
         self.assertFalse(updated.enabled)
         self.assertIsNone(updated.subscription_id)
@@ -2022,7 +1952,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
 
         updated = await service.update_job(
             "job-1",
-            UpdateJobRequest(
+            update_job_request(
                 schedule_kind=TimeTriggerKind.CRON,
                 cron_expression="0 9 * * *",
                 cron_timezone="Europe/Berlin",
@@ -2058,7 +1988,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
 
         updated = await service.update_job(
             "job-1",
-            UpdateJobRequest(
+            update_job_request(
                 schedule_kind=TimeTriggerKind.INTERVAL,
                 interval_seconds=900,
             ),
@@ -2096,7 +2026,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
         )
 
         with self.assertRaises(RuntimeError):
-            await service.update_job("job-1", UpdateJobRequest(enabled=False))
+            await service.update_job("job-1", update_job_request(enabled=False))
 
         self.assertEqual(runtime_client.removed, ["old-sub"])
         self.assertEqual(
@@ -2126,7 +2056,7 @@ class JobServiceTaskiqTestCase(unittest.IsolatedAsyncioTestCase):
             schedule_manager=_FakeScheduleManager(),
         )
 
-        updated = await service.update_job("job-1", UpdateJobRequest(enabled=True))
+        updated = await service.update_job("job-1", update_job_request(enabled=True))
 
         self.assertTrue(updated.enabled)
         self.assertEqual(updated.subscription_id, "sub-1")

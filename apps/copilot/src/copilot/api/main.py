@@ -255,7 +255,6 @@ async def lifespan(app: FastAPI):
                 description="Smart Living Copilot",
                 graph=graph,
             )
-            _graph = graph
 
             app.state.settings = settings
             app.state.agent_settings = settings

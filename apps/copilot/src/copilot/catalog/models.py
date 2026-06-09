@@ -12,7 +12,7 @@ ThingDocument = dict[str, Any]
 
 
 class ThingConflictError(RuntimeError):
-    pass
+    """Raised when a Thing document conflicts with an existing catalog record."""
 
 
 class Thing(Base):

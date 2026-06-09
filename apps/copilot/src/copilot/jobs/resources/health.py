@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
+@runtime_checkable
 class _ResourceHealthRepo(Protocol):
     """Minimal store protocol needed to persist per-resource job health."""
 
@@ -23,8 +24,8 @@ async def mark_resource_health(
     status: str,
     message: str | None = None,
 ) -> None:
-    if hasattr(repo, "set_job_resource_health"):
-        await repo.set_job_resource_health(  # type: ignore[attr-defined]
+    if isinstance(repo, _ResourceHealthRepo):
+        await repo.set_job_resource_health(
             job_id,
             resource=resource,
             status=status,
