@@ -32,3 +32,15 @@ def test_embedding_settings_fall_back_to_openai_settings(monkeypatch):
     assert settings.OPENAI_EMBEDDING_API_KEY == "llm-key"
 
     get_settings.cache_clear()
+
+
+def test_openai_temperature_is_configurable(monkeypatch):
+    monkeypatch.setenv("OPENAI_TEMPERATURE", "0")
+
+    get_settings.cache_clear()
+
+    settings = get_settings()
+
+    assert settings.OPENAI_TEMPERATURE == 0
+
+    get_settings.cache_clear()

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # LLM
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
+    openai_temperature: float | None = Field(default=None, ge=0, le=2)
     openai_base_url: str = Field(
         default="",
         validation_alias=AliasChoices("OPENAI_BASE_URL", "OPENAI_API_BASE_URL"),
@@ -136,6 +137,13 @@ class Settings(BaseSettings):
     def _normalize_registry_database_url(cls, value: str) -> str:
         return _normalize_database_url(value)
 
+    @field_validator("openai_temperature", mode="before")
+    @classmethod
+    def _empty_temperature_uses_provider_default(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
+
     @model_validator(mode="after")
     def _apply_fallback_settings(self) -> "Settings":
         if not self.openai_embedding_api_base_url:
@@ -229,6 +237,10 @@ class Settings(BaseSettings):
     @property
     def OPENAI_MODEL(self) -> str | None:
         return _optional(self.openai_model)
+
+    @property
+    def OPENAI_TEMPERATURE(self) -> float | None:
+        return self.openai_temperature
 
     @property
     def OPENAI_EMBEDDING_API_BASE_URL(self) -> str | None:
