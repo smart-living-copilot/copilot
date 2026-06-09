@@ -15,6 +15,13 @@ import { type ThingRecord, fetchThings } from '@/lib/things-api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -27,6 +34,7 @@ import {
 } from '@/components/ui/table';
 import { type ThingIndexStatus } from '@/components/things/thing-detail-model';
 import { ThingDetailDrawer } from '@/components/things/thing-detail-drawer';
+import { ThingFileUpload } from '@/components/things/thing-file-upload';
 import { ThingIndexStatusBadge } from '@/components/things/thing-index-status-badge';
 
 const PER_PAGE = 12;
@@ -42,6 +50,7 @@ export function ThingsList() {
     Record<string, ThingIndexStatus>
   >({});
   const [selectedThingId, setSelectedThingId] = useState<string | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const requestedIndexStatusIds = useRef<Set<string>>(new Set());
   const isMounted = useRef(true);
 
@@ -126,6 +135,16 @@ export function ThingsList() {
     });
   }, []);
 
+  const handleUploadComplete = useCallback(
+    (result: { allSucceeded: boolean }) => {
+      void loadData();
+      if (result.allSucceeded) {
+        setUploadOpen(false);
+      }
+    },
+    [loadData],
+  );
+
   return (
     <div className="space-y-5">
       <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -137,11 +156,13 @@ export function ThingsList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/things/upload">
-              <Upload className="h-4 w-4" />
-              Upload
-            </Link>
+          <Button
+            variant="outline"
+            onClick={() => setUploadOpen(true)}
+            type="button"
+          >
+            <Upload className="h-4 w-4" />
+            Upload
           </Button>
           <Button asChild>
             <Link href="/things/create">
@@ -284,11 +305,13 @@ export function ThingsList() {
                     Clear search
                   </Button>
                 )}
-                <Button variant="outline" asChild>
-                  <Link href="/things/upload">
-                    <Upload className="h-4 w-4" />
-                    Upload
-                  </Link>
+                <Button
+                  variant="outline"
+                  onClick={() => setUploadOpen(true)}
+                  type="button"
+                >
+                  <Upload className="h-4 w-4" />
+                  Upload
                 </Button>
                 <Button asChild>
                   <Link href="/things/create">
@@ -312,6 +335,18 @@ export function ThingsList() {
         open={selectedThingId !== null}
         thingId={selectedThingId}
       />
+
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Upload Thing Descriptions</DialogTitle>
+            <DialogDescription>
+              Add one or more JSON files to create Thing records.
+            </DialogDescription>
+          </DialogHeader>
+          <ThingFileUpload onUploadComplete={handleUploadComplete} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

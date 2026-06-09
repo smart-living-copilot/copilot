@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { CheckCircle2, FileJson, Loader2, Upload, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -15,6 +14,16 @@ interface FileEntry {
   error?: string;
   thingId?: string;
 }
+
+type UploadCompleteResult = {
+  allSucceeded: boolean;
+  successCount: number;
+  totalCount: number;
+};
+
+type ThingFileUploadProps = {
+  onUploadComplete?: (result: UploadCompleteResult) => void;
+};
 
 function parseJsonFile(file: File): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -36,8 +45,7 @@ function parseJsonFile(file: File): Promise<Record<string, unknown>> {
   });
 }
 
-export function ThingFileUpload() {
-  const router = useRouter();
+export function ThingFileUpload({ onUploadComplete }: ThingFileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -86,6 +94,16 @@ export function ThingFileUpload() {
 
   const removeFile = useCallback((name: string) => {
     setFiles((prev) => prev.filter((f) => f.name !== name));
+    if (!inputRef.current?.files) {
+      return;
+    }
+    const dt = new DataTransfer();
+    for (const file of Array.from(inputRef.current.files)) {
+      if (file.name !== name) {
+        dt.items.add(file);
+      }
+    }
+    inputRef.current.files = dt.files;
   }, []);
 
   const handleUploadAll = useCallback(async () => {
@@ -155,11 +173,20 @@ export function ThingFileUpload() {
       toast.success(
         `Created ${successCount} thing${successCount === 1 ? '' : 's'}`,
       );
-      router.push('/things');
+      onUploadComplete?.({
+        allSucceeded: true,
+        successCount,
+        totalCount: files.length,
+      });
     } else if (successCount > 0) {
       toast.warning(`Created ${successCount} of ${files.length} things`);
+      onUploadComplete?.({
+        allSucceeded: false,
+        successCount,
+        totalCount: files.length,
+      });
     }
-  }, [files, router]);
+  }, [files, onUploadComplete]);
 
   const pendingCount = files.filter(
     (f) => f.status === 'pending' || f.status === 'error',
@@ -167,9 +194,8 @@ export function ThingFileUpload() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Upload JSON files</h2>
-        {files.length > 0 && (
+      {files.length > 0 && (
+        <div className="flex justify-end">
           <Button
             size="sm"
             onClick={() => void handleUploadAll()}
@@ -182,8 +208,8 @@ export function ThingFileUpload() {
             )}
             Create {pendingCount} thing{pendingCount === 1 ? '' : 's'}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-0">

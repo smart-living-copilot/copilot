@@ -111,8 +111,6 @@ function useBreadcrumbs(): BreadcrumbSegment[] {
 
     if (pathname === '/things/create') {
       segments.push({ label: 'Create' });
-    } else if (pathname === '/things/upload') {
-      segments.push({ label: 'Upload' });
     } else if (target?.kind === 'thing' && pathname.endsWith('/edit')) {
       segments.push({
         label: recordLabel ?? 'Thing detail',
