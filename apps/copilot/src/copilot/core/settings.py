@@ -129,7 +129,6 @@ class Settings(BaseSettings):
         "SmartLivingCopilot/0.1.0 "
         "(https://github.com/Smart-Living-Copilot/copilot; federated-sparql)"
     )
-    sparql_query_max_attempts: int = Field(default=3, ge=1, le=10)
 
     # Jobs and WoT runtime
     job_task_timeout_seconds: int = 300
@@ -306,10 +305,6 @@ class Settings(BaseSettings):
     @property
     def RDF_FEDERATION_USER_AGENT(self) -> str:
         return self.rdf_federation_user_agent
-
-    @property
-    def SPARQL_QUERY_MAX_ATTEMPTS(self) -> int:
-        return self.sparql_query_max_attempts
 
     @property
     def OPENAI_API_BASE_URL(self) -> str | None:

@@ -204,7 +204,7 @@ async def sparql_query(
     Use this for exact filters over Thing metadata and for queries against
     registered SPARQL endpoint Things or other external knowledge graphs. Pass
     natural-language intent and any federated endpoint
-    Thing ids; the tool drafts, executes, and repairs SPARQL internally. Use
+    Thing ids; the tool drafts and executes one SPARQL query internally. Use
     things_search first when you need to discover the endpoint Thing id.
     """
     normalized_intent = intent.strip()
@@ -218,7 +218,6 @@ async def sparql_query(
             intent=normalized_intent,
             endpoints=normalized_endpoints,
             limit=normalized_limit,
-            max_attempts=settings.SPARQL_QUERY_MAX_ATTEMPTS,
             llm=make_llm(settings),
             rdf_executor=_execute_sparql_query,
             endpoint_context_loader=_load_sparql_endpoint_contexts,

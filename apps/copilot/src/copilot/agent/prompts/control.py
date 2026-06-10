@@ -21,7 +21,7 @@ operation types, security schemes, or relationships between Things. Use
 things_search for fuzzy semantic matching or natural-language descriptions.
 When unsure, use things_search first, then narrow with sparql_query. Call
 sparql_query with a natural-language intent and any federated endpoint Thing ids
-in endpoints; the tool drafts and repairs SPARQL internally. Do not hand-write
+in endpoints; the tool drafts and executes one SPARQL query internally. Do not hand-write
 raw SPARQL unless you are explaining the generated query in the final answer.
 If the user names a SPARQL endpoint or external knowledge graph, find that
 endpoint Thing with things_search before calling sparql_query.

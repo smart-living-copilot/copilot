@@ -87,11 +87,6 @@ def test_sparql_draft_prompt_requires_prefix_declarations():
     assert "explicit PREFIX declarations" in _DRAFT_SYSTEM_PROMPT
 
 
-def test_sparql_draft_prompt_requires_remote_constraints_inside_service():
-    assert "inside the SERVICE block" in _DRAFT_SYSTEM_PROMPT
-    assert "outer LIMIT" in _DRAFT_SYSTEM_PROMPT
-
-
 @pytest.mark.anyio
 async def test_sparql_subgraph_drafts_executes_and_summarizes_success():
     llm = FakeLLM(
@@ -106,7 +101,6 @@ async def test_sparql_subgraph_drafts_executes_and_summarizes_success():
         intent="Find Things",
         endpoints=[],
         limit=50,
-        max_attempts=3,
         llm=llm,
         rdf_executor=executor,
         endpoint_context_loader=_context_loader,
@@ -121,146 +115,50 @@ async def test_sparql_subgraph_drafts_executes_and_summarizes_success():
 
 
 @pytest.mark.anyio
-async def test_sparql_subgraph_repairs_after_executor_error():
+async def test_sparql_subgraph_returns_executor_error_without_retry():
     llm = FakeLLM(
-        drafts=[
-            {"query": "SELECT WHERE { ?thing ?p ?o }"},
-            {"query": "SELECT ?thing WHERE { ?thing ?p ?o }"},
-        ],
-        summaries=[{"summary": "Repaired and found one thing."}],
+        drafts=[{"query": "SELECT WHERE { ?thing ?p ?o }"}],
     )
-    executor = FakeRdfExecutor(
-        [
-            ValueError("SyntaxError: expected variable"),
-            _select_result([{"thing": {"type": "uri", "value": "urn:thing:alpha"}}]),
-        ]
-    )
+    executor = FakeRdfExecutor([ValueError("SyntaxError: expected variable")])
 
     response = await run_sparql_query_subgraph(
         intent="Find Things",
         endpoints=[],
         limit=50,
-        max_attempts=3,
-        llm=llm,
-        rdf_executor=executor,
-        endpoint_context_loader=_context_loader,
-    )
-
-    assert response["status"] == "ok"
-    assert [attempt["status"] for attempt in response["attempts"]] == ["error", "ok"]
-    assert "SyntaxError" in response["attempts"][0]["error"]
-    assert len(executor.calls) == 2
-
-
-@pytest.mark.anyio
-async def test_sparql_subgraph_repairs_oversized_remote_service_response():
-    llm = FakeLLM(
-        drafts=[
-            {
-                "query": (
-                    "PREFIX ex: <https://example.com/> "
-                    "SELECT ?label WHERE { VALUES ?item { ex:item } "
-                    "SERVICE <urn:slc:endpoint:kg> { ?item ex:label ?label } } LIMIT 10"
-                )
-            },
-            {
-                "query": (
-                    "PREFIX ex: <https://example.com/> "
-                    "SELECT ?label WHERE { SERVICE <urn:slc:endpoint:kg> { "
-                    "VALUES ?item { ex:item } ?item ex:label ?label } } LIMIT 10"
-                )
-            },
-        ],
-        summaries=[{"summary": "Repaired the remote query and found one label."}],
-    )
-    executor = FakeRdfExecutor(
-        [
-            ValueError(
-                "Error 502 Bad Gateway returned by http://localhost:8124/rdf/federate/kg "
-                'with payload: {"detail":"Federated SPARQL response exceeded the size limit"}'
-            ),
-            _select_result([{"label": {"type": "literal", "value": "Example"}}]),
-        ]
-    )
-
-    response = await run_sparql_query_subgraph(
-        intent="Find one remote label",
-        endpoints=["urn:slc:endpoint:kg"],
-        limit=10,
-        max_attempts=3,
-        llm=llm,
-        rdf_executor=executor,
-        endpoint_context_loader=_context_loader,
-    )
-
-    assert response["status"] == "ok"
-    assert [attempt["status"] for attempt in response["attempts"]] == ["error", "ok"]
-    assert "Repair hint" in response["attempts"][0]["error"]
-    assert "inside the SERVICE block" in response["attempts"][0]["error"]
-    assert "VALUES ?item" in executor.calls[1]["query"]
-    assert executor.calls[1]["query"].index("SERVICE") < executor.calls[1]["query"].index(
-        "VALUES ?item"
-    )
-
-
-@pytest.mark.anyio
-async def test_sparql_subgraph_repairs_empty_select_results():
-    llm = FakeLLM(
-        drafts=[
-            {"query": "SELECT ?thing WHERE { ?thing a <https://example.com/Narrow> }"},
-            {"query": "SELECT ?thing WHERE { ?thing ?p ?o }"},
-        ],
-        summaries=[{"summary": "Relaxed the query and found one thing."}],
-    )
-    executor = FakeRdfExecutor(
-        [
-            _select_result([]),
-            _select_result([{"thing": {"type": "uri", "value": "urn:thing:alpha"}}]),
-        ]
-    )
-
-    response = await run_sparql_query_subgraph(
-        intent="Find Things",
-        endpoints=[],
-        limit=50,
-        max_attempts=3,
-        llm=llm,
-        rdf_executor=executor,
-        endpoint_context_loader=_context_loader,
-    )
-
-    assert response["status"] == "ok"
-    assert [attempt["status"] for attempt in response["attempts"]] == ["empty", "ok"]
-
-
-@pytest.mark.anyio
-async def test_sparql_subgraph_stops_after_max_attempts():
-    llm = FakeLLM(
-        drafts=[
-            {"query": "SELECT WHERE { ?thing ?p ?o }"},
-            {"query": "SELECT ALSO BAD WHERE { ?thing ?p ?o }"},
-        ]
-    )
-    executor = FakeRdfExecutor(
-        [
-            ValueError("SyntaxError: expected variable"),
-            ValueError("SyntaxError: still broken"),
-        ]
-    )
-
-    response = await run_sparql_query_subgraph(
-        intent="Find Things",
-        endpoints=[],
-        limit=50,
-        max_attempts=2,
         llm=llm,
         rdf_executor=executor,
         endpoint_context_loader=_context_loader,
     )
 
     assert response["status"] == "failed"
-    assert len(response["attempts"]) == 2
-    assert response["summary"] == "SPARQL query failed: SyntaxError: still broken"
+    assert [attempt["status"] for attempt in response["attempts"]] == ["error"]
+    assert "SyntaxError" in response["attempts"][0]["error"]
+    assert response["summary"] == "SPARQL query failed: SyntaxError: expected variable"
+    assert len(executor.calls) == 1
+
+
+@pytest.mark.anyio
+async def test_sparql_subgraph_treats_empty_select_as_success():
+    llm = FakeLLM(
+        drafts=[{"query": "SELECT ?thing WHERE { ?thing a <https://example.com/Narrow> }"}],
+        summaries=[{"summary": "No matching things were found."}],
+    )
+    executor = FakeRdfExecutor([_select_result([])])
+
+    response = await run_sparql_query_subgraph(
+        intent="Find Things",
+        endpoints=[],
+        limit=50,
+        llm=llm,
+        rdf_executor=executor,
+        endpoint_context_loader=_context_loader,
+    )
+
+    assert response["status"] == "ok"
+    assert response["summary"] == "No matching things were found."
+    assert [attempt["status"] for attempt in response["attempts"]] == ["ok"]
+    assert response["attempts"][0]["result"]["row_count"] == 0
+    assert len(executor.calls) == 1
 
 
 @pytest.mark.anyio
@@ -285,7 +183,6 @@ async def test_sparql_subgraph_does_not_retry_ask_false():
         intent="Check whether anything exists",
         endpoints=[],
         limit=50,
-        max_attempts=3,
         llm=llm,
         rdf_executor=executor,
         endpoint_context_loader=_context_loader,

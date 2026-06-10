@@ -30,7 +30,6 @@ class SparqlQueryState(TypedDict, total=False):
     last_result: dict[str, Any]
     final_summary: str
     status: Literal["ok", "partial", "failed"]
-    max_attempts: int
 
 
 EndpointContextLoader = Callable[[list[str]], list[dict[str, Any]]]
@@ -46,19 +45,8 @@ Rules:
 - Never invent external endpoint URLs; only use provided endpoint Thing ids.
 - Keep result size bounded and compatible with the requested limit.
 - Include explicit PREFIX declarations for every prefixed name you use.
-- Put remote VALUES, BIND, FILTER, type, and entity constraints inside the SERVICE block.
-- Do not rely on outer VALUES, local bindings, or an outer LIMIT to constrain a remote SERVICE call.
 - Use endpoint examples as few-shot patterns when available.
-- If repairing, address the exact prior error or empty-result cause.
 """
-
-_REMOTE_RESPONSE_LIMIT_HINT = (
-    "Remote SERVICE response exceeded the proxy size limit. Repair by moving any VALUES, "
-    "BIND, FILTER, type, and entity constraints for remote variables inside the SERVICE "
-    "block. If the remote pattern can still be broad, use a SERVICE-local subquery with "
-    "a small LIMIT. Do not rely on the outer LIMIT or local bindings to constrain remote "
-    "results."
-)
 
 _SUMMARY_SYSTEM_PROMPT = """\
 Summarize the SPARQL tool result for the parent agent.
@@ -78,27 +66,8 @@ def _as_model_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _result_is_empty(result: dict[str, Any]) -> bool:
-    result_type = result.get("type")
-    if result_type == "ask":
-        return False
-    if result_type == "select":
-        rows = result.get("rows")
-        return not isinstance(rows, list) or not rows
-    if result_type in {"construct", "describe"}:
-        rdf = result.get("rdf")
-        return not isinstance(rdf, str) or not rdf.strip()
-    return False
-
-
 def _result_status(result: dict[str, Any]) -> Literal["ok", "partial"]:
     return "partial" if result.get("truncated") else "ok"
-
-
-def _repair_error_message(error: str) -> str:
-    if "exceeded the size limit" not in error.lower():
-        return error
-    return f"{error}\n\nRepair hint: {_REMOTE_RESPONSE_LIMIT_HINT}"
 
 
 def _attempt_result_summary(result: dict[str, Any]) -> dict[str, Any]:
@@ -146,8 +115,6 @@ def _draft_prompt(state: SparqlQueryState) -> list[Any]:
         "limit": state.get("limit", 50),
         "endpoints": state.get("endpoints", []),
         "endpoint_context": state.get("endpoint_context", []),
-        "attempts": state.get("attempts", []),
-        "previous_error": state.get("last_error", ""),
     }
     return [
         SystemMessage(content=_DRAFT_SYSTEM_PROMPT),
@@ -221,28 +188,15 @@ def build_sparql_query_subgraph(
                 limit=state.get("limit", 50),
             )
         except Exception as exc:
-            error = _repair_error_message(str(exc))
+            error = str(exc)
             return {
                 "last_error": error,
+                "status": "failed",
                 "attempts": _append_attempt(
                     state,
                     query=query,
                     status="error",
                     error=error,
-                ),
-            }
-
-        if _result_is_empty(result):
-            error = "SPARQL query returned an empty result"
-            return {
-                "last_error": error,
-                "last_result": result,
-                "attempts": _append_attempt(
-                    state,
-                    query=query,
-                    status="empty",
-                    error=error,
-                    result=result,
                 ),
             }
 
@@ -289,13 +243,6 @@ def build_sparql_query_subgraph(
     def route_after_draft(state: SparqlQueryState) -> str:
         return "summarize" if state.get("last_error") and not state.get("draft_query") else "execute"
 
-    def route_after_execute(state: SparqlQueryState) -> str:
-        if not state.get("last_error"):
-            return "summarize"
-        if len(state.get("attempts", [])) >= state.get("max_attempts", 3):
-            return "summarize"
-        return "draft"
-
     graph = StateGraph(SparqlQueryState)
     graph.add_node("assemble_context", assemble_context)
     graph.add_node("draft", draft_query)
@@ -318,14 +265,7 @@ def build_sparql_query_subgraph(
             "summarize": "summarize",
         },
     )
-    graph.add_conditional_edges(
-        "execute",
-        route_after_execute,
-        {
-            "draft": "draft",
-            "summarize": "summarize",
-        },
-    )
+    graph.add_edge("execute", "summarize")
     graph.add_edge("summarize", END)
     return graph.compile()
 
@@ -335,7 +275,6 @@ async def run_sparql_query_subgraph(
     intent: str,
     endpoints: list[str],
     limit: int,
-    max_attempts: int,
     llm: Any,
     rdf_executor: RdfExecutor,
     endpoint_context_loader: EndpointContextLoader,
@@ -351,7 +290,6 @@ async def run_sparql_query_subgraph(
             "endpoints": endpoints,
             "limit": limit,
             "attempts": [],
-            "max_attempts": max_attempts,
         }
     )
     return {

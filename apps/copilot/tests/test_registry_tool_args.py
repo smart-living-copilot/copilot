@@ -93,7 +93,7 @@ class RegistryToolArgsTestCase(unittest.TestCase):
         self.assertEqual(calls[0]["intent"], "Find sensors with observations")
         self.assertEqual(calls[0]["limit"], 500)
         self.assertEqual(calls[0]["endpoints"], ["urn:slc:endpoint:one", "urn:slc:endpoint:two"])
-        self.assertEqual(calls[0]["max_attempts"], 3)
+        self.assertNotIn("max_attempts", calls[0])
 
     def test_sparql_query_returns_tool_error_for_empty_query(self) -> None:
         response = asyncio.run(sparql_query.ainvoke({"intent": "   ", "limit": 5}))

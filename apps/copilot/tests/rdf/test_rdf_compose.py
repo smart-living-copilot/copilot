@@ -25,4 +25,3 @@ def test_env_template_defines_rdf_settings():
     assert "RDF_FEDERATION_PROXY_BASE_URL=http://localhost:8124" in env_template
     assert "RDF_FEDERATION_ALLOW_PRIVATE_ENDPOINTS=false" in env_template
     assert "RDF_FEDERATION_USER_AGENT=SmartLivingCopilot/0.1.0" in env_template
-    assert "SPARQL_QUERY_MAX_ATTEMPTS=3" in env_template
