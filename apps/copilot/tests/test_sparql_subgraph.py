@@ -213,17 +213,15 @@ async def test_sparql_subgraph_prompt_includes_discovered_endpoint_context():
 @pytest.mark.anyio
 async def test_sparql_subgraph_reports_unknown_service_endpoint_error_without_retry():
     llm = FakeLLM(
-        drafts=[
-            {
-                "query": (
-                    "SELECT ?x WHERE { "
-                    "SERVICE <urn:slc:endpoint:unknown> { ?x ?p ?o } "
-                    "}"
-                )
-            }
-        ],
+        drafts=[{"query": ("SELECT ?x WHERE { SERVICE <urn:slc:endpoint:unknown> { ?x ?p ?o } }")}],
     )
-    executor = FakeRdfExecutor([ValueError("SPARQL SERVICE targets must be declared endpoint Thing ids passed in endpoints")])
+    executor = FakeRdfExecutor(
+        [
+            ValueError(
+                "SPARQL SERVICE targets must be declared endpoint Thing ids passed in endpoints"
+            )
+        ]
+    )
 
     response = await run_sparql_query_subgraph(
         intent="Find remote rows",
@@ -283,13 +281,7 @@ async def test_sparql_subgraph_repairs_syntax_error_with_one_retry():
 async def test_sparql_subgraph_repairs_unknown_service_endpoint_with_one_retry():
     llm = FakeLLM(
         drafts=[
-            {
-                "query": (
-                    "SELECT ?x WHERE { "
-                    "SERVICE <urn:slc:endpoint:unknown> { ?x ?p ?o } "
-                    "}"
-                )
-            },
+            {"query": ("SELECT ?x WHERE { SERVICE <urn:slc:endpoint:unknown> { ?x ?p ?o } }")},
             {
                 "query": (
                     "SELECT ?x WHERE { "
@@ -303,7 +295,9 @@ async def test_sparql_subgraph_repairs_unknown_service_endpoint_with_one_retry()
     )
     executor = FakeRdfExecutor(
         [
-            ValueError("SPARQL SERVICE targets must be declared endpoint Thing ids passed in endpoints"),
+            ValueError(
+                "SPARQL SERVICE targets must be declared endpoint Thing ids passed in endpoints"
+            ),
             _select_result([{"x": {"type": "uri", "value": "https://example.com/x"}}]),
         ]
     )

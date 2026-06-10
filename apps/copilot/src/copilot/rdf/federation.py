@@ -31,8 +31,7 @@ _SPARQL_11_QUERY_TYPES = {
     "https://www.w3.org/ns/sparql-service-description#SPARQL11Query",
 }
 _DEFAULT_FEDERATION_USER_AGENT = (
-    "SmartLivingCopilot/0.1.0 "
-    "(https://github.com/Smart-Living-Copilot/copilot; federated-sparql)"
+    "SmartLivingCopilot/0.1.0 (https://github.com/Smart-Living-Copilot/copilot; federated-sparql)"
 )
 _SD_ENDPOINT_KEYS = (
     "sd:endpoint",
@@ -336,9 +335,7 @@ def _host_is_allowlisted(host: str, port: int | None, allowed_hosts: set[str]) -
         normalized_allowed = allowed.lower().rstrip(".")
         if normalized_allowed == "*" or normalized_allowed in candidates:
             return True
-        if normalized_allowed.startswith("*.") and normalized_host.endswith(
-            normalized_allowed[1:]
-        ):
+        if normalized_allowed.startswith("*.") and normalized_host.endswith(normalized_allowed[1:]):
             return True
     return False
 
@@ -445,9 +442,7 @@ def endpoint_metadata_from_document(
     ):
         security_definition = dict(security_definitions[security_name])
     else:
-        raise ValueError(
-            f"Federated endpoint Thing is missing securityDefinitions.{security_name}"
-        )
+        raise ValueError(f"Federated endpoint Thing is missing securityDefinitions.{security_name}")
 
     scheme = str(security_definition.get("scheme") or "").strip().lower()
     if not scheme:

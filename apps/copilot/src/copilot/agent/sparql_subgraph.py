@@ -226,6 +226,23 @@ def _summary_prompt(state: SparqlQueryState) -> list[Any]:
     ]
 
 
+def _silence_streaming(llm: Any) -> Any:
+    """Keep a subgraph-internal LLM out of the chat message stream.
+
+    The draft/summary nodes use structured output (tool-calling). Under LangGraph
+    messages-mode streaming (what CopilotKit consumes) their tool-args JSON would
+    stream into the chat as transient, non-persisted messages that flash and then
+    disappear on reconcile. Setting ``disable_streaming=True`` makes the model emit a
+    single result instead of token chunks, so nothing surfaces to the UI — and for
+    structured output we want the whole object anyway. Falls back to the original LLM
+    for test doubles that lack ``model_copy``.
+    """
+    try:
+        return llm.model_copy(update={"disable_streaming": True})
+    except (AttributeError, TypeError):
+        return llm
+
+
 def build_sparql_query_subgraph(
     *,
     llm: Any,
@@ -234,8 +251,9 @@ def build_sparql_query_subgraph(
     max_repair_retries: int = 1,
 ):
     max_repair_retries = _bounded_repair_retries(max_repair_retries)
-    draft_llm = llm.with_structured_output(SparqlDraft)
-    summary_llm = llm.with_structured_output(SparqlSummary)
+    internal_llm = _silence_streaming(llm)
+    draft_llm = internal_llm.with_structured_output(SparqlDraft)
+    summary_llm = internal_llm.with_structured_output(SparqlSummary)
 
     async def assemble_context(state: SparqlQueryState) -> dict[str, Any]:
         try:
@@ -336,7 +354,11 @@ def build_sparql_query_subgraph(
         except Exception:
             summary = ""
         if not summary:
-            summary = "SPARQL query completed." if not last_error else f"SPARQL query failed: {last_error}"
+            summary = (
+                "SPARQL query completed."
+                if not last_error
+                else f"SPARQL query failed: {last_error}"
+            )
 
         return {
             "status": status,
@@ -347,7 +369,9 @@ def build_sparql_query_subgraph(
         return "summarize" if state.get("last_error") else "draft"
 
     def route_after_draft(state: SparqlQueryState) -> str:
-        return "summarize" if state.get("last_error") and not state.get("draft_query") else "execute"
+        return (
+            "summarize" if state.get("last_error") and not state.get("draft_query") else "execute"
+        )
 
     def route_after_execute(state: SparqlQueryState) -> str:
         return "draft" if _can_retry(state, max_repair_retries=max_repair_retries) else "summarize"

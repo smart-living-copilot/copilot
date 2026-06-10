@@ -71,15 +71,19 @@ class RegistryToolArgsTestCase(unittest.TestCase):
                 },
             }
 
-        with patch(
-            "copilot.agent.tools.wot_registry.run_sparql_query_subgraph",
-            side_effect=fake_run_sparql_query_subgraph,
-        ), patch(
-            "copilot.agent.tools.wot_registry.get_registry_settings",
-            return_value=SimpleNamespace(SPARQL_SUBGRAPH_REPAIR_RETRIES=2),
-        ), patch(
-            "copilot.agent.tools.wot_registry.make_llm",
-            return_value=object(),
+        with (
+            patch(
+                "copilot.agent.tools.wot_registry.run_sparql_query_subgraph",
+                side_effect=fake_run_sparql_query_subgraph,
+            ),
+            patch(
+                "copilot.agent.tools.wot_registry.get_registry_settings",
+                return_value=SimpleNamespace(SPARQL_SUBGRAPH_REPAIR_RETRIES=2),
+            ),
+            patch(
+                "copilot.agent.tools.wot_registry.make_llm",
+                return_value=object(),
+            ),
         ):
             response = asyncio.run(
                 query_knowledge.ainvoke(
@@ -108,12 +112,15 @@ class RegistryToolArgsTestCase(unittest.TestCase):
         async def fake_run_sparql_query_subgraph(**_kwargs):
             raise ValueError("subgraph failed")
 
-        with patch(
-            "copilot.agent.tools.wot_registry.run_sparql_query_subgraph",
-            side_effect=fake_run_sparql_query_subgraph,
-        ), patch(
-            "copilot.agent.tools.wot_registry.make_llm",
-            return_value=object(),
+        with (
+            patch(
+                "copilot.agent.tools.wot_registry.run_sparql_query_subgraph",
+                side_effect=fake_run_sparql_query_subgraph,
+            ),
+            patch(
+                "copilot.agent.tools.wot_registry.make_llm",
+                return_value=object(),
+            ),
         ):
             response = asyncio.run(
                 query_knowledge.ainvoke(
@@ -158,12 +165,15 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             calls.append(("load", session))
             return [{"id": "urn:slc:endpoint:kg"}]
 
-        with patch(
-            "copilot.agent.tools.wot_registry.get_session_factory",
-            return_value=fake_session_factory,
-        ), patch(
-            "copilot.agent.tools.wot_registry.load_all_endpoint_contexts",
-            side_effect=fake_load_all_endpoint_contexts,
+        with (
+            patch(
+                "copilot.agent.tools.wot_registry.get_session_factory",
+                return_value=fake_session_factory,
+            ),
+            patch(
+                "copilot.agent.tools.wot_registry.load_all_endpoint_contexts",
+                side_effect=fake_load_all_endpoint_contexts,
+            ),
         ):
             response = wot_registry_module._load_knowledge_endpoint_contexts()
 

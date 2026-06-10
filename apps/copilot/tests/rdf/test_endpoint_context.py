@@ -60,12 +60,8 @@ def test_endpoint_context_extracts_void_prefixes_and_examples():
     assert context["prefixes"]["s4bldg"] == "https://saref.etsi.org/saref4bldg/"
     assert context["supportedLanguage"] == "sd:SPARQL11Query"
     assert context["void"]["vocabulary"] == ["https://saref.etsi.org/saref4bldg/"]
-    assert context["void"]["classPartition"] == [
-        {"void:class": "s4bldg:BuildingSpace"}
-    ]
-    assert context["void"]["propertyPartition"] == [
-        {"void:property": "s4bldg:isSpaceOf"}
-    ]
+    assert context["void"]["classPartition"] == [{"void:class": "s4bldg:BuildingSpace"}]
+    assert context["void"]["propertyPartition"] == [{"void:property": "s4bldg:isSpaceOf"}]
     assert context["exampleQueries"] == [
         {
             "intent": "List spaces",
@@ -111,9 +107,7 @@ def test_load_all_endpoint_contexts_skips_non_endpoint_things():
 
     contexts = load_all_endpoint_contexts(FakeSession())  # type: ignore[arg-type]
 
-    assert [context["id"] for context in contexts] == [
-        "urn:slc:endpoint:building-energy-kg"
-    ]
+    assert [context["id"] for context in contexts] == ["urn:slc:endpoint:building-energy-kg"]
 
 
 def test_validate_example_queries_accepts_read_only_examples():

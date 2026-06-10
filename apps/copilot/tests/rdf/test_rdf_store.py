@@ -59,9 +59,7 @@ class _FakeSparqlEndpoint(BaseHTTPRequestHandler):
             {
                 "head": {"vars": ["remote"]},
                 "results": {
-                    "bindings": [
-                        {"remote": {"type": "literal", "value": "remote-binding"}}
-                    ]
+                    "bindings": [{"remote": {"type": "literal", "value": "remote-binding"}}]
                 },
             }
         ).encode("utf-8")

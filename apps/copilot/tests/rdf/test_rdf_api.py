@@ -30,9 +30,12 @@ async def test_query_rdf_returns_json_error_for_unexpected_query_failures() -> N
     )
     payload = RdfQueryRequest(query="SELECT ?s WHERE { ?s ?p ?o }", limit=10)
 
-    with patch("copilot.rdf.api.verify_internal_api_key"), patch(
-        "copilot.rdf.api._service_rewrites",
-        return_value={},
+    with (
+        patch("copilot.rdf.api.verify_internal_api_key"),
+        patch(
+            "copilot.rdf.api._service_rewrites",
+            return_value={},
+        ),
     ):
         with pytest.raises(HTTPException) as exc_info:
             await rdf_api.query_rdf(request, payload)  # type: ignore[arg-type]
