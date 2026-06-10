@@ -154,7 +154,12 @@ async def things_search(query: str, k: int = 5) -> dict[str, Any]:
 
 @tool
 async def things_sparql(query: str, limit: int = 50) -> dict[str, Any]:
-    """Run a read-only SPARQL query across RDF-indexed Thing Descriptions."""
+    """Run read-only SPARQL across RDF-indexed Thing Descriptions.
+
+    Use this for exact filters over Thing metadata: affordance names, units,
+    operation types, schemas, forms/protocols, security schemes, and
+    relationships. Use things_search for fuzzy semantic discovery.
+    """
     normalized_query = query.strip()
     if not normalized_query:
         return {"error": "query must not be empty", "query": normalized_query}
