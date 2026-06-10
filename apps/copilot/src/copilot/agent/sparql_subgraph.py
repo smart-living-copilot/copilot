@@ -46,9 +46,19 @@ Rules:
 - Never invent external endpoint URLs; only use provided endpoint Thing ids.
 - Keep result size bounded and compatible with the requested limit.
 - Include explicit PREFIX declarations for every prefixed name you use.
+- Put remote VALUES, BIND, FILTER, type, and entity constraints inside the SERVICE block.
+- Do not rely on outer VALUES, local bindings, or an outer LIMIT to constrain a remote SERVICE call.
 - Use endpoint examples as few-shot patterns when available.
 - If repairing, address the exact prior error or empty-result cause.
 """
+
+_REMOTE_RESPONSE_LIMIT_HINT = (
+    "Remote SERVICE response exceeded the proxy size limit. Repair by moving any VALUES, "
+    "BIND, FILTER, type, and entity constraints for remote variables inside the SERVICE "
+    "block. If the remote pattern can still be broad, use a SERVICE-local subquery with "
+    "a small LIMIT. Do not rely on the outer LIMIT or local bindings to constrain remote "
+    "results."
+)
 
 _SUMMARY_SYSTEM_PROMPT = """\
 Summarize the SPARQL tool result for the parent agent.
@@ -83,6 +93,12 @@ def _result_is_empty(result: dict[str, Any]) -> bool:
 
 def _result_status(result: dict[str, Any]) -> Literal["ok", "partial"]:
     return "partial" if result.get("truncated") else "ok"
+
+
+def _repair_error_message(error: str) -> str:
+    if "exceeded the size limit" not in error.lower():
+        return error
+    return f"{error}\n\nRepair hint: {_REMOTE_RESPONSE_LIMIT_HINT}"
 
 
 def _attempt_result_summary(result: dict[str, Any]) -> dict[str, Any]:
@@ -205,7 +221,7 @@ def build_sparql_query_subgraph(
                 limit=state.get("limit", 50),
             )
         except Exception as exc:
-            error = str(exc)
+            error = _repair_error_message(str(exc))
             return {
                 "last_error": error,
                 "attempts": _append_attempt(

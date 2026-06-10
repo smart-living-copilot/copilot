@@ -87,6 +87,11 @@ def test_sparql_draft_prompt_requires_prefix_declarations():
     assert "explicit PREFIX declarations" in _DRAFT_SYSTEM_PROMPT
 
 
+def test_sparql_draft_prompt_requires_remote_constraints_inside_service():
+    assert "inside the SERVICE block" in _DRAFT_SYSTEM_PROMPT
+    assert "outer LIMIT" in _DRAFT_SYSTEM_PROMPT
+
+
 @pytest.mark.anyio
 async def test_sparql_subgraph_drafts_executes_and_summarizes_success():
     llm = FakeLLM(
@@ -145,6 +150,57 @@ async def test_sparql_subgraph_repairs_after_executor_error():
     assert [attempt["status"] for attempt in response["attempts"]] == ["error", "ok"]
     assert "SyntaxError" in response["attempts"][0]["error"]
     assert len(executor.calls) == 2
+
+
+@pytest.mark.anyio
+async def test_sparql_subgraph_repairs_oversized_remote_service_response():
+    llm = FakeLLM(
+        drafts=[
+            {
+                "query": (
+                    "PREFIX ex: <https://example.com/> "
+                    "SELECT ?label WHERE { VALUES ?item { ex:item } "
+                    "SERVICE <urn:slc:endpoint:kg> { ?item ex:label ?label } } LIMIT 10"
+                )
+            },
+            {
+                "query": (
+                    "PREFIX ex: <https://example.com/> "
+                    "SELECT ?label WHERE { SERVICE <urn:slc:endpoint:kg> { "
+                    "VALUES ?item { ex:item } ?item ex:label ?label } } LIMIT 10"
+                )
+            },
+        ],
+        summaries=[{"summary": "Repaired the remote query and found one label."}],
+    )
+    executor = FakeRdfExecutor(
+        [
+            ValueError(
+                "Error 502 Bad Gateway returned by http://localhost:8124/rdf/federate/kg "
+                'with payload: {"detail":"Federated SPARQL response exceeded the size limit"}'
+            ),
+            _select_result([{"label": {"type": "literal", "value": "Example"}}]),
+        ]
+    )
+
+    response = await run_sparql_query_subgraph(
+        intent="Find one remote label",
+        endpoints=["urn:slc:endpoint:kg"],
+        limit=10,
+        max_attempts=3,
+        llm=llm,
+        rdf_executor=executor,
+        endpoint_context_loader=_context_loader,
+    )
+
+    assert response["status"] == "ok"
+    assert [attempt["status"] for attempt in response["attempts"]] == ["error", "ok"]
+    assert "Repair hint" in response["attempts"][0]["error"]
+    assert "inside the SERVICE block" in response["attempts"][0]["error"]
+    assert "VALUES ?item" in executor.calls[1]["query"]
+    assert executor.calls[1]["query"].index("SERVICE") < executor.calls[1]["query"].index(
+        "VALUES ?item"
+    )
 
 
 @pytest.mark.anyio
