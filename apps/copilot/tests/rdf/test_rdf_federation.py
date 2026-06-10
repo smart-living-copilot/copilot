@@ -13,6 +13,7 @@ from copilot.rdf.federation import (
     endpoint_proxy_url,
     federation_user_agent,
     rewrite_federated_query,
+    service_constraint_diagnostics,
     service_iris,
     thing_id_from_proxy_path,
 )
@@ -101,6 +102,74 @@ def test_service_iris_ignores_comments_strings_and_hash_iris():
     """
 
     assert service_iris(query) == ["urn:slc:endpoint:energy"]
+
+
+def test_service_constraint_diagnostics_warns_for_unbounded_join():
+    query = """
+        SELECT ?thing ?remote WHERE {
+            ?thing <https://example.com/externalId> ?externalId .
+            SERVICE <urn:slc:endpoint:energy> {
+                ?externalId <https://example.com/remoteValue> ?remote .
+            }
+        }
+    """
+
+    diagnostics = service_constraint_diagnostics(query)
+
+    assert diagnostics == [
+        {
+            "code": "service-unbounded-join",
+            "service_iri": "urn:slc:endpoint:energy",
+            "message": (
+                "SERVICE block shares variables with outer graph patterns but has no "
+                "inner VALUES, FILTER, or BIND constraint; outer bindings are not "
+                "pushed into SERVICE."
+            ),
+        }
+    ]
+
+
+def test_service_constraint_diagnostics_accepts_inner_values_constraint():
+    query = """
+        SELECT ?thing ?remote WHERE {
+            ?thing <https://example.com/externalId> ?externalId .
+            SERVICE <urn:slc:endpoint:energy> {
+                VALUES ?externalId { "meter-1" "meter-2" }
+                ?externalId <https://example.com/remoteValue> ?remote .
+            }
+        }
+    """
+
+    assert service_constraint_diagnostics(query) == []
+
+
+def test_service_constraint_diagnostics_ignores_external_only_service_query():
+    query = """
+        SELECT ?remote WHERE {
+            SERVICE <urn:slc:endpoint:energy> {
+                ?sensor <https://example.com/remoteValue> ?remote .
+            }
+        }
+    """
+
+    assert service_constraint_diagnostics(query) == []
+
+
+def test_service_constraint_diagnostics_ignores_comments_and_strings():
+    query = """
+        SELECT ?thing ?remote WHERE {
+            ?thing <https://example.com/externalId> ?externalId .
+            SERVICE <urn:slc:endpoint:energy> {
+                # FILTER(?externalId = "meter-1")
+                ?externalId <https://example.com/debug> "VALUES ?externalId { 'meter-1' }" .
+                ?externalId <https://example.com/remoteValue> ?remote .
+            }
+        }
+    """
+
+    assert [diagnostic["code"] for diagnostic in service_constraint_diagnostics(query)] == [
+        "service-unbounded-join"
+    ]
 
 
 def test_endpoint_proxy_url_urlencodes_thing_ids():

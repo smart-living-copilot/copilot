@@ -1,6 +1,7 @@
 import asyncio
 import unittest
 from contextlib import contextmanager
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from copilot.agent.tools import wot_registry as wot_registry_module
@@ -61,6 +62,7 @@ class RegistryToolArgsTestCase(unittest.TestCase):
                 "query": "SELECT * WHERE { ?s ?p ?o }",
                 "selected_endpoints": [],
                 "attempts": [],
+                "diagnostics": [],
                 "summary": "Done",
                 "result": {
                     "type": "select",
@@ -72,6 +74,9 @@ class RegistryToolArgsTestCase(unittest.TestCase):
         with patch(
             "copilot.agent.tools.wot_registry.run_sparql_query_subgraph",
             side_effect=fake_run_sparql_query_subgraph,
+        ), patch(
+            "copilot.agent.tools.wot_registry.get_registry_settings",
+            return_value=SimpleNamespace(SPARQL_SUBGRAPH_REPAIR_RETRIES=2),
         ), patch(
             "copilot.agent.tools.wot_registry.make_llm",
             return_value=object(),
@@ -90,6 +95,7 @@ class RegistryToolArgsTestCase(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["intent"], "Find sensors with observations")
         self.assertEqual(calls[0]["limit"], 500)
+        self.assertEqual(calls[0]["max_repair_retries"], 2)
         self.assertNotIn("endpoints", calls[0])
         self.assertNotIn("max_attempts", calls[0])
 
@@ -128,6 +134,7 @@ class RegistryToolArgsTestCase(unittest.TestCase):
                 "limit": 5,
                 "selected_endpoints": [],
                 "attempts": [],
+                "diagnostics": [],
                 "summary": "SPARQL query failed: subgraph failed",
                 "result": None,
             },

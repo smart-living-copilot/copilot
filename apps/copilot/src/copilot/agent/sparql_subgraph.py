@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from copilot.rdf.federation import service_iris
+from copilot.rdf.federation import service_constraint_diagnostics, service_iris
 
 
 class SparqlDraft(BaseModel):
@@ -30,6 +30,7 @@ class SparqlQueryState(TypedDict, total=False):
     draft_query: str
     last_error: str
     last_result: dict[str, Any]
+    diagnostics: list[dict[str, str]]
     final_summary: str
     status: Literal["ok", "partial", "failed"]
 
@@ -43,7 +44,12 @@ You draft SPARQL for the Smart Living Copilot.
 Rules:
 - Use only read-only SPARQL: SELECT, ASK, CONSTRUCT, or DESCRIBE.
 - For federated endpoint Things, write SERVICE <endpoint-thing-id> blocks.
-- Prefer SERVICE SILENT when a remote endpoint is optional or might be slow.
+- Constrain every SERVICE block's remote work inside the SERVICE block with VALUES,
+  FILTER, BIND, or equivalent inline bindings; do not rely on outer joins to bound
+  the remote endpoint.
+- Use hard SERVICE for data required to answer the request.
+- Use SERVICE SILENT only for optional enrichment where remote failure should not
+  invalidate the answer.
 - Never invent external endpoint URLs; only use provided endpoint Thing ids.
 - Keep result size bounded and compatible with the requested limit.
 - Include explicit PREFIX declarations for every prefixed name you use.
@@ -70,6 +76,10 @@ def _as_model_dict(value: Any) -> dict[str, Any]:
 
 def _result_status(result: dict[str, Any]) -> Literal["ok", "partial"]:
     return "partial" if result.get("truncated") else "ok"
+
+
+def _bounded_repair_retries(value: int) -> int:
+    return min(max(value, 0), 2)
 
 
 def _known_endpoint_ids(endpoint_context: list[dict[str, Any]]) -> set[str]:
@@ -117,6 +127,7 @@ def _append_attempt(
     *,
     query: str,
     status: str,
+    diagnostics: list[dict[str, str]],
     error: str | None = None,
     result: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
@@ -125,6 +136,7 @@ def _append_attempt(
         "attempt": len(attempts) + 1,
         "query": query,
         "status": status,
+        "diagnostics": diagnostics,
     }
     if error:
         attempt["error"] = error
@@ -134,12 +146,64 @@ def _append_attempt(
     return attempts
 
 
+def _is_retryable_executor_error(error: str) -> bool:
+    normalized = error.lower()
+    if any(
+        marker in normalized
+        for marker in (
+            "401",
+            "403",
+            "unauthorized",
+            "forbidden",
+            "credential",
+            "security",
+            "scheme",
+        )
+    ):
+        return False
+    return any(
+        marker in normalized
+        for marker in (
+            "syntax",
+            "parse",
+            "endpoint thing ids",
+            "service targets",
+            "timeout",
+            "timed out",
+            "504",
+            "response exceeded",
+            "size limit",
+            "too large",
+        )
+    )
+
+
+def _can_retry(state: SparqlQueryState, *, max_repair_retries: int) -> bool:
+    if state.get("status") != "failed":
+        return False
+    last_error = state.get("last_error", "")
+    if not last_error or not _is_retryable_executor_error(last_error):
+        return False
+    return len(state.get("attempts", [])) <= max_repair_retries
+
+
 def _draft_prompt(state: SparqlQueryState) -> list[Any]:
     payload = {
         "intent": state.get("intent", ""),
         "limit": state.get("limit", 50),
         "available_endpoints": state.get("endpoint_context", []),
     }
+    attempts = state.get("attempts", [])
+    if attempts:
+        payload["repair"] = {
+            "instruction": (
+                "The previous SPARQL draft failed. Draft a corrected query and do not "
+                "repeat the failed query unchanged."
+            ),
+            "last_error": state.get("last_error", ""),
+            "previous_attempts": attempts,
+            "latest_diagnostics": state.get("diagnostics", []),
+        }
     return [
         SystemMessage(content=_DRAFT_SYSTEM_PROMPT),
         HumanMessage(content=_json_dumps(payload)),
@@ -167,7 +231,9 @@ def build_sparql_query_subgraph(
     llm: Any,
     rdf_executor: RdfExecutor,
     endpoint_context_loader: EndpointContextLoader,
+    max_repair_retries: int = 1,
 ):
+    max_repair_retries = _bounded_repair_retries(max_repair_retries)
     draft_llm = llm.with_structured_output(SparqlDraft)
     summary_llm = llm.with_structured_output(SparqlSummary)
 
@@ -178,12 +244,14 @@ def build_sparql_query_subgraph(
             return {
                 "endpoint_context": [],
                 "selected_endpoints": [],
+                "diagnostics": [],
                 "last_error": str(exc),
                 "status": "failed",
             }
         return {
             "endpoint_context": endpoint_context,
             "selected_endpoints": [],
+            "diagnostics": [],
             "last_error": "",
         }
 
@@ -196,6 +264,9 @@ def build_sparql_query_subgraph(
                 raise ValueError("SPARQL draft was empty")
         except Exception as exc:
             return {
+                "draft_query": "",
+                "selected_endpoints": [],
+                "diagnostics": [],
                 "last_error": f"SPARQL draft failed: {exc}",
                 "status": "failed",
             }
@@ -205,11 +276,13 @@ def build_sparql_query_subgraph(
                 query,
                 state.get("endpoint_context", []),
             ),
+            "diagnostics": service_constraint_diagnostics(query),
             "last_error": "",
         }
 
     async def execute_query(state: SparqlQueryState) -> dict[str, Any]:
         query = state.get("draft_query", "")
+        diagnostics = service_constraint_diagnostics(query)
         try:
             result = await rdf_executor(
                 query=query,
@@ -220,11 +293,13 @@ def build_sparql_query_subgraph(
             error = str(exc)
             return {
                 "last_error": error,
+                "diagnostics": diagnostics,
                 "status": "failed",
                 "attempts": _append_attempt(
                     state,
                     query=query,
                     status="error",
+                    diagnostics=diagnostics,
                     error=error,
                 ),
             }
@@ -232,11 +307,13 @@ def build_sparql_query_subgraph(
         return {
             "last_error": "",
             "last_result": result,
+            "diagnostics": diagnostics,
             "status": _result_status(result),
             "attempts": _append_attempt(
                 state,
                 query=query,
                 status="ok",
+                diagnostics=diagnostics,
                 result=result,
             ),
         }
@@ -272,6 +349,9 @@ def build_sparql_query_subgraph(
     def route_after_draft(state: SparqlQueryState) -> str:
         return "summarize" if state.get("last_error") and not state.get("draft_query") else "execute"
 
+    def route_after_execute(state: SparqlQueryState) -> str:
+        return "draft" if _can_retry(state, max_repair_retries=max_repair_retries) else "summarize"
+
     graph = StateGraph(SparqlQueryState)
     graph.add_node("assemble_context", assemble_context)
     graph.add_node("draft", draft_query)
@@ -294,7 +374,14 @@ def build_sparql_query_subgraph(
             "summarize": "summarize",
         },
     )
-    graph.add_edge("execute", "summarize")
+    graph.add_conditional_edges(
+        "execute",
+        route_after_execute,
+        {
+            "draft": "draft",
+            "summarize": "summarize",
+        },
+    )
     graph.add_edge("summarize", END)
     return graph.compile()
 
@@ -306,11 +393,13 @@ async def run_sparql_query_subgraph(
     llm: Any,
     rdf_executor: RdfExecutor,
     endpoint_context_loader: EndpointContextLoader,
+    max_repair_retries: int = 1,
 ) -> dict[str, Any]:
     graph = build_sparql_query_subgraph(
         llm=llm,
         rdf_executor=rdf_executor,
         endpoint_context_loader=endpoint_context_loader,
+        max_repair_retries=max_repair_retries,
     )
     state = await graph.ainvoke(
         {
@@ -318,6 +407,7 @@ async def run_sparql_query_subgraph(
             "selected_endpoints": [],
             "limit": limit,
             "attempts": [],
+            "diagnostics": [],
         }
     )
     return {
@@ -326,6 +416,7 @@ async def run_sparql_query_subgraph(
         "query": state.get("draft_query", ""),
         "selected_endpoints": state.get("selected_endpoints", []),
         "attempts": state.get("attempts", []),
+        "diagnostics": state.get("diagnostics", []),
         "summary": state.get("final_summary", ""),
         "result": state.get("last_result"),
     }

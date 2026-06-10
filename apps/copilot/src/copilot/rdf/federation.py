@@ -18,6 +18,8 @@ from copilot.catalog.credentials.store import get_credential
 from copilot.catalog.models import Thing
 
 _SERVICE_IRI_RE = re.compile(r"(?is)\bSERVICE\s+(?:SILENT\s+)?<([^>]*)>")
+_SPARQL_VAR_RE = re.compile(r"[$?][A-Za-z_][A-Za-z0-9_]*")
+_SERVICE_CONSTRAINT_RE = re.compile(r"(?is)\b(?:VALUES|FILTER|BIND)\b")
 _SD_SERVICE_TYPES = {
     "sd:Service",
     "http://www.w3.org/ns/sparql-service-description#Service",
@@ -210,6 +212,69 @@ def _mask_sparql_strings_and_comments(query: str) -> str:
 def service_iris(query: str) -> list[str]:
     stripped = _mask_sparql_strings_and_comments(query)
     return [match.group(1) for match in _SERVICE_IRI_RE.finditer(stripped)]
+
+
+def _balanced_block_end(query: str, open_brace_index: int) -> int | None:
+    depth = 0
+    for index in range(open_brace_index, len(query)):
+        char = query[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _sparql_variables(query: str) -> set[str]:
+    return {match.group(0) for match in _SPARQL_VAR_RE.finditer(query)}
+
+
+def service_constraint_diagnostics(query: str) -> list[dict[str, str]]:
+    """Warn when SERVICE joins rely on outer binding pushdown."""
+    stripped = _mask_sparql_strings_and_comments(query)
+    where_match = re.search(r"(?is)\bWHERE\s*{", stripped)
+    where_body_start = where_match.end() - 1 if where_match else stripped.find("{")
+    if where_body_start < 0:
+        where_body_start = 0
+
+    diagnostics: list[dict[str, str]] = []
+    for match in _SERVICE_IRI_RE.finditer(stripped):
+        open_brace_index = stripped.find("{", match.end())
+        if open_brace_index < 0:
+            continue
+        close_brace_index = _balanced_block_end(stripped, open_brace_index)
+        if close_brace_index is None:
+            continue
+
+        service_body = stripped[open_brace_index + 1 : close_brace_index]
+        if _SERVICE_CONSTRAINT_RE.search(service_body):
+            continue
+
+        outer_body = (
+            stripped[where_body_start : match.start()]
+            + (" " * (close_brace_index + 1 - match.start()))
+            + stripped[close_brace_index + 1 :]
+        )
+        shared_variables = _sparql_variables(service_body).intersection(
+            _sparql_variables(outer_body)
+        )
+        if not shared_variables:
+            continue
+
+        diagnostics.append(
+            {
+                "code": "service-unbounded-join",
+                "service_iri": match.group(1),
+                "message": (
+                    "SERVICE block shares variables with outer graph patterns but has no "
+                    "inner VALUES, FILTER, or BIND constraint; outer bindings are not "
+                    "pushed into SERVICE."
+                ),
+            }
+        )
+    return diagnostics
 
 
 def rewrite_federated_query(query: str, service_rewrites: dict[str, str] | None = None) -> str:

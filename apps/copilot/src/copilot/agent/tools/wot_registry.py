@@ -199,6 +199,7 @@ async def query_knowledge(
             llm=make_llm(settings),
             rdf_executor=_execute_sparql_query,
             endpoint_context_loader=_load_knowledge_endpoint_contexts,
+            max_repair_retries=settings.SPARQL_SUBGRAPH_REPAIR_RETRIES,
         )
     except Exception as exc:
         return {
@@ -209,6 +210,7 @@ async def query_knowledge(
             "limit": normalized_limit,
             "selected_endpoints": [],
             "attempts": [],
+            "diagnostics": [],
             "summary": f"SPARQL query failed: {exc}",
             "result": None,
         }

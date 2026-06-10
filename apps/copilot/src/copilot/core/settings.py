@@ -129,6 +129,7 @@ class Settings(BaseSettings):
         "SmartLivingCopilot/0.1.0 "
         "(https://github.com/Smart-Living-Copilot/copilot; federated-sparql)"
     )
+    sparql_subgraph_repair_retries: int = Field(default=1, ge=0, le=2)
 
     # Jobs and WoT runtime
     job_task_timeout_seconds: int = 300
@@ -305,6 +306,10 @@ class Settings(BaseSettings):
     @property
     def RDF_FEDERATION_USER_AGENT(self) -> str:
         return self.rdf_federation_user_agent
+
+    @property
+    def SPARQL_SUBGRAPH_REPAIR_RETRIES(self) -> int:
+        return self.sparql_subgraph_repair_retries
 
     @property
     def OPENAI_API_BASE_URL(self) -> str | None:
