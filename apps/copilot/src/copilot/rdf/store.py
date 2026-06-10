@@ -21,12 +21,11 @@ from pyoxigraph import (
 )
 
 from copilot.rdf.contexts import expand_cached_jsonld_contexts
-from copilot.rdf.federation import (
+from copilot.rdf.endpoint_client import (
     endpoint_metadata_from_document,
-    rewrite_federated_query,
-    strip_sparql_comments,
 )
 from copilot.rdf.iris import thing_graph_iri
+from copilot.rdf.sparql_text import contains_service_clause, strip_sparql_comments
 from copilot.thing_indexer.summary_utils import clean_text, normalize_thing_td_payload
 
 _READ_ONLY_QUERY_KINDS = {"SELECT", "ASK", "CONSTRUCT", "DESCRIBE"}
@@ -173,7 +172,6 @@ class RdfStoreService:
         query: str,
         limit: int,
         use_default_graph_as_union: bool = True,
-        service_rewrites: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         async with self._lock:
             return await asyncio.to_thread(
@@ -181,7 +179,6 @@ class RdfStoreService:
                 query,
                 limit,
                 use_default_graph_as_union,
-                service_rewrites,
             )
 
     def _upsert_thing_sync(self, thing_id: str, thing_td: dict[str, Any]) -> None:
@@ -258,12 +255,12 @@ class RdfStoreService:
         query: str,
         limit: int,
         use_default_graph_as_union: bool,
-        service_rewrites: dict[str, str] | None,
     ) -> dict[str, Any]:
         kind = sparql_query_kind(query)
-        executable_query = rewrite_federated_query(query, service_rewrites)
+        if contains_service_clause(query):
+            raise ValueError("SPARQL SERVICE is not supported on the local RDF query endpoint")
         result = self._store.query(
-            executable_query,
+            query,
             use_default_graph_as_union=use_default_graph_as_union,
         )
 

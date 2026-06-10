@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 import pytest
@@ -56,43 +53,6 @@ def _endpoint_td(endpoint_url: str) -> dict[str, object]:
     }
 
 
-class _FakeSparqlEndpoint(BaseHTTPRequestHandler):
-    def do_GET(self) -> None:
-        self._send_response()
-
-    def do_POST(self) -> None:
-        content_length = int(self.headers.get("content-length") or "0")
-        if content_length:
-            self.rfile.read(content_length)
-        self._send_response()
-
-    def log_message(self, _format: str, *_args: object) -> None:
-        return
-
-    def _send_response(self) -> None:
-        body = json.dumps(
-            {
-                "head": {"vars": ["remote"]},
-                "results": {
-                    "bindings": [{"remote": {"type": "literal", "value": "remote-binding"}}]
-                },
-            }
-        ).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/sparql-results+json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-
-def _start_fake_sparql_endpoint() -> tuple[ThreadingHTTPServer, str]:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _FakeSparqlEndpoint)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address[:2]
-    return server, f"http://{host}:{port}/sparql"
-
-
 def _values(response: dict[str, object], variable: str) -> list[str]:
     rows = response.get("rows")
     assert isinstance(rows, list)
@@ -132,16 +92,22 @@ def test_sparql_query_kind_allows_only_read_queries():
         == "SELECT"
     )
     assert sparql_query_kind("ASK WHERE { ?s ?p ?o }") == "ASK"
+    assert (
+        sparql_query_kind(
+            "SELECT * WHERE { SERVICE <https://query.wikidata.org/sparql> { ?s ?p ?o } }"
+        )
+        == "SELECT"
+    )
 
     with pytest.raises(ValueError, match="read-only"):
         sparql_query_kind("DELETE WHERE { ?s ?p ?o }")
 
 
 @pytest.mark.anyio
-async def test_rdf_store_rejects_undeclared_service_targets(tmp_path):
+async def test_rdf_store_rejects_service_queries(tmp_path):
     store = RdfStoreService(str(tmp_path / "rdf"))
 
-    with pytest.raises(ValueError, match="endpoint Thing ids"):
+    with pytest.raises(ValueError, match="SERVICE is not supported"):
         await store.query(
             query="SELECT * WHERE { SERVICE <https://example.com/sparql> { ?s ?p ?o } }",
             limit=10,
@@ -149,25 +115,16 @@ async def test_rdf_store_rejects_undeclared_service_targets(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_rdf_store_queries_rewritten_service_endpoint(tmp_path):
-    server, service_url = _start_fake_sparql_endpoint()
-    try:
-        store = RdfStoreService(str(tmp_path / "rdf"))
-        response = await store.query(
-            query="""
-                SELECT ?remote WHERE {
-                    SERVICE <urn:slc:endpoint:remote> { ?s ?p ?remote }
-                }
-            """,
-            limit=10,
-            service_rewrites={"urn:slc:endpoint:remote": service_url},
-        )
-    finally:
-        server.shutdown()
-        server.server_close()
+async def test_rdf_store_ignores_service_text_in_strings(tmp_path):
+    store = RdfStoreService(str(tmp_path / "rdf"))
+    await store.upsert_thing("urn:thing:alpha", _jsonld_thing("urn:thing:alpha", "Alpha"))
 
-    assert response["type"] == "select"
-    assert _values(response, "remote") == ["remote-binding"]
+    response = await store.query(
+        query='SELECT ?label WHERE { BIND("SERVICE <x> { ?s ?p ?o }" AS ?label) }',
+        limit=10,
+    )
+
+    assert _values(response, "label") == ["SERVICE <x> { ?s ?p ?o }"]
 
 
 def test_cached_context_expansion_rejects_unknown_remote_contexts():
@@ -324,8 +281,8 @@ async def test_rdf_store_limits_construct_results(tmp_path):
 @pytest.mark.anyio
 async def test_rdf_store_validates_endpoint_urls_on_upsert(tmp_path):
     settings = SimpleNamespace(
-        RDF_FEDERATION_ALLOWED_HOSTS="",
-        RDF_FEDERATION_ALLOW_PRIVATE_ENDPOINTS=False,
+        RDF_ENDPOINT_ALLOWED_HOSTS="",
+        RDF_ENDPOINT_ALLOW_PRIVATE=False,
     )
     store = RdfStoreService(str(tmp_path / "rdf"), settings=settings)
 

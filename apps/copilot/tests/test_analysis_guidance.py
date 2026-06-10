@@ -33,14 +33,12 @@ class AnalysisGuidanceTestCase(unittest.TestCase):
 
     def test_analysis_prompt_explains_sparql_tool_choice(self) -> None:
         self.assertIn("## Discovery Tool Choice", ANALYSIS_PROMPT)
-        self.assertIn("precise filter", ANALYSIS_PROMPT)
-        self.assertIn("When unsure", ANALYSIS_PROMPT)
-        self.assertIn("narrow the candidates with query_knowledge", ANALYSIS_PROMPT)
-        self.assertIn("natural-language", ANALYSIS_PROMPT)
+        self.assertIn("things_list/things_get", ANALYSIS_PROMPT)
+        self.assertIn("endpoint_id", ANALYSIS_PROMPT)
+        self.assertIn("intent", ANALYSIS_PROMPT)
         self.assertIn("Do not hand-write", ANALYSIS_PROMPT)
         self.assertIn("raw SPARQL", ANALYSIS_PROMPT)
         self.assertIn("external knowledge graph", ANALYSIS_PROMPT)
-        self.assertIn("discovers registered endpoint Things", ANALYSIS_PROMPT)
 
 
 class ControlGuidanceTestCase(unittest.TestCase):
@@ -54,9 +52,9 @@ class ControlGuidanceTestCase(unittest.TestCase):
     def test_control_prompt_explains_sparql_tool_choice(self) -> None:
         self.assertIn("query_knowledge", CONTROL_PROMPT)
         self.assertNotIn("sparql_query", CONTROL_PROMPT)
-        self.assertIn("operation types", CONTROL_PROMPT)
-        self.assertIn("narrow with query_knowledge", CONTROL_PROMPT)
-        self.assertIn("natural-language", CONTROL_PROMPT)
+        self.assertIn("things_list/things_get", CONTROL_PROMPT)
+        self.assertIn("endpoint_id", CONTROL_PROMPT)
+        self.assertIn("intent", CONTROL_PROMPT)
         self.assertIn("Do not hand-write", CONTROL_PROMPT)
         self.assertIn("raw SPARQL", CONTROL_PROMPT)
 
@@ -65,9 +63,9 @@ class JobGuidanceTestCase(unittest.TestCase):
     def test_jobs_prompt_explains_sparql_tool_choice(self) -> None:
         self.assertIn("query_knowledge", JOBS_PROMPT)
         self.assertNotIn("sparql_query", JOBS_PROMPT)
-        self.assertIn("exact Thing Description", JOBS_PROMPT)
-        self.assertIn("narrow candidates with query_knowledge", JOBS_PROMPT)
-        self.assertIn("natural-language", JOBS_PROMPT)
+        self.assertIn("things_list/things_get", JOBS_PROMPT)
+        self.assertIn("endpoint_id", JOBS_PROMPT)
+        self.assertIn("intent", JOBS_PROMPT)
         self.assertIn("Do not hand-write", JOBS_PROMPT)
         self.assertIn("raw SPARQL", JOBS_PROMPT)
 

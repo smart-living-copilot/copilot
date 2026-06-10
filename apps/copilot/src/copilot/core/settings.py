@@ -120,17 +120,14 @@ class Settings(BaseSettings):
     rdf_events_claim_idle_ms: int = 60000
     rdf_events_retry_seconds: float = 5
     rdf_query_timeout_seconds: int = 20
-    rdf_federation_proxy_base_url: str = "http://localhost:8124"
-    rdf_federation_timeout_seconds: int = 10
-    rdf_federation_max_response_bytes: int = 2_000_000
-    rdf_federation_allowed_hosts: str = ""
-    rdf_federation_allow_private_endpoints: bool = False
-    rdf_federation_proxy_loopback_only: bool = True
-    rdf_federation_user_agent: str = (
+    rdf_endpoint_timeout_seconds: int = 10
+    rdf_endpoint_max_response_bytes: int = 2_000_000
+    rdf_endpoint_allowed_hosts: str = ""
+    rdf_endpoint_allow_private: bool = False
+    rdf_endpoint_user_agent: str = (
         "SmartLivingCopilot/0.1.0 "
-        "(https://github.com/Smart-Living-Copilot/copilot; federated-sparql)"
+        "(https://github.com/Smart-Living-Copilot/copilot; sparql-endpoint)"
     )
-    sparql_subgraph_repair_retries: int = Field(default=1, ge=0, le=2)
 
     # Jobs and WoT runtime
     job_task_timeout_seconds: int = 300
@@ -285,36 +282,24 @@ class Settings(BaseSettings):
         return self.rdf_query_timeout_seconds
 
     @property
-    def RDF_FEDERATION_PROXY_BASE_URL(self) -> str:
-        return self.rdf_federation_proxy_base_url
+    def RDF_ENDPOINT_TIMEOUT_SECONDS(self) -> int:
+        return self.rdf_endpoint_timeout_seconds
 
     @property
-    def RDF_FEDERATION_TIMEOUT_SECONDS(self) -> int:
-        return self.rdf_federation_timeout_seconds
+    def RDF_ENDPOINT_MAX_RESPONSE_BYTES(self) -> int:
+        return self.rdf_endpoint_max_response_bytes
 
     @property
-    def RDF_FEDERATION_MAX_RESPONSE_BYTES(self) -> int:
-        return self.rdf_federation_max_response_bytes
+    def RDF_ENDPOINT_ALLOWED_HOSTS(self) -> str:
+        return self.rdf_endpoint_allowed_hosts
 
     @property
-    def RDF_FEDERATION_ALLOWED_HOSTS(self) -> str:
-        return self.rdf_federation_allowed_hosts
+    def RDF_ENDPOINT_ALLOW_PRIVATE(self) -> bool:
+        return self.rdf_endpoint_allow_private
 
     @property
-    def RDF_FEDERATION_ALLOW_PRIVATE_ENDPOINTS(self) -> bool:
-        return self.rdf_federation_allow_private_endpoints
-
-    @property
-    def RDF_FEDERATION_PROXY_LOOPBACK_ONLY(self) -> bool:
-        return self.rdf_federation_proxy_loopback_only
-
-    @property
-    def RDF_FEDERATION_USER_AGENT(self) -> str:
-        return self.rdf_federation_user_agent
-
-    @property
-    def SPARQL_SUBGRAPH_REPAIR_RETRIES(self) -> int:
-        return self.sparql_subgraph_repair_retries
+    def RDF_ENDPOINT_USER_AGENT(self) -> str:
+        return self.rdf_endpoint_user_agent
 
     @property
     def OPENAI_API_BASE_URL(self) -> str | None:

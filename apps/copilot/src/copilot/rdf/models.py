@@ -9,7 +9,20 @@ class RdfQueryRequest(BaseModel):
     query: str = Field(min_length=1)
     limit: int = Field(default=50, ge=1, le=500)
     use_default_graph_as_union: bool = True
-    endpoints: list[str] = Field(default_factory=list, max_length=20)
+
+
+class RdfEndpointQueryRequest(BaseModel):
+    query: str = Field(min_length=1)
+    limit: int = Field(default=50, ge=1, le=500)
+
+
+class RdfEndpointQueryResponse(BaseModel):
+    endpoint_id: str
+    endpoint_url: str
+    query: str
+    limit: int
+    content_type: str | None = None
+    results: dict[str, Any]
 
 
 class RdfQueryResponse(BaseModel):

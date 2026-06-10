@@ -1,11 +1,14 @@
 """LangGraph tools for the WoT registry and runtime."""
 
 import asyncio
+import json
 from collections.abc import Callable
 from typing import Any
 
 from fastapi import HTTPException
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from copilot.core.config import get_settings as get_registry_settings
@@ -15,10 +18,28 @@ from copilot.search import get_active_search_service
 from copilot.catalog import serialize_thing, validate_document
 from copilot.catalog.ids import decode_thing_id
 from copilot.catalog.service import ThingCatalogQueryService, ThingCatalogWriteService
-from copilot.agent.sparql_subgraph import run_sparql_query_subgraph
-from copilot.clients.rdf_service import RdfServiceClient
+from copilot.clients.rdf_service import RdfServiceClient, RdfServiceError
 from copilot.clients.wot_runtime import WotRuntimeClient
-from copilot.rdf.endpoint_context import load_all_endpoint_contexts
+from copilot.rdf.endpoint_context import load_endpoint_contexts
+
+
+class EndpointSparqlDraft(BaseModel):
+    query: str = Field(description="A complete read-only SPARQL query for one endpoint")
+    rationale: str = Field(default="", description="Brief reason for the query shape")
+
+
+_ENDPOINT_DRAFT_SYSTEM_PROMPT = """\
+You draft SPARQL for one registered external SPARQL endpoint.
+
+Rules:
+- Use only read-only SPARQL: SELECT, ASK, CONSTRUCT, or DESCRIBE.
+- Query only the provided endpoint vocabulary and examples.
+- Prefer direct patterns against this endpoint. Use SERVICE only when the intent
+  requires an open public SPARQL endpoint that this endpoint can query.
+- Keep result size bounded and compatible with the requested limit.
+- Include explicit PREFIX declarations for every prefixed name you use.
+- Prefer endpoint example queries as few-shot patterns when available.
+"""
 
 
 def _tool_error(exc: HTTPException) -> ValueError:
@@ -48,24 +69,189 @@ def _rdf_client() -> RdfServiceClient:
     return RdfServiceClient(get_registry_settings())
 
 
-def _load_knowledge_endpoint_contexts() -> list[dict[str, Any]]:
+def _load_knowledge_endpoint_context(endpoint_id: str) -> dict[str, Any]:
     session_factory = get_session_factory()
     with session_factory() as session:
-        return load_all_endpoint_contexts(session)
+        contexts = load_endpoint_contexts(session, [endpoint_id])
+    return contexts[0]
 
 
 async def _execute_sparql_query(
     *,
     query: str,
-    endpoints: list[str],
+    endpoint_id: str,
     limit: int,
 ) -> dict[str, Any]:
-    return await _rdf_client().query(
+    return await _rdf_client().query_endpoint(
+        thing_id=endpoint_id,
         query=query,
         limit=limit,
-        use_default_graph_as_union=True,
-        endpoints=endpoints,
     )
+
+
+def _as_model_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    return {}
+
+
+def _endpoint_draft_prompt(
+    *,
+    intent: str,
+    endpoint_context: dict[str, Any],
+    limit: int,
+    attempts: list[dict[str, Any]],
+) -> list[Any]:
+    payload: dict[str, Any] = {
+        "intent": intent,
+        "limit": limit,
+        "endpoint": endpoint_context,
+    }
+    if attempts:
+        payload["repair"] = {
+            "instruction": (
+                "The previous SPARQL draft failed. Draft a corrected query and do not "
+                "repeat the failed query unchanged."
+            ),
+            "previous_attempts": attempts,
+        }
+    return [
+        SystemMessage(content=_ENDPOINT_DRAFT_SYSTEM_PROMPT),
+        HumanMessage(content=json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)),
+    ]
+
+
+async def _draft_endpoint_query(
+    *,
+    llm: Any,
+    intent: str,
+    endpoint_context: dict[str, Any],
+    limit: int,
+    attempts: list[dict[str, Any]],
+) -> str:
+    draft_llm = llm.with_structured_output(EndpointSparqlDraft)
+    raw_draft = await draft_llm.ainvoke(
+        _endpoint_draft_prompt(
+            intent=intent,
+            endpoint_context=endpoint_context,
+            limit=limit,
+            attempts=attempts,
+        )
+    )
+    draft = _as_model_dict(raw_draft)
+    query = str(draft.get("query") or "").strip()
+    if not query:
+        raise ValueError("SPARQL draft was empty")
+    return query
+
+
+def _attempt_result_summary(result: dict[str, Any]) -> dict[str, Any]:
+    results = result.get("results")
+    if not isinstance(results, dict):
+        return {"type": "unknown"}
+    if isinstance(results.get("results"), dict):
+        bindings = results["results"].get("bindings")
+        return {
+            "type": "select",
+            "row_count": len(bindings) if isinstance(bindings, list) else 0,
+        }
+    if "boolean" in results:
+        return {"type": "ask", "boolean": bool(results.get("boolean"))}
+    return {"type": "json"}
+
+
+def _can_redraft(error: Exception) -> bool:
+    if isinstance(error, RdfServiceError):
+        return bool(error.retryable)
+    normalized = str(error).lower()
+    return not any(
+        marker in normalized
+        for marker in ("401", "403", "unauthorized", "forbidden", "credential")
+    )
+
+
+async def _query_endpoint_knowledge(
+    *,
+    intent: str,
+    endpoint_id: str,
+    limit: int,
+) -> dict[str, Any]:
+    endpoint_context = await asyncio.to_thread(_load_knowledge_endpoint_context, endpoint_id)
+    settings = get_registry_settings()
+    llm = make_llm(settings)
+    attempts: list[dict[str, Any]] = []
+    last_error = ""
+    query = ""
+
+    for attempt_number in range(1, 3):
+        try:
+            query = await _draft_endpoint_query(
+                llm=llm,
+                intent=intent,
+                endpoint_context=endpoint_context,
+                limit=limit,
+                attempts=attempts,
+            )
+        except Exception as exc:
+            last_error = f"SPARQL draft failed: {exc}"
+            break
+
+        try:
+            result = await _execute_sparql_query(
+                query=query,
+                endpoint_id=endpoint_id,
+                limit=limit,
+            )
+        except Exception as exc:
+            last_error = str(exc)
+            category = getattr(exc, "category", "")
+            attempts.append(
+                {
+                    "attempt": attempt_number,
+                    "query": query,
+                    "status": "error",
+                    "error": last_error,
+                    "error_category": category if isinstance(category, str) else "",
+                }
+            )
+            if attempt_number >= 2 or not _can_redraft(exc):
+                break
+            continue
+
+        attempts.append(
+            {
+                "attempt": attempt_number,
+                "query": query,
+                "status": "ok",
+                "result": _attempt_result_summary(result),
+            }
+        )
+        return {
+            "status": "ok",
+            "intent": intent,
+            "endpoint_id": endpoint_id,
+            "endpoint": endpoint_context,
+            "query": query,
+            "limit": limit,
+            "attempts": attempts,
+            "summary": "SPARQL endpoint query completed.",
+            "result": result,
+        }
+
+    return {
+        "status": "failed",
+        "error": last_error,
+        "intent": intent,
+        "endpoint_id": endpoint_id,
+        "endpoint": endpoint_context,
+        "query": query,
+        "limit": limit,
+        "attempts": attempts,
+        "summary": f"SPARQL endpoint query failed: {last_error}",
+        "result": None,
+    }
 
 
 def _thing_summary(payload: dict[str, Any]) -> dict[str, Any]:
@@ -178,40 +364,42 @@ async def things_search(query: str, k: int = 5) -> dict[str, Any]:
 @tool
 async def query_knowledge(
     intent: str,
+    endpoint_id: str,
     limit: int = 50,
 ) -> dict[str, Any]:
-    """Answer a structured knowledge intent over local Things and endpoint Things.
+    """Answer a structured knowledge intent against one registered SPARQL endpoint Thing.
 
-    Use this for exact filters over Thing metadata and for queries against
-    registered SPARQL endpoint Things or other external knowledge graphs. Pass
-    natural-language intent; the tool discovers endpoints and drafts one
-    read-only SPARQL query internally.
+    Use this when the user asks for facts from an external knowledge graph. Pass a
+    natural-language intent plus the endpoint Thing id; the tool drafts one read-only
+    SPARQL query for that endpoint and retries once on endpoint/query errors.
     """
     normalized_intent = intent.strip()
     if not normalized_intent:
         return {"error": "intent must not be empty", "intent": normalized_intent}
+    normalized_endpoint_id = endpoint_id.strip()
+    if not normalized_endpoint_id:
+        return {
+            "error": "endpoint_id must not be empty",
+            "intent": normalized_intent,
+            "endpoint_id": normalized_endpoint_id,
+        }
     normalized_limit = _bounded_int(limit, default=50, minimum=1, maximum=500)
-    settings = get_registry_settings()
     try:
-        return await run_sparql_query_subgraph(
+        return await _query_endpoint_knowledge(
             intent=normalized_intent,
+            endpoint_id=normalized_endpoint_id,
             limit=normalized_limit,
-            llm=make_llm(settings),
-            rdf_executor=_execute_sparql_query,
-            endpoint_context_loader=_load_knowledge_endpoint_contexts,
-            max_repair_retries=settings.SPARQL_SUBGRAPH_REPAIR_RETRIES,
         )
     except Exception as exc:
         return {
             "status": "failed",
             "error": str(exc),
             "intent": normalized_intent,
+            "endpoint_id": normalized_endpoint_id,
             "query": "",
             "limit": normalized_limit,
-            "selected_endpoints": [],
             "attempts": [],
-            "diagnostics": [],
-            "summary": f"SPARQL query failed: {exc}",
+            "summary": f"SPARQL endpoint query failed: {exc}",
             "result": None,
         }
 

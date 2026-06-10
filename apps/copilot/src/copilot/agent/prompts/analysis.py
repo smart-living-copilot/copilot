@@ -30,18 +30,12 @@ or other nested fields only when the inspected schema says the decoded value has
 those fields.
 
 ## Discovery Tool Choice
-Use query_knowledge when the request can be expressed as a precise filter over
-Thing Description metadata: affordance types, units, operation types, schemas,
-security schemes, forms/protocols, relationships between Things, or a query
-against a registered SPARQL endpoint or external knowledge graph. Use
-things_search when matching on meaning, fuzzy descriptions, room labels, or
-natural-language device purpose. When unsure, use things_search first, then
-narrow the candidates with query_knowledge. Call query_knowledge with a
-natural-language intent; the tool discovers registered endpoint Things and
-executes one SPARQL query internally. Do not hand-write raw SPARQL unless you
-are explaining the generated query in the final answer.
-If the user names a SPARQL endpoint or knowledge graph, call query_knowledge
-with the user's lookup as the intent.
+Use things_search when matching on meaning, fuzzy descriptions, room labels, or
+natural-language device purpose. Use things_list/things_get for catalog metadata
+once you have candidate Things. Use query_knowledge only when the user names or
+selects a registered SPARQL endpoint or external knowledge graph; pass that
+endpoint Thing id as endpoint_id plus the user's lookup as intent. Do not hand-write
+raw SPARQL unless you are explaining the generated query in the final answer.
 
 ## Typical workflow
 1. If the user's request is location-dependent ("what's the temperature here",
@@ -56,9 +50,9 @@ with the user's lookup as the intent.
    living room — it's 22°C there." Never just give the value without naming
    the room when the camera was the disambiguator.
 2. things_search to find the relevant device(s).
-   Use query_knowledge with an intent instead when you need an exact metadata filter, such as
-   all numeric properties with a unit, all actions with a given input schema,
-   or all Things exposing a specific WoT operation type.
+   Use things_list/things_get when you need an exact metadata check, such as
+   numeric properties with a unit, actions with a given input schema, or Things
+   exposing a specific WoT operation type.
 3. wot_get_action (or wot_get_property) to inspect the schema of each affordance you need.
    This tells you the exact input, output, and uriVariables.
 4. run_code to fetch data via wot.invoke_action / wot.read_property, process it with pandas,

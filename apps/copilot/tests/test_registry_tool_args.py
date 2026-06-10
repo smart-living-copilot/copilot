@@ -1,7 +1,6 @@
 import asyncio
 import unittest
 from contextlib import contextmanager
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from copilot.agent.tools import wot_registry as wot_registry_module
@@ -20,6 +19,7 @@ class RegistryToolArgsTestCase(unittest.TestCase):
         self.assertNotIn("things_sparql", tool_names)
         schema = query_knowledge.args_schema.model_json_schema()
         self.assertIn("intent", schema["properties"])
+        self.assertIn("endpoint_id", schema["properties"])
         self.assertIn("limit", schema["properties"])
         self.assertNotIn("endpoints", schema["properties"])
         self.assertNotIn("query", schema["properties"])
@@ -51,44 +51,32 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             {"error": "query must not be empty", "items": [], "query": ""},
         )
 
-    def test_query_knowledge_runs_subgraph(self) -> None:
+    def test_query_knowledge_runs_endpoint_loop(self) -> None:
         calls = []
 
-        async def fake_run_sparql_query_subgraph(**kwargs):
+        async def fake_query_endpoint_knowledge(**kwargs):
             calls.append(kwargs)
             return {
                 "status": "ok",
                 "intent": kwargs["intent"],
+                "endpoint_id": kwargs["endpoint_id"],
                 "query": "SELECT * WHERE { ?s ?p ?o }",
-                "selected_endpoints": [],
                 "attempts": [],
-                "diagnostics": [],
                 "summary": "Done",
                 "result": {
-                    "type": "select",
-                    "rows": [],
-                    "truncated": False,
+                    "results": {"head": {"vars": ["s"]}, "results": {"bindings": []}},
                 },
             }
 
-        with (
-            patch(
-                "copilot.agent.tools.wot_registry.run_sparql_query_subgraph",
-                side_effect=fake_run_sparql_query_subgraph,
-            ),
-            patch(
-                "copilot.agent.tools.wot_registry.get_registry_settings",
-                return_value=SimpleNamespace(SPARQL_SUBGRAPH_REPAIR_RETRIES=2),
-            ),
-            patch(
-                "copilot.agent.tools.wot_registry.make_llm",
-                return_value=object(),
-            ),
+        with patch(
+            "copilot.agent.tools.wot_registry._query_endpoint_knowledge",
+            side_effect=fake_query_endpoint_knowledge,
         ):
             response = asyncio.run(
                 query_knowledge.ainvoke(
                     {
                         "intent": " Find sensors with observations ",
+                        "endpoint_id": " urn:slc:endpoint:kg ",
                         "limit": 999,
                     }
                 )
@@ -98,34 +86,45 @@ class RegistryToolArgsTestCase(unittest.TestCase):
         self.assertEqual(response["summary"], "Done")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["intent"], "Find sensors with observations")
+        self.assertEqual(calls[0]["endpoint_id"], "urn:slc:endpoint:kg")
         self.assertEqual(calls[0]["limit"], 500)
-        self.assertEqual(calls[0]["max_repair_retries"], 2)
-        self.assertNotIn("endpoints", calls[0])
-        self.assertNotIn("max_attempts", calls[0])
 
     def test_query_knowledge_returns_tool_error_for_empty_query(self) -> None:
-        response = asyncio.run(query_knowledge.ainvoke({"intent": "   ", "limit": 5}))
+        response = asyncio.run(
+            query_knowledge.ainvoke(
+                {"intent": "   ", "endpoint_id": "urn:slc:endpoint:kg", "limit": 5}
+            )
+        )
 
         self.assertEqual(response, {"error": "intent must not be empty", "intent": ""})
 
-    def test_query_knowledge_returns_tool_error_for_subgraph_errors(self) -> None:
-        async def fake_run_sparql_query_subgraph(**_kwargs):
-            raise ValueError("subgraph failed")
+    def test_query_knowledge_returns_tool_error_for_empty_endpoint_id(self) -> None:
+        response = asyncio.run(
+            query_knowledge.ainvoke({"intent": "Find Things", "endpoint_id": "   ", "limit": 5})
+        )
 
-        with (
-            patch(
-                "copilot.agent.tools.wot_registry.run_sparql_query_subgraph",
-                side_effect=fake_run_sparql_query_subgraph,
-            ),
-            patch(
-                "copilot.agent.tools.wot_registry.make_llm",
-                return_value=object(),
-            ),
+        self.assertEqual(
+            response,
+            {
+                "error": "endpoint_id must not be empty",
+                "intent": "Find Things",
+                "endpoint_id": "",
+            },
+        )
+
+    def test_query_knowledge_returns_tool_error_for_endpoint_loop_errors(self) -> None:
+        async def fake_query_endpoint_knowledge(**_kwargs):
+            raise ValueError("endpoint query failed")
+
+        with patch(
+            "copilot.agent.tools.wot_registry._query_endpoint_knowledge",
+            side_effect=fake_query_endpoint_knowledge,
         ):
             response = asyncio.run(
                 query_knowledge.ainvoke(
                     {
                         "intent": "Find Things",
+                        "endpoint_id": "urn:slc:endpoint:kg",
                         "limit": 5,
                     }
                 )
@@ -135,14 +134,13 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             response,
             {
                 "status": "failed",
-                "error": "subgraph failed",
+                "error": "endpoint query failed",
                 "intent": "Find Things",
+                "endpoint_id": "urn:slc:endpoint:kg",
                 "query": "",
                 "limit": 5,
-                "selected_endpoints": [],
                 "attempts": [],
-                "diagnostics": [],
-                "summary": "SPARQL query failed: subgraph failed",
+                "summary": "SPARQL endpoint query failed: endpoint query failed",
                 "result": None,
             },
         )
@@ -161,8 +159,8 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             calls.append(("factory", None))
             return fake_session_context()
 
-        def fake_load_all_endpoint_contexts(session):
-            calls.append(("load", session))
+        def fake_load_endpoint_contexts(session, endpoint_ids):
+            calls.append(("load", session, endpoint_ids))
             return [{"id": "urn:slc:endpoint:kg"}]
 
         with (
@@ -171,16 +169,17 @@ class RegistryToolArgsTestCase(unittest.TestCase):
                 return_value=fake_session_factory,
             ),
             patch(
-                "copilot.agent.tools.wot_registry.load_all_endpoint_contexts",
-                side_effect=fake_load_all_endpoint_contexts,
+                "copilot.agent.tools.wot_registry.load_endpoint_contexts",
+                side_effect=fake_load_endpoint_contexts,
             ),
         ):
-            response = wot_registry_module._load_knowledge_endpoint_contexts()
+            response = wot_registry_module._load_knowledge_endpoint_context("urn:slc:endpoint:kg")
 
-        assert response == [{"id": "urn:slc:endpoint:kg"}]
+        assert response == {"id": "urn:slc:endpoint:kg"}
         assert calls[0] == ("factory", None)
         assert calls[1][0] == "open"
         assert calls[2][0] == "load"
+        assert calls[2][2] == ["urn:slc:endpoint:kg"]
         assert calls[3][0] == "close"
 
 

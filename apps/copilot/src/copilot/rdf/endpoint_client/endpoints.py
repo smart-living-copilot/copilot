@@ -1,21 +1,16 @@
-"""Endpoint-Thing metadata: parse the SPARQL service description out of a TD, resolve it
-(with its stored credential) into a `FederatedEndpoint`, and map between thing-ids and the
-internal proxy path.
-"""
+"""Endpoint-Thing metadata and credential resolution."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote, unquote
 
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from copilot.catalog.credentials.models import CredentialRecord
 from copilot.catalog.credentials.store import get_credential
 from copilot.catalog.models import Thing
-from copilot.rdf.federation.ssrf import validate_endpoint_url
+from copilot.rdf.endpoint_client.ssrf import validate_endpoint_url
 
 _SD_SERVICE_TYPES = {
     "sd:Service",
@@ -51,7 +46,7 @@ class EndpointMetadata:
 
 
 @dataclass(frozen=True)
-class FederatedEndpoint:
+class SparqlEndpoint:
     thing_id: str
     endpoint_url: str
     security_name: str | None
@@ -102,20 +97,6 @@ def _document_id_values(document: dict[str, Any], keys: tuple[str, ...]) -> list
     return values
 
 
-def endpoint_proxy_url(base_url: str, thing_id: str) -> str:
-    return f"{base_url.rstrip('/')}/rdf/federate/{quote(thing_id, safe='')}/sparql"
-
-
-def thing_id_from_proxy_path(encoded_thing_id_path: str) -> str:
-    suffix = "/sparql"
-    if not encoded_thing_id_path.endswith(suffix):
-        raise HTTPException(status_code=404, detail="Federated SPARQL endpoint not found")
-    encoded_thing_id = encoded_thing_id_path[: -len(suffix)]
-    if not encoded_thing_id:
-        raise HTTPException(status_code=404, detail="Federated SPARQL endpoint not found")
-    return unquote(encoded_thing_id)
-
-
 def endpoint_metadata_from_document(
     *,
     thing_id: str,
@@ -128,17 +109,17 @@ def endpoint_metadata_from_document(
         if (candidate := _id_value(value))
     }
     if not type_values.intersection(_SD_SERVICE_TYPES):
-        raise ValueError("Federated endpoint Thing must declare @type sd:Service")
+        raise ValueError("SPARQL endpoint Thing must declare @type sd:Service")
 
     supported_languages = set(_document_id_values(document, _SD_SUPPORTED_LANGUAGE_KEYS))
     if supported_languages and not supported_languages.intersection(_SPARQL_11_QUERY_TYPES):
-        raise ValueError("Federated endpoint Thing must support sd:SPARQL11Query")
+        raise ValueError("SPARQL endpoint Thing must support sd:SPARQL11Query")
     if not supported_languages:
-        raise ValueError("Federated endpoint Thing must declare sd:supportedLanguage")
+        raise ValueError("SPARQL endpoint Thing must declare sd:supportedLanguage")
 
     endpoint_url = _first_id_value(_document_value(document, _SD_ENDPOINT_KEYS))
     if endpoint_url is None:
-        raise ValueError("Federated endpoint Thing must declare sd:endpoint")
+        raise ValueError("SPARQL endpoint Thing must declare sd:endpoint")
     validate_endpoint_url(endpoint_url, settings)
 
     security_name = _first_id_value(document.get("security"))
@@ -151,11 +132,11 @@ def endpoint_metadata_from_document(
     ):
         security_definition = dict(security_definitions[security_name])
     else:
-        raise ValueError(f"Federated endpoint Thing is missing securityDefinitions.{security_name}")
+        raise ValueError(f"SPARQL endpoint Thing is missing securityDefinitions.{security_name}")
 
     scheme = str(security_definition.get("scheme") or "").strip().lower()
     if not scheme:
-        raise ValueError("Federated endpoint security definition must declare a scheme")
+        raise ValueError("SPARQL endpoint security definition must declare a scheme")
 
     return EndpointMetadata(
         thing_id=thing_id,
@@ -166,15 +147,15 @@ def endpoint_metadata_from_document(
     )
 
 
-def resolve_federated_endpoint(
+def resolve_sparql_endpoint(
     session: Session,
     *,
     thing_id: str,
     settings: Any,
-) -> FederatedEndpoint:
+) -> SparqlEndpoint:
     thing = session.get(Thing, thing_id)
     if thing is None:
-        raise ValueError(f"Federated endpoint Thing not found: {thing_id}")
+        raise ValueError(f"SPARQL endpoint Thing not found: {thing_id}")
 
     metadata = endpoint_metadata_from_document(
         thing_id=thing_id,
@@ -184,16 +165,16 @@ def resolve_federated_endpoint(
     credential = None
     if metadata.scheme != "nosec":
         if metadata.security_name is None:
-            raise ValueError("Federated endpoint credential requires a security name")
+            raise ValueError("SPARQL endpoint credential requires a security name")
         credential = get_credential(session, thing_id, metadata.security_name)
         if credential is None:
             raise ValueError(
-                f"Federated endpoint credential not found: {thing_id}#{metadata.security_name}"
+                f"SPARQL endpoint credential not found: {thing_id}#{metadata.security_name}"
             )
         if credential.scheme.strip().lower() != metadata.scheme:
-            raise ValueError("Federated endpoint credential scheme does not match the TD")
+            raise ValueError("SPARQL endpoint credential scheme does not match the TD")
 
-    return FederatedEndpoint(
+    return SparqlEndpoint(
         thing_id=thing_id,
         endpoint_url=metadata.endpoint_url,
         security_name=metadata.security_name,
