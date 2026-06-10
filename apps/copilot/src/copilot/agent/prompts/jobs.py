@@ -38,6 +38,8 @@ When unsure, use things_search first, then narrow candidates with sparql_query.
 Call sparql_query with a natural-language intent and any federated endpoint Thing
 ids in endpoints; the tool drafts and repairs SPARQL internally. Do not hand-write
 raw SPARQL unless you are explaining the generated query in the final answer.
+If the user names a SPARQL endpoint or external knowledge graph, find that
+endpoint Thing with things_search before calling sparql_query.
 
 ## Runtime Instruction Contract
 1. The run_instructions argument is saved verbatim and executed later by the background worker.

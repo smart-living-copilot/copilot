@@ -1,6 +1,13 @@
 import unittest
 
-from copilot.agent.prompts import ANALYSIS_PROMPT, CONTROL_PROMPT, JOBS_PROMPT
+from copilot.agent.prompts import ANALYSIS_PROMPT, CONTROL_PROMPT, JOBS_PROMPT, ROUTER_PROMPT
+
+
+class RouterGuidanceTestCase(unittest.TestCase):
+    def test_router_prompt_classifies_external_kg_requests_as_analysis(self) -> None:
+        self.assertIn("external knowledge graphs", ROUTER_PROMPT)
+        self.assertIn("SPARQL endpoint", ROUTER_PROMPT)
+        self.assertIn("RDF entity", ROUTER_PROMPT)
 
 
 class AnalysisGuidanceTestCase(unittest.TestCase):
@@ -31,6 +38,9 @@ class AnalysisGuidanceTestCase(unittest.TestCase):
         self.assertIn("natural-language", ANALYSIS_PROMPT)
         self.assertIn("Do not hand-write", ANALYSIS_PROMPT)
         self.assertIn("raw SPARQL", ANALYSIS_PROMPT)
+        self.assertIn("external knowledge graph", ANALYSIS_PROMPT)
+        self.assertIn("first use things_search", ANALYSIS_PROMPT)
+        self.assertIn("then call sparql_query", ANALYSIS_PROMPT)
 
 
 class ControlGuidanceTestCase(unittest.TestCase):

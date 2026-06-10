@@ -200,11 +200,11 @@ async def sparql_query(
 ) -> dict[str, Any]:
     """Answer a structured RDF/SPARQL intent over local Things and endpoint Things.
 
-    Use this for exact filters over Thing metadata: affordance names, units,
-    operation types, schemas, forms/protocols, security schemes, and
-    relationships. Pass natural-language intent and any federated endpoint Thing
-    ids; the tool drafts, executes, and repairs SPARQL internally. Use
-    things_search for fuzzy semantic discovery.
+    Use this for exact filters over Thing metadata and for queries against
+    registered SPARQL endpoint Things or other external knowledge graphs. Pass
+    natural-language intent and any federated endpoint
+    Thing ids; the tool drafts, executes, and repairs SPARQL internally. Use
+    things_search first when you need to discover the endpoint Thing id.
     """
     normalized_intent = intent.strip()
     if not normalized_intent:
