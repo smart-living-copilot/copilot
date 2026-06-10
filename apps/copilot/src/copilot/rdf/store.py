@@ -8,18 +8,18 @@ from typing import Any
 
 from pyoxigraph import NamedNode, Quad, QueryResultsFormat, RdfFormat, Store
 
+from copilot.rdf.contexts import expand_cached_jsonld_contexts
 from copilot.rdf.iris import thing_graph_iri
 from copilot.thing_indexer.summary_utils import clean_text, normalize_thing_td_payload
 
 _READ_ONLY_QUERY_KINDS = {"SELECT", "ASK", "CONSTRUCT", "DESCRIBE"}
-_COMMENT_RE = re.compile(r"(?m)#.*$")
 _PROLOG_RE = re.compile(r"(?is)^\s*(?:BASE\s+<[^>]*>|PREFIX\s+[^:\s]*:\s*<[^>]*>)\s*")
 _QUERY_KIND_RE = re.compile(r"(?is)^([A-Za-z]+)\b")
 
 
 def sparql_query_kind(query: str) -> str:
     """Return the leading SPARQL query form after BASE/PREFIX declarations."""
-    remaining = _COMMENT_RE.sub("", query).strip()
+    remaining = query.strip()
     while True:
         match = _PROLOG_RE.match(remaining)
         if match is None:
@@ -108,7 +108,7 @@ class RdfStoreService:
 
     def _upsert_thing_sync(self, thing_id: str, thing_td: dict[str, Any]) -> None:
         graph_name = NamedNode(thing_graph_iri(thing_id))
-        payload = json.dumps(thing_td, ensure_ascii=False)
+        payload = json.dumps(expand_cached_jsonld_contexts(thing_td), ensure_ascii=False)
 
         parsed_store = Store()
         parsed_store.load(
@@ -133,7 +133,7 @@ class RdfStoreService:
         parsed_by_graph: list[tuple[NamedNode, list[Quad]]] = []
         for thing_id, document in things:
             graph_name = NamedNode(thing_graph_iri(thing_id))
-            payload = json.dumps(document, ensure_ascii=False)
+            payload = json.dumps(expand_cached_jsonld_contexts(document), ensure_ascii=False)
             parsed_store = Store()
             parsed_store.load(
                 input=payload,

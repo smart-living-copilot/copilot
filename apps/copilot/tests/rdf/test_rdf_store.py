@@ -3,8 +3,10 @@ from __future__ import annotations
 import pytest
 
 from copilot.rdf.iris import RDF_THING_GRAPH_PREFIX, thing_graph_iri
+from copilot.rdf.contexts import expand_cached_jsonld_contexts
 from copilot.rdf.runtime import RdfStreamConfig
 from copilot.rdf.store import RdfStoreService, sparql_query_kind
+from copilot.jobs.records.td import build_virtual_record_td
 
 
 def _jsonld_thing(thing_id: str, name: str) -> dict[str, object]:
@@ -18,6 +20,21 @@ def _jsonld_thing(thing_id: str, name: str) -> dict[str, object]:
         "name": name,
         "kind": "sensor",
     }
+
+
+def _minted_record_td() -> dict[str, object]:
+    return build_virtual_record_td(
+        thing_id="urn:smart-living-copilot:records:job-1",
+        title="Generated record store",
+        description="Stores generated room observations.",
+        record_schema={
+            "type": "object",
+            "properties": {
+                "temperature": {"type": "number", "unit": "CEL"},
+                "room": {"type": "string"},
+            },
+        },
+    )
 
 
 def _values(response: dict[str, object], variable: str) -> list[str]:
@@ -54,6 +71,16 @@ def test_sparql_query_kind_allows_only_read_queries():
         sparql_query_kind("DELETE WHERE { ?s ?p ?o }")
 
 
+def test_cached_context_expansion_rejects_unknown_remote_contexts():
+    with pytest.raises(ValueError, match="Unsupported remote JSON-LD context"):
+        expand_cached_jsonld_contexts(
+            {
+                "@context": "https://example.com/not-cached/context",
+                "@id": "urn:thing:unknown-context",
+            }
+        )
+
+
 @pytest.mark.anyio
 async def test_rdf_store_loads_each_thing_into_its_own_named_graph(tmp_path):
     store = RdfStoreService(str(tmp_path / "rdf"))
@@ -68,7 +95,7 @@ async def test_rdf_store_loads_each_thing_into_its_own_named_graph(tmp_path):
             }
             ORDER BY ?name
         """,
-        limit=10,
+        limit=100,
     )
 
     assert response["type"] == "select"
@@ -77,6 +104,39 @@ async def test_rdf_store_loads_each_thing_into_its_own_named_graph(tmp_path):
         thing_graph_iri("urn:thing:alpha"),
         thing_graph_iri("urn:thing:beta"),
     ]
+
+
+@pytest.mark.anyio
+async def test_rdf_store_loads_minted_td_with_cached_wot_context(tmp_path):
+    store = RdfStoreService(str(tmp_path / "rdf"))
+    thing_id = "urn:smart-living-copilot:records:job-1"
+
+    await store.upsert_thing(thing_id, _minted_record_td())
+
+    response = await store.query(
+        query="""
+            PREFIX td: <https://www.w3.org/2019/wot/td#>
+            PREFIX hctl: <https://www.w3.org/2019/wot/hypermedia#>
+            SELECT ?title ?propertyName ?actionName ?href WHERE {
+                ?thing td:title ?title ;
+                    td:hasPropertyAffordance ?property ;
+                    td:hasActionAffordance ?action .
+                ?property td:name ?propertyName .
+                ?action td:name ?actionName .
+                ?property td:hasForm ?form .
+                ?form hctl:hasTarget ?href .
+            }
+        """,
+        limit=100,
+    )
+
+    rows = response.get("rows")
+    assert isinstance(rows, list)
+    assert rows
+    assert _values(response, "title")[0] == "Generated record store"
+    assert "latest_temperature" in _values(response, "propertyName")
+    assert "query_records" in _values(response, "actionName")
+    assert "urn:smart-living-copilot:virtual-records:property" in _values(response, "href")
 
 
 @pytest.mark.anyio
