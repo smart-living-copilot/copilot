@@ -127,6 +127,9 @@ async def query_rdf(request: Request, payload: RdfQueryRequest) -> dict[str, Any
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("RDF query failed")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/rdf/reindex", response_model=RdfReindexResponse)

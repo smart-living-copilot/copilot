@@ -45,6 +45,7 @@ Rules:
 - Prefer SERVICE SILENT when a remote endpoint is optional or might be slow.
 - Never invent external endpoint URLs; only use provided endpoint Thing ids.
 - Keep result size bounded and compatible with the requested limit.
+- Include explicit PREFIX declarations for every prefixed name you use.
 - Use endpoint examples as few-shot patterns when available.
 - If repairing, address the exact prior error or empty-result cause.
 """

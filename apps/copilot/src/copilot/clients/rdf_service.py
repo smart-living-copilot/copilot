@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import aiohttp
@@ -12,6 +13,27 @@ def _setting_value(settings: Any, *names: str, default: Any = None) -> Any:
         if hasattr(settings, name):
             return getattr(settings, name)
     return default
+
+
+def _decode_response_payload(status: int, text: str) -> dict[str, Any]:
+    try:
+        data = json.loads(text) if text else None
+    except json.JSONDecodeError:
+        data = None
+
+    if status >= 400:
+        if isinstance(data, dict):
+            detail = data.get("detail")
+            if isinstance(detail, str) and detail.strip():
+                raise ValueError(detail)
+            if detail is not None:
+                raise ValueError(json.dumps(detail, ensure_ascii=False, default=str))
+        body = text.strip()
+        raise ValueError(body or f"rdf_service request failed with status {status}")
+
+    if not isinstance(data, dict):
+        raise ValueError("rdf_service returned a non-object response")
+    return data
 
 
 class RdfServiceClient:
@@ -71,12 +93,5 @@ class RdfServiceClient:
                 json=payload,
                 headers=self._headers,
             ) as response:
-                data = await response.json(content_type=None)
-                if response.status >= 400:
-                    detail = data.get("detail") if isinstance(data, dict) else None
-                    raise ValueError(
-                        detail or f"rdf_service request failed with status {response.status}"
-                    )
-                if not isinstance(data, dict):
-                    raise ValueError("rdf_service returned a non-object response")
-                return data
+                text = await response.text()
+                return _decode_response_payload(response.status, text)

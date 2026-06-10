@@ -5,6 +5,7 @@ import pytest
 from copilot.agent.sparql_subgraph import (
     SparqlDraft,
     SparqlSummary,
+    _DRAFT_SYSTEM_PROMPT,
     run_sparql_query_subgraph,
 )
 
@@ -80,6 +81,10 @@ def _select_result(rows: list[dict[str, object]]) -> dict[str, object]:
         "rows": rows,
         "truncated": False,
     }
+
+
+def test_sparql_draft_prompt_requires_prefix_declarations():
+    assert "explicit PREFIX declarations" in _DRAFT_SYSTEM_PROMPT
 
 
 @pytest.mark.anyio
