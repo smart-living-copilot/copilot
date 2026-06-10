@@ -182,6 +182,27 @@ class RegistryToolArgsTestCase(unittest.TestCase):
         assert calls[2][2] == ["urn:slc:endpoint:kg"]
         assert calls[3][0] == "close"
 
+    def test_internal_sparql_llm_disables_streaming_when_supported(self) -> None:
+        class FakeLlm:
+            def __init__(self) -> None:
+                self.update = None
+
+            def model_copy(self, *, update):
+                self.update = update
+                return "copied-llm"
+
+        llm = FakeLlm()
+
+        response = wot_registry_module._disable_internal_streaming(llm)
+
+        self.assertEqual(response, "copied-llm")
+        self.assertEqual(llm.update, {"disable_streaming": True})
+
+    def test_internal_sparql_llm_falls_back_for_test_doubles(self) -> None:
+        llm = object()
+
+        self.assertIs(wot_registry_module._disable_internal_streaming(llm), llm)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -97,6 +97,14 @@ def _as_model_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _disable_internal_streaming(llm: Any) -> Any:
+    """Keep internal structured-output draft calls out of the parent agent stream."""
+    try:
+        return llm.model_copy(update={"disable_streaming": True})
+    except (AttributeError, TypeError):
+        return llm
+
+
 def _endpoint_draft_prompt(
     *,
     intent: str,
@@ -180,7 +188,7 @@ async def _query_endpoint_knowledge(
 ) -> dict[str, Any]:
     endpoint_context = await asyncio.to_thread(_load_knowledge_endpoint_context, endpoint_id)
     settings = get_registry_settings()
-    llm = make_llm(settings)
+    llm = _disable_internal_streaming(make_llm(settings))
     attempts: list[dict[str, Any]] = []
     last_error = ""
     query = ""
