@@ -90,6 +90,14 @@ def test_rewrite_federated_query_rejects_undeclared_service_targets():
         )
 
 
+def test_rewrite_federated_query_rejects_variable_service_targets():
+    with pytest.raises(ValueError, match="endpoint Thing ids"):
+        rewrite_federated_query(
+            "SELECT * WHERE { SERVICE ?endpoint { ?s ?p ?o } }",
+            {"urn:slc:endpoint:energy": "http://localhost:8124/rdf/federate/x/sparql"},
+        )
+
+
 def test_service_iris_ignores_comments_strings_and_hash_iris():
     query = """
         PREFIX brick: <https://brickschema.org/schema/Brick#>

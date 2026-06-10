@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,6 +40,20 @@ def _minted_record_td() -> dict[str, object]:
             },
         },
     )
+
+
+def _endpoint_td(endpoint_url: str) -> dict[str, object]:
+    return {
+        "@context": {
+            "sd": "http://www.w3.org/ns/sparql-service-description#",
+        },
+        "@type": ["sd:Service"],
+        "id": "urn:slc:endpoint:building",
+        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+        "security": "nosec_sc",
+        "sd:endpoint": {"@id": endpoint_url},
+        "sd:supportedLanguage": {"@id": "sd:SPARQL11Query"},
+    }
 
 
 class _FakeSparqlEndpoint(BaseHTTPRequestHandler):
@@ -245,6 +260,26 @@ async def test_rdf_store_queries_named_graphs_through_default_union(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_rdf_store_select_reports_truncation(tmp_path):
+    store = RdfStoreService(str(tmp_path / "rdf"))
+    await store.upsert_thing("urn:thing:alpha", _jsonld_thing("urn:thing:alpha", "Alpha"))
+    await store.upsert_thing("urn:thing:beta", _jsonld_thing("urn:thing:beta", "Beta"))
+    await store.upsert_thing("urn:thing:gamma", _jsonld_thing("urn:thing:gamma", "Gamma"))
+
+    response = await store.query(
+        query="""
+            PREFIX schema: <http://schema.org/>
+            SELECT ?name WHERE { ?thing schema:name ?name . }
+            ORDER BY ?name
+        """,
+        limit=2,
+    )
+
+    assert _values(response, "name") == ["Alpha", "Beta"]
+    assert response["truncated"] is True
+
+
+@pytest.mark.anyio
 async def test_rdf_store_serializes_construct_results(tmp_path):
     store = RdfStoreService(str(tmp_path / "rdf"))
     await store.upsert_thing("urn:thing:alpha", _jsonld_thing("urn:thing:alpha", "Alpha"))
@@ -262,6 +297,43 @@ async def test_rdf_store_serializes_construct_results(tmp_path):
     assert response["type"] == "construct"
     assert response["format"] == "application/n-triples"
     assert '"Alpha"' in response["rdf"]
+
+
+@pytest.mark.anyio
+async def test_rdf_store_limits_construct_results(tmp_path):
+    store = RdfStoreService(str(tmp_path / "rdf"))
+    await store.upsert_thing("urn:thing:alpha", _jsonld_thing("urn:thing:alpha", "Alpha"))
+    await store.upsert_thing("urn:thing:beta", _jsonld_thing("urn:thing:beta", "Beta"))
+
+    response = await store.query(
+        query="""
+            PREFIX schema: <http://schema.org/>
+            CONSTRUCT { ?thing schema:name ?name } WHERE {
+                ?thing schema:name ?name .
+            }
+            ORDER BY ?name
+        """,
+        limit=1,
+    )
+
+    assert response["type"] == "construct"
+    assert response["rdf"].count("schema.org/name") == 1
+    assert response["truncated"] is True
+
+
+@pytest.mark.anyio
+async def test_rdf_store_validates_endpoint_urls_on_upsert(tmp_path):
+    settings = SimpleNamespace(
+        RDF_FEDERATION_ALLOWED_HOSTS="",
+        RDF_FEDERATION_ALLOW_PRIVATE_ENDPOINTS=False,
+    )
+    store = RdfStoreService(str(tmp_path / "rdf"), settings=settings)
+
+    with pytest.raises(ValueError, match="private or reserved"):
+        await store.upsert_thing(
+            "urn:slc:endpoint:building",
+            _endpoint_td("http://127.0.0.1:9999/sparql"),
+        )
 
 
 @pytest.mark.anyio

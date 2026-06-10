@@ -29,6 +29,8 @@ class SparqlQueryState(TypedDict, total=False):
     attempts: list[dict[str, Any]]
     draft_query: str
     last_error: str
+    last_error_category: str
+    last_error_retryable: bool
     last_result: dict[str, Any]
     diagnostics: list[dict[str, str]]
     final_summary: str
@@ -129,6 +131,7 @@ def _append_attempt(
     status: str,
     diagnostics: list[dict[str, str]],
     error: str | None = None,
+    error_category: str | None = None,
     result: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     attempts = list(state.get("attempts", []))
@@ -140,13 +143,25 @@ def _append_attempt(
     }
     if error:
         attempt["error"] = error
+    if error_category:
+        attempt["error_category"] = error_category
     if result is not None:
         attempt["result"] = _attempt_result_summary(result)
     attempts.append(attempt)
     return attempts
 
 
-def _is_retryable_executor_error(error: str) -> bool:
+def _executor_error_metadata(error: Exception) -> tuple[str, bool | None]:
+    category = getattr(error, "category", "")
+    retryable = getattr(error, "retryable", None)
+    if isinstance(category, str) and category:
+        return category, bool(retryable)
+    return "", None
+
+
+def _is_retryable_executor_error(error: str, *, category: str = "") -> bool:
+    if category:
+        return category not in {"auth", "security", "credential"}
     normalized = error.lower()
     if any(
         marker in normalized
@@ -182,7 +197,15 @@ def _can_retry(state: SparqlQueryState, *, max_repair_retries: int) -> bool:
     if state.get("status") != "failed":
         return False
     last_error = state.get("last_error", "")
-    if not last_error or not _is_retryable_executor_error(last_error):
+    if not last_error:
+        return False
+    retryable = state.get("last_error_retryable")
+    if retryable is False:
+        return False
+    if retryable is not True and not _is_retryable_executor_error(
+        last_error,
+        category=state.get("last_error_category", ""),
+    ):
         return False
     return len(state.get("attempts", [])) <= max_repair_retries
 
@@ -264,6 +287,8 @@ def build_sparql_query_subgraph(
                 "selected_endpoints": [],
                 "diagnostics": [],
                 "last_error": str(exc),
+                "last_error_category": "context",
+                "last_error_retryable": False,
                 "status": "failed",
             }
         return {
@@ -271,6 +296,8 @@ def build_sparql_query_subgraph(
             "selected_endpoints": [],
             "diagnostics": [],
             "last_error": "",
+            "last_error_category": "",
+            "last_error_retryable": False,
         }
 
     async def draft_query(state: SparqlQueryState) -> dict[str, Any]:
@@ -286,6 +313,8 @@ def build_sparql_query_subgraph(
                 "selected_endpoints": [],
                 "diagnostics": [],
                 "last_error": f"SPARQL draft failed: {exc}",
+                "last_error_category": "draft",
+                "last_error_retryable": False,
                 "status": "failed",
             }
         return {
@@ -296,6 +325,8 @@ def build_sparql_query_subgraph(
             ),
             "diagnostics": service_constraint_diagnostics(query),
             "last_error": "",
+            "last_error_category": "",
+            "last_error_retryable": False,
         }
 
     async def execute_query(state: SparqlQueryState) -> dict[str, Any]:
@@ -309,8 +340,15 @@ def build_sparql_query_subgraph(
             )
         except Exception as exc:
             error = str(exc)
+            category, retryable = _executor_error_metadata(exc)
             return {
                 "last_error": error,
+                "last_error_category": category,
+                "last_error_retryable": (
+                    retryable
+                    if retryable is not None
+                    else _is_retryable_executor_error(error, category=category)
+                ),
                 "diagnostics": diagnostics,
                 "status": "failed",
                 "attempts": _append_attempt(
@@ -319,11 +357,14 @@ def build_sparql_query_subgraph(
                     status="error",
                     diagnostics=diagnostics,
                     error=error,
+                    error_category=category or None,
                 ),
             }
 
         return {
             "last_error": "",
+            "last_error_category": "",
+            "last_error_retryable": False,
             "last_result": result,
             "diagnostics": diagnostics,
             "status": _result_status(result),

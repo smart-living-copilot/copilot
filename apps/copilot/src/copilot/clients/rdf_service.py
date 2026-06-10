@@ -8,6 +8,21 @@ import aiohttp
 from copilot.core.config import Settings
 
 
+class RdfServiceError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int,
+        category: str = "unknown",
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.category = category
+        self.retryable = retryable
+
+
 def _setting_value(settings: Any, *names: str, default: Any = None) -> Any:
     for name in names:
         if hasattr(settings, name):
@@ -24,12 +39,30 @@ def _decode_response_payload(status: int, text: str) -> dict[str, Any]:
     if status >= 400:
         if isinstance(data, dict):
             detail = data.get("detail")
+            if isinstance(detail, dict):
+                message = detail.get("message")
+                if not isinstance(message, str) or not message.strip():
+                    message = json.dumps(detail, ensure_ascii=False, default=str)
+                category = detail.get("category")
+                retryable = detail.get("retryable")
+                raise RdfServiceError(
+                    message,
+                    status=status,
+                    category=category if isinstance(category, str) else "unknown",
+                    retryable=bool(retryable),
+                )
             if isinstance(detail, str) and detail.strip():
-                raise ValueError(detail)
+                raise RdfServiceError(detail, status=status)
             if detail is not None:
-                raise ValueError(json.dumps(detail, ensure_ascii=False, default=str))
+                raise RdfServiceError(
+                    json.dumps(detail, ensure_ascii=False, default=str),
+                    status=status,
+                )
         body = text.strip()
-        raise ValueError(body or f"rdf_service request failed with status {status}")
+        raise RdfServiceError(
+            body or f"rdf_service request failed with status {status}",
+            status=status,
+        )
 
     if not isinstance(data, dict):
         raise ValueError("rdf_service returned a non-object response")

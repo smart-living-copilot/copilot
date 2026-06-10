@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -24,6 +26,77 @@ from copilot.rdf.models import RdfQueryRequest, RdfQueryResponse, RdfReindexResp
 from copilot.rdf.store import RdfStoreService
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RdfErrorDetail:
+    category: str
+    message: str
+    retryable: bool
+    status_code: int
+
+    def as_response_detail(self) -> dict[str, Any]:
+        return {
+            "category": self.category,
+            "message": self.message,
+            "retryable": self.retryable,
+        }
+
+
+def _query_error_detail(exc: Exception) -> RdfErrorDetail:
+    message = str(exc) or exc.__class__.__name__
+    normalized = message.lower()
+    if isinstance(exc, SyntaxError) or "syntax" in normalized or "parse" in normalized:
+        return RdfErrorDetail(
+            category="syntax",
+            message=message,
+            retryable=True,
+            status_code=400,
+        )
+    if any(marker in normalized for marker in ("401", "unauthorized", "credential")):
+        return RdfErrorDetail(
+            category="auth",
+            message=message,
+            retryable=False,
+            status_code=401,
+        )
+    if any(marker in normalized for marker in ("403", "forbidden", "security", "scheme")):
+        return RdfErrorDetail(
+            category="auth",
+            message=message,
+            retryable=False,
+            status_code=403,
+        )
+    if any(marker in normalized for marker in ("timeout", "timed out", "504")):
+        return RdfErrorDetail(
+            category="timeout",
+            message=message,
+            retryable=True,
+            status_code=504,
+        )
+    if any(
+        marker in normalized
+        for marker in ("response exceeded", "size limit", "too large", "413")
+    ):
+        return RdfErrorDetail(
+            category="response_size",
+            message=message,
+            retryable=True,
+            status_code=413,
+        )
+    if isinstance(exc, ValueError):
+        return RdfErrorDetail(
+            category="validation",
+            message=message,
+            retryable=True,
+            status_code=400,
+        )
+    return RdfErrorDetail(
+        category="executor",
+        message=message,
+        retryable=True,
+        status_code=500,
+    )
 
 
 def _settings_from_app(request: Request) -> Any:
@@ -60,12 +133,42 @@ def _resolve_proxy_endpoint(thing_id: str, settings: Any):
         return resolve_federated_endpoint(session, thing_id=thing_id, settings=settings)
 
 
+def _setting_value(settings: Any, *names: str, default: Any = None) -> Any:
+    for name in names:
+        if hasattr(settings, name):
+            return getattr(settings, name)
+    return default
+
+
+def _federation_proxy_loopback_only(settings: Any) -> bool:
+    return bool(
+        _setting_value(
+            settings,
+            "RDF_FEDERATION_PROXY_LOOPBACK_ONLY",
+            "rdf_federation_proxy_loopback_only",
+            default=True,
+        )
+    )
+
+
+def _enforce_loopback_proxy_caller(request: Request, settings: Any) -> None:
+    if not _federation_proxy_loopback_only(settings):
+        return
+    host = request.client.host if request.client else ""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Federated proxy requires loopback access")
+    if not address.is_loopback:
+        raise HTTPException(status_code=403, detail="Federated proxy requires loopback access")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     logging.basicConfig(level=settings.log_level)
     await asyncio.to_thread(init_db)
-    rdf_store = RdfStoreService(settings.RDF_STORE_PATH)
+    rdf_store = RdfStoreService(settings.RDF_STORE_PATH, settings=settings)
     state = RdfConsumerState()
     stop_event = asyncio.Event()
     consumer = RdfStreamConsumer(
@@ -125,11 +228,14 @@ async def query_rdf(request: Request, payload: RdfQueryRequest) -> dict[str, Any
             use_default_graph_as_union=payload.use_default_graph_as_union,
             service_rewrites=service_rewrites,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("RDF query failed")
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        detail = _query_error_detail(exc)
+        if detail.category == "executor":
+            logger.exception("RDF query failed")
+        raise HTTPException(
+            status_code=detail.status_code,
+            detail=detail.as_response_detail(),
+        ) from exc
 
 
 @app.post("/rdf/reindex", response_model=RdfReindexResponse)
@@ -147,6 +253,7 @@ async def reindex_rdf(request: Request) -> dict[str, Any]:
 @app.api_route("/rdf/federate/{encoded_thing_id:path}", methods=["GET", "POST"])
 async def federate_sparql(encoded_thing_id: str, request: Request):
     settings = _settings_from_app(request)
+    _enforce_loopback_proxy_caller(request, settings)
     thing_id = thing_id_from_proxy_path(encoded_thing_id)
     try:
         endpoint = await asyncio.to_thread(_resolve_proxy_endpoint, thing_id, settings)

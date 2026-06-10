@@ -19,7 +19,7 @@ class RaisingRdfStore:
 
 
 @pytest.mark.anyio
-async def test_query_rdf_returns_json_error_for_unexpected_query_failures() -> None:
+async def test_query_rdf_returns_structured_error_for_query_failures() -> None:
     request = SimpleNamespace(
         app=SimpleNamespace(
             state=SimpleNamespace(
@@ -41,4 +41,25 @@ async def test_query_rdf_returns_json_error_for_unexpected_query_failures() -> N
             await rdf_api.query_rdf(request, payload)  # type: ignore[arg-type]
 
     assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "SyntaxError: Unknown prefix: wd"
+    assert exc_info.value.detail == {
+        "category": "syntax",
+        "message": "SyntaxError: Unknown prefix: wd",
+        "retryable": True,
+    }
+
+
+def test_federation_proxy_rejects_non_loopback_callers() -> None:
+    request = SimpleNamespace(client=SimpleNamespace(host="10.0.0.4"))
+    settings = SimpleNamespace(RDF_FEDERATION_PROXY_LOOPBACK_ONLY=True)
+
+    with pytest.raises(HTTPException) as exc_info:
+        rdf_api._enforce_loopback_proxy_caller(request, settings)  # type: ignore[arg-type]
+
+    assert exc_info.value.status_code == 403
+
+
+def test_federation_proxy_allows_loopback_callers() -> None:
+    request = SimpleNamespace(client=SimpleNamespace(host="127.0.0.1"))
+    settings = SimpleNamespace(RDF_FEDERATION_PROXY_LOOPBACK_ONLY=True)
+
+    rdf_api._enforce_loopback_proxy_caller(request, settings)  # type: ignore[arg-type]

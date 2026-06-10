@@ -7,16 +7,32 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pyoxigraph import NamedNode, Quad, QueryResultsFormat, RdfFormat, Store
+from pyoxigraph import (
+    BlankNode,
+    DefaultGraph,
+    Literal,
+    NamedNode,
+    Quad,
+    QueryBoolean,
+    QueryResultsFormat,
+    QuerySolutions,
+    RdfFormat,
+    Store,
+)
 
 from copilot.rdf.contexts import expand_cached_jsonld_contexts
-from copilot.rdf.federation import rewrite_federated_query, strip_sparql_comments
+from copilot.rdf.federation import (
+    endpoint_metadata_from_document,
+    rewrite_federated_query,
+    strip_sparql_comments,
+)
 from copilot.rdf.iris import thing_graph_iri
 from copilot.thing_indexer.summary_utils import clean_text, normalize_thing_td_payload
 
 _READ_ONLY_QUERY_KINDS = {"SELECT", "ASK", "CONSTRUCT", "DESCRIBE"}
 _PROLOG_RE = re.compile(r"(?is)^\s*(?:BASE\s+<[^>]*>|PREFIX\s+[^:\s]*:\s*<[^>]*>)\s*")
 _QUERY_KIND_RE = re.compile(r"(?is)^([A-Za-z]+)\b")
+_GRAPH_RESULT_MAX_BYTES = 200_000
 
 
 def sparql_query_kind(query: str) -> str:
@@ -38,18 +54,19 @@ def sparql_query_kind(query: str) -> str:
     return kind
 
 
-def _compact_binding(binding: dict[str, Any]) -> dict[str, Any]:
-    compact: dict[str, Any] = {
-        "type": binding.get("type", ""),
-        "value": binding.get("value", ""),
-    }
-    datatype = binding.get("datatype")
-    if isinstance(datatype, str) and datatype:
-        compact["datatype"] = datatype
-    language = binding.get("xml:lang")
-    if isinstance(language, str) and language:
-        compact["language"] = language
-    return compact
+def _term_to_compact_binding(term: Any) -> dict[str, Any]:
+    if isinstance(term, NamedNode):
+        return {"type": "uri", "value": term.value}
+    if isinstance(term, BlankNode):
+        return {"type": "bnode", "value": term.value}
+    if isinstance(term, Literal):
+        compact = {"type": "literal", "value": term.value}
+        if term.language:
+            compact["language"] = term.language
+        elif term.datatype:
+            compact["datatype"] = term.datatype.value
+        return compact
+    return {"type": "", "value": str(term)}
 
 
 def _json_bytes_to_object(value: bytes | str) -> dict[str, Any]:
@@ -60,6 +77,55 @@ def _json_bytes_to_object(value: bytes | str) -> dict[str, Any]:
     return decoded
 
 
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _document_type_values(document: dict[str, Any]) -> set[str]:
+    values: set[str] = set()
+    for value in _as_list(document.get("@type") or document.get("type")):
+        if isinstance(value, str) and value:
+            values.add(value)
+        elif isinstance(value, dict):
+            candidate = value.get("@id") or value.get("id")
+            if isinstance(candidate, str) and candidate:
+                values.add(candidate)
+    return values
+
+
+def _validate_endpoint_thing_if_needed(
+    *,
+    thing_id: str,
+    document: dict[str, Any],
+    settings: Any | None,
+) -> None:
+    if settings is None:
+        return
+    type_values = _document_type_values(document)
+    if not type_values.intersection(
+        {
+            "sd:Service",
+            "http://www.w3.org/ns/sparql-service-description#Service",
+            "https://www.w3.org/ns/sparql-service-description#Service",
+        }
+    ):
+        return
+    endpoint_metadata_from_document(thing_id=thing_id, document=document, settings=settings)
+
+
+def _triple_to_ntriples_bytes(triple: Any) -> bytes:
+    store = Store()
+    store.add(Quad(triple.subject, triple.predicate, triple.object))
+    serialized = store.dump(format=RdfFormat.N_TRIPLES, from_graph=DefaultGraph())
+    if not isinstance(serialized, bytes):
+        raise ValueError("SPARQL graph serialization did not produce bytes")
+    return serialized
+
+
 @dataclass(frozen=True)
 class RdfReindexResult:
     indexed: int
@@ -68,11 +134,12 @@ class RdfReindexResult:
 
 
 class RdfStoreService:
-    def __init__(self, store_path: str) -> None:
+    def __init__(self, store_path: str, *, settings: Any | None = None) -> None:
         path = Path(store_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._store = Store(str(path))
         self._lock = asyncio.Lock()
+        self._settings = settings
 
     async def process_event(self, event: dict[str, Any]) -> None:
         thing_id = clean_text(event.get("id"))
@@ -118,6 +185,11 @@ class RdfStoreService:
             )
 
     def _upsert_thing_sync(self, thing_id: str, thing_td: dict[str, Any]) -> None:
+        _validate_endpoint_thing_if_needed(
+            thing_id=thing_id,
+            document=thing_td,
+            settings=self._settings,
+        )
         graph_name = NamedNode(thing_graph_iri(thing_id))
         payload = json.dumps(expand_cached_jsonld_contexts(thing_td), ensure_ascii=False)
 
@@ -146,6 +218,11 @@ class RdfStoreService:
         for thing_id, document in things:
             graph_name = NamedNode(thing_graph_iri(thing_id))
             try:
+                _validate_endpoint_thing_if_needed(
+                    thing_id=thing_id,
+                    document=document,
+                    settings=self._settings,
+                )
                 payload = json.dumps(expand_cached_jsonld_contexts(document), ensure_ascii=False)
                 parsed_store = Store()
                 parsed_store.load(
@@ -191,20 +268,20 @@ class RdfStoreService:
         )
 
         if kind == "SELECT":
-            data = _json_bytes_to_object(result.serialize(format=QueryResultsFormat.JSON))
-            variables = [str(item) for item in data.get("head", {}).get("vars", [])]
-            bindings = data.get("results", {}).get("bindings", [])
-            if not isinstance(bindings, list):
-                bindings = []
+            if not isinstance(result, QuerySolutions):
+                raise ValueError("SPARQL SELECT did not return query solutions")
+            variables = [variable.value for variable in result.variables]
             rows = []
-            for binding in bindings[:limit]:
-                if not isinstance(binding, dict):
-                    continue
+            truncated = False
+            for index, binding in enumerate(result):
+                if index >= limit:
+                    truncated = True
+                    break
                 rows.append(
                     {
-                        variable: _compact_binding(value)
-                        for variable, value in binding.items()
-                        if isinstance(variable, str) and isinstance(value, dict)
+                        variable: _term_to_compact_binding(value)
+                        for variable in variables
+                        if (value := binding[variable]) is not None
                     }
                 )
             return {
@@ -213,26 +290,42 @@ class RdfStoreService:
                 "limit": limit,
                 "variables": variables,
                 "rows": rows,
-                "truncated": len(bindings) > limit,
+                "truncated": truncated,
             }
 
         if kind == "ASK":
-            data = _json_bytes_to_object(result.serialize(format=QueryResultsFormat.JSON))
+            if isinstance(result, QueryBoolean):
+                boolean = bool(result)
+            else:
+                data = _json_bytes_to_object(result.serialize(format=QueryResultsFormat.JSON))
+                boolean = bool(data.get("boolean", False))
             return {
                 "type": "ask",
                 "query": query,
                 "limit": limit,
-                "boolean": bool(data.get("boolean", False)),
+                "boolean": boolean,
                 "truncated": False,
             }
 
-        serialized = result.serialize(format=RdfFormat.N_TRIPLES)
-        rdf = serialized.decode("utf-8") if isinstance(serialized, bytes) else serialized
+        chunks: list[bytes] = []
+        total_bytes = 0
+        truncated = False
+        for index, triple in enumerate(result):
+            if index >= limit:
+                truncated = True
+                break
+            chunk = _triple_to_ntriples_bytes(triple)
+            if total_bytes + len(chunk) > _GRAPH_RESULT_MAX_BYTES:
+                truncated = True
+                break
+            chunks.append(chunk)
+            total_bytes += len(chunk)
+        rdf = b"".join(chunks).decode("utf-8")
         return {
             "type": kind.lower(),
             "query": query,
             "limit": limit,
             "format": "application/n-triples",
             "rdf": rdf,
-            "truncated": False,
+            "truncated": truncated,
         }

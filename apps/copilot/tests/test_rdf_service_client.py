@@ -1,6 +1,6 @@
 import pytest
 
-from copilot.clients.rdf_service import _decode_response_payload
+from copilot.clients.rdf_service import RdfServiceError, _decode_response_payload
 
 
 def test_decode_response_payload_returns_json_object() -> None:
@@ -8,12 +8,25 @@ def test_decode_response_payload_returns_json_object() -> None:
 
 
 def test_decode_response_payload_uses_json_error_detail() -> None:
-    with pytest.raises(ValueError, match="Unknown prefix: wd"):
+    with pytest.raises(RdfServiceError, match="Unknown prefix: wd"):
         _decode_response_payload(400, '{"detail": "Unknown prefix: wd"}')
 
 
+def test_decode_response_payload_preserves_structured_error_detail() -> None:
+    with pytest.raises(RdfServiceError) as exc_info:
+        _decode_response_payload(
+            504,
+            '{"detail": {"category": "timeout", "message": "timed out", "retryable": true}}',
+        )
+
+    assert str(exc_info.value) == "timed out"
+    assert exc_info.value.status == 504
+    assert exc_info.value.category == "timeout"
+    assert exc_info.value.retryable is True
+
+
 def test_decode_response_payload_preserves_non_json_error_body() -> None:
-    with pytest.raises(ValueError, match="Internal Server Error"):
+    with pytest.raises(RdfServiceError, match="Internal Server Error"):
         _decode_response_payload(500, "Internal Server Error")
 
 
