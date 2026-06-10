@@ -35,8 +35,9 @@ metadata: event/action/property names, affordance types, units, operation types,
 schemas, forms/protocols, security schemes, or relationships between Things. Use
 things_search when matching on meaning or fuzzy natural-language descriptions.
 When unsure, use things_search first, then narrow candidates with sparql_query.
-For federated endpoint Things, write SERVICE <endpoint-thing-id> blocks and pass
-those Thing ids in endpoints.
+Call sparql_query with a natural-language intent and any federated endpoint Thing
+ids in endpoints; the tool drafts and repairs SPARQL internally. Do not hand-write
+raw SPARQL unless you are explaining the generated query in the final answer.
 
 ## Runtime Instruction Contract
 1. The run_instructions argument is saved verbatim and executed later by the background worker.

@@ -10,12 +10,15 @@ from sqlalchemy.orm import Session
 
 from copilot.core.config import get_settings as get_registry_settings
 from copilot.core.database import get_session_factory
+from copilot.core.llm import make_llm
 from copilot.search import get_active_search_service
 from copilot.catalog import serialize_thing, validate_document
 from copilot.catalog.ids import decode_thing_id
 from copilot.catalog.service import ThingCatalogQueryService, ThingCatalogWriteService
+from copilot.agent.sparql_subgraph import run_sparql_query_subgraph
 from copilot.clients.rdf_service import RdfServiceClient
 from copilot.clients.wot_runtime import WotRuntimeClient
+from copilot.rdf.endpoint_context import load_endpoint_contexts
 
 
 def _tool_error(exc: HTTPException) -> ValueError:
@@ -43,6 +46,25 @@ def _runtime_client() -> WotRuntimeClient:
 
 def _rdf_client() -> RdfServiceClient:
     return RdfServiceClient(get_registry_settings())
+
+
+def _load_sparql_endpoint_contexts(endpoint_ids: list[str]) -> list[dict[str, Any]]:
+    with get_session_factory() as session:
+        return load_endpoint_contexts(session, endpoint_ids)
+
+
+async def _execute_sparql_query(
+    *,
+    query: str,
+    endpoints: list[str],
+    limit: int,
+) -> dict[str, Any]:
+    return await _rdf_client().query(
+        query=query,
+        limit=limit,
+        use_default_graph_as_union=True,
+        endpoints=endpoints,
+    )
 
 
 def _thing_summary(payload: dict[str, Any]) -> dict[str, Any]:
@@ -172,39 +194,46 @@ async def things_search(query: str, k: int = 5) -> dict[str, Any]:
 
 @tool
 async def sparql_query(
-    query: str,
+    intent: str,
     endpoints: list[str] | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
-    """Run read-only SPARQL across RDF-indexed Thing Descriptions.
+    """Answer a structured RDF/SPARQL intent over local Things and endpoint Things.
 
     Use this for exact filters over Thing metadata: affordance names, units,
     operation types, schemas, forms/protocols, security schemes, and
-    relationships. For federated endpoint Things, write SERVICE blocks with the
-    endpoint Thing id and pass that id in endpoints. Use things_search for fuzzy
-    semantic discovery.
+    relationships. Pass natural-language intent and any federated endpoint Thing
+    ids; the tool drafts, executes, and repairs SPARQL internally. Use
+    things_search for fuzzy semantic discovery.
     """
-    normalized_query = query.strip()
-    if not normalized_query:
-        return {"error": "query must not be empty", "query": normalized_query}
+    normalized_intent = intent.strip()
+    if not normalized_intent:
+        return {"error": "intent must not be empty", "intent": normalized_intent}
     normalized_limit = _bounded_int(limit, default=50, minimum=1, maximum=500)
     normalized_endpoints = _normalized_endpoint_ids(endpoints)
+    settings = get_registry_settings()
     try:
-        result = await _rdf_client().query(
-            query=normalized_query,
-            limit=normalized_limit,
-            use_default_graph_as_union=True,
+        return await run_sparql_query_subgraph(
+            intent=normalized_intent,
             endpoints=normalized_endpoints,
+            limit=normalized_limit,
+            max_attempts=settings.SPARQL_QUERY_MAX_ATTEMPTS,
+            llm=make_llm(settings),
+            rdf_executor=_execute_sparql_query,
+            endpoint_context_loader=_load_sparql_endpoint_contexts,
         )
     except Exception as exc:
         return {
+            "status": "failed",
             "error": str(exc),
-            "query": normalized_query,
+            "intent": normalized_intent,
+            "query": "",
             "limit": normalized_limit,
             "endpoints": normalized_endpoints,
+            "attempts": [],
+            "summary": f"SPARQL query failed: {exc}",
+            "result": None,
         }
-
-    return result
 
 
 @tool

@@ -14,6 +14,9 @@ class RegistryToolArgsTestCase(unittest.TestCase):
         tool_names = {tool.name for tool in REGISTRY_TOOLS}
         self.assertIn("sparql_query", tool_names)
         self.assertNotIn("things_sparql", tool_names)
+        schema = sparql_query.args_schema.model_json_schema()
+        self.assertIn("intent", schema["properties"])
+        self.assertNotIn("query", schema["properties"])
 
     def test_things_search_clamps_out_of_range_k(self) -> None:
         class FakeSearchService:
@@ -42,36 +45,36 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             {"error": "query must not be empty", "items": [], "query": ""},
         )
 
-    def test_sparql_query_uses_rdf_service_client(self) -> None:
+    def test_sparql_query_runs_subgraph(self) -> None:
         calls = []
 
-        class FakeRdfClient:
-            async def query(
-                self,
-                *,
-                query: str,
-                limit: int,
-                use_default_graph_as_union: bool,
-                endpoints: list[str],
-            ):
-                calls.append((query, limit, use_default_graph_as_union, endpoints))
-                return {
+        async def fake_run_sparql_query_subgraph(**kwargs):
+            calls.append(kwargs)
+            return {
+                "status": "ok",
+                "intent": kwargs["intent"],
+                "query": "SELECT * WHERE { ?s ?p ?o }",
+                "endpoints": kwargs["endpoints"],
+                "attempts": [],
+                "summary": "Done",
+                "result": {
                     "type": "select",
-                    "query": query,
-                    "limit": limit,
-                    "variables": ["thing"],
                     "rows": [],
                     "truncated": False,
-                }
+                },
+            }
 
         with patch(
-            "copilot.agent.tools.wot_registry._rdf_client",
-            return_value=FakeRdfClient(),
+            "copilot.agent.tools.wot_registry.run_sparql_query_subgraph",
+            side_effect=fake_run_sparql_query_subgraph,
+        ), patch(
+            "copilot.agent.tools.wot_registry.make_llm",
+            return_value=object(),
         ):
             response = asyncio.run(
                 sparql_query.ainvoke(
                     {
-                        "query": " SELECT * WHERE { ?s ?p ?o } ",
+                        "intent": " Find sensors with observations ",
                         "endpoints": [
                             " urn:slc:endpoint:one ",
                             "urn:slc:endpoint:one",
@@ -82,45 +85,34 @@ class RegistryToolArgsTestCase(unittest.TestCase):
                 )
             )
 
-        self.assertEqual(response["type"], "select")
-        self.assertEqual(response["limit"], 500)
-        self.assertEqual(
-            calls,
-            [
-                (
-                    "SELECT * WHERE { ?s ?p ?o }",
-                    500,
-                    True,
-                    ["urn:slc:endpoint:one", "urn:slc:endpoint:two"],
-                )
-            ],
-        )
+        self.assertEqual(response["status"], "ok")
+        self.assertEqual(response["summary"], "Done")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["intent"], "Find sensors with observations")
+        self.assertEqual(calls[0]["limit"], 500)
+        self.assertEqual(calls[0]["endpoints"], ["urn:slc:endpoint:one", "urn:slc:endpoint:two"])
+        self.assertEqual(calls[0]["max_attempts"], 3)
 
     def test_sparql_query_returns_tool_error_for_empty_query(self) -> None:
-        response = asyncio.run(sparql_query.ainvoke({"query": "   ", "limit": 5}))
+        response = asyncio.run(sparql_query.ainvoke({"intent": "   ", "limit": 5}))
 
-        self.assertEqual(response, {"error": "query must not be empty", "query": ""})
+        self.assertEqual(response, {"error": "intent must not be empty", "intent": ""})
 
-    def test_sparql_query_returns_tool_error_for_service_errors(self) -> None:
-        class FakeRdfClient:
-            async def query(
-                self,
-                *,
-                query: str,
-                limit: int,
-                use_default_graph_as_union: bool,
-                endpoints: list[str],
-            ):
-                raise ValueError("Only read-only SPARQL queries are allowed")
+    def test_sparql_query_returns_tool_error_for_subgraph_errors(self) -> None:
+        async def fake_run_sparql_query_subgraph(**_kwargs):
+            raise ValueError("subgraph failed")
 
         with patch(
-            "copilot.agent.tools.wot_registry._rdf_client",
-            return_value=FakeRdfClient(),
+            "copilot.agent.tools.wot_registry.run_sparql_query_subgraph",
+            side_effect=fake_run_sparql_query_subgraph,
+        ), patch(
+            "copilot.agent.tools.wot_registry.make_llm",
+            return_value=object(),
         ):
             response = asyncio.run(
                 sparql_query.ainvoke(
                     {
-                        "query": "DELETE WHERE { ?s ?p ?o }",
+                        "intent": "Find Things",
                         "limit": 5,
                     }
                 )
@@ -129,10 +121,15 @@ class RegistryToolArgsTestCase(unittest.TestCase):
         self.assertEqual(
             response,
             {
-                "error": "Only read-only SPARQL queries are allowed",
-                "query": "DELETE WHERE { ?s ?p ?o }",
+                "status": "failed",
+                "error": "subgraph failed",
+                "intent": "Find Things",
+                "query": "",
                 "limit": 5,
                 "endpoints": [],
+                "attempts": [],
+                "summary": "SPARQL query failed: subgraph failed",
+                "result": None,
             },
         )
 

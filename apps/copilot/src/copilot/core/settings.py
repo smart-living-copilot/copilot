@@ -125,6 +125,7 @@ class Settings(BaseSettings):
     rdf_federation_max_response_bytes: int = 2_000_000
     rdf_federation_allowed_hosts: str = ""
     rdf_federation_allow_private_endpoints: bool = False
+    sparql_query_max_attempts: int = Field(default=3, ge=1, le=10)
 
     # Jobs and WoT runtime
     job_task_timeout_seconds: int = 300
@@ -297,6 +298,10 @@ class Settings(BaseSettings):
     @property
     def RDF_FEDERATION_ALLOW_PRIVATE_ENDPOINTS(self) -> bool:
         return self.rdf_federation_allow_private_endpoints
+
+    @property
+    def SPARQL_QUERY_MAX_ATTEMPTS(self) -> int:
+        return self.sparql_query_max_attempts
 
     @property
     def OPENAI_API_BASE_URL(self) -> str | None:

@@ -35,8 +35,10 @@ Thing Description metadata: affordance types, units, operation types, schemas,
 security schemes, forms/protocols, or relationships between Things. Use
 things_search when matching on meaning, fuzzy descriptions, room labels, or
 natural-language device purpose. When unsure, use things_search first, then
-narrow the candidates with sparql_query. For federated endpoint Things, write
-SERVICE <endpoint-thing-id> blocks and pass those Thing ids in endpoints.
+narrow the candidates with sparql_query. Call sparql_query with a natural-language
+intent and any federated endpoint Thing ids in endpoints; the tool drafts and
+repairs SPARQL internally. Do not hand-write raw SPARQL unless you are explaining
+the generated query in the final answer.
 
 ## Typical workflow
 1. If the user's request is location-dependent ("what's the temperature here",
@@ -51,7 +53,7 @@ SERVICE <endpoint-thing-id> blocks and pass those Thing ids in endpoints.
    living room — it's 22°C there." Never just give the value without naming
    the room when the camera was the disambiguator.
 2. things_search to find the relevant device(s).
-   Use sparql_query instead when you need an exact metadata filter, such as
+   Use sparql_query with an intent instead when you need an exact metadata filter, such as
    all numeric properties with a unit, all actions with a given input schema,
    or all Things exposing a specific WoT operation type.
 3. wot_get_action (or wot_get_property) to inspect the schema of each affordance you need.
