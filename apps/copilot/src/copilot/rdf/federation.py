@@ -4,6 +4,7 @@ import base64
 import ipaddress
 import re
 import socket
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
@@ -27,6 +28,10 @@ _SPARQL_11_QUERY_TYPES = {
     "http://www.w3.org/ns/sparql-service-description#SPARQL11Query",
     "https://www.w3.org/ns/sparql-service-description#SPARQL11Query",
 }
+_DEFAULT_FEDERATION_USER_AGENT = (
+    "SmartLivingCopilot/0.1.0 "
+    "(https://github.com/Smart-Living-Copilot/copilot; federated-sparql)"
+)
 _SD_ENDPOINT_KEYS = (
     "sd:endpoint",
     "endpoint",
@@ -65,6 +70,17 @@ def _setting_value(settings: Any, *names: str, default: Any = None) -> Any:
         if hasattr(settings, name):
             return getattr(settings, name)
     return default
+
+
+def federation_user_agent(settings: Any) -> str:
+    value = _setting_value(
+        settings,
+        "RDF_FEDERATION_USER_AGENT",
+        "rdf_federation_user_agent",
+        default=_DEFAULT_FEDERATION_USER_AGENT,
+    )
+    user_agent = str(value or "").strip()
+    return user_agent or _DEFAULT_FEDERATION_USER_AGENT
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -479,6 +495,25 @@ def build_forwarding_auth(
     raise ValueError(f"Unsupported federated endpoint security scheme: {scheme}")
 
 
+def build_forwarding_headers(
+    *,
+    method: str,
+    request_headers: Mapping[str, str],
+    auth_headers: dict[str, str],
+    settings: Any,
+) -> dict[str, str]:
+    forward_headers: dict[str, str] = {}
+    accept = request_headers.get("accept")
+    if accept:
+        forward_headers["Accept"] = accept
+    content_type = request_headers.get("content-type")
+    if method == "POST" and content_type:
+        forward_headers["Content-Type"] = content_type
+    forward_headers["User-Agent"] = federation_user_agent(settings)
+    forward_headers.update(auth_headers)
+    return forward_headers
+
+
 async def proxy_sparql_request(
     request: Request,
     *,
@@ -489,14 +524,12 @@ async def proxy_sparql_request(
         security_definition=endpoint.security_definition,
         credential=endpoint.credential,
     )
-    forward_headers: dict[str, str] = {}
-    accept = request.headers.get("accept")
-    if accept:
-        forward_headers["Accept"] = accept
-    content_type = request.headers.get("content-type")
-    if request.method == "POST" and content_type:
-        forward_headers["Content-Type"] = content_type
-    forward_headers.update(auth_headers)
+    forward_headers = build_forwarding_headers(
+        method=request.method,
+        request_headers=request.headers,
+        auth_headers=auth_headers,
+        settings=settings,
+    )
 
     params = list(request.query_params.multi_items())
     params.extend(auth_params)

@@ -10,6 +10,7 @@ def test_compose_defines_rdf_service_with_persistent_store_and_shared_event_stre
     assert 'RDF_STORE_PATH: "/data/rdf"' in compose
     assert "RDF_FEDERATION_PROXY_BASE_URL" in compose
     assert "RDF_FEDERATION_ALLOW_PRIVATE_ENDPOINTS" in compose
+    assert "RDF_FEDERATION_USER_AGENT" in compose
     assert "redis://valkey:6379" in compose
     assert "rdf-data:" in compose
 
@@ -23,4 +24,5 @@ def test_env_template_defines_rdf_settings():
     assert "RDF_EVENTS_GROUP=thing_rdf_indexer" in env_template
     assert "RDF_FEDERATION_PROXY_BASE_URL=http://localhost:8124" in env_template
     assert "RDF_FEDERATION_ALLOW_PRIVATE_ENDPOINTS=false" in env_template
+    assert "RDF_FEDERATION_USER_AGENT=SmartLivingCopilot/0.1.0" in env_template
     assert "SPARQL_QUERY_MAX_ATTEMPTS=3" in env_template

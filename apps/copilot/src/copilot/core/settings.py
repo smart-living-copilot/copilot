@@ -125,6 +125,10 @@ class Settings(BaseSettings):
     rdf_federation_max_response_bytes: int = 2_000_000
     rdf_federation_allowed_hosts: str = ""
     rdf_federation_allow_private_endpoints: bool = False
+    rdf_federation_user_agent: str = (
+        "SmartLivingCopilot/0.1.0 "
+        "(https://github.com/Smart-Living-Copilot/copilot; federated-sparql)"
+    )
     sparql_query_max_attempts: int = Field(default=3, ge=1, le=10)
 
     # Jobs and WoT runtime
@@ -298,6 +302,10 @@ class Settings(BaseSettings):
     @property
     def RDF_FEDERATION_ALLOW_PRIVATE_ENDPOINTS(self) -> bool:
         return self.rdf_federation_allow_private_endpoints
+
+    @property
+    def RDF_FEDERATION_USER_AGENT(self) -> str:
+        return self.rdf_federation_user_agent
 
     @property
     def SPARQL_QUERY_MAX_ATTEMPTS(self) -> int:

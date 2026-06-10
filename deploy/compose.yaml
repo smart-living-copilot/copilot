@@ -147,6 +147,7 @@ services:
       RDF_FEDERATION_MAX_RESPONSE_BYTES: "${RDF_FEDERATION_MAX_RESPONSE_BYTES:-2000000}"
       RDF_FEDERATION_ALLOWED_HOSTS: "${RDF_FEDERATION_ALLOWED_HOSTS:-}"
       RDF_FEDERATION_ALLOW_PRIVATE_ENDPOINTS: "${RDF_FEDERATION_ALLOW_PRIVATE_ENDPOINTS:-false}"
+      RDF_FEDERATION_USER_AGENT: "${RDF_FEDERATION_USER_AGENT:-SmartLivingCopilot/0.1.0 (https://github.com/Smart-Living-Copilot/copilot; federated-sparql)}"
     depends_on:
       postgres:
         condition: service_healthy

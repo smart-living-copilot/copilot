@@ -8,8 +8,10 @@ import pytest
 from copilot.catalog.credentials.models import CredentialRecord
 from copilot.rdf.federation import (
     build_forwarding_auth,
+    build_forwarding_headers,
     endpoint_metadata_from_document,
     endpoint_proxy_url,
+    federation_user_agent,
     rewrite_federated_query,
     service_iris,
     thing_id_from_proxy_path,
@@ -25,6 +27,7 @@ def _settings(**values):
     return SimpleNamespace(
         RDF_FEDERATION_ALLOWED_HOSTS=values.get("allowed_hosts", ""),
         RDF_FEDERATION_ALLOW_PRIVATE_ENDPOINTS=values.get("allow_private", False),
+        RDF_FEDERATION_USER_AGENT=values.get("user_agent", ""),
     )
 
 
@@ -217,3 +220,26 @@ def test_build_forwarding_auth_allows_nosec_without_credentials():
 
     assert headers == {}
     assert params == []
+
+
+def test_federation_user_agent_uses_default_when_setting_is_blank():
+    assert federation_user_agent(_settings(user_agent="")).startswith("SmartLivingCopilot/")
+
+
+def test_build_forwarding_headers_sends_configured_user_agent():
+    headers = build_forwarding_headers(
+        method="POST",
+        request_headers={
+            "accept": "application/sparql-results+json",
+            "content-type": "application/sparql-query",
+        },
+        auth_headers={"Authorization": "Bearer token"},
+        settings=_settings(user_agent="SmartLivingCopilotTest/1.0 (ops@example.test)"),
+    )
+
+    assert headers == {
+        "Accept": "application/sparql-results+json",
+        "Content-Type": "application/sparql-query",
+        "User-Agent": "SmartLivingCopilotTest/1.0 (ops@example.test)",
+        "Authorization": "Bearer token",
+    }
