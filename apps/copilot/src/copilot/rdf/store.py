@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from pyoxigraph import NamedNode, Quad, QueryResultsFormat, RdfFormat, Store
 
 from copilot.rdf.contexts import expand_cached_jsonld_contexts
+from copilot.rdf.federation import rewrite_federated_query, strip_sparql_comments
 from copilot.rdf.iris import thing_graph_iri
 from copilot.thing_indexer.summary_utils import clean_text, normalize_thing_td_payload
 
@@ -19,7 +21,7 @@ _QUERY_KIND_RE = re.compile(r"(?is)^([A-Za-z]+)\b")
 
 def sparql_query_kind(query: str) -> str:
     """Return the leading SPARQL query form after BASE/PREFIX declarations."""
-    remaining = query.strip()
+    remaining = strip_sparql_comments(query).strip()
     while True:
         match = _PROLOG_RE.match(remaining)
         if match is None:
@@ -58,6 +60,13 @@ def _json_bytes_to_object(value: bytes | str) -> dict[str, Any]:
     return decoded
 
 
+@dataclass(frozen=True)
+class RdfReindexResult:
+    indexed: int
+    failed: int
+    errors: list[dict[str, str]]
+
+
 class RdfStoreService:
     def __init__(self, store_path: str) -> None:
         path = Path(store_path)
@@ -87,7 +96,7 @@ class RdfStoreService:
         async with self._lock:
             await asyncio.to_thread(self._delete_thing_sync, thing_id)
 
-    async def reindex(self, things: list[tuple[str, dict[str, Any]]]) -> int:
+    async def reindex(self, things: list[tuple[str, dict[str, Any]]]) -> RdfReindexResult:
         async with self._lock:
             return await asyncio.to_thread(self._reindex_sync, things)
 
@@ -97,6 +106,7 @@ class RdfStoreService:
         query: str,
         limit: int,
         use_default_graph_as_union: bool = True,
+        service_rewrites: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         async with self._lock:
             return await asyncio.to_thread(
@@ -104,6 +114,7 @@ class RdfStoreService:
                 query,
                 limit,
                 use_default_graph_as_union,
+                service_rewrites,
             )
 
     def _upsert_thing_sync(self, thing_id: str, thing_td: dict[str, Any]) -> None:
@@ -129,43 +140,53 @@ class RdfStoreService:
         self._store.remove_graph(NamedNode(thing_graph_iri(thing_id)))
         self._store.flush()
 
-    def _reindex_sync(self, things: list[tuple[str, dict[str, Any]]]) -> int:
+    def _reindex_sync(self, things: list[tuple[str, dict[str, Any]]]) -> RdfReindexResult:
         parsed_by_graph: list[tuple[NamedNode, list[Quad]]] = []
+        errors: list[dict[str, str]] = []
         for thing_id, document in things:
             graph_name = NamedNode(thing_graph_iri(thing_id))
-            payload = json.dumps(expand_cached_jsonld_contexts(document), ensure_ascii=False)
-            parsed_store = Store()
-            parsed_store.load(
-                input=payload,
-                format=RdfFormat.JSON_LD,
-                base_iri=thing_id,
-            )
-            parsed_by_graph.append(
-                (
-                    graph_name,
-                    [
-                        Quad(quad.subject, quad.predicate, quad.object, graph_name)
-                        for quad in parsed_store
-                    ],
+            try:
+                payload = json.dumps(expand_cached_jsonld_contexts(document), ensure_ascii=False)
+                parsed_store = Store()
+                parsed_store.load(
+                    input=payload,
+                    format=RdfFormat.JSON_LD,
+                    base_iri=thing_id,
                 )
-            )
+                parsed_by_graph.append(
+                    (
+                        graph_name,
+                        [
+                            Quad(quad.subject, quad.predicate, quad.object, graph_name)
+                            for quad in parsed_store
+                        ],
+                    )
+                )
+            except Exception as exc:
+                errors.append({"thing_id": thing_id, "error": str(exc)})
 
         self._store.clear()
         for _graph_name, quads in parsed_by_graph:
             if quads:
                 self._store.bulk_extend(quads)
         self._store.flush()
-        return len(parsed_by_graph)
+        return RdfReindexResult(
+            indexed=len(parsed_by_graph),
+            failed=len(errors),
+            errors=errors,
+        )
 
     def _query_sync(
         self,
         query: str,
         limit: int,
         use_default_graph_as_union: bool,
+        service_rewrites: dict[str, str] | None,
     ) -> dict[str, Any]:
         kind = sparql_query_kind(query)
+        executable_query = rewrite_federated_query(query, service_rewrites)
         result = self._store.query(
-            query,
+            executable_query,
             use_default_graph_as_union=use_default_graph_as_union,
         )
 

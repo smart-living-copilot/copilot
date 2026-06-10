@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
-from copilot.agent.tools.wot_registry import REGISTRY_TOOLS, things_search, things_sparql
+from copilot.agent.tools.wot_registry import REGISTRY_TOOLS, sparql_query, things_search
 from copilot.search import set_active_search_service
 
 
@@ -10,8 +10,10 @@ class RegistryToolArgsTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         set_active_search_service(None)
 
-    def test_registry_tools_include_things_sparql(self) -> None:
-        self.assertIn("things_sparql", {tool.name for tool in REGISTRY_TOOLS})
+    def test_registry_tools_include_sparql_query(self) -> None:
+        tool_names = {tool.name for tool in REGISTRY_TOOLS}
+        self.assertIn("sparql_query", tool_names)
+        self.assertNotIn("things_sparql", tool_names)
 
     def test_things_search_clamps_out_of_range_k(self) -> None:
         class FakeSearchService:
@@ -40,12 +42,19 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             {"error": "query must not be empty", "items": [], "query": ""},
         )
 
-    def test_things_sparql_uses_rdf_service_client(self) -> None:
+    def test_sparql_query_uses_rdf_service_client(self) -> None:
         calls = []
 
         class FakeRdfClient:
-            async def query(self, *, query: str, limit: int, use_default_graph_as_union: bool):
-                calls.append((query, limit, use_default_graph_as_union))
+            async def query(
+                self,
+                *,
+                query: str,
+                limit: int,
+                use_default_graph_as_union: bool,
+                endpoints: list[str],
+            ):
+                calls.append((query, limit, use_default_graph_as_union, endpoints))
                 return {
                     "type": "select",
                     "query": query,
@@ -60,9 +69,14 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             return_value=FakeRdfClient(),
         ):
             response = asyncio.run(
-                things_sparql.ainvoke(
+                sparql_query.ainvoke(
                     {
                         "query": " SELECT * WHERE { ?s ?p ?o } ",
+                        "endpoints": [
+                            " urn:slc:endpoint:one ",
+                            "urn:slc:endpoint:one",
+                            "urn:slc:endpoint:two",
+                        ],
                         "limit": 999,
                     }
                 )
@@ -70,16 +84,33 @@ class RegistryToolArgsTestCase(unittest.TestCase):
 
         self.assertEqual(response["type"], "select")
         self.assertEqual(response["limit"], 500)
-        self.assertEqual(calls, [("SELECT * WHERE { ?s ?p ?o }", 500, True)])
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "SELECT * WHERE { ?s ?p ?o }",
+                    500,
+                    True,
+                    ["urn:slc:endpoint:one", "urn:slc:endpoint:two"],
+                )
+            ],
+        )
 
-    def test_things_sparql_returns_tool_error_for_empty_query(self) -> None:
-        response = asyncio.run(things_sparql.ainvoke({"query": "   ", "limit": 5}))
+    def test_sparql_query_returns_tool_error_for_empty_query(self) -> None:
+        response = asyncio.run(sparql_query.ainvoke({"query": "   ", "limit": 5}))
 
         self.assertEqual(response, {"error": "query must not be empty", "query": ""})
 
-    def test_things_sparql_returns_tool_error_for_service_errors(self) -> None:
+    def test_sparql_query_returns_tool_error_for_service_errors(self) -> None:
         class FakeRdfClient:
-            async def query(self, *, query: str, limit: int, use_default_graph_as_union: bool):
+            async def query(
+                self,
+                *,
+                query: str,
+                limit: int,
+                use_default_graph_as_union: bool,
+                endpoints: list[str],
+            ):
                 raise ValueError("Only read-only SPARQL queries are allowed")
 
         with patch(
@@ -87,7 +118,7 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             return_value=FakeRdfClient(),
         ):
             response = asyncio.run(
-                things_sparql.ainvoke(
+                sparql_query.ainvoke(
                     {
                         "query": "DELETE WHERE { ?s ?p ?o }",
                         "limit": 5,
@@ -101,6 +132,7 @@ class RegistryToolArgsTestCase(unittest.TestCase):
                 "error": "Only read-only SPARQL queries are allowed",
                 "query": "DELETE WHERE { ?s ?p ?o }",
                 "limit": 5,
+                "endpoints": [],
             },
         )
 

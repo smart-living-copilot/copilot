@@ -14,6 +14,12 @@ from copilot.core.api_dependencies import verify_internal_api_key
 from copilot.core.config import get_settings
 from copilot.core.database import get_session_factory, init_db
 from copilot.rdf.consumer import RdfConsumerState, RdfStreamConsumer
+from copilot.rdf.federation import (
+    endpoint_proxy_url,
+    proxy_sparql_request,
+    resolve_federated_endpoint,
+    thing_id_from_proxy_path,
+)
 from copilot.rdf.models import RdfQueryRequest, RdfQueryResponse, RdfReindexResponse
 from copilot.rdf.store import RdfStoreService
 
@@ -32,6 +38,23 @@ def _load_all_things() -> list[tuple[str, dict[str, Any]]]:
     with get_session_factory() as session:
         things = session.scalars(select(Thing).order_by(Thing.id)).all()
         return [(record.id, record.document) for record in (to_record(thing) for thing in things)]
+
+
+def _service_rewrites(endpoint_ids: list[str], settings: Any) -> dict[str, str]:
+    rewrites: dict[str, str] = {}
+    with get_session_factory() as session:
+        for endpoint_id in dict.fromkeys(endpoint_ids):
+            resolve_federated_endpoint(session, thing_id=endpoint_id, settings=settings)
+            rewrites[endpoint_id] = endpoint_proxy_url(
+                settings.RDF_FEDERATION_PROXY_BASE_URL,
+                endpoint_id,
+            )
+    return rewrites
+
+
+def _resolve_proxy_endpoint(thing_id: str, settings: Any):
+    with get_session_factory() as session:
+        return resolve_federated_endpoint(session, thing_id=thing_id, settings=settings)
 
 
 @asynccontextmanager
@@ -86,19 +109,41 @@ async def health(request: Request) -> dict[str, Any]:
 @app.post("/rdf/query", response_model=RdfQueryResponse)
 async def query_rdf(request: Request, payload: RdfQueryRequest) -> dict[str, Any]:
     verify_internal_api_key(request)
+    settings = _settings_from_app(request)
     try:
+        service_rewrites = await asyncio.to_thread(
+            _service_rewrites,
+            payload.endpoints,
+            settings,
+        )
         return await _rdf_store(request).query(
             query=payload.query,
             limit=payload.limit,
             use_default_graph_as_union=payload.use_default_graph_as_union,
+            service_rewrites=service_rewrites,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/rdf/reindex", response_model=RdfReindexResponse)
-async def reindex_rdf(request: Request) -> dict[str, int]:
+async def reindex_rdf(request: Request) -> dict[str, Any]:
     verify_internal_api_key(request)
     things = await asyncio.to_thread(_load_all_things)
-    indexed = await _rdf_store(request).reindex(things)
-    return {"indexed": indexed}
+    result = await _rdf_store(request).reindex(things)
+    return {
+        "indexed": result.indexed,
+        "failed": result.failed,
+        "errors": result.errors,
+    }
+
+
+@app.api_route("/rdf/federate/{encoded_thing_id:path}", methods=["GET", "POST"])
+async def federate_sparql(encoded_thing_id: str, request: Request):
+    settings = _settings_from_app(request)
+    thing_id = thing_id_from_proxy_path(encoded_thing_id)
+    try:
+        endpoint = await asyncio.to_thread(_resolve_proxy_endpoint, thing_id, settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await proxy_sparql_request(request, endpoint=endpoint, settings=settings)

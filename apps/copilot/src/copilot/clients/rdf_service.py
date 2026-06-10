@@ -44,6 +44,7 @@ class RdfServiceClient:
         query: str,
         limit: int,
         use_default_graph_as_union: bool = True,
+        endpoints: list[str] | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
@@ -52,6 +53,7 @@ class RdfServiceClient:
                 "query": query,
                 "limit": limit,
                 "use_default_graph_as_union": use_default_graph_as_union,
+                "endpoints": endpoints or [],
             },
         )
 

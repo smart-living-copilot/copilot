@@ -19,7 +19,7 @@ class AnalysisGuidanceTestCase(unittest.TestCase):
     def test_analysis_prompt_describes_typical_workflow(self) -> None:
         self.assertIn("## Typical workflow", ANALYSIS_PROMPT)
         self.assertIn("things_search", ANALYSIS_PROMPT)
-        self.assertIn("things_sparql", ANALYSIS_PROMPT)
+        self.assertIn("sparql_query", ANALYSIS_PROMPT)
         self.assertIn("wot_get_action", ANALYSIS_PROMPT)
         self.assertIn("run_code", ANALYSIS_PROMPT)
 
@@ -27,7 +27,8 @@ class AnalysisGuidanceTestCase(unittest.TestCase):
         self.assertIn("## Discovery Tool Choice", ANALYSIS_PROMPT)
         self.assertIn("precise filter", ANALYSIS_PROMPT)
         self.assertIn("When unsure", ANALYSIS_PROMPT)
-        self.assertIn("narrow the candidates with things_sparql", ANALYSIS_PROMPT)
+        self.assertIn("narrow the candidates with sparql_query", ANALYSIS_PROMPT)
+        self.assertIn("SERVICE <endpoint-thing-id>", ANALYSIS_PROMPT)
 
 
 class ControlGuidanceTestCase(unittest.TestCase):
@@ -39,16 +40,18 @@ class ControlGuidanceTestCase(unittest.TestCase):
         self.assertIn("until the user confirms", CONTROL_PROMPT)
 
     def test_control_prompt_explains_sparql_tool_choice(self) -> None:
-        self.assertIn("things_sparql", CONTROL_PROMPT)
+        self.assertIn("sparql_query", CONTROL_PROMPT)
         self.assertIn("operation types", CONTROL_PROMPT)
-        self.assertIn("narrow with things_sparql", CONTROL_PROMPT)
+        self.assertIn("narrow with sparql_query", CONTROL_PROMPT)
+        self.assertIn("SERVICE <endpoint-thing-id>", CONTROL_PROMPT)
 
 
 class JobGuidanceTestCase(unittest.TestCase):
     def test_jobs_prompt_explains_sparql_tool_choice(self) -> None:
-        self.assertIn("things_sparql", JOBS_PROMPT)
+        self.assertIn("sparql_query", JOBS_PROMPT)
         self.assertIn("exact Thing Description", JOBS_PROMPT)
-        self.assertIn("narrow candidates with things_sparql", JOBS_PROMPT)
+        self.assertIn("narrow candidates with sparql_query", JOBS_PROMPT)
+        self.assertIn("SERVICE <endpoint-thing-id>", JOBS_PROMPT)
 
 
 if __name__ == "__main__":

@@ -64,6 +64,24 @@ def _bounded_int(value: int | None, *, default: int, minimum: int, maximum: int)
     return min(max(value, minimum), maximum)
 
 
+def _normalized_endpoint_ids(endpoints: list[str] | None) -> list[str]:
+    if not endpoints:
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for endpoint in endpoints:
+        if not isinstance(endpoint, str):
+            continue
+        value = endpoint.strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+        if len(normalized) >= 20:
+            break
+    return normalized
+
+
 def _decoded_runtime_value(result: Any) -> Any:
     """Extract the value shape exposed by generated panels and run_code."""
     if not isinstance(result, dict):
@@ -153,28 +171,37 @@ async def things_search(query: str, k: int = 5) -> dict[str, Any]:
 
 
 @tool
-async def things_sparql(query: str, limit: int = 50) -> dict[str, Any]:
+async def sparql_query(
+    query: str,
+    endpoints: list[str] | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
     """Run read-only SPARQL across RDF-indexed Thing Descriptions.
 
     Use this for exact filters over Thing metadata: affordance names, units,
     operation types, schemas, forms/protocols, security schemes, and
-    relationships. Use things_search for fuzzy semantic discovery.
+    relationships. For federated endpoint Things, write SERVICE blocks with the
+    endpoint Thing id and pass that id in endpoints. Use things_search for fuzzy
+    semantic discovery.
     """
     normalized_query = query.strip()
     if not normalized_query:
         return {"error": "query must not be empty", "query": normalized_query}
     normalized_limit = _bounded_int(limit, default=50, minimum=1, maximum=500)
+    normalized_endpoints = _normalized_endpoint_ids(endpoints)
     try:
         result = await _rdf_client().query(
             query=normalized_query,
             limit=normalized_limit,
             use_default_graph_as_union=True,
+            endpoints=normalized_endpoints,
         )
     except Exception as exc:
         return {
             "error": str(exc),
             "query": normalized_query,
             "limit": normalized_limit,
+            "endpoints": normalized_endpoints,
         }
 
     return result
@@ -382,7 +409,7 @@ REGISTRY_TOOLS = [
     registry_health,
     things_list,
     things_search,
-    things_sparql,
+    sparql_query,
     things_get,
     wot_get_property,
     wot_get_action,
