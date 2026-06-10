@@ -14,6 +14,7 @@ class ToolGroupsTestCase(unittest.TestCase):
             [
                 _tool("registry_health"),
                 _tool("things_search"),
+                _tool("things_sparql"),
                 _tool("things_validate"),
                 _tool("things_get"),
                 _tool("wot_get_runtime_health"),
@@ -26,7 +27,7 @@ class ToolGroupsTestCase(unittest.TestCase):
 
         self.assertEqual(
             [tool.name for tool in grouped.discovery],
-            ["registry_health", "things_search"],
+            ["registry_health", "things_search", "things_sparql"],
         )
         self.assertEqual([tool.name for tool in grouped.inspect], ["things_validate", "things_get"])
         self.assertEqual(
@@ -44,7 +45,13 @@ class ToolGroupsTestCase(unittest.TestCase):
         )
         self.assertEqual(
             [tool.name for tool in grouped.discovery_and_inspect],
-            ["registry_health", "things_search", "things_validate", "things_get"],
+            [
+                "registry_health",
+                "things_search",
+                "things_sparql",
+                "things_validate",
+                "things_get",
+            ],
         )
 
     def test_group_local_tools_requires_expected_tools(self) -> None:

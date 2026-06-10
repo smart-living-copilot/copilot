@@ -14,6 +14,7 @@ from copilot.search import get_active_search_service
 from copilot.catalog import serialize_thing, validate_document
 from copilot.catalog.ids import decode_thing_id
 from copilot.catalog.service import ThingCatalogQueryService, ThingCatalogWriteService
+from copilot.clients.rdf_service import RdfServiceClient
 from copilot.clients.wot_runtime import WotRuntimeClient
 
 
@@ -38,6 +39,10 @@ async def _run_with_session(operation: Callable[[Session], dict[str, Any]]) -> d
 
 def _runtime_client() -> WotRuntimeClient:
     return WotRuntimeClient(get_registry_settings())
+
+
+def _rdf_client() -> RdfServiceClient:
+    return RdfServiceClient(get_registry_settings())
 
 
 def _thing_summary(payload: dict[str, Any]) -> dict[str, Any]:
@@ -145,6 +150,29 @@ async def things_search(query: str, k: int = 5) -> dict[str, Any]:
 
     items = await search_service.search(query=normalized_query, k=normalized_k)
     return {"items": items, "query": normalized_query, "k": normalized_k}
+
+
+@tool
+async def things_sparql(query: str, limit: int = 50) -> dict[str, Any]:
+    """Run a read-only SPARQL query across RDF-indexed Thing Descriptions."""
+    normalized_query = query.strip()
+    if not normalized_query:
+        return {"error": "query must not be empty", "query": normalized_query}
+    normalized_limit = _bounded_int(limit, default=50, minimum=1, maximum=500)
+    try:
+        result = await _rdf_client().query(
+            query=normalized_query,
+            limit=normalized_limit,
+            use_default_graph_as_union=True,
+        )
+    except Exception as exc:
+        return {
+            "error": str(exc),
+            "query": normalized_query,
+            "limit": normalized_limit,
+        }
+
+    return result
 
 
 @tool
@@ -349,6 +377,7 @@ REGISTRY_TOOLS = [
     registry_health,
     things_list,
     things_search,
+    things_sparql,
     things_get,
     wot_get_property,
     wot_get_action,

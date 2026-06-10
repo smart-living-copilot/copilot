@@ -59,6 +59,20 @@ services:
       PYTHONPATH: "/app/src"
     command: ["copilot", "thing-indexer"]
 
+  rdf-service:
+    build:
+      context: ../apps/copilot
+      dockerfile: Dockerfile
+    volumes:
+      - ../apps/copilot/src:/app/src:cached
+      - ../apps/copilot/tests:/app/tests:cached
+      - rdf-data:/data/rdf
+    environment:
+      LOG_LEVEL: "DEBUG"
+      PYTHONPATH: "/app/src"
+      RDF_STORE_PATH: "/data/rdf"
+    command: ["copilot", "rdf-service", "--reload"]
+
   ui:
     build:
       context: ../apps/ui

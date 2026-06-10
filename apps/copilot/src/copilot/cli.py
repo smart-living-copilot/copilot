@@ -57,6 +57,20 @@ def _thing_indexer(_args: argparse.Namespace) -> None:
     run()
 
 
+def _rdf_service(args: argparse.Namespace) -> None:
+    command = [
+        "uvicorn",
+        "copilot.rdf.api:app",
+        "--host",
+        args.host,
+        "--port",
+        str(args.port),
+    ]
+    if args.reload:
+        command.extend(["--reload", "--reload-dir", "src/copilot"])
+    _exec(command)
+
+
 def _livekit_agent(_args: argparse.Namespace) -> None:
     from copilot.workers.livekit import run
 
@@ -84,6 +98,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Run the thing search indexer worker",
     )
     thing_indexer.set_defaults(func=_thing_indexer)
+
+    rdf_service = subparsers.add_parser(
+        "rdf-service",
+        help="Run the RDF query service",
+    )
+    rdf_service.add_argument("--host", default="0.0.0.0")
+    rdf_service.add_argument("--port", type=int, default=8124)
+    rdf_service.add_argument("--reload", action="store_true")
+    rdf_service.set_defaults(func=_rdf_service)
 
     livekit_agent = subparsers.add_parser(
         "livekit-agent",

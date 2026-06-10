@@ -33,6 +33,7 @@ def test_registry_tools_include_catalog_and_runtime_tools():
     tool_names = {tool.name for tool in REGISTRY_TOOLS}
 
     assert "things_search" in tool_names
+    assert "things_sparql" in tool_names
     assert "registry_health" in tool_names
     assert "wot_read_property" in tool_names
     assert "wot_subscribe_event" in tool_names

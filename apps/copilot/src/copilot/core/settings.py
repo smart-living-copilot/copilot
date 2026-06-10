@@ -109,6 +109,17 @@ class Settings(BaseSettings):
     search_indexer_batch_size: int = 20
     search_indexer_claim_idle_ms: int = 60000
     search_indexer_retry_seconds: float = 5
+    rdf_service_url: str = "http://rdf-service:8124"
+    rdf_store_path: str = "/data/rdf"
+    rdf_events_group: str = "thing_rdf_indexer"
+    rdf_events_consumer: str = Field(
+        default_factory=lambda: f"{socket.gethostname()}-{os.getpid()}"
+    )
+    rdf_events_batch_size: int = 20
+    rdf_events_poll_block_ms: int = 5000
+    rdf_events_claim_idle_ms: int = 60000
+    rdf_events_retry_seconds: float = 5
+    rdf_query_timeout_seconds: int = 20
 
     # Jobs and WoT runtime
     job_task_timeout_seconds: int = 300
@@ -225,6 +236,42 @@ class Settings(BaseSettings):
     @property
     def SEARCH_INDEXER_RETRY_SECONDS(self) -> float:
         return self.search_indexer_retry_seconds
+
+    @property
+    def RDF_SERVICE_URL(self) -> str:
+        return self.rdf_service_url
+
+    @property
+    def RDF_STORE_PATH(self) -> str:
+        return self.rdf_store_path
+
+    @property
+    def RDF_EVENTS_GROUP(self) -> str:
+        return self.rdf_events_group
+
+    @property
+    def RDF_EVENTS_CONSUMER(self) -> str:
+        return self.rdf_events_consumer
+
+    @property
+    def RDF_EVENTS_BATCH_SIZE(self) -> int:
+        return self.rdf_events_batch_size
+
+    @property
+    def RDF_EVENTS_POLL_BLOCK_MS(self) -> int:
+        return self.rdf_events_poll_block_ms
+
+    @property
+    def RDF_EVENTS_CLAIM_IDLE_MS(self) -> int:
+        return self.rdf_events_claim_idle_ms
+
+    @property
+    def RDF_EVENTS_RETRY_SECONDS(self) -> float:
+        return self.rdf_events_retry_seconds
+
+    @property
+    def RDF_QUERY_TIMEOUT_SECONDS(self) -> int:
+        return self.rdf_query_timeout_seconds
 
     @property
     def OPENAI_API_BASE_URL(self) -> str | None:

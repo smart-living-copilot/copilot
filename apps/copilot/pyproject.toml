@@ -23,6 +23,7 @@ dependencies = [
     "langchain-core>=1.0,<2",
     "openai>=2.29,<3",
     "pgvector>=0.4,<1",
+    "pyoxigraph>=0.5,<1",
     "psycopg[binary,pool]>=3.2,<4",
     "sqlalchemy>=2,<3",
     "alembic>=1.18,<2",

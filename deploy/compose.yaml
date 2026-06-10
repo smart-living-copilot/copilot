@@ -133,6 +133,31 @@ services:
       - egress-api
     restart: unless-stopped
 
+  rdf-service:
+    image: ghcr.io/smart-living-copilot/copilot:latest
+    env_file: ../.env
+    command: ["copilot", "rdf-service"]
+    volumes:
+      - rdf-data:/data/rdf
+    environment:
+      REDIS_URL: "redis://valkey:6379"
+      RDF_STORE_PATH: "/data/rdf"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8124/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+
   ui:
     image: ghcr.io/smart-living-copilot/ui:latest
     env_file: ../.env
@@ -247,6 +272,7 @@ services:
 volumes:
   copilot-data:
   postgres-data:
+  rdf-data:
   valkey-data:
 
 networks:
