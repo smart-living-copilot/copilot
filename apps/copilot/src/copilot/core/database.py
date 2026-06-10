@@ -55,7 +55,8 @@ def get_connection() -> Iterator[DatabaseConnection]:
 
 def get_session() -> Iterator[Session]:
     """FastAPI dependency yielding a SQLAlchemy ORM session."""
-    with get_session_factory() as session:
+    session_factory = get_session_factory()
+    with session_factory() as session:
         yield session
 
 

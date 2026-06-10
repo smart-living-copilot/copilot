@@ -1,7 +1,9 @@
 import asyncio
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 
+from copilot.agent.tools import wot_registry as wot_registry_module
 from copilot.agent.tools.wot_registry import REGISTRY_TOOLS, sparql_query, things_search
 from copilot.search import set_active_search_service
 
@@ -132,6 +134,42 @@ class RegistryToolArgsTestCase(unittest.TestCase):
                 "result": None,
             },
         )
+
+    def test_sparql_endpoint_context_loader_opens_sessionmaker(self) -> None:
+        calls = []
+
+        @contextmanager
+        def fake_session_context():
+            session = object()
+            calls.append(("open", session))
+            yield session
+            calls.append(("close", session))
+
+        def fake_session_factory():
+            calls.append(("factory", None))
+            return fake_session_context()
+
+        def fake_load_endpoint_contexts(session, endpoint_ids):
+            calls.append(("load", session, endpoint_ids))
+            return [{"id": endpoint_ids[0]}]
+
+        with patch(
+            "copilot.agent.tools.wot_registry.get_session_factory",
+            return_value=fake_session_factory,
+        ), patch(
+            "copilot.agent.tools.wot_registry.load_endpoint_contexts",
+            side_effect=fake_load_endpoint_contexts,
+        ):
+            response = wot_registry_module._load_sparql_endpoint_contexts(
+                ["urn:slc:endpoint:kg"]
+            )
+
+        assert response == [{"id": "urn:slc:endpoint:kg"}]
+        assert calls[0] == ("factory", None)
+        assert calls[1][0] == "open"
+        assert calls[2][0] == "load"
+        assert calls[2][2] == ["urn:slc:endpoint:kg"]
+        assert calls[3][0] == "close"
 
 
 if __name__ == "__main__":

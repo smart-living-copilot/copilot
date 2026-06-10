@@ -35,14 +35,16 @@ def _rdf_store(request: Request) -> RdfStoreService:
 
 
 def _load_all_things() -> list[tuple[str, dict[str, Any]]]:
-    with get_session_factory() as session:
+    session_factory = get_session_factory()
+    with session_factory() as session:
         things = session.scalars(select(Thing).order_by(Thing.id)).all()
         return [(record.id, record.document) for record in (to_record(thing) for thing in things)]
 
 
 def _service_rewrites(endpoint_ids: list[str], settings: Any) -> dict[str, str]:
     rewrites: dict[str, str] = {}
-    with get_session_factory() as session:
+    session_factory = get_session_factory()
+    with session_factory() as session:
         for endpoint_id in dict.fromkeys(endpoint_ids):
             resolve_federated_endpoint(session, thing_id=endpoint_id, settings=settings)
             rewrites[endpoint_id] = endpoint_proxy_url(
@@ -53,7 +55,8 @@ def _service_rewrites(endpoint_ids: list[str], settings: Any) -> dict[str, str]:
 
 
 def _resolve_proxy_endpoint(thing_id: str, settings: Any):
-    with get_session_factory() as session:
+    session_factory = get_session_factory()
+    with session_factory() as session:
         return resolve_federated_endpoint(session, thing_id=thing_id, settings=settings)
 
 

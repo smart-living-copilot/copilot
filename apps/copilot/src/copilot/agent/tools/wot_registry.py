@@ -49,7 +49,8 @@ def _rdf_client() -> RdfServiceClient:
 
 
 def _load_sparql_endpoint_contexts(endpoint_ids: list[str]) -> list[dict[str, Any]]:
-    with get_session_factory() as session:
+    session_factory = get_session_factory()
+    with session_factory() as session:
         return load_endpoint_contexts(session, endpoint_ids)
 
 
