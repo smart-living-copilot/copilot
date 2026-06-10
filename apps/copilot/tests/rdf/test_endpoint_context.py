@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from copilot.rdf.endpoint_context import (
     endpoint_context_from_document,
     extract_example_queries,
+    is_sparql_endpoint_document,
+    load_all_endpoint_contexts,
     validate_example_queries,
 )
 
@@ -25,6 +29,7 @@ def _endpoint_document() -> dict[str, object]:
         "title": "Building Energy KG",
         "description": "Building spaces and tariff data.",
         "tags": ["sparql-endpoint", "energy"],
+        "sd:endpoint": {"@id": "https://example.com/sparql"},
         "sd:supportedLanguage": {"@id": "sd:SPARQL11Query"},
         "void:vocabulary": [{"@id": "https://saref.etsi.org/saref4bldg/"}],
         "void:classPartition": [
@@ -71,6 +76,44 @@ def test_endpoint_context_extracts_void_prefixes_and_examples():
 
 def test_extract_example_queries_returns_empty_for_absent_examples():
     assert extract_example_queries({"id": "urn:thing:no-examples"}) == []
+
+
+def test_is_sparql_endpoint_document_requires_service_endpoint_and_query_language():
+    assert is_sparql_endpoint_document(_endpoint_document())
+
+    missing_endpoint = _endpoint_document()
+    missing_endpoint.pop("sd:endpoint", None)
+    assert not is_sparql_endpoint_document(missing_endpoint)
+
+    wrong_type = _endpoint_document()
+    wrong_type["@type"] = "Thing"
+    assert not is_sparql_endpoint_document(wrong_type)
+
+    wrong_language = _endpoint_document()
+    wrong_language["sd:supportedLanguage"] = {"@id": "sd:SPARQL10Query"}
+    assert not is_sparql_endpoint_document(wrong_language)
+
+
+def test_load_all_endpoint_contexts_skips_non_endpoint_things():
+    class FakeScalarResult:
+        def all(self):
+            return [
+                SimpleNamespace(id="urn:thing:lamp", document={"@type": "Thing"}),
+                SimpleNamespace(
+                    id="urn:slc:endpoint:building-energy-kg",
+                    document=_endpoint_document(),
+                ),
+            ]
+
+    class FakeSession:
+        def scalars(self, _stmt):
+            return FakeScalarResult()
+
+    contexts = load_all_endpoint_contexts(FakeSession())  # type: ignore[arg-type]
+
+    assert [context["id"] for context in contexts] == [
+        "urn:slc:endpoint:building-energy-kg"
+    ]
 
 
 def test_validate_example_queries_accepts_read_only_examples():

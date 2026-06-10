@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 from copilot.agent.tools import wot_registry as wot_registry_module
-from copilot.agent.tools.wot_registry import REGISTRY_TOOLS, sparql_query, things_search
+from copilot.agent.tools.wot_registry import REGISTRY_TOOLS, query_knowledge, things_search
 from copilot.search import set_active_search_service
 
 
@@ -12,12 +12,15 @@ class RegistryToolArgsTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         set_active_search_service(None)
 
-    def test_registry_tools_include_sparql_query(self) -> None:
+    def test_registry_tools_include_query_knowledge(self) -> None:
         tool_names = {tool.name for tool in REGISTRY_TOOLS}
-        self.assertIn("sparql_query", tool_names)
+        self.assertIn("query_knowledge", tool_names)
+        self.assertNotIn("sparql_query", tool_names)
         self.assertNotIn("things_sparql", tool_names)
-        schema = sparql_query.args_schema.model_json_schema()
+        schema = query_knowledge.args_schema.model_json_schema()
         self.assertIn("intent", schema["properties"])
+        self.assertIn("limit", schema["properties"])
+        self.assertNotIn("endpoints", schema["properties"])
         self.assertNotIn("query", schema["properties"])
 
     def test_things_search_clamps_out_of_range_k(self) -> None:
@@ -47,7 +50,7 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             {"error": "query must not be empty", "items": [], "query": ""},
         )
 
-    def test_sparql_query_runs_subgraph(self) -> None:
+    def test_query_knowledge_runs_subgraph(self) -> None:
         calls = []
 
         async def fake_run_sparql_query_subgraph(**kwargs):
@@ -56,7 +59,7 @@ class RegistryToolArgsTestCase(unittest.TestCase):
                 "status": "ok",
                 "intent": kwargs["intent"],
                 "query": "SELECT * WHERE { ?s ?p ?o }",
-                "endpoints": kwargs["endpoints"],
+                "selected_endpoints": [],
                 "attempts": [],
                 "summary": "Done",
                 "result": {
@@ -74,14 +77,9 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             return_value=object(),
         ):
             response = asyncio.run(
-                sparql_query.ainvoke(
+                query_knowledge.ainvoke(
                     {
                         "intent": " Find sensors with observations ",
-                        "endpoints": [
-                            " urn:slc:endpoint:one ",
-                            "urn:slc:endpoint:one",
-                            "urn:slc:endpoint:two",
-                        ],
                         "limit": 999,
                     }
                 )
@@ -92,15 +90,15 @@ class RegistryToolArgsTestCase(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["intent"], "Find sensors with observations")
         self.assertEqual(calls[0]["limit"], 500)
-        self.assertEqual(calls[0]["endpoints"], ["urn:slc:endpoint:one", "urn:slc:endpoint:two"])
+        self.assertNotIn("endpoints", calls[0])
         self.assertNotIn("max_attempts", calls[0])
 
-    def test_sparql_query_returns_tool_error_for_empty_query(self) -> None:
-        response = asyncio.run(sparql_query.ainvoke({"intent": "   ", "limit": 5}))
+    def test_query_knowledge_returns_tool_error_for_empty_query(self) -> None:
+        response = asyncio.run(query_knowledge.ainvoke({"intent": "   ", "limit": 5}))
 
         self.assertEqual(response, {"error": "intent must not be empty", "intent": ""})
 
-    def test_sparql_query_returns_tool_error_for_subgraph_errors(self) -> None:
+    def test_query_knowledge_returns_tool_error_for_subgraph_errors(self) -> None:
         async def fake_run_sparql_query_subgraph(**_kwargs):
             raise ValueError("subgraph failed")
 
@@ -112,7 +110,7 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             return_value=object(),
         ):
             response = asyncio.run(
-                sparql_query.ainvoke(
+                query_knowledge.ainvoke(
                     {
                         "intent": "Find Things",
                         "limit": 5,
@@ -128,14 +126,14 @@ class RegistryToolArgsTestCase(unittest.TestCase):
                 "intent": "Find Things",
                 "query": "",
                 "limit": 5,
-                "endpoints": [],
+                "selected_endpoints": [],
                 "attempts": [],
                 "summary": "SPARQL query failed: subgraph failed",
                 "result": None,
             },
         )
 
-    def test_sparql_endpoint_context_loader_opens_sessionmaker(self) -> None:
+    def test_knowledge_endpoint_context_loader_opens_sessionmaker(self) -> None:
         calls = []
 
         @contextmanager
@@ -149,26 +147,23 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             calls.append(("factory", None))
             return fake_session_context()
 
-        def fake_load_endpoint_contexts(session, endpoint_ids):
-            calls.append(("load", session, endpoint_ids))
-            return [{"id": endpoint_ids[0]}]
+        def fake_load_all_endpoint_contexts(session):
+            calls.append(("load", session))
+            return [{"id": "urn:slc:endpoint:kg"}]
 
         with patch(
             "copilot.agent.tools.wot_registry.get_session_factory",
             return_value=fake_session_factory,
         ), patch(
-            "copilot.agent.tools.wot_registry.load_endpoint_contexts",
-            side_effect=fake_load_endpoint_contexts,
+            "copilot.agent.tools.wot_registry.load_all_endpoint_contexts",
+            side_effect=fake_load_all_endpoint_contexts,
         ):
-            response = wot_registry_module._load_sparql_endpoint_contexts(
-                ["urn:slc:endpoint:kg"]
-            )
+            response = wot_registry_module._load_knowledge_endpoint_contexts()
 
         assert response == [{"id": "urn:slc:endpoint:kg"}]
         assert calls[0] == ("factory", None)
         assert calls[1][0] == "open"
         assert calls[2][0] == "load"
-        assert calls[2][2] == ["urn:slc:endpoint:kg"]
         assert calls[3][0] == "close"
 
 

@@ -26,7 +26,8 @@ class AnalysisGuidanceTestCase(unittest.TestCase):
     def test_analysis_prompt_describes_typical_workflow(self) -> None:
         self.assertIn("## Typical workflow", ANALYSIS_PROMPT)
         self.assertIn("things_search", ANALYSIS_PROMPT)
-        self.assertIn("sparql_query", ANALYSIS_PROMPT)
+        self.assertIn("query_knowledge", ANALYSIS_PROMPT)
+        self.assertNotIn("sparql_query", ANALYSIS_PROMPT)
         self.assertIn("wot_get_action", ANALYSIS_PROMPT)
         self.assertIn("run_code", ANALYSIS_PROMPT)
 
@@ -34,13 +35,12 @@ class AnalysisGuidanceTestCase(unittest.TestCase):
         self.assertIn("## Discovery Tool Choice", ANALYSIS_PROMPT)
         self.assertIn("precise filter", ANALYSIS_PROMPT)
         self.assertIn("When unsure", ANALYSIS_PROMPT)
-        self.assertIn("narrow the candidates with sparql_query", ANALYSIS_PROMPT)
+        self.assertIn("narrow the candidates with query_knowledge", ANALYSIS_PROMPT)
         self.assertIn("natural-language", ANALYSIS_PROMPT)
         self.assertIn("Do not hand-write", ANALYSIS_PROMPT)
         self.assertIn("raw SPARQL", ANALYSIS_PROMPT)
         self.assertIn("external knowledge graph", ANALYSIS_PROMPT)
-        self.assertIn("first use things_search", ANALYSIS_PROMPT)
-        self.assertIn("then call sparql_query", ANALYSIS_PROMPT)
+        self.assertIn("discovers registered endpoint Things", ANALYSIS_PROMPT)
 
 
 class ControlGuidanceTestCase(unittest.TestCase):
@@ -52,9 +52,10 @@ class ControlGuidanceTestCase(unittest.TestCase):
         self.assertIn("until the user confirms", CONTROL_PROMPT)
 
     def test_control_prompt_explains_sparql_tool_choice(self) -> None:
-        self.assertIn("sparql_query", CONTROL_PROMPT)
+        self.assertIn("query_knowledge", CONTROL_PROMPT)
+        self.assertNotIn("sparql_query", CONTROL_PROMPT)
         self.assertIn("operation types", CONTROL_PROMPT)
-        self.assertIn("narrow with sparql_query", CONTROL_PROMPT)
+        self.assertIn("narrow with query_knowledge", CONTROL_PROMPT)
         self.assertIn("natural-language", CONTROL_PROMPT)
         self.assertIn("Do not hand-write", CONTROL_PROMPT)
         self.assertIn("raw SPARQL", CONTROL_PROMPT)
@@ -62,9 +63,10 @@ class ControlGuidanceTestCase(unittest.TestCase):
 
 class JobGuidanceTestCase(unittest.TestCase):
     def test_jobs_prompt_explains_sparql_tool_choice(self) -> None:
-        self.assertIn("sparql_query", JOBS_PROMPT)
+        self.assertIn("query_knowledge", JOBS_PROMPT)
+        self.assertNotIn("sparql_query", JOBS_PROMPT)
         self.assertIn("exact Thing Description", JOBS_PROMPT)
-        self.assertIn("narrow candidates with sparql_query", JOBS_PROMPT)
+        self.assertIn("narrow candidates with query_knowledge", JOBS_PROMPT)
         self.assertIn("natural-language", JOBS_PROMPT)
         self.assertIn("Do not hand-write", JOBS_PROMPT)
         self.assertIn("raw SPARQL", JOBS_PROMPT)

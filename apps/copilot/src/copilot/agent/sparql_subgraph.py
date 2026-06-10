@@ -9,6 +9,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
+from copilot.rdf.federation import service_iris
+
 
 class SparqlDraft(BaseModel):
     query: str = Field(description="A complete read-only SPARQL query")
@@ -21,7 +23,7 @@ class SparqlSummary(BaseModel):
 
 class SparqlQueryState(TypedDict, total=False):
     intent: str
-    endpoints: list[str]
+    selected_endpoints: list[str]
     limit: int
     endpoint_context: list[dict[str, Any]]
     attempts: list[dict[str, Any]]
@@ -32,7 +34,7 @@ class SparqlQueryState(TypedDict, total=False):
     status: Literal["ok", "partial", "failed"]
 
 
-EndpointContextLoader = Callable[[list[str]], list[dict[str, Any]]]
+EndpointContextLoader = Callable[[], list[dict[str, Any]]]
 RdfExecutor = Callable[..., Any]
 
 _DRAFT_SYSTEM_PROMPT = """\
@@ -68,6 +70,29 @@ def _as_model_dict(value: Any) -> dict[str, Any]:
 
 def _result_status(result: dict[str, Any]) -> Literal["ok", "partial"]:
     return "partial" if result.get("truncated") else "ok"
+
+
+def _known_endpoint_ids(endpoint_context: list[dict[str, Any]]) -> set[str]:
+    return {
+        endpoint_id
+        for item in endpoint_context
+        if isinstance((endpoint_id := item.get("id")), str) and endpoint_id
+    }
+
+
+def _selected_endpoint_ids(
+    query: str,
+    endpoint_context: list[dict[str, Any]],
+) -> list[str]:
+    known_endpoint_ids = _known_endpoint_ids(endpoint_context)
+    selected: list[str] = []
+    seen: set[str] = set()
+    for iri in service_iris(query):
+        if iri not in known_endpoint_ids or iri in seen:
+            continue
+        selected.append(iri)
+        seen.add(iri)
+    return selected
 
 
 def _attempt_result_summary(result: dict[str, Any]) -> dict[str, Any]:
@@ -113,8 +138,7 @@ def _draft_prompt(state: SparqlQueryState) -> list[Any]:
     payload = {
         "intent": state.get("intent", ""),
         "limit": state.get("limit", 50),
-        "endpoints": state.get("endpoints", []),
-        "endpoint_context": state.get("endpoint_context", []),
+        "available_endpoints": state.get("endpoint_context", []),
     }
     return [
         SystemMessage(content=_DRAFT_SYSTEM_PROMPT),
@@ -127,7 +151,7 @@ def _summary_prompt(state: SparqlQueryState) -> list[Any]:
         "intent": state.get("intent", ""),
         "status": state.get("status", "failed"),
         "query": state.get("draft_query", ""),
-        "endpoints": state.get("endpoints", []),
+        "selected_endpoints": state.get("selected_endpoints", []),
         "attempts": state.get("attempts", []),
         "result": state.get("last_result"),
         "error": state.get("last_error", ""),
@@ -148,17 +172,18 @@ def build_sparql_query_subgraph(
     summary_llm = llm.with_structured_output(SparqlSummary)
 
     async def assemble_context(state: SparqlQueryState) -> dict[str, Any]:
-        endpoints = state.get("endpoints", [])
         try:
-            endpoint_context = await asyncio.to_thread(endpoint_context_loader, endpoints)
+            endpoint_context = await asyncio.to_thread(endpoint_context_loader)
         except Exception as exc:
             return {
                 "endpoint_context": [],
+                "selected_endpoints": [],
                 "last_error": str(exc),
                 "status": "failed",
             }
         return {
             "endpoint_context": endpoint_context,
+            "selected_endpoints": [],
             "last_error": "",
         }
 
@@ -176,6 +201,10 @@ def build_sparql_query_subgraph(
             }
         return {
             "draft_query": query,
+            "selected_endpoints": _selected_endpoint_ids(
+                query,
+                state.get("endpoint_context", []),
+            ),
             "last_error": "",
         }
 
@@ -184,7 +213,7 @@ def build_sparql_query_subgraph(
         try:
             result = await rdf_executor(
                 query=query,
-                endpoints=state.get("endpoints", []),
+                endpoints=state.get("selected_endpoints", []),
                 limit=state.get("limit", 50),
             )
         except Exception as exc:
@@ -273,7 +302,6 @@ def build_sparql_query_subgraph(
 async def run_sparql_query_subgraph(
     *,
     intent: str,
-    endpoints: list[str],
     limit: int,
     llm: Any,
     rdf_executor: RdfExecutor,
@@ -287,7 +315,7 @@ async def run_sparql_query_subgraph(
     state = await graph.ainvoke(
         {
             "intent": intent,
-            "endpoints": endpoints,
+            "selected_endpoints": [],
             "limit": limit,
             "attempts": [],
         }
@@ -296,7 +324,7 @@ async def run_sparql_query_subgraph(
         "status": state.get("status", "failed"),
         "intent": intent,
         "query": state.get("draft_query", ""),
-        "endpoints": endpoints,
+        "selected_endpoints": state.get("selected_endpoints", []),
         "attempts": state.get("attempts", []),
         "summary": state.get("final_summary", ""),
         "result": state.get("last_result"),

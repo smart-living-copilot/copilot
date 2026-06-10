@@ -54,10 +54,10 @@ class FakeRdfExecutor:
         return response
 
 
-def _context_loader(endpoint_ids: list[str]) -> list[dict[str, object]]:
+def _context_loader() -> list[dict[str, object]]:
     return [
         {
-            "id": endpoint_id,
+            "id": "urn:slc:endpoint:kg",
             "title": "Endpoint",
             "description": "Fake endpoint",
             "prefixes": {"ex": "https://example.com/"},
@@ -68,7 +68,6 @@ def _context_loader(endpoint_ids: list[str]) -> list[dict[str, object]]:
                 }
             ],
         }
-        for endpoint_id in endpoint_ids
     ]
 
 
@@ -99,7 +98,6 @@ async def test_sparql_subgraph_drafts_executes_and_summarizes_success():
 
     response = await run_sparql_query_subgraph(
         intent="Find Things",
-        endpoints=[],
         limit=50,
         llm=llm,
         rdf_executor=executor,
@@ -108,10 +106,103 @@ async def test_sparql_subgraph_drafts_executes_and_summarizes_success():
 
     assert response["status"] == "ok"
     assert response["summary"] == "Found one thing."
+    assert response["selected_endpoints"] == []
     assert response["attempts"][0]["status"] == "ok"
     assert executor.calls == [
         {"query": "SELECT ?thing WHERE { ?thing ?p ?o }", "endpoints": [], "limit": 50}
     ]
+
+
+@pytest.mark.anyio
+async def test_sparql_subgraph_selects_generated_service_endpoints():
+    llm = FakeLLM(
+        drafts=[
+            {
+                "query": (
+                    "SELECT ?x WHERE { "
+                    "SERVICE <urn:slc:endpoint:kg> { ?x <https://example.com/p> ?o } "
+                    "}"
+                )
+            }
+        ],
+        summaries=[{"summary": "Found remote rows."}],
+    )
+    executor = FakeRdfExecutor(
+        [_select_result([{"x": {"type": "uri", "value": "https://example.com/x"}}])]
+    )
+
+    response = await run_sparql_query_subgraph(
+        intent="Find remote rows",
+        limit=25,
+        llm=llm,
+        rdf_executor=executor,
+        endpoint_context_loader=_context_loader,
+    )
+
+    assert response["status"] == "ok"
+    assert response["selected_endpoints"] == ["urn:slc:endpoint:kg"]
+    assert executor.calls == [
+        {
+            "query": (
+                "SELECT ?x WHERE { "
+                "SERVICE <urn:slc:endpoint:kg> { ?x <https://example.com/p> ?o } "
+                "}"
+            ),
+            "endpoints": ["urn:slc:endpoint:kg"],
+            "limit": 25,
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_sparql_subgraph_prompt_includes_discovered_endpoint_context():
+    llm = FakeLLM(
+        drafts=[{"query": "SELECT ?thing WHERE { ?thing ?p ?o }"}],
+        summaries=[{"summary": "Done."}],
+    )
+    executor = FakeRdfExecutor([_select_result([])])
+
+    await run_sparql_query_subgraph(
+        intent="Find Things",
+        limit=50,
+        llm=llm,
+        rdf_executor=executor,
+        endpoint_context_loader=_context_loader,
+    )
+
+    draft_payload = llm.prompts[0][1].content
+    assert "available_endpoints" in draft_payload
+    assert "urn:slc:endpoint:kg" in draft_payload
+
+
+@pytest.mark.anyio
+async def test_sparql_subgraph_reports_unknown_service_endpoint_error_without_retry():
+    llm = FakeLLM(
+        drafts=[
+            {
+                "query": (
+                    "SELECT ?x WHERE { "
+                    "SERVICE <urn:slc:endpoint:unknown> { ?x ?p ?o } "
+                    "}"
+                )
+            }
+        ],
+    )
+    executor = FakeRdfExecutor([ValueError("SPARQL SERVICE targets must be declared endpoint Thing ids passed in endpoints")])
+
+    response = await run_sparql_query_subgraph(
+        intent="Find remote rows",
+        limit=50,
+        llm=llm,
+        rdf_executor=executor,
+        endpoint_context_loader=_context_loader,
+    )
+
+    assert response["status"] == "failed"
+    assert response["selected_endpoints"] == []
+    assert len(executor.calls) == 1
+    assert executor.calls[0]["endpoints"] == []
+    assert "endpoint Thing ids" in response["attempts"][0]["error"]
 
 
 @pytest.mark.anyio
@@ -123,7 +214,6 @@ async def test_sparql_subgraph_returns_executor_error_without_retry():
 
     response = await run_sparql_query_subgraph(
         intent="Find Things",
-        endpoints=[],
         limit=50,
         llm=llm,
         rdf_executor=executor,
@@ -147,7 +237,6 @@ async def test_sparql_subgraph_treats_empty_select_as_success():
 
     response = await run_sparql_query_subgraph(
         intent="Find Things",
-        endpoints=[],
         limit=50,
         llm=llm,
         rdf_executor=executor,
@@ -181,7 +270,6 @@ async def test_sparql_subgraph_does_not_retry_ask_false():
 
     response = await run_sparql_query_subgraph(
         intent="Check whether anything exists",
-        endpoints=[],
         limit=50,
         llm=llm,
         rdf_executor=executor,

@@ -18,7 +18,7 @@ from copilot.catalog.service import ThingCatalogQueryService, ThingCatalogWriteS
 from copilot.agent.sparql_subgraph import run_sparql_query_subgraph
 from copilot.clients.rdf_service import RdfServiceClient
 from copilot.clients.wot_runtime import WotRuntimeClient
-from copilot.rdf.endpoint_context import load_endpoint_contexts
+from copilot.rdf.endpoint_context import load_all_endpoint_contexts
 
 
 def _tool_error(exc: HTTPException) -> ValueError:
@@ -48,10 +48,10 @@ def _rdf_client() -> RdfServiceClient:
     return RdfServiceClient(get_registry_settings())
 
 
-def _load_sparql_endpoint_contexts(endpoint_ids: list[str]) -> list[dict[str, Any]]:
+def _load_knowledge_endpoint_contexts() -> list[dict[str, Any]]:
     session_factory = get_session_factory()
     with session_factory() as session:
-        return load_endpoint_contexts(session, endpoint_ids)
+        return load_all_endpoint_contexts(session)
 
 
 async def _execute_sparql_query(
@@ -85,24 +85,6 @@ def _bounded_int(value: int | None, *, default: int, minimum: int, maximum: int)
     if value is None:
         return default
     return min(max(value, minimum), maximum)
-
-
-def _normalized_endpoint_ids(endpoints: list[str] | None) -> list[str]:
-    if not endpoints:
-        return []
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for endpoint in endpoints:
-        if not isinstance(endpoint, str):
-            continue
-        value = endpoint.strip()
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        normalized.append(value)
-        if len(normalized) >= 20:
-            break
-    return normalized
 
 
 def _decoded_runtime_value(result: Any) -> Any:
@@ -194,33 +176,29 @@ async def things_search(query: str, k: int = 5) -> dict[str, Any]:
 
 
 @tool
-async def sparql_query(
+async def query_knowledge(
     intent: str,
-    endpoints: list[str] | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
-    """Answer a structured RDF/SPARQL intent over local Things and endpoint Things.
+    """Answer a structured knowledge intent over local Things and endpoint Things.
 
     Use this for exact filters over Thing metadata and for queries against
     registered SPARQL endpoint Things or other external knowledge graphs. Pass
-    natural-language intent and any federated endpoint
-    Thing ids; the tool drafts and executes one SPARQL query internally. Use
-    things_search first when you need to discover the endpoint Thing id.
+    natural-language intent; the tool discovers endpoints and drafts one
+    read-only SPARQL query internally.
     """
     normalized_intent = intent.strip()
     if not normalized_intent:
         return {"error": "intent must not be empty", "intent": normalized_intent}
     normalized_limit = _bounded_int(limit, default=50, minimum=1, maximum=500)
-    normalized_endpoints = _normalized_endpoint_ids(endpoints)
     settings = get_registry_settings()
     try:
         return await run_sparql_query_subgraph(
             intent=normalized_intent,
-            endpoints=normalized_endpoints,
             limit=normalized_limit,
             llm=make_llm(settings),
             rdf_executor=_execute_sparql_query,
-            endpoint_context_loader=_load_sparql_endpoint_contexts,
+            endpoint_context_loader=_load_knowledge_endpoint_contexts,
         )
     except Exception as exc:
         return {
@@ -229,7 +207,7 @@ async def sparql_query(
             "intent": normalized_intent,
             "query": "",
             "limit": normalized_limit,
-            "endpoints": normalized_endpoints,
+            "selected_endpoints": [],
             "attempts": [],
             "summary": f"SPARQL query failed: {exc}",
             "result": None,
@@ -438,7 +416,7 @@ REGISTRY_TOOLS = [
     registry_health,
     things_list,
     things_search,
-    sparql_query,
+    query_knowledge,
     things_get,
     wot_get_property,
     wot_get_action,

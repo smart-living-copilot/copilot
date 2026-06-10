@@ -14,7 +14,7 @@ class ToolGroupsTestCase(unittest.TestCase):
             [
                 _tool("registry_health"),
                 _tool("things_search"),
-                _tool("sparql_query"),
+                _tool("query_knowledge"),
                 _tool("things_validate"),
                 _tool("things_get"),
                 _tool("wot_get_runtime_health"),
@@ -27,7 +27,7 @@ class ToolGroupsTestCase(unittest.TestCase):
 
         self.assertEqual(
             [tool.name for tool in grouped.discovery],
-            ["registry_health", "things_search", "sparql_query"],
+            ["registry_health", "things_search", "query_knowledge"],
         )
         self.assertEqual([tool.name for tool in grouped.inspect], ["things_validate", "things_get"])
         self.assertEqual(
@@ -48,7 +48,7 @@ class ToolGroupsTestCase(unittest.TestCase):
             [
                 "registry_health",
                 "things_search",
-                "sparql_query",
+                "query_knowledge",
                 "things_validate",
                 "things_get",
             ],
