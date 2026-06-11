@@ -48,6 +48,11 @@ def build_graph(
     web_interface_tools = (
         [local_tool_groups.create_web_interface] if local_tool_groups.create_web_interface else []
     )
+    virtual_thing_tools = [
+        tool
+        for tool in local_tool_groups.job_tools
+        if tool.name in {"define_virtual_thing", "delete_virtual_thing"}
+    ]
     job_runtime_tools = [
         tool
         for tool in (
@@ -61,6 +66,7 @@ def build_graph(
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime
         + web_interface_tools
+        + virtual_thing_tools
         + vision_tools
         + job_runtime_tools
     )

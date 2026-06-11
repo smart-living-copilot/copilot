@@ -14,4 +14,5 @@ VALID_SCOPES = frozenset(API_KEY_SCOPES)
 
 SERVICE_SCOPES: dict[str, tuple[str, ...]] = {
     "wot_runtime": ("things:read",),
+    "virtual_servient": ("things:read", "things:write", "things:delete"),
 }

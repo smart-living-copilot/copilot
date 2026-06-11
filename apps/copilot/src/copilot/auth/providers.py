@@ -16,6 +16,8 @@ SERVICE_TOKEN_HEADER = "X-Registry-Service-Token"
 def _service_token_for(settings, service_name: str) -> str | None:
     if service_name == "wot_runtime":
         return settings.WOT_RUNTIME_REGISTRY_TOKEN
+    if service_name == "virtual_servient":
+        return settings.VIRTUAL_SERVIENT_REGISTRY_TOKEN
     return None
 
 

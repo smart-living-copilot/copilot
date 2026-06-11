@@ -39,6 +39,7 @@ from copilot.catalog.router import router as things_router
 from copilot.speech.routes import router as speech_router
 from copilot.api.wot_runtime import router as wot_runtime_router
 from copilot.panels.router import router as panels_router
+from copilot.virtual_things.routes import router as virtual_things_router
 
 logger = logging.getLogger(__name__)
 EMBED_EPHEMERAL_THREAD_PREFIX = "embed-ephemeral-"
@@ -284,6 +285,7 @@ app.include_router(jobs_router)
 app.include_router(speech_router)
 app.include_router(wot_runtime_router)
 app.include_router(panels_router)
+app.include_router(virtual_things_router)
 
 
 def _current_settings() -> AgentSettings | None:

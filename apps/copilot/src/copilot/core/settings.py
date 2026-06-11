@@ -133,6 +133,7 @@ class Settings(BaseSettings):
     wot_runtime_stream: str = "wot_runtime_events"
     wot_runtime_timeout_seconds: int = 15
     wot_runtime_subscription_timeout_seconds: int = 5
+    virtual_servient_registry_token: str = ""
     jobs_events_group: str = "job_runner"
     jobs_events_consumer: str = Field(
         default_factory=lambda: f"{socket.gethostname()}-{os.getpid()}"
@@ -210,6 +211,10 @@ class Settings(BaseSettings):
     @property
     def WOT_RUNTIME_API_TOKEN(self) -> str | None:
         return _optional(self.wot_runtime_api_token)
+
+    @property
+    def VIRTUAL_SERVIENT_REGISTRY_TOKEN(self) -> str | None:
+        return _optional(self.virtual_servient_registry_token or self.wot_runtime_registry_token)
 
     @property
     def SEARCH_VECTOR_DIMENSIONS(self) -> int:

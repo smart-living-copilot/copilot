@@ -248,6 +248,14 @@ def things_validate(document: dict[str, Any]) -> dict[str, Any]:
 @tool
 async def things_upsert(thing_id: str, document: dict[str, Any]) -> dict[str, Any]:
     """Create or update a Thing Description in the catalog."""
+    if _looks_like_abstract_virtual_thing(document):
+        return {
+            "error": (
+                "This looks like an abstract computed/emitted virtual Thing. "
+                "Use define_virtual_thing instead of things_upsert so copilot "
+                "can create bindings and virtual-servient can produce concrete HTTP forms."
+            )
+        }
     sanitized = validate_document(document)
     decoded_thing_id = decode_thing_id(thing_id)
     payload = await _run_with_session(
@@ -259,6 +267,28 @@ async def things_upsert(thing_id: str, document: dict[str, Any]) -> dict[str, An
         )
     )
     return payload
+
+
+def _looks_like_abstract_virtual_thing(document: dict[str, Any]) -> bool:
+    for section in ("properties", "actions", "events"):
+        affordances = document.get(section)
+        if not isinstance(affordances, dict):
+            continue
+        for definition in affordances.values():
+            if not isinstance(definition, dict):
+                continue
+            if definition.get("computed") is True or definition.get("emitted") is True:
+                return True
+            forms = definition.get("forms")
+            if not isinstance(forms, list):
+                continue
+            for form in forms:
+                if not isinstance(form, dict):
+                    continue
+                href = form.get("href")
+                if isinstance(href, str) and href.startswith("urn:virtual"):
+                    return True
+    return False
 
 
 @tool

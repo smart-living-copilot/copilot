@@ -47,4 +47,11 @@ blocked; only window.wot reaches devices. Declare every Thing affordance the
 interface uses in `capabilities`; interactions outside that allowlist are rejected
 by the UI. The interface renders below the tool call — refer to it naturally as
 "the panel above" and never mention raw filenames.
+
+## Standalone Virtual Things
+When the user asks to create a computed, generated, emitted, synthetic, or virtual
+Thing with computed properties/actions/events, use define_virtual_thing. Do not
+use things_upsert for this: things_upsert only stores an already-consumable TD and
+cannot create handler bindings, event trigger loops, or virtual-servient produced
+HTTP forms. Never invent urn:virtual forms.
 """

@@ -26,6 +26,7 @@ def _import_models_for_metadata() -> None:
     import copilot.panels.models  # noqa: F401
     import copilot.search.models  # noqa: F401
     import copilot.threads.models  # noqa: F401
+    import copilot.virtual_things.db  # noqa: F401
 
 
 _import_models_for_metadata()

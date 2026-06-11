@@ -14,7 +14,7 @@ import {
   encodePayloadEnvelope,
   normalizeBody,
 } from '../services/payloads.js';
-import { createRuntimeError, formatError } from '../services/errors.js';
+import { createRuntimeError, formatError, isDataSchemaError } from '../services/errors.js';
 import { getAffordanceDefinition, resolveFormIndex } from '../services/form-selection.js';
 import { getRuntimeHealth } from '../services/runtime-health.js';
 
@@ -109,6 +109,23 @@ function buildInteractionResponse(value: unknown, contentType?: string): { respo
   );
 }
 
+function interactionError(
+  operation: string,
+  thingId: string,
+  affordanceName: string,
+  error: unknown,
+): never {
+  if (isDataSchemaError(error) || formatError(error) === 'Invalid value according to DataSchema') {
+    throw createRuntimeError(
+      'invalid_argument',
+      `${operation} input for '${thingId}/${affordanceName}' does not match the Thing Description schema. ` +
+        `Check the affordance input schema and pass a matching value, or remove the input schema for a no-argument action. ` +
+        `Original error: ${formatError(error)}`,
+    );
+  }
+  throw error;
+}
+
 
 /**
  * Fetches a Thing Description and consumes it via the node-wot servient.
@@ -185,7 +202,9 @@ export async function handleReadProperty(request: any): Promise<any> {
   })();
 
   const options = buildInteractionOptions(request, resolvedFormIndex);
-  const result = await thing.readProperty(propertyName, options);
+  const result = await thing.readProperty(propertyName, options).catch((error: unknown) =>
+    interactionError('ReadProperty', thingId, propertyName, error),
+  );
 
   const payload = await encodeInteractionOutputPayload(result, {
     onInvalidSchema: () => {
@@ -233,7 +252,9 @@ export async function handleWriteProperty(request: any): Promise<any> {
   })();
 
   const options = buildInteractionOptions(request, resolvedFormIndex);
-  await thing.writeProperty(propertyName, input, options);
+  await thing.writeProperty(propertyName, input, options).catch((error: unknown) =>
+    interactionError('WriteProperty', thingId, propertyName, error),
+  );
 
   return buildInteractionResponse(undefined);
 }
@@ -299,10 +320,11 @@ export async function handleInvokeAction(request: any): Promise<any> {
     }
   }
 
-  const result =
+  const result = await (
     input === undefined
-      ? await thing.invokeAction(actionName, undefined, options)
-      : await thing.invokeAction(actionName, input, options);
+      ? thing.invokeAction(actionName, undefined, options)
+      : thing.invokeAction(actionName, input, options)
+  ).catch((error: unknown) => interactionError('InvokeAction', thingId, actionName, error));
 
   if (result) {
     const payload = await encodeInteractionOutputPayload(result, {

@@ -78,7 +78,17 @@ class VirtualRecordStore:
             record, _created = put_thing(session, thing_id, td)
             enqueue_thing_event(session, build_change_event("update", record))
             session.commit()
-            return {"thing_id": thing_id, "td": td}
+        from copilot.virtual_things import VirtualThingStore
+
+        VirtualThingStore().register_record_thing(
+            thing_id=thing_id,
+            title=title,
+            description=description,
+            source_job_id=source_job_id,
+            schema_version=schema_version,
+            record_schema=schema,
+        )
+        return {"thing_id": thing_id, "td": td}
 
     def delete_thing(self, thing_id: str) -> None:
         with self._session_factory() as session:
@@ -88,6 +98,12 @@ class VirtualRecordStore:
             if delete_thing(session, thing_id):
                 enqueue_thing_event(session, build_remove_event(thing_id))
             session.commit()
+        try:
+            from copilot.virtual_things import VirtualThingStore
+
+            VirtualThingStore().delete_thing(thing_id)
+        except KeyError:
+            pass
 
     def submit_record(
         self,

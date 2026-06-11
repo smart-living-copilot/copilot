@@ -111,3 +111,13 @@ services:
       - ../apps/wot-runtime:/app:cached
       - /app/node_modules
     command: ["npx", "tsx", "watch", "src/index.ts"]
+
+  virtual-servient:
+    build:
+      context: ../apps/virtual-servient
+      dockerfile: Dockerfile
+      target: deps
+    volumes:
+      - ../apps/virtual-servient:/app:cached
+      - /app/node_modules
+    command: ["npx", "tsx", "watch", "src/index.ts"]

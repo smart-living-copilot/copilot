@@ -258,6 +258,34 @@ services:
       REDIS_URL: redis://valkey:6379
       REGISTRY_URL: http://copilot:8123
 
+  virtual-servient:
+    image: ghcr.io/smart-living-copilot/virtual-servient:latest
+    env_file: ../.env
+    depends_on:
+      valkey:
+        condition: service_healthy
+      copilot:
+        condition: service_healthy
+    networks:
+      - backend-isolated
+      - egress-api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3013/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3013"
+      WOT_HOST: "0.0.0.0"
+      WOT_PORT: "3014"
+      VIRTUAL_SERVIENT_PUBLIC_URL: "http://virtual-servient:3014"
+      REDIS_URL: redis://valkey:6379
+      REGISTRY_URL: http://copilot:8123
+      VIRTUAL_SERVIENT_REGISTRY_TOKEN: "${VIRTUAL_SERVIENT_REGISTRY_TOKEN:-${WOT_RUNTIME_REGISTRY_TOKEN:-}}"
+
   kokoro-tts:
     image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
     profiles:

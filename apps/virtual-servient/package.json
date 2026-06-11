@@ -1,0 +1,32 @@
+{
+  "name": "virtual-servient",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Producer servient for Smart Living Copilot virtual Things",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@node-wot/binding-coap": "^0.9.2",
+    "@node-wot/binding-file": "^0.9.2",
+    "@node-wot/binding-http": "^0.9.2",
+    "@node-wot/binding-mbus": "^0.9.2",
+    "@node-wot/binding-modbus": "^0.9.2",
+    "@node-wot/binding-mqtt": "^0.9.2",
+    "@node-wot/core": "^0.9.2",
+    "axios": "^1.7.7",
+    "express": "^4.21.1",
+    "ioredis": "^5.10.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.10.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

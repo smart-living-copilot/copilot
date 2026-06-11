@@ -65,6 +65,8 @@ class ToolGroupsTestCase(unittest.TestCase):
                 _tool("create_analysis_job"),
                 _tool("list_jobs"),
                 _tool("run_job_now"),
+                _tool("define_virtual_thing"),
+                _tool("delete_virtual_thing"),
             ]
         )
 
@@ -74,7 +76,14 @@ class ToolGroupsTestCase(unittest.TestCase):
         self.assertEqual(grouped.submit_job_record.name, "submit_job_record")
         self.assertEqual(
             [tool.name for tool in grouped.job_tools],
-            ["create_prompt_job", "create_analysis_job", "list_jobs", "run_job_now"],
+            [
+                "create_prompt_job",
+                "create_analysis_job",
+                "list_jobs",
+                "run_job_now",
+                "define_virtual_thing",
+                "delete_virtual_thing",
+            ],
         )
 
     def test_group_local_tools_raises_when_required_tool_is_missing(self) -> None:
