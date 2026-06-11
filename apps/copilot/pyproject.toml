@@ -54,6 +54,13 @@ packages = ["src/copilot"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/copilot/catalog/td-schema.json" = "copilot/catalog/td-schema.json"
+"src/copilot/catalog/enrichment/data/default.json" = "copilot/catalog/enrichment/data/default.json"
+"src/copilot/catalog/enrichment/data/vocab/saref-core.json" = "copilot/catalog/enrichment/data/vocab/saref-core.json"
+"src/copilot/catalog/enrichment/data/vocab/saref4ehaw.json" = "copilot/catalog/enrichment/data/vocab/saref4ehaw.json"
+"src/copilot/catalog/enrichment/data/vocab/saref4envi.json" = "copilot/catalog/enrichment/data/vocab/saref4envi.json"
+"src/copilot/catalog/enrichment/data/vocab/sosa.json" = "copilot/catalog/enrichment/data/vocab/sosa.json"
+"src/copilot/catalog/enrichment/data/vocab/qudt-schema.json" = "copilot/catalog/enrichment/data/vocab/qudt-schema.json"
+"src/copilot/catalog/enrichment/data/vocab/qudt-units.json" = "copilot/catalog/enrichment/data/vocab/qudt-units.json"
 "src/copilot/panels/wot_bridge.js" = "copilot/panels/wot_bridge.js"
 # Alembic config + the revision template are non-Python assets, so they must be
 # force-included for the runtime ``alembic upgrade head`` to find them in the

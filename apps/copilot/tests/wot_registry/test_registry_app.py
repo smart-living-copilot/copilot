@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from copilot.api.main import app
+from copilot.catalog.enrichment.models import EnrichmentResult, EnrichmentValidation
 from copilot.catalog.events import publish_pending_thing_events
 
 
@@ -163,6 +164,73 @@ def test_api_things_rejects_invalid_document(authenticated_headers):
 
     assert response.status_code == 422
     assert "id" in response.json()["detail"]
+
+
+def test_api_things_enrich_returns_proposal_without_catalog_event(
+    authenticated_headers,
+    monkeypatch,
+):
+    thing = sample_thing("urn:thing:enrich")
+    calls: list[dict[str, object]] = []
+
+    async def fake_enrich(document, **_kwargs):
+        calls.append(document)
+        enriched = {
+            **document,
+            "@context": [
+                document["@context"],
+                {"saref": "https://saref.etsi.org/core/"},
+            ],
+            "@type": "saref:TemperatureSensor",
+        }
+        return EnrichmentResult(
+            enriched=enriched,
+            diff=[
+                {
+                    "kind": "type",
+                    "path": "@type",
+                    "value": "saref:TemperatureSensor",
+                    "label": "Thing type",
+                }
+            ],
+            validation=EnrichmentValidation(ok=True, attempts=1),
+        )
+
+    monkeypatch.setattr("copilot.catalog.router.enrich_thing_document", fake_enrich)
+    monkeypatch.setattr("copilot.catalog.router.make_llm", lambda _settings: object())
+
+    with TestClient(app) as client:
+        publisher = RecordingPublisher()
+        client.app.state.event_publisher = publisher
+        response = client.post(
+            f"/api/things/{thing['id']}/enrich",
+            headers={
+                **authenticated_headers,
+                "Content-Type": "application/json",
+            },
+            json={"document": thing},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["enriched"]["@type"] == "saref:TemperatureSensor"
+    assert response.json()["diff"][0]["kind"] == "type"
+    assert calls == [thing]
+    assert publisher.events == []
+
+
+def test_api_things_enrich_rejects_missing_document(authenticated_headers):
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/things/urn:thing:missing/enrich",
+            headers={
+                **authenticated_headers,
+                "Content-Type": "application/json",
+            },
+            json={},
+        )
+
+    assert response.status_code == 422
+    assert "document object" in response.json()["detail"]
 
 
 def test_api_things_write_succeeds_when_publisher_is_unavailable(authenticated_headers):

@@ -120,6 +120,8 @@ class Settings(BaseSettings):
     rdf_events_claim_idle_ms: int = 60000
     rdf_events_retry_seconds: float = 5
     rdf_query_timeout_seconds: int = 20
+    thing_enrichment_config_path: str = ""
+    thing_enrichment_max_repair_attempts: int = Field(default=2, ge=0, le=5)
 
     # Jobs and WoT runtime
     job_task_timeout_seconds: int = 300

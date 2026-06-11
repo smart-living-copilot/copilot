@@ -1,0 +1,32 @@
+[
+  {
+    "label": "Time Series Measurement",
+    "iri": "https://saref.etsi.org/saref4ehaw/TimeSeriesMeasurement",
+    "kind": "class",
+    "aliases": [
+      "time series",
+      "timeseries",
+      "history",
+      "historical measurements",
+      "sample stream"
+    ]
+  },
+  {
+    "label": "Data",
+    "iri": "https://saref.etsi.org/saref4ehaw/Data",
+    "kind": "class",
+    "aliases": ["dataset", "record data", "measurement data"]
+  },
+  {
+    "label": "has time series measurement",
+    "iri": "https://saref.etsi.org/saref4ehaw/hasTimeSeriesMesurement",
+    "kind": "property",
+    "aliases": ["has history", "has timeseries", "historical values"]
+  },
+  {
+    "label": "has values",
+    "iri": "https://saref.etsi.org/saref4ehaw/hasValues",
+    "kind": "property",
+    "aliases": ["sample values", "ordered values", "series values"]
+  }
+]

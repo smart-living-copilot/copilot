@@ -1,0 +1,47 @@
+{
+  "system_prompt_extra": "This deployment is a smart living and building demo; prefer SAREF, SOSA, and QUDT terms when they clearly match the TD.",
+  "ontologies": [
+    {
+      "prefix": "saref",
+      "namespace": "https://saref.etsi.org/core/",
+      "description": "SAREF device classes, properties, functions, and measurements.",
+      "terms": "vocab/saref-core.json",
+      "use_for": ["thing_type", "affordance_type"]
+    },
+    {
+      "prefix": "sosa",
+      "namespace": "http://www.w3.org/ns/sosa/",
+      "description": "SOSA sensors, actuators, observations, and observable properties.",
+      "terms": "vocab/sosa.json",
+      "use_for": ["thing_type", "affordance_type"]
+    },
+    {
+      "prefix": "s4ehaw",
+      "namespace": "https://saref.etsi.org/saref4ehaw/",
+      "description": "SAREF4EHAW terms for health/wellbeing and time-series measurements.",
+      "terms": "vocab/saref4ehaw.json",
+      "use_for": ["thing_type", "affordance_type"]
+    },
+    {
+      "prefix": "s4envi",
+      "namespace": "https://saref.etsi.org/saref4envi/",
+      "description": "SAREF4ENVI environmental terms used by time-series measurements.",
+      "terms": "vocab/saref4envi.json",
+      "use_for": ["affordance_type"]
+    },
+    {
+      "prefix": "qudt",
+      "namespace": "http://qudt.org/schema/qudt/",
+      "description": "QUDT schema predicates used by enriched TDs.",
+      "terms": "vocab/qudt-schema.json",
+      "use_for": ["property_unit"]
+    },
+    {
+      "prefix": "unit",
+      "namespace": "http://qudt.org/vocab/unit/",
+      "description": "QUDT unit IRIs for common smart-living measurements.",
+      "terms": "vocab/qudt-units.json",
+      "use_for": ["property_unit"]
+    }
+  ]
+}

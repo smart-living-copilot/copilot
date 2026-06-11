@@ -20,3 +20,5 @@ examples/thing-descriptions
 *.tsbuildinfo
 next-env.d.ts
 data/
+!apps/copilot/src/copilot/catalog/enrichment/data/
+!apps/copilot/src/copilot/catalog/enrichment/data/**

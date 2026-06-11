@@ -9,6 +9,26 @@ export interface ThingRecord {
   json?: string;
 }
 
+export interface EnrichmentDiffItem {
+  kind: 'prefix' | 'type' | 'unit';
+  path: string;
+  value: unknown;
+  label: string;
+}
+
+export interface EnrichmentValidation {
+  ok: boolean;
+  attempts: number;
+  unknown_iris?: string[];
+  warnings?: string[];
+}
+
+export interface EnrichmentResult {
+  enriched: Record<string, unknown>;
+  diff: EnrichmentDiffItem[];
+  validation: EnrichmentValidation;
+}
+
 interface ThingListResponse {
   items: ThingRecord[];
   total: number;
@@ -66,6 +86,20 @@ export async function updateThing(
     body: JSON.stringify(document),
   });
   return parseThingRecord(json);
+}
+
+export async function enrichThing(
+  id: string,
+  document: Record<string, unknown>,
+): Promise<EnrichmentResult> {
+  return httpJson<EnrichmentResult>(
+    `/things/${encodeURIComponent(id)}/enrich`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document }),
+    },
+  );
 }
 
 export async function deleteThing(id: string): Promise<void> {

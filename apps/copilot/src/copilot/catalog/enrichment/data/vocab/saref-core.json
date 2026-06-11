@@ -1,0 +1,70 @@
+[
+  {
+    "label": "Device",
+    "iri": "https://saref.etsi.org/core/Device",
+    "kind": "class"
+  },
+  {
+    "label": "Sensor",
+    "iri": "https://saref.etsi.org/core/Sensor",
+    "kind": "class"
+  },
+  {
+    "label": "Actuator",
+    "iri": "https://saref.etsi.org/core/Actuator",
+    "kind": "class"
+  },
+  {
+    "label": "Temperature Sensor",
+    "iri": "https://saref.etsi.org/core/TemperatureSensor",
+    "kind": "class",
+    "aliases": ["thermometer", "temperature sensor"]
+  },
+  {
+    "label": "Humidity Sensor",
+    "iri": "https://saref.etsi.org/core/HumiditySensor",
+    "kind": "class"
+  },
+  {
+    "label": "Motion Sensor",
+    "iri": "https://saref.etsi.org/core/MotionSensor",
+    "kind": "class",
+    "aliases": ["presence sensor", "occupancy sensor"]
+  },
+  {
+    "label": "Light Switch",
+    "iri": "https://saref.etsi.org/core/LightSwitch",
+    "kind": "class"
+  },
+  {
+    "label": "Temperature",
+    "iri": "https://saref.etsi.org/core/Temperature",
+    "kind": "property"
+  },
+  {
+    "label": "Humidity",
+    "iri": "https://saref.etsi.org/core/Humidity",
+    "kind": "property"
+  },
+  {
+    "label": "Illuminance",
+    "iri": "https://saref.etsi.org/core/Illuminance",
+    "kind": "property",
+    "aliases": ["light level", "brightness"]
+  },
+  {
+    "label": "Power",
+    "iri": "https://saref.etsi.org/core/Power",
+    "kind": "property"
+  },
+  {
+    "label": "Energy",
+    "iri": "https://saref.etsi.org/core/Energy",
+    "kind": "property"
+  },
+  {
+    "label": "On Off State",
+    "iri": "https://saref.etsi.org/core/OnOffState",
+    "kind": "property"
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "label": "Frequency Measurement",
+    "iri": "https://saref.etsi.org/saref4envi/FrequencyMeasurement",
+    "kind": "class",
+    "aliases": ["sampling frequency", "sample rate", "measurement frequency"]
+  },
+  {
+    "label": "Frequency",
+    "iri": "https://saref.etsi.org/saref4envi/Frequency",
+    "kind": "property",
+    "aliases": ["sample frequency", "sampling rate"]
+  },
+  {
+    "label": "Frequency Unit",
+    "iri": "https://saref.etsi.org/saref4envi/FrequencyUnit",
+    "kind": "class",
+    "aliases": ["hertz unit", "rate unit"]
+  }
+]

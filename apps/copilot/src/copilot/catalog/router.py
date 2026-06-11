@@ -1,9 +1,11 @@
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
 from copilot.auth import User, require_scopes
 from copilot.core.api_dependencies import SessionDep
+from copilot.core.llm import make_llm
+from copilot.core.settings import Settings
 from copilot.catalog.ids import decode_thing_id
 from copilot.catalog.service import (
     ThingCatalogQueryService,
@@ -11,6 +13,11 @@ from copilot.catalog.service import (
 )
 from copilot.catalog import serialize_thing, validate_document
 from copilot.catalog.credentials.router import router as credentials_router
+from copilot.catalog.enrichment import (
+    EnrichmentError,
+    enrich_thing_document,
+    load_enrichment_config,
+)
 
 router = APIRouter(prefix="/api", tags=["things"])
 
@@ -106,6 +113,39 @@ def list_owned_things(
         page=page,
         per_page=per_page,
     )
+
+
+@router.post("/things/{thing_id:path}/enrich")
+async def enrich_owned_thing(
+    thing_id: str,
+    request: Request,
+    body: dict[str, Any] = Body(...),
+    _user: User = Depends(require_scopes(["things:write"])),
+) -> dict[str, Any]:
+    document = body.get("document")
+    if not isinstance(document, dict):
+        raise HTTPException(status_code=422, detail="Body must include a document object")
+
+    settings = getattr(request.app.state, "settings", None)
+    if not isinstance(settings, Settings):
+        settings = Settings()
+
+    config = load_enrichment_config(settings.thing_enrichment_config_path)
+    llm = make_llm(settings)
+    try:
+        result = await enrich_thing_document(
+            document,
+            config=config,
+            llm=llm,
+            max_repair_attempts=settings.thing_enrichment_max_repair_attempts,
+        )
+    except EnrichmentError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": str(exc), "errors": exc.errors},
+        ) from exc
+
+    return result.model_dump()
 
 
 @router.get("/things/{thing_id:path}")

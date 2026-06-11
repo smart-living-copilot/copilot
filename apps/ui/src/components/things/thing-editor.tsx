@@ -3,21 +3,33 @@
 import { json as jsonLanguage } from '@codemirror/lang-json';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Loader2, Save, Trash2 } from 'lucide-react';
+import { AlertTriangle, Loader2, Save, Sparkles, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { FormPageHeader } from '@/components/form-page-header';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
+  type EnrichmentDiffItem,
+  type EnrichmentResult,
   type ThingRecord,
   createThing,
   deleteThing,
+  enrichThing,
   fetchThing,
   updateThing,
 } from '@/lib/things-api';
 import { CodeEditor } from '@/components/code-editor';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { getLocalReturnTo, isCollectionReturnTo } from '@/lib/return-to';
 import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 
@@ -57,6 +69,17 @@ function summarizeDocument(documentText: string) {
   }
 }
 
+function formatDiffValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value);
+}
+
+function diffBadgeVariant(kind: EnrichmentDiffItem['kind']) {
+  if (kind === 'unit') return 'default';
+  if (kind === 'type') return 'secondary';
+  return 'outline';
+}
+
 interface ThingEditorProps {
   mode: 'create' | 'edit';
   returnTo?: string;
@@ -68,6 +91,8 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
   const [documentText, setDocumentText] = useState(THING_TEMPLATE);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isEnriching, setIsEnriching] = useState(false);
+  const [enrichment, setEnrichment] = useState<EnrichmentResult | null>(null);
   const [thing, setThing] = useState<ThingRecord | null>(null);
   const [isPending, setIsPending] = useState(mode === 'edit');
 
@@ -96,6 +121,7 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
       ? documentText !== THING_TEMPLATE
       : documentText !== (thing?.json ?? '');
   const canSave = !('error' in summary) && (mode === 'create' || isDirty);
+  const canEnrich = !('error' in summary) && Boolean(summary.document);
   const fallbackDetailHref = thingId
     ? `/things/${encodeURIComponent(thingId)}`
     : '/things';
@@ -153,6 +179,37 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
     }
   }, [canSave, isSubmitting, summary, mode, returnTo, thingId, router]);
 
+  const handleEnrich = useCallback(async () => {
+    if ('error' in summary) {
+      toast.error(summary.error);
+      return;
+    }
+    if (!summary.document || isEnriching) return;
+
+    const draftId =
+      typeof summary.document.id === 'string' && summary.document.id.trim()
+        ? summary.document.id
+        : (thingId ?? 'draft');
+
+    setIsEnriching(true);
+    try {
+      const result = await enrichThing(draftId, summary.document);
+      setEnrichment(result);
+      toast.success('Semantic enrichment proposed');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Enrichment failed');
+    } finally {
+      setIsEnriching(false);
+    }
+  }, [isEnriching, summary, thingId]);
+
+  const handleApplyEnrichment = useCallback(() => {
+    if (!enrichment) return;
+    setDocumentText(JSON.stringify(enrichment.enriched, null, 2));
+    setEnrichment(null);
+    toast.success('Applied enrichment to the draft');
+  }, [enrichment]);
+
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -208,74 +265,174 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
   }
 
   return (
-    <form className="space-y-5" onSubmit={handleSubmit}>
-      <FormPageHeader
-        title={headerTitle}
-        description={headerDescription}
-        cancelHref={cancelHref}
-        extraActions={
-          <>
+    <>
+      <form className="space-y-5" onSubmit={handleSubmit}>
+        <FormPageHeader
+          title={headerTitle}
+          description={headerDescription}
+          cancelHref={cancelHref}
+          extraActions={
+            <>
+              <Button
+                disabled={!canEnrich || isSubmitting || isEnriching}
+                onClick={() => void handleEnrich()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {isEnriching ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                Enrich
+              </Button>
+              <Button
+                onClick={handleFormatDocument}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Format JSON
+              </Button>
+              {mode === 'edit' && thing ? (
+                <ConfirmDialog
+                  destructive
+                  confirmLabel={isDeleting ? 'Removing...' : 'Remove'}
+                  description="This permanently removes the Thing Description and related credentials. This cannot be undone."
+                  onConfirm={handleDeleteThing}
+                  title={`Remove "${thing.title}"?`}
+                  trigger={
+                    <Button
+                      disabled={isDeleting}
+                      size="sm"
+                      type="button"
+                      variant="destructive"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      Remove
+                    </Button>
+                  }
+                />
+              ) : null}
+            </>
+          }
+          submitLabel={mode === 'create' ? 'Create thing' : 'Save changes'}
+          submitIcon={<Save className="h-4 w-4" />}
+          isSubmitting={isSubmitting}
+          disabled={isSubmitting || !canSave}
+        />
+
+        <Card className="overflow-hidden">
+          {'error' in summary && (
+            <div className="border-b border-destructive/20 bg-destructive/8 px-5 py-3 text-sm text-destructive">
+              <div className="flex items-center gap-2 font-medium">
+                <AlertTriangle className="h-4 w-4" />
+                Invalid JSON
+              </div>
+              <p className="mt-2">{summary.error}</p>
+            </div>
+          )}
+
+          <div className="min-h-[720px]">
+            <CodeEditor
+              className="rounded-none border-0 text-[13px]"
+              extensions={jsonExtensions}
+              height="720px"
+              onChange={setDocumentText}
+              value={documentText}
+            />
+          </div>
+        </Card>
+      </form>
+
+      <Dialog
+        open={Boolean(enrichment)}
+        onOpenChange={(open) => {
+          if (!open) setEnrichment(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Review semantic enrichment</DialogTitle>
+            <DialogDescription>
+              Apply adds these annotations to the JSON draft. Save changes when
+              you are ready to update the catalog.
+            </DialogDescription>
+          </DialogHeader>
+
+          {enrichment ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <Badge variant="outline">
+                  {enrichment.validation.attempts} attempt
+                  {enrichment.validation.attempts === 1 ? '' : 's'}
+                </Badge>
+                <Badge
+                  variant={enrichment.validation.ok ? 'default' : 'destructive'}
+                >
+                  {enrichment.validation.ok ? 'Validated' : 'Needs review'}
+                </Badge>
+              </div>
+
+              {enrichment.validation.warnings?.length ? (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
+                  {enrichment.validation.warnings.join(' ')}
+                </div>
+              ) : null}
+
+              <div className="max-h-96 overflow-y-auto rounded-md border border-border/70">
+                {enrichment.diff.length ? (
+                  <div className="divide-y divide-border/70">
+                    {enrichment.diff.map((item, index) => (
+                      <div
+                        className="grid gap-2 p-3 text-sm sm:grid-cols-[8rem_1fr]"
+                        key={`${item.path}-${index}`}
+                      >
+                        <div>
+                          <Badge variant={diffBadgeVariant(item.kind)}>
+                            {item.kind}
+                          </Badge>
+                        </div>
+                        <div className="min-w-0 space-y-1">
+                          <div className="font-medium">{item.label}</div>
+                          <div className="break-all font-mono text-xs text-muted-foreground">
+                            {item.path}
+                          </div>
+                          <div className="break-all font-mono text-xs">
+                            {formatDiffValue(item.value)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-4 text-sm text-muted-foreground">
+                    No semantic additions were proposed.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
             <Button
-              onClick={handleFormatDocument}
-              size="sm"
               type="button"
               variant="outline"
+              onClick={() => setEnrichment(null)}
             >
-              Format JSON
+              Cancel
             </Button>
-            {mode === 'edit' && thing ? (
-              <ConfirmDialog
-                destructive
-                confirmLabel={isDeleting ? 'Removing...' : 'Remove'}
-                description="This permanently removes the Thing Description and related credentials. This cannot be undone."
-                onConfirm={handleDeleteThing}
-                title={`Remove "${thing.title}"?`}
-                trigger={
-                  <Button
-                    disabled={isDeleting}
-                    size="sm"
-                    type="button"
-                    variant="destructive"
-                  >
-                    {isDeleting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                    Remove
-                  </Button>
-                }
-              />
-            ) : null}
-          </>
-        }
-        submitLabel={mode === 'create' ? 'Create thing' : 'Save changes'}
-        submitIcon={<Save className="h-4 w-4" />}
-        isSubmitting={isSubmitting}
-        disabled={isSubmitting || !canSave}
-      />
-
-      <Card className="overflow-hidden">
-        {'error' in summary && (
-          <div className="border-b border-destructive/20 bg-destructive/8 px-5 py-3 text-sm text-destructive">
-            <div className="flex items-center gap-2 font-medium">
-              <AlertTriangle className="h-4 w-4" />
-              Invalid JSON
-            </div>
-            <p className="mt-2">{summary.error}</p>
-          </div>
-        )}
-
-        <div className="min-h-[720px]">
-          <CodeEditor
-            className="rounded-none border-0 text-[13px]"
-            extensions={jsonExtensions}
-            height="720px"
-            onChange={setDocumentText}
-            value={documentText}
-          />
-        </div>
-      </Card>
-    </form>
+            <Button type="button" onClick={handleApplyEnrichment}>
+              Apply
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

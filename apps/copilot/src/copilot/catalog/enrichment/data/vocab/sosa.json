@@ -1,0 +1,27 @@
+[
+  {
+    "label": "Sensor",
+    "iri": "http://www.w3.org/ns/sosa/Sensor",
+    "kind": "class"
+  },
+  {
+    "label": "Actuator",
+    "iri": "http://www.w3.org/ns/sosa/Actuator",
+    "kind": "class"
+  },
+  {
+    "label": "Observable Property",
+    "iri": "http://www.w3.org/ns/sosa/ObservableProperty",
+    "kind": "class"
+  },
+  {
+    "label": "Actuatable Property",
+    "iri": "http://www.w3.org/ns/sosa/ActuatableProperty",
+    "kind": "class"
+  },
+  {
+    "label": "Observation",
+    "iri": "http://www.w3.org/ns/sosa/Observation",
+    "kind": "class"
+  }
+]

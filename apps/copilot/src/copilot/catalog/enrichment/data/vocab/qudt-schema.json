@@ -1,0 +1,7 @@
+[
+  {
+    "label": "unit",
+    "iri": "http://qudt.org/schema/qudt/unit",
+    "kind": "property"
+  }
+]

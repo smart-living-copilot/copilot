@@ -1,0 +1,51 @@
+[
+  {
+    "label": "Degree Celsius",
+    "iri": "http://qudt.org/vocab/unit/DEG_C",
+    "kind": "unit",
+    "aliases": ["°C", "celsius"]
+  },
+  {
+    "label": "Percent",
+    "iri": "http://qudt.org/vocab/unit/PERCENT",
+    "kind": "unit",
+    "aliases": ["%", "percent"]
+  },
+  {
+    "label": "Lux",
+    "iri": "http://qudt.org/vocab/unit/LUX",
+    "kind": "unit"
+  },
+  {
+    "label": "Watt",
+    "iri": "http://qudt.org/vocab/unit/W",
+    "kind": "unit"
+  },
+  {
+    "label": "Kilowatt Hour",
+    "iri": "http://qudt.org/vocab/unit/KiloW-HR",
+    "kind": "unit",
+    "aliases": ["kWh"]
+  },
+  {
+    "label": "Pascal",
+    "iri": "http://qudt.org/vocab/unit/PA",
+    "kind": "unit"
+  },
+  {
+    "label": "Volt",
+    "iri": "http://qudt.org/vocab/unit/V",
+    "kind": "unit"
+  },
+  {
+    "label": "Ampere",
+    "iri": "http://qudt.org/vocab/unit/A",
+    "kind": "unit"
+  },
+  {
+    "label": "Hertz",
+    "iri": "http://qudt.org/vocab/unit/HZ",
+    "kind": "unit",
+    "aliases": ["Hz", "samples per second", "frequency"]
+  }
+]
