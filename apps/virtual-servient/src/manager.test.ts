@@ -5,9 +5,9 @@ import { handleEvent } from "./events.js";
 import {
   __clearActiveThingsForTest,
   __setActiveThingForTest,
-  canaryEventBindings,
   errorDetail,
 } from "./manager.js";
+import { canaryEventBindings } from "./triggers.js";
 import type { VirtualThingDefinition } from "./types.js";
 
 test("canaryEventBindings dry-runs emitted events without requiring real emission", async () => {
@@ -34,7 +34,7 @@ test("canaryEventBindings dry-runs emitted events without requiring real emissio
     ],
   };
 
-  await canaryEventBindings(definition, async (...args) => {
+  await canaryEventBindings(definition, async (...args: unknown[]) => {
     calls.push(args);
     return null;
   });
@@ -42,6 +42,35 @@ test("canaryEventBindings dry-runs emitted events without requiring real emissio
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], "virtual:things:counter");
   assert.equal(calls[0][1], "tick");
+  assert.deepEqual(calls[0][3], { dryRun: true });
+});
+
+test("canaryEventBindings uses explicit input for explicit events", async () => {
+  const calls: unknown[][] = [];
+  const definition: VirtualThingDefinition = {
+    id: "virtual:things:manual",
+    title: "Manual",
+    description: "",
+    td: {},
+    version: 1,
+    status: "active",
+    bindings: [
+      {
+        affordance_type: "event",
+        affordance_name: "signal",
+        kind: "emitted",
+        trigger: { kind: "explicit" },
+      },
+    ],
+  };
+
+  await canaryEventBindings(definition, async (...args: unknown[]) => {
+    calls.push(args);
+    return null;
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal((calls[0][2] as Record<string, unknown>).trigger, "explicit");
   assert.deepEqual(calls[0][3], { dryRun: true });
 });
 
