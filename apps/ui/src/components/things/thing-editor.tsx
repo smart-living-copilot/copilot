@@ -3,7 +3,14 @@
 import { json as jsonLanguage } from '@codemirror/lang-json';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Loader2, Save, Sparkles, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  Save,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { FormPageHeader } from '@/components/form-page-header';
@@ -96,6 +103,8 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isEnriching, setIsEnriching] = useState(false);
+  const [enrichOpen, setEnrichOpen] = useState(false);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
   const [enrichment, setEnrichment] = useState<EnrichmentResult | null>(null);
   const [thing, setThing] = useState<ThingRecord | null>(null);
   const [isPending, setIsPending] = useState(mode === 'edit');
@@ -183,6 +192,12 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
     }
   }, [canSave, isSubmitting, summary, mode, returnTo, thingId, router]);
 
+  const closeEnrichment = useCallback(() => {
+    setEnrichOpen(false);
+    setEnrichment(null);
+    setEnrichError(null);
+  }, []);
+
   const handleEnrich = useCallback(async () => {
     if ('error' in summary) {
       toast.error(summary.error);
@@ -195,13 +210,17 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
         ? summary.document.id
         : (thingId ?? 'draft');
 
+    setEnrichment(null);
+    setEnrichError(null);
+    setEnrichOpen(true);
     setIsEnriching(true);
     try {
       const result = await enrichThing(draftId, summary.document);
       setEnrichment(result);
-      toast.success('Semantic enrichment proposed');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Enrichment failed');
+      setEnrichError(
+        error instanceof Error ? error.message : 'Enrichment failed',
+      );
     } finally {
       setIsEnriching(false);
     }
@@ -210,9 +229,9 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
   const handleApplyEnrichment = useCallback(() => {
     if (!enrichment) return;
     setDocumentText(JSON.stringify(enrichment.enriched, null, 2));
-    setEnrichment(null);
+    closeEnrichment();
     toast.success('Applied enrichment to the draft');
-  }, [enrichment]);
+  }, [enrichment, closeEnrichment]);
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -355,32 +374,53 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
       </form>
 
       <Dialog
-        open={Boolean(enrichment)}
+        open={enrichOpen}
         onOpenChange={(open) => {
-          if (!open) setEnrichment(null);
+          if (!open && !isEnriching) closeEnrichment();
         }}
       >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Review semantic enrichment</DialogTitle>
+            <DialogTitle>Semantic enrichment</DialogTitle>
             <DialogDescription>
-              Apply adds these annotations to the JSON draft. Save changes when
-              you are ready to update the catalog.
+              {isEnriching
+                ? 'Analyzing the Thing Description and proposing annotations…'
+                : enrichError
+                  ? 'The enrichment could not be completed.'
+                  : 'Review the proposed annotations, then apply them to the JSON draft.'}
             </DialogDescription>
           </DialogHeader>
 
-          {enrichment ? (
+          {isEnriching ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-12 text-sm text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <span>Proposing semantic annotations…</span>
+            </div>
+          ) : enrichError ? (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/8 p-3 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="min-w-0 break-words">{enrichError}</p>
+            </div>
+          ) : enrichment ? (
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                <Badge variant="outline">
-                  {enrichment.validation.attempts} attempt
-                  {enrichment.validation.attempts === 1 ? '' : 's'}
-                </Badge>
-                <Badge
-                  variant={enrichment.validation.ok ? 'default' : 'destructive'}
-                >
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                {enrichment.validation.ok ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                )}
+                <span className="font-medium">
                   {enrichment.validation.ok ? 'Validated' : 'Needs review'}
-                </Badge>
+                </span>
+                <span className="text-muted-foreground">
+                  · {enrichment.diff.length} change
+                  {enrichment.diff.length === 1 ? '' : 's'} proposed
+                </span>
+                {enrichment.validation.attempts > 1 ? (
+                  <span className="text-muted-foreground">
+                    · {enrichment.validation.attempts} attempts
+                  </span>
+                ) : null}
               </div>
 
               {enrichment.validation.warnings?.length ? (
@@ -399,29 +439,23 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
                           className="space-y-1 text-sm"
                           key={`${finding.source_shape ?? 'shape'}-${index}`}
                         >
-                          <Badge
-                            variant={
-                              finding.severity.endsWith('Warning')
-                                ? 'outline'
-                                : 'secondary'
-                            }
-                          >
-                            {formatSeverity(finding.severity)}
-                          </Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={
+                                finding.severity.endsWith('Warning')
+                                  ? 'outline'
+                                  : 'secondary'
+                              }
+                            >
+                              {formatSeverity(finding.severity)}
+                            </Badge>
+                            {finding.focus_label ? (
+                              <span className="font-mono text-xs text-muted-foreground">
+                                {finding.focus_label}
+                              </span>
+                            ) : null}
+                          </div>
                           <div>{finding.message}</div>
-                          {finding.focus_label ||
-                          finding.focus_node ||
-                          finding.result_path ? (
-                            <div className="break-all font-mono text-xs text-muted-foreground">
-                              {[
-                                finding.focus_label,
-                                finding.focus_node,
-                                finding.result_path,
-                              ]
-                                .filter(Boolean)
-                                .join(' · ')}
-                            </div>
-                          ) : null}
                         </div>
                       ),
                     )}
@@ -469,16 +503,42 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
           ) : null}
 
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setEnrichment(null)}
-            >
-              Cancel
-            </Button>
-            <Button type="button" onClick={handleApplyEnrichment}>
-              Apply
-            </Button>
+            {isEnriching ? (
+              <Button type="button" variant="outline" disabled>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Working…
+              </Button>
+            ) : enrichError ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={closeEnrichment}
+                >
+                  Close
+                </Button>
+                <Button type="button" onClick={() => void handleEnrich()}>
+                  Retry
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={closeEnrichment}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleApplyEnrichment}
+                  disabled={!enrichment || enrichment.diff.length === 0}
+                >
+                  Apply
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
