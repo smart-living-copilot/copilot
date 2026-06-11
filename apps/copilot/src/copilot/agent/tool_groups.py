@@ -22,7 +22,13 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Registry tools, grouped by what they do.
-_DISCOVERY_NAMES = {"registry_health", "things_list", "things_search", "query_knowledge"}
+_DISCOVERY_NAMES = {
+    "registry_health",
+    "things_list",
+    "things_search",
+    "things_sparql",
+    "describe_rdf_schema",
+}
 _INSPECT_NAMES = {
     "things_validate",
     "things_get",

@@ -1,10 +1,8 @@
 import asyncio
 import unittest
-from contextlib import contextmanager
 from unittest.mock import patch
 
-from copilot.agent.tools import wot_registry as wot_registry_module
-from copilot.agent.tools.wot_registry import REGISTRY_TOOLS, query_knowledge, things_search
+from copilot.agent.tools.wot_registry import REGISTRY_TOOLS, things_search, things_sparql
 from copilot.search import set_active_search_service
 
 
@@ -12,17 +10,16 @@ class RegistryToolArgsTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         set_active_search_service(None)
 
-    def test_registry_tools_include_query_knowledge(self) -> None:
+    def test_registry_tools_include_things_sparql(self) -> None:
         tool_names = {tool.name for tool in REGISTRY_TOOLS}
-        self.assertIn("query_knowledge", tool_names)
+        self.assertIn("things_sparql", tool_names)
+        self.assertNotIn("query_knowledge", tool_names)
         self.assertNotIn("sparql_query", tool_names)
-        self.assertNotIn("things_sparql", tool_names)
-        schema = query_knowledge.args_schema.model_json_schema()
-        self.assertIn("intent", schema["properties"])
-        self.assertIn("endpoint_id", schema["properties"])
+        schema = things_sparql.args_schema.model_json_schema()
+        self.assertIn("query", schema["properties"])
         self.assertIn("limit", schema["properties"])
-        self.assertNotIn("endpoints", schema["properties"])
-        self.assertNotIn("query", schema["properties"])
+        self.assertNotIn("intent", schema["properties"])
+        self.assertNotIn("endpoint_id", schema["properties"])
 
     def test_things_search_clamps_out_of_range_k(self) -> None:
         class FakeSearchService:
@@ -51,157 +48,55 @@ class RegistryToolArgsTestCase(unittest.TestCase):
             {"error": "query must not be empty", "items": [], "query": ""},
         )
 
-    def test_query_knowledge_runs_endpoint_loop(self) -> None:
+    def test_things_sparql_runs_local_query_and_clamps_limit(self) -> None:
         calls = []
 
-        async def fake_query_endpoint_knowledge(**kwargs):
-            calls.append(kwargs)
-            return {
-                "status": "ok",
-                "intent": kwargs["intent"],
-                "endpoint_id": kwargs["endpoint_id"],
-                "query": "SELECT * WHERE { ?s ?p ?o }",
-                "attempts": [],
-                "summary": "Done",
-                "result": {
-                    "results": {"head": {"vars": ["s"]}, "results": {"bindings": []}},
-                },
-            }
+        class FakeRdfClient:
+            async def query(self, *, query, limit):
+                calls.append({"query": query, "limit": limit})
+                return {"type": "select", "variables": ["s"], "rows": [], "truncated": False}
 
         with patch(
-            "copilot.agent.tools.wot_registry._query_endpoint_knowledge",
-            side_effect=fake_query_endpoint_knowledge,
+            "copilot.agent.tools.wot_registry._rdf_client",
+            return_value=FakeRdfClient(),
         ):
             response = asyncio.run(
-                query_knowledge.ainvoke(
-                    {
-                        "intent": " Find sensors with observations ",
-                        "endpoint_id": " urn:slc:endpoint:kg ",
-                        "limit": 999,
-                    }
-                )
+                things_sparql.ainvoke({"query": "  SELECT * WHERE { ?s ?p ?o }  ", "limit": 999})
             )
 
-        self.assertEqual(response["status"], "ok")
-        self.assertEqual(response["summary"], "Done")
+        self.assertEqual(response["type"], "select")
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0]["intent"], "Find sensors with observations")
-        self.assertEqual(calls[0]["endpoint_id"], "urn:slc:endpoint:kg")
+        self.assertEqual(calls[0]["query"], "SELECT * WHERE { ?s ?p ?o }")
         self.assertEqual(calls[0]["limit"], 500)
 
-    def test_query_knowledge_returns_tool_error_for_empty_query(self) -> None:
-        response = asyncio.run(
-            query_knowledge.ainvoke(
-                {"intent": "   ", "endpoint_id": "urn:slc:endpoint:kg", "limit": 5}
-            )
-        )
+    def test_things_sparql_returns_tool_error_for_empty_query(self) -> None:
+        response = asyncio.run(things_sparql.ainvoke({"query": "   ", "limit": 5}))
 
-        self.assertEqual(response, {"error": "intent must not be empty", "intent": ""})
+        self.assertEqual(response, {"error": "query must not be empty", "query": ""})
 
-    def test_query_knowledge_returns_tool_error_for_empty_endpoint_id(self) -> None:
-        response = asyncio.run(
-            query_knowledge.ainvoke({"intent": "Find Things", "endpoint_id": "   ", "limit": 5})
-        )
-
-        self.assertEqual(
-            response,
-            {
-                "error": "endpoint_id must not be empty",
-                "intent": "Find Things",
-                "endpoint_id": "",
-            },
-        )
-
-    def test_query_knowledge_returns_tool_error_for_endpoint_loop_errors(self) -> None:
-        async def fake_query_endpoint_knowledge(**_kwargs):
-            raise ValueError("endpoint query failed")
+    def test_things_sparql_returns_failure_on_client_error(self) -> None:
+        class FailingRdfClient:
+            async def query(self, *, query, limit):
+                raise ValueError("rdf service down")
 
         with patch(
-            "copilot.agent.tools.wot_registry._query_endpoint_knowledge",
-            side_effect=fake_query_endpoint_knowledge,
+            "copilot.agent.tools.wot_registry._rdf_client",
+            return_value=FailingRdfClient(),
         ):
             response = asyncio.run(
-                query_knowledge.ainvoke(
-                    {
-                        "intent": "Find Things",
-                        "endpoint_id": "urn:slc:endpoint:kg",
-                        "limit": 5,
-                    }
-                )
+                things_sparql.ainvoke({"query": "SELECT * WHERE { ?s ?p ?o }", "limit": 5})
             )
 
         self.assertEqual(
             response,
             {
                 "status": "failed",
-                "error": "endpoint query failed",
-                "intent": "Find Things",
-                "endpoint_id": "urn:slc:endpoint:kg",
-                "query": "",
+                "error": "rdf service down",
+                "query": "SELECT * WHERE { ?s ?p ?o }",
                 "limit": 5,
-                "attempts": [],
-                "summary": "SPARQL endpoint query failed: endpoint query failed",
                 "result": None,
             },
         )
-
-    def test_knowledge_endpoint_context_loader_opens_sessionmaker(self) -> None:
-        calls = []
-
-        @contextmanager
-        def fake_session_context():
-            session = object()
-            calls.append(("open", session))
-            yield session
-            calls.append(("close", session))
-
-        def fake_session_factory():
-            calls.append(("factory", None))
-            return fake_session_context()
-
-        def fake_load_endpoint_contexts(session, endpoint_ids):
-            calls.append(("load", session, endpoint_ids))
-            return [{"id": "urn:slc:endpoint:kg"}]
-
-        with (
-            patch(
-                "copilot.agent.tools.wot_registry.get_session_factory",
-                return_value=fake_session_factory,
-            ),
-            patch(
-                "copilot.agent.tools.wot_registry.load_endpoint_contexts",
-                side_effect=fake_load_endpoint_contexts,
-            ),
-        ):
-            response = wot_registry_module._load_knowledge_endpoint_context("urn:slc:endpoint:kg")
-
-        assert response == {"id": "urn:slc:endpoint:kg"}
-        assert calls[0] == ("factory", None)
-        assert calls[1][0] == "open"
-        assert calls[2][0] == "load"
-        assert calls[2][2] == ["urn:slc:endpoint:kg"]
-        assert calls[3][0] == "close"
-
-    def test_internal_sparql_llm_disables_streaming_when_supported(self) -> None:
-        class FakeLlm:
-            def __init__(self) -> None:
-                self.update = None
-
-            def model_copy(self, *, update):
-                self.update = update
-                return "copied-llm"
-
-        llm = FakeLlm()
-
-        response = wot_registry_module._disable_internal_streaming(llm)
-
-        self.assertEqual(response, "copied-llm")
-        self.assertEqual(llm.update, {"disable_streaming": True})
-
-    def test_internal_sparql_llm_falls_back_for_test_doubles(self) -> None:
-        llm = object()
-
-        self.assertIs(wot_registry_module._disable_internal_streaming(llm), llm)
 
 
 if __name__ == "__main__":
