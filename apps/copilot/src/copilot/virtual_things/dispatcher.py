@@ -18,6 +18,10 @@ _RESULT_PREFIX = "__VIRTUAL_THING_RESULT__"
 _CACHE: dict[str, tuple[float, Any]] = {}
 
 
+class VirtualThingHandlerError(RuntimeError):
+    """Raised when virtual handler code fails during execution."""
+
+
 @dataclass(frozen=True)
 class HandlerContext:
     thing_id: str
@@ -81,7 +85,12 @@ class VirtualThingDispatcher:
         return await self._run_handler(binding, input_value=input_data, state=binding.state)
 
     async def evaluate_event(
-        self, thing_id: str, event_name: str, trigger_input: Any
+        self,
+        thing_id: str,
+        event_name: str,
+        trigger_input: Any,
+        *,
+        dry_run: bool = False,
     ) -> Any | None:
         binding = self._store.get_binding(
             thing_id=thing_id,
@@ -95,11 +104,10 @@ class VirtualThingDispatcher:
             input_value=trigger_input,
             state=binding.state,
         )
-        if not isinstance(result, dict):
-            raise ValueError("event handlers must return an object")
-        if "state" in result:
+        _validate_event_result(event_name, result)
+        if not dry_run:
             self._store.update_binding_state(binding_id=binding.id, state=result.get("state"))
-        emit = bool(result.get("emit", False))
+        emit = result["emit"]
         return result.get("payload") if emit else None
 
     async def _run_handler(
@@ -121,7 +129,7 @@ class VirtualThingDispatcher:
         code = _handler_wrapper(
             handler_code=binding.handler_code,
             input_value=input_value,
-            state=state,
+            state={} if state is None else state,
             context=context,
         )
         try:
@@ -132,7 +140,7 @@ class VirtualThingDispatcher:
         except httpx.TimeoutException as exc:
             raise TimeoutError("computed handler timed out") from exc
         except httpx.HTTPStatusError as exc:
-            raise RuntimeError(
+            raise VirtualThingHandlerError(
                 f"computed handler failed with status {exc.response.status_code}"
             ) from exc
 
@@ -140,7 +148,7 @@ class VirtualThingDispatcher:
         for line in reversed(stdout.splitlines()):
             if line.startswith(_RESULT_PREFIX):
                 return json_safe(json.loads(line.removeprefix(_RESULT_PREFIX)))
-        raise RuntimeError(stdout.strip() or "computed handler did not return a result")
+        raise VirtualThingHandlerError(stdout.strip() or "computed handler did not return a result")
 
 
 @dataclass(frozen=True)
@@ -162,6 +170,22 @@ def _cache_get(key: str) -> _CacheHit:
 
 def _cache_set(key: str, value: Any, ttl_seconds: int) -> None:
     _CACHE[key] = (time.monotonic() + ttl_seconds, json_safe(value))
+
+
+def _validate_event_result(event_name: str, result: Any) -> None:
+    if result is None:
+        raise ValueError(
+            f"event {event_name!r} handler returned None. Return an object with emit, payload, "
+            "and state."
+        )
+    if not isinstance(result, dict):
+        raise ValueError(f"event {event_name!r} handlers must return an object")
+    if not isinstance(result.get("emit"), bool):
+        raise ValueError(f"event {event_name!r} result.emit must be a boolean")
+    if "state" not in result:
+        raise ValueError(f"event {event_name!r} result.state is required")
+    if result["emit"] and "payload" not in result:
+        raise ValueError(f"event {event_name!r} result.payload is required when emit=true")
 
 
 def _handler_wrapper(

@@ -14,6 +14,7 @@ from copilot.agent.nodes import (
     make_jobs_node,
     make_respond_node,
     make_router_node,
+    make_virtual_things_node,
     respond_should_continue,
 )
 from copilot.agent.device_interactions import make_device_interaction_summary_node
@@ -48,11 +49,6 @@ def build_graph(
     web_interface_tools = (
         [local_tool_groups.create_web_interface] if local_tool_groups.create_web_interface else []
     )
-    virtual_thing_tools = [
-        tool
-        for tool in local_tool_groups.job_tools
-        if tool.name in {"define_virtual_thing", "delete_virtual_thing"}
-    ]
     job_runtime_tools = [
         tool
         for tool in (
@@ -66,7 +62,6 @@ def build_graph(
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime
         + web_interface_tools
-        + virtual_thing_tools
         + vision_tools
         + job_runtime_tools
     )
@@ -85,6 +80,11 @@ def build_graph(
         + vision_tools
         + job_runtime_tools
         + local_tool_groups.job_tools
+    )
+    virtual_things_tools = (
+        registry_tool_groups.discovery_and_inspect
+        + registry_tool_groups.virtual_authoring_runtime
+        + local_tool_groups.virtual_thing_tools
     )
 
     graph = StateGraph(CopilotState)
@@ -111,6 +111,19 @@ def build_graph(
     graph.add_node(
         "jobs_tools",
         ToolNode(jobs_tools, handle_tool_errors=_tool_error_message),
+    )
+    graph.add_node(
+        "virtual_things_llm",
+        make_virtual_things_node(
+            llm,
+            virtual_things_tools,
+            max_tokens,
+            parallel_tool_calls=parallel_tool_calls,
+        ),
+    )
+    graph.add_node(
+        "virtual_things_tools",
+        ToolNode(virtual_things_tools, handle_tool_errors=_tool_error_message),
     )
     graph.add_node(
         "respond_tools",
@@ -154,6 +167,7 @@ def build_graph(
             "control": "control_llm",
             "analysis": "analysis_llm",
             "jobs": "jobs_llm",
+            "virtual_things": "virtual_things_llm",
         },
     )
 
@@ -221,6 +235,22 @@ def build_graph(
         _after_tool_node("jobs_llm"),
         {
             "jobs_llm": "jobs_llm",
+            END: END,
+        },
+    )
+    graph.add_conditional_edges(
+        "virtual_things_llm",
+        tools_condition,
+        {
+            "tools": "virtual_things_tools",
+            END: "device_summary",
+        },
+    )
+    graph.add_conditional_edges(
+        "virtual_things_tools",
+        _after_tool_node("virtual_things_llm"),
+        {
+            "virtual_things_llm": "virtual_things_llm",
             END: END,
         },
     )

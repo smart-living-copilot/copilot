@@ -141,6 +141,15 @@ function tdForProduce(document: ThingDescription): ThingDescription {
   return copy;
 }
 
+export function errorDetail(error: unknown): string {
+  const response = (error as any)?.response;
+  if (response?.data !== undefined) {
+    const data = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+    return `${error} response=${data}`;
+  }
+  return String(error);
+}
+
 async function stopActiveThing(thingId: string): Promise<void> {
   const active = activeThings.get(thingId);
   if (!active) {
@@ -172,7 +181,7 @@ async function startIntervalTrigger(
         active.thing.emitEvent(binding.affordance_name, payload);
       }
     } catch (error) {
-      log.warn(`Failed to evaluate interval event ${definition.id}/${binding.affordance_name}: ${error}`);
+      log.warn(`Failed to evaluate interval event ${definition.id}/${binding.affordance_name}: ${errorDetail(error)}`);
     }
   };
   const timer = setInterval(() => void fire(), seconds * 1000);
@@ -204,10 +213,36 @@ async function startSourceEventTrigger(
         active.thing.emitEvent(binding.affordance_name, payload);
       }
     } catch (error) {
-      log.warn(`Failed to evaluate source event ${definition.id}/${binding.affordance_name}: ${error}`);
+      log.warn(`Failed to evaluate source event ${definition.id}/${binding.affordance_name}: ${errorDetail(error)}`);
     }
   });
   active.subscriptions.push(subscription);
+}
+
+export async function canaryEventBindings(
+  definition: VirtualThingDefinition,
+  evaluate: typeof evaluateVirtualEvent = evaluateVirtualEvent,
+): Promise<void> {
+  for (const binding of affordanceBindings(definition, 'event')) {
+    if (binding.kind !== 'emitted') {
+      continue;
+    }
+    const input =
+      binding.trigger?.kind === 'source_event'
+        ? {
+            trigger: 'source_event',
+            source_thing_id: binding.trigger.thing_id,
+            source_event_name: binding.trigger.event_name,
+            payload: null,
+          }
+        : {
+            trigger: 'interval',
+            fired_at: new Date().toISOString(),
+          };
+    await evaluate(definition.id, binding.affordance_name, input, {
+      dryRun: true,
+    });
+  }
 }
 
 export async function reconcileDefinition(definition: VirtualThingDefinition | null, thingId?: string): Promise<void> {
@@ -240,6 +275,16 @@ export async function reconcileDefinition(definition: VirtualThingDefinition | n
     exposedThing.setActionHandler(binding.affordance_name, async (input: unknown) =>
       invokeVirtualAction(definition.id, binding.affordance_name, await decodeInteractionValue(input)),
     );
+  }
+
+  try {
+    await canaryEventBindings(definition);
+  } catch (error) {
+    await Promise.resolve(exposedThing?.destroy?.()).catch(() => undefined);
+    await Promise.resolve(exposedThing?.unexpose?.()).catch(() => undefined);
+    await deleteCatalogThing(definition.id).catch(() => undefined);
+    log.warn(`Virtual Thing canary failed for ${definition.id}; not exposing: ${errorDetail(error)}`);
+    return;
   }
 
   await exposedThing.expose();

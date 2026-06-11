@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "test": "VIRTUAL_SERVIENT_REGISTRY_TOKEN=test tsx --test src/**/*.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

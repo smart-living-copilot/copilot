@@ -49,9 +49,7 @@ by the UI. The interface renders below the tool call — refer to it naturally a
 "the panel above" and never mention raw filenames.
 
 ## Standalone Virtual Things
-When the user asks to create a computed, generated, emitted, synthetic, or virtual
-Thing with computed properties/actions/events, use define_virtual_thing. Do not
-use things_upsert for this: things_upsert only stores an already-consumable TD and
-cannot create handler bindings, event trigger loops, or virtual-servient produced
-HTTP forms. Never invent urn:virtual forms.
+Standalone computed, generated, emitted, synthetic, or virtual Thing authoring is
+handled by the virtual_things branch, not control. Do not use things_upsert to
+fake a virtual Thing.
 """

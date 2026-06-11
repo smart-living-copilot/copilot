@@ -50,6 +50,13 @@ _RUNTIME_WRITE_NAMES = {
     "wot_remove_subscription",
 }
 _RUNTIME_NAMES = _RUNTIME_READ_NAMES | _RUNTIME_WRITE_NAMES
+_VIRTUAL_AUTHORING_RUNTIME_NAMES = {
+    "wot_get_runtime_health",
+    "wot_read_property",
+    "wot_invoke_action",
+    "wot_subscribe_event",
+    "wot_remove_subscription",
+}
 
 # Local tools that are referenced individually by the graph. Every other local
 # tool is treated as a job API tool for the dedicated jobs branch, so adding a
@@ -60,6 +67,11 @@ _CREATE_WEB_INTERFACE = "create_web_interface"
 _LOOK_AT_CAMERA = "look_at_camera"
 _ASK_JOB_USER = "ask_job_user"
 _SUBMIT_JOB_RECORD = "submit_job_record"
+_VIRTUAL_THING_NAMES = {
+    "draft_virtual_thing_definition",
+    "define_virtual_thing",
+    "delete_virtual_thing",
+}
 _NAMED_LOCAL_NAMES = {
     _GET_CURRENT_TIME,
     _RUN_CODE,
@@ -67,6 +79,7 @@ _NAMED_LOCAL_NAMES = {
     _LOOK_AT_CAMERA,
     _ASK_JOB_USER,
     _SUBMIT_JOB_RECORD,
+    *_VIRTUAL_THING_NAMES,
 }
 
 
@@ -76,6 +89,7 @@ class RegistryToolGroups:
     inspect: list[Any]
     runtime: list[Any]
     runtime_read: list[Any]
+    virtual_authoring_runtime: list[Any]
 
     @property
     def discovery_and_inspect(self) -> list[Any]:
@@ -90,6 +104,7 @@ class LocalToolGroups:
     look_at_camera: Any | None
     ask_job_user: Any | None
     submit_job_record: Any | None
+    virtual_thing_tools: list[Any]
     job_tools: list[Any]
 
 
@@ -99,6 +114,7 @@ def partition_registry_tools(registry_tools: list[Any]) -> RegistryToolGroups:
     inspect: list[Any] = []
     runtime: list[Any] = []
     runtime_read: list[Any] = []
+    virtual_authoring_runtime: list[Any] = []
 
     for tool in registry_tools:
         name = tool.name
@@ -110,6 +126,8 @@ def partition_registry_tools(registry_tools: list[Any]) -> RegistryToolGroups:
             runtime.append(tool)
             if name in _RUNTIME_READ_NAMES:
                 runtime_read.append(tool)
+            if name in _VIRTUAL_AUTHORING_RUNTIME_NAMES:
+                virtual_authoring_runtime.append(tool)
         else:
             logger.debug("Registry tool %r not assigned to any partition group", name)
 
@@ -118,6 +136,7 @@ def partition_registry_tools(registry_tools: list[Any]) -> RegistryToolGroups:
         inspect=inspect,
         runtime=runtime,
         runtime_read=runtime_read,
+        virtual_authoring_runtime=virtual_authoring_runtime,
     )
 
 
@@ -139,5 +158,6 @@ def group_local_tools(
         look_at_camera=tools_by_name.get(_LOOK_AT_CAMERA) if vision_enabled else None,
         ask_job_user=tools_by_name.get(_ASK_JOB_USER),
         submit_job_record=tools_by_name.get(_SUBMIT_JOB_RECORD),
+        virtual_thing_tools=[tool for tool in local_tools if tool.name in _VIRTUAL_THING_NAMES],
         job_tools=[tool for tool in local_tools if tool.name not in _NAMED_LOCAL_NAMES],
     )

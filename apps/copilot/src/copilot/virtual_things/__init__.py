@@ -12,6 +12,7 @@ from copilot.virtual_things.schemas import (
     VirtualThingTrigger,
 )
 from copilot.virtual_things.store import VirtualThingStore
+from copilot.virtual_things.validator import VirtualThingValidator
 
 __all__ = [
     "DefineVirtualThingRequest",
@@ -22,6 +23,7 @@ __all__ = [
     "VirtualThingDispatcher",
     "VirtualThingStore",
     "VirtualThingTrigger",
+    "VirtualThingValidator",
     "is_virtual_thing_id",
     "make_virtual_thing_id",
 ]

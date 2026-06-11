@@ -10,19 +10,33 @@ def _tool(name: str) -> SimpleNamespace:
 
 
 class BuilderVirtualToolsTestCase(unittest.TestCase):
-    def test_control_branch_includes_virtual_thing_tools(self) -> None:
+    def test_virtual_branch_gets_dedicated_tools_and_catalog_mutation_is_excluded(
+        self,
+    ) -> None:
         captured: dict[str, list[str]] = {}
 
         def fake_make_control_node(_llm, tools, _max_tokens, **_kwargs):
             captured["control"] = [tool.name for tool in tools]
             return lambda state: state
 
+        def fake_make_jobs_node(_llm, tools, _max_tokens, **_kwargs):
+            captured["jobs"] = [tool.name for tool in tools]
+            return lambda state: state
+
+        def fake_make_virtual_things_node(_llm, tools, _max_tokens, **_kwargs):
+            captured["virtual_things"] = [tool.name for tool in tools]
+            return lambda state: state
+
         with (
             patch("copilot.agent.builder.make_router_node", return_value=lambda state: state),
             patch("copilot.agent.builder.make_respond_node", return_value=lambda state: state),
-            patch("copilot.agent.builder.make_jobs_node", return_value=lambda state: state),
+            patch("copilot.agent.builder.make_jobs_node", side_effect=fake_make_jobs_node),
             patch("copilot.agent.builder.make_analysis_node", return_value=lambda state: state),
             patch("copilot.agent.builder.make_control_node", side_effect=fake_make_control_node),
+            patch(
+                "copilot.agent.builder.make_virtual_things_node",
+                side_effect=fake_make_virtual_things_node,
+            ),
             patch("copilot.agent.builder.ToolNode", return_value=lambda state: state),
         ):
             build_graph(
@@ -31,20 +45,48 @@ class BuilderVirtualToolsTestCase(unittest.TestCase):
                     _tool("things_search"),
                     _tool("things_get"),
                     _tool("things_upsert"),
+                    _tool("things_delete"),
+                    _tool("wot_get_runtime_health"),
                     _tool("wot_read_property"),
                     _tool("wot_invoke_action"),
+                    _tool("wot_write_property"),
+                    _tool("wot_subscribe_event"),
+                    _tool("wot_remove_subscription"),
                 ],
                 local_tools=[
                     _tool("run_code"),
                     _tool("get_current_time"),
+                    _tool("create_prompt_job"),
+                    _tool("create_analysis_job"),
+                    _tool("draft_virtual_thing_definition"),
                     _tool("define_virtual_thing"),
                     _tool("delete_virtual_thing"),
                 ],
                 max_tokens=1000,
             )
 
-        self.assertIn("define_virtual_thing", captured["control"])
-        self.assertIn("delete_virtual_thing", captured["control"])
+        self.assertNotIn("define_virtual_thing", captured["control"])
+        self.assertNotIn("delete_virtual_thing", captured["control"])
+        self.assertNotIn("define_virtual_thing", captured["jobs"])
+        self.assertNotIn("delete_virtual_thing", captured["jobs"])
+        self.assertEqual(
+            captured["virtual_things"],
+            [
+                "things_search",
+                "things_get",
+                "wot_get_runtime_health",
+                "wot_read_property",
+                "wot_invoke_action",
+                "wot_subscribe_event",
+                "wot_remove_subscription",
+                "draft_virtual_thing_definition",
+                "define_virtual_thing",
+                "delete_virtual_thing",
+            ],
+        )
+        self.assertNotIn("things_upsert", captured["virtual_things"])
+        self.assertNotIn("things_delete", captured["virtual_things"])
+        self.assertNotIn("wot_write_property", captured["virtual_things"])
 
 
 if __name__ == "__main__":

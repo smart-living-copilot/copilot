@@ -18,7 +18,11 @@ from copilot.agent.tools.job_scheduler import (
     list_jobs,
     run_job_now,
 )
-from copilot.agent.tools.virtual_things import define_virtual_thing, delete_virtual_thing
+from copilot.agent.tools.virtual_things import (
+    define_virtual_thing,
+    delete_virtual_thing,
+    draft_virtual_thing_definition,
+)
 
 LOCAL_TOOLS = [
     run_code,
@@ -29,6 +33,7 @@ LOCAL_TOOLS = [
     create_analysis_job,
     list_jobs,
     create_record_prompt_job,
+    draft_virtual_thing_definition,
     define_virtual_thing,
     delete_virtual_thing,
     run_job_now,
@@ -45,6 +50,7 @@ __all__ = [
     "delete_job",
     "delete_virtual_thing",
     "define_virtual_thing",
+    "draft_virtual_thing_definition",
     "get_current_time",
     "list_jobs",
     "look_at_camera",

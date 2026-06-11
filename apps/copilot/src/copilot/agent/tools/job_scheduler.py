@@ -271,6 +271,8 @@ async def create_analysis_job(
     analysis_code should call report("...") with one plain-language sentence
     summarizing the result; that headline is what the user sees in toasts and
     notifications (print output stays in the run details).
+    Event-triggered analysis code can read event_payload for the decoded event,
+    event for metadata, and job_trigger/trigger_payload for raw trigger details.
 
     record_schema (optional): when given, the job produces a virtual Thing whose
     properties/history come from records the analysis code stores. The code calls

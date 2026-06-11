@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -8,9 +9,10 @@ from copilot.auth import User, require_service
 from copilot.catalog.ids import decode_thing_id
 from copilot.jobs.records.ids import is_virtual_record_thing_id
 from copilot.jobs.records.http import virtual_record_http_error
-from copilot.virtual_things.dispatcher import VirtualThingDispatcher
+from copilot.virtual_things.dispatcher import VirtualThingDispatcher, VirtualThingHandlerError
 from copilot.virtual_things.schemas import DefineVirtualThingRequest
 from copilot.virtual_things.store import VirtualThingStore
+from copilot.virtual_things.validator import VirtualThingValidator
 
 router = APIRouter(tags=["virtual-things"])
 
@@ -100,13 +102,14 @@ async def evaluate_virtual_thing_event(
             decoded_thing_id,
             event_name,
             payload.get("input"),
+            dry_run=bool(payload.get("dry_run")),
         )
     except Exception as exc:
         raise virtual_thing_http_error(exc) from exc
 
 
 @router.put("/api/virtual-things/definitions/{thing_id:path}")
-def define_virtual_thing_definition(
+async def define_virtual_thing_definition(
     thing_id: str,
     payload: DefineVirtualThingRequest,
     _user: User = Depends(require_service(["virtual_servient"])),
@@ -118,11 +121,24 @@ def define_virtual_thing_definition(
         request_data = payload.model_dump(mode="json")
         request_data["id"] = decoded_thing_id
         request_data["td"] = {**payload.td, "id": decoded_thing_id}
-        definition = VirtualThingStore().define_thing(
-            DefineVirtualThingRequest.model_validate(request_data)
+        request = DefineVirtualThingRequest.model_validate(request_data)
+        validation_report = await VirtualThingValidator().validate(
+            request,
+            run_smoke=request.status == "active",
         )
+        if not validation_report["ok"]:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "virtual thing validation failed",
+                    "validation_report": validation_report,
+                },
+            )
+        definition = await asyncio.to_thread(VirtualThingStore().define_thing, request)
         return definition.model_dump(mode="json", by_alias=True)
     except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise exc
         raise virtual_thing_http_error(exc) from exc
 
 
@@ -148,4 +164,6 @@ def virtual_thing_http_error(error: Exception) -> HTTPException:
         return HTTPException(status_code=400, detail=str(error))
     if isinstance(error, TimeoutError):
         return HTTPException(status_code=504, detail=str(error))
+    if isinstance(error, VirtualThingHandlerError):
+        return HTTPException(status_code=502, detail=f"Virtual Thing handler failed: {error}")
     return virtual_record_http_error(error)

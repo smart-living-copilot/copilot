@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -244,7 +245,7 @@ class JobExecutor:
         try:
             response = await self._code_executor_client.execute(
                 session_id=f"job-analysis:{job.id}",
-                code=job.action.analysis_code,
+                code=_analysis_code_for_run(job.action.analysis_code, trigger=trigger),
             )
             stored_records = await self._store_analysis_records(job, run=run, response=response)
             formatted = format_code_execution_result(response)
@@ -314,6 +315,49 @@ class JobExecutor:
             confidence=entry.get("confidence"),
         )
         return [stored]
+
+
+def _analysis_code_for_run(code: str, *, trigger: dict[str, Any]) -> str:
+    """Inject job run context into deterministic analysis code.
+
+    Analysis jobs are persisted as plain user-authored snippets. At execution time we
+    add a tiny prelude so event jobs can read the triggering event without each agent
+    inventing its own transport decoding.
+    """
+    trigger_json = json.dumps(trigger, ensure_ascii=True, default=str)
+    return f"""\
+import base64 as __job_base64
+import json as __job_json
+
+job_trigger = __job_json.loads({trigger_json!r})
+trigger_payload = job_trigger
+
+def __job_decode_event_payload(trigger):
+    payload_base64 = trigger.get("payload_base64")
+    if not isinstance(payload_base64, str) or not payload_base64:
+        return None
+    raw = __job_base64.b64decode(payload_base64)
+    content_type = str(trigger.get("content_type") or "").lower()
+    text = raw.decode("utf-8", errors="replace")
+    if "json" in content_type:
+        return __job_json.loads(text)
+    try:
+        return __job_json.loads(text)
+    except Exception:
+        return text
+
+event_payload = __job_decode_event_payload(job_trigger)
+event = {{
+    "thing_id": job_trigger.get("thing_id"),
+    "event_name": job_trigger.get("event_name"),
+    "payload": event_payload,
+    "content_type": job_trigger.get("content_type"),
+    "timestamp": job_trigger.get("timestamp"),
+}}
+input = event_payload
+
+{code}
+"""
 
 
 def _joined_report(response: dict[str, Any]) -> str:

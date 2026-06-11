@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import contextlib
+import io
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -19,6 +21,7 @@ from copilot.jobs.executor import (
     BackgroundAgentRunner,
     JobExecutor,
     _analysis_assistant,
+    _analysis_code_for_run,
 )
 from copilot.jobs.graph_results import (
     assistant_text_from_graph_result,
@@ -870,6 +873,61 @@ class JobExecutorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("1 chart", result["assistant"])
         self.assertIn("1 image", result["assistant"])
         agent_runner.run.assert_not_called()
+
+    async def test_event_analysis_job_injects_decoded_event_payload(self) -> None:
+        repo = _FakeRepo(
+            _job(
+                action_kind=JobActionKind.ANALYSIS,
+                prompt=None,
+                analysis_code="print({'counter': event_payload['counter']})",
+            )
+        )
+        code_executor = AsyncMock()
+        code_executor.execute.return_value = {"stdout": "{'counter': 7}\n"}
+        executor = JobExecutor(
+            Settings(),
+            repo=repo,
+            code_executor_client=code_executor,
+            agent_runner=AsyncMock(),
+            event_publisher=_FakePublisher(),
+        )
+
+        await executor.run_job(
+            "job-1",
+            {
+                "source": "event",
+                "thing_id": "virtual:things:counter",
+                "event_name": "tick",
+                "payload_base64": "eyJjb3VudGVyIjo3fQ==",
+                "content_type": "application/json",
+                "timestamp": "2026-06-11T12:00:00+00:00",
+            },
+        )
+
+        sent_code = code_executor.execute.call_args.kwargs["code"]
+        self.assertIn("event_payload", sent_code)
+        self.assertIn("input = event_payload", sent_code)
+        self.assertIn("eyJjb3VudGVyIjo3fQ==", sent_code)
+
+    def test_analysis_code_for_run_keeps_legacy_input_alias_for_event_payload(self) -> None:
+        code = _analysis_code_for_run(
+            "print({'counter': input})",
+            trigger={
+                "source": "event",
+                "thing_id": "virtual:things:counter",
+                "event_name": "tick",
+                "payload_base64": "eyJjb3VudGVyIjo3fQ==",
+                "content_type": "application/json",
+                "timestamp": "2026-06-11T12:00:00+00:00",
+            },
+        )
+        stdout = io.StringIO()
+        namespace = {}
+
+        with contextlib.redirect_stdout(stdout):
+            exec(code, namespace, namespace)
+
+        self.assertIn("{'counter': {'counter': 7}}", stdout.getvalue())
 
     async def test_analysis_job_report_is_preferred_headline(self) -> None:
         repo = _FakeRepo(

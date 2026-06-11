@@ -75,10 +75,11 @@ export async function evaluateVirtualEvent(
   thingId: string,
   eventName: string,
   input: unknown,
+  options: { dryRun?: boolean } = {},
 ): Promise<unknown | null> {
   const response = await axios.post(
     apiUrl(`/api/virtual-things/${encodeURIComponent(thingId)}/events/${encodeURIComponent(eventName)}/evaluate`),
-    { input },
+    { input, dry_run: options.dryRun === true },
     { headers: headers(), timeout: config.requestTimeoutMs },
   );
   return response.data ?? null;

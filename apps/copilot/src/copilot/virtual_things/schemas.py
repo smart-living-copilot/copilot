@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -69,7 +70,7 @@ class VirtualThingBindingSpec(BaseModel):
         if value is None:
             return None
         value = value.strip()
-        if value.startswith("function "):
+        if _looks_like_javascript_handler(value):
             raise ValueError(
                 "handler_code must be Python code that defines "
                 "def handle(input, state, context), not JavaScript"
@@ -82,8 +83,36 @@ class VirtualThingBindingSpec(BaseModel):
         if not isinstance(value, dict):
             return value
         normalized = dict(value)
-        if "handler_code" not in normalized and "handle" in normalized:
-            normalized["handler_code"] = normalized.pop("handle")
+        if "affordance_name" not in normalized and "affordance" in normalized:
+            normalized["affordance_name"] = normalized.pop("affordance")
+        if "handler_code" not in normalized:
+            for key in ("handle", "source", "code", "handler"):
+                if key in normalized:
+                    normalized["handler_code"] = normalized.pop(key)
+                    break
+        kind = normalized.get("kind")
+        if kind == "event":
+            normalized["kind"] = "emitted"
+            normalized.setdefault("affordance_type", "event")
+        elif kind == "action":
+            normalized["kind"] = "computed"
+            normalized.setdefault("affordance_type", "action")
+        elif kind == "property":
+            normalized["kind"] = "computed"
+            normalized.setdefault("affordance_type", "property")
+        if "trigger" not in normalized:
+            if "interval_seconds" in normalized:
+                normalized["trigger"] = {
+                    "kind": "interval",
+                    "interval_seconds": normalized.pop("interval_seconds"),
+                }
+            elif "evaluationInterval" in normalized:
+                interval_ms = normalized.pop("evaluationInterval")
+                if isinstance(interval_ms, (int, float)):
+                    normalized["trigger"] = {
+                        "kind": "interval",
+                        "interval_seconds": max(1, math.ceil(interval_ms / 1000)),
+                    }
         return normalized
 
     @model_validator(mode="after")
@@ -110,6 +139,21 @@ class DefineVirtualThingRequest(BaseModel):
     bindings: list[VirtualThingBindingSpec]
     status: VirtualThingStatus = "active"
     owner_thread_id: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_request_shorthand(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        bindings = normalized.get("bindings")
+        td = normalized.get("td")
+        events = td.get("events") if isinstance(td, dict) else {}
+        if isinstance(bindings, list):
+            normalized["bindings"] = [
+                _normalize_binding_from_td(binding, events) for binding in bindings
+            ]
+        return normalized
 
     @model_validator(mode="after")
     def _normalize_and_validate(self) -> "DefineVirtualThingRequest":
@@ -196,3 +240,31 @@ def _validate_binding_coverage(
             raise ValueError(
                 f"binding references missing {binding.affordance_type} {binding.affordance_name!r}"
             )
+
+
+def _looks_like_javascript_handler(value: str) -> bool:
+    stripped = value.strip()
+    return (
+        stripped.startswith("function ")
+        or stripped.startswith("return {")
+        or "=>" in stripped
+        or "??" in stripped
+        or stripped.endswith("};")
+    )
+
+
+def _normalize_binding_from_td(binding: Any, events: Any) -> Any:
+    if not isinstance(binding, dict):
+        return binding
+    normalized = dict(binding)
+    affordance = normalized.get("affordance_name") or normalized.get("affordance")
+    event_definition = (
+        events.get(affordance) if isinstance(events, dict) and isinstance(affordance, str) else None
+    )
+    if (
+        "trigger" not in normalized
+        and isinstance(event_definition, dict)
+        and isinstance(event_definition.get("evaluationInterval"), (int, float))
+    ):
+        normalized["evaluationInterval"] = event_definition["evaluationInterval"]
+    return normalized

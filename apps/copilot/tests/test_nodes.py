@@ -46,6 +46,12 @@ class NodeMessageSanitizationTestCase(unittest.TestCase):
     def test_router_schema_accepts_jobs_intent(self) -> None:
         self.assertEqual(IntentClassification(intent="jobs").intent, "jobs")
 
+    def test_router_schema_accepts_virtual_things_intent(self) -> None:
+        self.assertEqual(
+            IntentClassification(intent="virtual_things").intent,
+            "virtual_things",
+        )
+
     def test_sanitize_message_sequence_drops_orphan_tool_messages(self) -> None:
         messages = [
             HumanMessage(content="First request"),

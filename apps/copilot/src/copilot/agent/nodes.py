@@ -30,6 +30,7 @@ from copilot.agent.prompts import (
     JOBS_PROMPT,
     RESPOND_PROMPT,
     ROUTER_PROMPT,
+    VIRTUAL_THINGS_PROMPT,
 )
 from copilot.agent.device_interactions import (
     without_device_interaction_summary_messages,
@@ -88,7 +89,7 @@ class CopilotState(CopilotKitState):
 
 
 class IntentClassification(BaseModel):
-    intent: Literal["chat", "control", "analysis", "jobs"] = Field(
+    intent: Literal["chat", "control", "analysis", "jobs", "virtual_things"] = Field(
         description="The classified intent"
     )
 
@@ -375,6 +376,30 @@ def make_jobs_node(
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(content=JOBS_PROMPT + _current_time_block())
+        trimmed = _trim_conversation(state["messages"], max_tokens)
+        messages = [system_message, *trimmed]
+        active_tools = _active_tools_for_config(tools, config)
+        runnable = (
+            llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
+            if active_tools
+            else llm
+        )
+        response = await runnable.ainvoke(messages)
+        return {"messages": [response]}
+
+    return node
+
+
+def make_virtual_things_node(
+    llm: ChatOpenAI,
+    tools: list[Any],
+    max_tokens: int,
+    *,
+    parallel_tool_calls: bool = True,
+):
+    # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
+    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
+        system_message = SystemMessage(content=VIRTUAL_THINGS_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)

@@ -1,8 +1,13 @@
+import contextlib
+import io
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
+from copilot.agent.tools.virtual_things import define_virtual_thing, draft_virtual_thing_definition
 from copilot.virtual_things.dispatcher import _RESULT_PREFIX, VirtualThingDispatcher
 from copilot.virtual_things.schemas import DefineVirtualThingRequest
+from copilot.virtual_things.validator import VirtualThingValidator
 
 
 def _base_td() -> dict:
@@ -39,7 +44,196 @@ class _FakeExecutor:
         return {"stdout": f"{_RESULT_PREFIX}{result}"}
 
 
+class _LocalExecutor:
+    async def execute(self, *, session_id, code):
+        stdout = io.StringIO()
+        namespace = {
+            "wot": SimpleNamespace(
+                read_property=lambda *_args, **_kwargs: None,
+                write_property=lambda *_args, **_kwargs: None,
+                invoke_action=lambda *_args, **_kwargs: None,
+            )
+        }
+        with contextlib.redirect_stdout(stdout):
+            exec(code, namespace, namespace)
+        return {"stdout": stdout.getvalue()}
+
+
 class VirtualThingSchemasTestCase(unittest.TestCase):
+    def test_draft_tool_returns_canonical_define_args_for_hello_action(self):
+        result = draft_virtual_thing_definition.invoke(
+            {
+                "spec": {
+                    "title": "Hello World Virtual Thing",
+                    "description": "Says hello.",
+                    "actions": {
+                        "sayHello": {
+                            "output": {"type": "string"},
+                            "handler_code": (
+                                "def handle(input, state, context):\n    return 'hello world'"
+                            ),
+                        }
+                    },
+                }
+            }
+        )
+
+        self.assertTrue(result["ok"])
+        define_args = result["define_args"]
+        self.assertEqual(define_args["title"], "Hello World Virtual Thing")
+        self.assertEqual(define_args["thing_id"], result["thing_id"])
+        self.assertIn("security", define_args["td"])
+        self.assertEqual(
+            define_args["bindings"],
+            [
+                {
+                    "affordance_type": "action",
+                    "affordance_name": "sayHello",
+                    "kind": "computed",
+                    "handler_code": "def handle(input, state, context):\n    return 'hello world'",
+                    "config": {},
+                    "capabilities": [],
+                    "timeout_seconds": 30,
+                    "cache_ttl_seconds": 30,
+                }
+            ],
+        )
+
+    def test_draft_tool_accepts_computed_property_schema(self):
+        result = draft_virtual_thing_definition.invoke(
+            {
+                "spec": {
+                    "title": "Comfort Score",
+                    "properties": {
+                        "currentScore": {
+                            "schema": {"type": "number", "readOnly": True},
+                            "cache_ttl_seconds": 5,
+                            "handler_code": "def handle(input, state, context):\n    return 72",
+                        }
+                    },
+                }
+            }
+        )
+
+        self.assertTrue(result["ok"])
+        define_args = result["define_args"]
+        self.assertEqual(define_args["td"]["properties"]["currentScore"]["type"], "number")
+        self.assertEqual(define_args["bindings"][0]["cache_ttl_seconds"], 5)
+
+    def test_draft_tool_accepts_interval_event(self):
+        result = draft_virtual_thing_definition.invoke(
+            {
+                "spec": {
+                    "title": "Counter Event Thing",
+                    "events": {
+                        "tick": {
+                            "data": {"type": "object"},
+                            "trigger": {"kind": "interval", "interval_seconds": 10},
+                            "state": {"counter": 0},
+                            "handler_code": (
+                                "def handle(input, state, context):\n"
+                                "    state = state or {}\n"
+                                "    counter = state.get('counter', 0) + 1\n"
+                                "    return {'emit': True, 'payload': {'counter': counter}, "
+                                "'state': {'counter': counter}}"
+                            ),
+                        }
+                    },
+                }
+            }
+        )
+
+        self.assertTrue(result["ok"])
+        binding = result["define_args"]["bindings"][0]
+        self.assertEqual(binding["affordance_type"], "event")
+        self.assertEqual(binding["kind"], "emitted")
+        self.assertEqual(binding["trigger"], {"kind": "interval", "interval_seconds": 10})
+        self.assertEqual(binding["state"], {"counter": 0})
+
+    def test_draft_tool_accepts_source_event_trigger(self):
+        result = draft_virtual_thing_definition.invoke(
+            {
+                "spec": {
+                    "title": "Door Edge Signal",
+                    "events": {
+                        "openedEdge": {
+                            "data": {"type": "object"},
+                            "trigger": {
+                                "kind": "source_event",
+                                "thing_id": "urn:source-door",
+                                "event_name": "opened",
+                            },
+                            "handler_code": (
+                                "def handle(input, state, context):\n"
+                                "    return {'emit': True, 'payload': input, 'state': state}"
+                            ),
+                        }
+                    },
+                }
+            }
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            result["define_args"]["bindings"][0]["trigger"],
+            {
+                "kind": "source_event",
+                "thing_id": "urn:source-door",
+                "event_name": "opened",
+            },
+        )
+
+    def test_draft_tool_rejects_event_without_trigger(self):
+        result = draft_virtual_thing_definition.invoke(
+            {
+                "spec": {
+                    "title": "Broken Event Thing",
+                    "events": {
+                        "tick": {
+                            "data": {"type": "object"},
+                            "handler_code": (
+                                "def handle(input, state, context):\n"
+                                "    return {'emit': True, 'payload': input, 'state': state}"
+                            ),
+                        }
+                    },
+                }
+            }
+        )
+
+        self.assertIn("requires trigger", result["error"])
+
+    def test_draft_tool_rejects_missing_handler(self):
+        result = draft_virtual_thing_definition.invoke(
+            {
+                "spec": {
+                    "title": "Broken Action Thing",
+                    "actions": {"sayHello": {"output": {"type": "string"}}},
+                }
+            }
+        )
+
+        self.assertIn("requires handler_code", result["error"])
+
+    def test_draft_tool_rejects_javascript_handler(self):
+        result = draft_virtual_thing_definition.invoke(
+            {
+                "spec": {
+                    "title": "Broken JS Thing",
+                    "actions": {
+                        "sayHello": {
+                            "output": {"type": "string"},
+                            "handler_code": (
+                                "function handle(input, state, context) { return 'hello world'; }"
+                            ),
+                        }
+                    },
+                }
+            }
+        )
+
+        self.assertIn("must be Python code", result["error"])
+
     def test_define_request_injects_abstract_forms_and_validates_bindings(self):
         request = DefineVirtualThingRequest(
             title="Comfort Sensor",
@@ -122,6 +316,42 @@ class VirtualThingSchemasTestCase(unittest.TestCase):
                 ],
             )
 
+    def test_define_request_accepts_event_binding_shorthand(self):
+        request = DefineVirtualThingRequest(
+            title="Counter Event Thing",
+            td={
+                "events": {
+                    "tick": {
+                        "data": {
+                            "type": "object",
+                            "properties": {"counter": {"type": "integer"}},
+                        },
+                        "evaluationInterval": 10000,
+                    }
+                }
+            },
+            bindings=[
+                {
+                    "affordance": "tick",
+                    "kind": "event",
+                    "source": (
+                        "def handle(input, state, context):\n"
+                        "    state = state or {}\n"
+                        "    counter = int(state.get('counter', 0)) + 1\n"
+                        "    return {'emit': True, 'payload': {'counter': counter}, "
+                        "'state': {'counter': counter}}"
+                    ),
+                    "state": {"counter": 0},
+                }
+            ],
+        )
+
+        binding = request.bindings[0]
+        self.assertEqual(binding.affordance_type, "event")
+        self.assertEqual(binding.affordance_name, "tick")
+        self.assertEqual(binding.kind, "emitted")
+        self.assertEqual(binding.trigger.interval_seconds if binding.trigger else None, 10)
+
 
 class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_computed_property_cache_lives_in_dispatcher(self):
@@ -182,6 +412,287 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
             )
         )
         self.assertEqual(store.updated_state, ("event-binding", {"was_below": True}))
+
+    async def test_event_evaluate_defaults_missing_state_to_empty_object(self):
+        binding = SimpleNamespace(
+            id="event-binding",
+            thing_id="virtual:things:counter",
+            affordance_type="event",
+            affordance_name="tick",
+            kind="emitted",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    counter = state.get('counter', 0) + 1\n"
+                "    return {'emit': True, 'payload': {'counter': counter}, "
+                "'state': {'counter': counter}}"
+            ),
+            capabilities=[],
+            config={},
+            state=None,
+            cache_ttl_seconds=0,
+        )
+        store = _FakeStore(binding)
+        dispatcher = VirtualThingDispatcher(
+            store=store,
+            record_store=SimpleNamespace(),
+            code_executor=_LocalExecutor(),
+        )
+
+        self.assertEqual(
+            await dispatcher.evaluate_event("virtual:things:counter", "tick", {}),
+            {"counter": 1},
+        )
+        self.assertEqual(store.updated_state, ("event-binding", {"counter": 1}))
+
+    async def test_event_evaluate_dry_run_does_not_persist_state(self):
+        binding = SimpleNamespace(
+            id="event-binding",
+            thing_id="virtual:things:counter",
+            affordance_type="event",
+            affordance_name="tick",
+            kind="emitted",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    return {'emit': True, 'payload': {'counter': 1}, "
+                "'state': {'counter': 1}}"
+            ),
+            capabilities=[],
+            config={},
+            state=None,
+            cache_ttl_seconds=0,
+        )
+        store = _FakeStore(binding)
+        dispatcher = VirtualThingDispatcher(
+            store=store,
+            record_store=SimpleNamespace(),
+            code_executor=_LocalExecutor(),
+        )
+
+        self.assertEqual(
+            await dispatcher.evaluate_event("virtual:things:counter", "tick", {}, dry_run=True),
+            {"counter": 1},
+        )
+        self.assertIsNone(store.updated_state)
+
+    async def test_event_evaluate_rejects_none_result_with_hint(self):
+        binding = SimpleNamespace(
+            id="event-binding",
+            thing_id="virtual:things:counter",
+            affordance_type="event",
+            affordance_name="tick",
+            kind="emitted",
+            handler_code="def handle(input, state, context):\n    return None",
+            capabilities=[],
+            config={},
+            state=None,
+            cache_ttl_seconds=0,
+        )
+        dispatcher = VirtualThingDispatcher(
+            store=_FakeStore(binding),
+            record_store=SimpleNamespace(),
+            code_executor=_FakeExecutor(["null"]),
+        )
+
+        with self.assertRaisesRegex(ValueError, "returned None"):
+            await dispatcher.evaluate_event("virtual:things:counter", "tick", {})
+
+
+class VirtualThingValidatorTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_smoke_validation_defaults_missing_event_state(self):
+        request = DefineVirtualThingRequest(
+            title="Counter Tick Event",
+            td={
+                "events": {
+                    "tick": {
+                        "data": {
+                            "type": "object",
+                            "properties": {"counter": {"type": "integer"}},
+                            "required": ["counter"],
+                        }
+                    }
+                }
+            },
+            bindings=[
+                {
+                    "affordance_type": "event",
+                    "affordance_name": "tick",
+                    "kind": "emitted",
+                    "trigger": {"kind": "interval", "interval_seconds": 10},
+                    "handler_code": (
+                        "def handle(input, state, context):\n"
+                        "    counter = state.get('counter', 0) + 1\n"
+                        "    return {'emit': True, 'payload': {'counter': counter}, "
+                        "'state': {'counter': counter}}"
+                    ),
+                }
+            ],
+        )
+
+        report = await VirtualThingValidator(code_executor=_LocalExecutor()).validate(
+            request,
+            run_smoke=True,
+        )
+
+        self.assertTrue(report["ok"], report)
+        self.assertTrue(report["smoke_tested"])
+
+    async def test_smoke_validation_rejects_event_that_only_works_with_seed_state(self):
+        request = DefineVirtualThingRequest(
+            title="Counter Tick Event",
+            td={
+                "events": {
+                    "tick": {
+                        "data": {
+                            "type": "object",
+                            "properties": {"counter": {"type": "integer"}},
+                            "required": ["counter"],
+                        }
+                    }
+                }
+            },
+            bindings=[
+                {
+                    "affordance_type": "event",
+                    "affordance_name": "tick",
+                    "kind": "emitted",
+                    "trigger": {"kind": "interval", "interval_seconds": 10},
+                    "state": {"counter": 0},
+                    "handler_code": (
+                        "def handle(input, state, context):\n"
+                        "    if state.get('counter') is not None:\n"
+                        "        counter = state['counter'] + 1\n"
+                        "        return {'emit': True, 'payload': {'counter': counter}, "
+                        "'state': {'counter': counter}}"
+                    ),
+                }
+            ],
+        )
+
+        report = await VirtualThingValidator(code_executor=_LocalExecutor()).validate(
+            request,
+            run_smoke=True,
+        )
+
+        self.assertFalse(report["ok"])
+        self.assertIn("empty state", report["issues"][0]["message"])
+        self.assertIn("returned None", report["issues"][0]["message"])
+
+    async def test_smoke_validation_rejects_event_that_fails_on_next_state(self):
+        request = DefineVirtualThingRequest(
+            title="Counter Tick Event",
+            td={
+                "events": {
+                    "tick": {
+                        "data": {
+                            "type": "object",
+                            "properties": {"counter": {"type": "integer"}},
+                            "required": ["counter"],
+                        }
+                    }
+                }
+            },
+            bindings=[
+                {
+                    "affordance_type": "event",
+                    "affordance_name": "tick",
+                    "kind": "emitted",
+                    "trigger": {"kind": "interval", "interval_seconds": 10},
+                    "handler_code": (
+                        "def handle(input, state, context):\n"
+                        "    counter = state.get('counter', 0)\n"
+                        "    if counter == 0:\n"
+                        "        return {'emit': True, 'payload': {'counter': 1}, "
+                        "'state': {'counter': 1}}\n"
+                        "    return None"
+                    ),
+                }
+            ],
+        )
+
+        report = await VirtualThingValidator(code_executor=_LocalExecutor()).validate(
+            request,
+            run_smoke=True,
+        )
+
+        self.assertFalse(report["ok"])
+        self.assertIn("next state", report["issues"][0]["message"])
+        self.assertIn("returned None", report["issues"][0]["message"])
+
+    async def test_smoke_validation_rejects_event_payload_schema_mismatch(self):
+        request = DefineVirtualThingRequest(
+            title="Counter Tick Event",
+            td={
+                "events": {
+                    "tick": {
+                        "data": {
+                            "type": "object",
+                            "properties": {"counter": {"type": "integer"}},
+                            "required": ["counter"],
+                        }
+                    }
+                }
+            },
+            bindings=[
+                {
+                    "affordance_type": "event",
+                    "affordance_name": "tick",
+                    "kind": "emitted",
+                    "trigger": {"kind": "interval", "interval_seconds": 10},
+                    "handler_code": (
+                        "def handle(input, state, context):\n"
+                        "    return {'emit': True, 'payload': {'counter': 'bad'}, "
+                        "'state': {}}"
+                    ),
+                }
+            ],
+        )
+
+        report = await VirtualThingValidator(code_executor=_LocalExecutor()).validate(
+            request,
+            run_smoke=True,
+        )
+
+        self.assertFalse(report["ok"])
+        self.assertIn("schema validation", report["issues"][0]["message"])
+
+    async def test_define_tool_does_not_persist_when_active_validation_fails(self):
+        class RejectingValidator:
+            async def validate(self, _request, *, run_smoke):
+                self.run_smoke = run_smoke
+                return {
+                    "ok": False,
+                    "smoke_tested": True,
+                    "issues": [{"phase": "smoke", "message": "boom"}],
+                }
+
+        validator = RejectingValidator()
+        with (
+            patch(
+                "copilot.agent.tools.virtual_things.VirtualThingValidator",
+                return_value=validator,
+            ),
+            patch("copilot.agent.tools.virtual_things.VirtualThingStore") as store_cls,
+        ):
+            result = await define_virtual_thing.ainvoke(
+                {
+                    "title": "Broken",
+                    "td": {"properties": {"value": {"type": "number"}}},
+                    "bindings": [
+                        {
+                            "affordance_type": "property",
+                            "affordance_name": "value",
+                            "kind": "computed",
+                            "handler_code": "def handle(input, state, context):\n    return 1",
+                        }
+                    ],
+                },
+                config={"configurable": {"thread_id": "thread-1"}},
+            )
+
+        self.assertEqual(result["error"], "virtual thing validation failed")
+        self.assertFalse(result["validation_report"]["ok"])
+        self.assertTrue(validator.run_smoke)
+        store_cls.assert_not_called()
 
 
 if __name__ == "__main__":

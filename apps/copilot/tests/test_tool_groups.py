@@ -21,6 +21,9 @@ class ToolGroupsTestCase(unittest.TestCase):
                 _tool("wot_read_property"),
                 _tool("things_upsert"),
                 _tool("wot_invoke_action"),
+                _tool("wot_write_property"),
+                _tool("wot_subscribe_event"),
+                _tool("wot_remove_subscription"),
                 _tool("unknown_tool"),
             ]
         )
@@ -37,11 +40,24 @@ class ToolGroupsTestCase(unittest.TestCase):
                 "wot_read_property",
                 "things_upsert",
                 "wot_invoke_action",
+                "wot_write_property",
+                "wot_subscribe_event",
+                "wot_remove_subscription",
             ],
         )
         self.assertEqual(
             [tool.name for tool in grouped.runtime_read],
             ["wot_get_runtime_health", "wot_read_property"],
+        )
+        self.assertEqual(
+            [tool.name for tool in grouped.virtual_authoring_runtime],
+            [
+                "wot_get_runtime_health",
+                "wot_read_property",
+                "wot_invoke_action",
+                "wot_subscribe_event",
+                "wot_remove_subscription",
+            ],
         )
         self.assertEqual(
             [tool.name for tool in grouped.discovery_and_inspect],
@@ -65,6 +81,7 @@ class ToolGroupsTestCase(unittest.TestCase):
                 _tool("create_analysis_job"),
                 _tool("list_jobs"),
                 _tool("run_job_now"),
+                _tool("draft_virtual_thing_definition"),
                 _tool("define_virtual_thing"),
                 _tool("delete_virtual_thing"),
             ]
@@ -75,14 +92,20 @@ class ToolGroupsTestCase(unittest.TestCase):
         self.assertEqual(grouped.ask_job_user.name, "ask_job_user")
         self.assertEqual(grouped.submit_job_record.name, "submit_job_record")
         self.assertEqual(
+            [tool.name for tool in grouped.virtual_thing_tools],
+            [
+                "draft_virtual_thing_definition",
+                "define_virtual_thing",
+                "delete_virtual_thing",
+            ],
+        )
+        self.assertEqual(
             [tool.name for tool in grouped.job_tools],
             [
                 "create_prompt_job",
                 "create_analysis_job",
                 "list_jobs",
                 "run_job_now",
-                "define_virtual_thing",
-                "delete_virtual_thing",
             ],
         )
 
