@@ -10,7 +10,8 @@ from copilot.auth import User, require_service
 from copilot.catalog.ids import decode_thing_id
 from copilot.jobs.records.ids import is_virtual_record_thing_id
 from copilot.jobs.records.http import virtual_record_http_error
-from copilot.virtual_things.dispatcher import VirtualThingDispatcher, VirtualThingHandlerError
+from copilot.virtual_things.dispatcher import VirtualThingDispatcher
+from copilot.virtual_things.handler import VirtualThingHandlerError
 from copilot.virtual_things.schemas import DefineVirtualThingRequest
 from copilot.virtual_things.store import VirtualThingStore
 from copilot.virtual_things.validator import VirtualThingValidator

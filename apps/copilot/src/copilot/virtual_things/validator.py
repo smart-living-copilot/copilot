@@ -9,7 +9,7 @@ from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
 from copilot.clients.code_executor import CodeExecutorClient
 from copilot.core.settings import Settings
-from copilot.virtual_things.dispatcher import VirtualThingDispatcher
+from copilot.virtual_things.handler import VirtualThingHandlerRunner
 from copilot.virtual_things.schemas import DefineVirtualThingRequest, VirtualThingBindingSpec
 
 _ALLOWED_CAPABILITY_OPS = {"readProperty", "writeProperty", "invokeAction"}
@@ -63,23 +63,23 @@ class VirtualThingValidator:
         if issues or not run_smoke:
             return _report(issues, smoke_tested=False)
 
-        dispatcher = VirtualThingDispatcher(code_executor=self._code_executor)
+        handler_runner = VirtualThingHandlerRunner(self._code_executor)
         for binding in request.bindings:
             if binding.kind not in {"computed", "emitted"}:
                 continue
-            issues.extend(await self._smoke_binding(request, binding, dispatcher))
+            issues.extend(await self._smoke_binding(request, binding, handler_runner))
         return _report(issues, smoke_tested=True)
 
     async def _smoke_binding(
         self,
         request: DefineVirtualThingRequest,
         binding: VirtualThingBindingSpec,
-        dispatcher: VirtualThingDispatcher,
+        handler_runner: VirtualThingHandlerRunner,
     ) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
         for scenario in _smoke_scenarios(request, binding):
             try:
-                result = await dispatcher._run_handler(  # noqa: SLF001 - same internal runtime path.
+                result = await handler_runner.run_handler(
                     _runtime_binding(request, binding),
                     input_value=scenario.input_value,
                     state=scenario.state,
@@ -101,7 +101,7 @@ class VirtualThingValidator:
                 continue
 
             try:
-                next_result = await dispatcher._run_handler(  # noqa: SLF001 - same internal runtime path.
+                next_result = await handler_runner.run_handler(
                     _runtime_binding(request, binding),
                     input_value=scenario.input_value,
                     state=next_state,
