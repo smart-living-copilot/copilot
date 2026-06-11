@@ -33,7 +33,9 @@ In generated panel JavaScript, window.wot.readProperty/writeProperty/invokeActio
 return decoded device values directly. Do not access transport wrapper fields
 like result, payload, completed_result, or payload.data. Use value.value, value.unit,
 or other nested fields only when the inspected schema says the decoded value has
-those fields.
+those fields. Binary values are returned as `{ kind: "binary", contentType,
+bodyBase64, sizeBytes }`; use wot.binaryToBlob or wot.binaryToObjectUrl for
+images/media and wot.binaryToBytes for byte-level parsing.
 
 ## Discovery Tool Choice
 Use things_search when matching on meaning, fuzzy descriptions, room labels, or

@@ -59,6 +59,10 @@ class AnalysisGuidanceTestCase(unittest.TestCase):
         self.assertIn("wot.invoke_action", ANALYSIS_PROMPT)
         self.assertIn("sparqlQuery", ANALYSIS_PROMPT)
 
+    def test_analysis_prompt_describes_panel_binary_payloads(self) -> None:
+        self.assertIn("Binary values", ANALYSIS_PROMPT)
+        self.assertIn("wot.binaryToBlob", ANALYSIS_PROMPT)
+
 
 class ControlGuidanceTestCase(unittest.TestCase):
     def test_control_prompt_requires_confirmation_for_safety_critical(self) -> None:
@@ -80,6 +84,10 @@ class ControlGuidanceTestCase(unittest.TestCase):
     def test_control_prompt_supports_writable_properties(self) -> None:
         self.assertIn("writable properties", CONTROL_PROMPT)
         self.assertIn("wot_write_property", CONTROL_PROMPT)
+
+    def test_control_prompt_describes_panel_binary_payloads(self) -> None:
+        self.assertIn("Binary values", CONTROL_PROMPT)
+        self.assertIn("wot.binaryFromBytes", CONTROL_PROMPT)
 
 
 class RespondGuidanceTestCase(unittest.TestCase):

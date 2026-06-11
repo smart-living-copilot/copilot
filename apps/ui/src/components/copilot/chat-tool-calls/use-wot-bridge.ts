@@ -23,11 +23,73 @@ type BridgeRequest = {
   subscriptionId?: string;
 };
 
+export type WotBinaryPayload = {
+  kind: 'binary';
+  contentType: string;
+  bodyBase64: string;
+  sizeBytes?: number;
+};
+
 type RuntimeOp = {
   path: string;
   body: (req: BridgeRequest) => Record<string, unknown>;
   subscription?: boolean;
 };
+
+function normalizeBinaryPayload(value: unknown): WotBinaryPayload | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.kind !== 'binary') {
+    return null;
+  }
+  const bodyBase64 =
+    typeof record.bodyBase64 === 'string'
+      ? record.bodyBase64
+      : typeof record.body_base64 === 'string'
+        ? record.body_base64
+        : undefined;
+  if (bodyBase64 === undefined) {
+    return null;
+  }
+  const contentType =
+    typeof record.contentType === 'string'
+      ? record.contentType
+      : typeof record.content_type === 'string'
+        ? record.content_type
+        : 'application/octet-stream';
+  const rawSizeBytes =
+    typeof record.sizeBytes === 'number'
+      ? record.sizeBytes
+      : typeof record.size_bytes === 'number'
+        ? record.size_bytes
+        : undefined;
+  return {
+    kind: 'binary',
+    contentType,
+    bodyBase64,
+    ...(rawSizeBytes === undefined ? {} : { sizeBytes: rawSizeBytes }),
+  };
+}
+
+function payloadInputFields(
+  value: unknown,
+  keys: {
+    inlineKey: string;
+    base64Key: string;
+    contentTypeKey: string;
+  },
+): Record<string, unknown> {
+  const binary = normalizeBinaryPayload(value);
+  if (!binary) {
+    return { [keys.inlineKey]: value };
+  }
+  return {
+    [keys.base64Key]: binary.bodyBase64,
+    [keys.contentTypeKey]: binary.contentType,
+  };
+}
 
 const RUNTIME_OPS: Record<string, RuntimeOp> = {
   readProperty: {
@@ -43,7 +105,11 @@ const RUNTIME_OPS: Record<string, RuntimeOp> = {
     body: (r) => ({
       thing_id: r.thingId,
       property_name: r.name,
-      value: r.value,
+      ...payloadInputFields(r.value, {
+        inlineKey: 'value',
+        base64Key: 'value_base64',
+        contentTypeKey: 'value_content_type',
+      }),
       uri_variables: r.uriVariables,
     }),
   },
@@ -52,7 +118,11 @@ const RUNTIME_OPS: Record<string, RuntimeOp> = {
     body: (r) => ({
       thing_id: r.thingId,
       action_name: r.name,
-      input: r.input,
+      ...payloadInputFields(r.input, {
+        inlineKey: 'input',
+        base64Key: 'input_base64',
+        contentTypeKey: 'input_content_type',
+      }),
       uri_variables: r.uriVariables,
     }),
   },
@@ -86,12 +156,13 @@ const RUNTIME_OPS: Record<string, RuntimeOp> = {
  *                            completed_result: { success, payload: { data } } }`
  *                         or `{ outcome: 'operation_handle', operation_handle }`
  *                         for async actions.
- * We hand back `payload.data` so generated code uses the value directly (e.g.
- * `rows.map(...)`) instead of the transport wrapper. Output-less writes and
- * non-inline payloads resolve to `undefined`; async actions resolve to the
- * operation handle.
+ * Inline payloads hand back `payload.data` so generated code uses the value
+ * directly (e.g. `rows.map(...)`) instead of the transport wrapper. Binary
+ * payloads hand back `{ kind: 'binary', contentType, bodyBase64, sizeBytes }`
+ * so panel code can turn them into bytes, a Blob, or an object URL. Output-less
+ * writes resolve to `undefined`; async actions resolve to the operation handle.
  */
-function unwrapRuntimeResult(data: unknown): {
+export function unwrapRuntimeResult(data: unknown): {
   ok: boolean;
   value?: unknown;
   error?: string;
@@ -117,8 +188,14 @@ function unwrapRuntimeResult(data: unknown): {
     return { ok: false, error };
   }
   const payload = envelope.payload;
-  if (payload && typeof payload === 'object' && 'data' in payload) {
-    return { ok: true, value: (payload as Record<string, unknown>).data };
+  if (payload && typeof payload === 'object') {
+    const binary = normalizeBinaryPayload(payload);
+    if (binary) {
+      return { ok: true, value: binary };
+    }
+    if ('data' in payload) {
+      return { ok: true, value: (payload as Record<string, unknown>).data };
+    }
   }
   return { ok: true, value: undefined };
 }

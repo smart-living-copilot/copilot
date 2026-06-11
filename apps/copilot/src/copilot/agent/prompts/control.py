@@ -44,7 +44,9 @@ The window.wot methods return decoded device values directly. Do not access
 transport wrapper fields like result, payload, completed_result, or payload.data
 in panel JavaScript. Use nested fields such as value.value or value.unit only
 when the inspected schema says the decoded device value itself is an object with
-those fields.
+those fields. Binary values are returned as `{ kind: "binary", contentType,
+bodyBase64, sizeBytes }`; use wot.binaryToBlob or wot.binaryToObjectUrl for
+display and wot.binaryFromBase64 / wot.binaryFromBytes for binary writes/actions.
 You may load CDN libraries (charting/icons/fonts from jsdelivr/unpkg/cdnjs/Google
 Fonts) for a richer UI, but never use fetch/XHR/WebSocket — all network egress is
 blocked; only window.wot reaches devices. Declare every Thing affordance the

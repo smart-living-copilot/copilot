@@ -19,11 +19,27 @@ class DecodePayloadTestCase(unittest.TestCase):
     def test_returns_none_for_empty_payload(self) -> None:
         self.assertIsNone(_decode_payload("", "application/json"))
 
-    def test_falls_back_to_base64_for_binary(self) -> None:
+    def test_returns_binary_payload_for_binary_content(self) -> None:
         encoded = base64.b64encode(b"\xff\xfe\x00").decode("ascii")
         self.assertEqual(
             _decode_payload(encoded, "application/octet-stream"),
-            {"base64": encoded},
+            {
+                "kind": "binary",
+                "contentType": "application/octet-stream",
+                "bodyBase64": encoded,
+                "sizeBytes": 3,
+            },
+        )
+
+    def test_returns_empty_binary_payload_for_empty_binary_content(self) -> None:
+        self.assertEqual(
+            _decode_payload("", "application/octet-stream"),
+            {
+                "kind": "binary",
+                "contentType": "application/octet-stream",
+                "bodyBase64": "",
+                "sizeBytes": 0,
+            },
         )
 
     def test_returns_text_when_json_is_malformed(self) -> None:

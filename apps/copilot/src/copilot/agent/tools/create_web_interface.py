@@ -89,6 +89,11 @@ async def create_web_interface(
     result, payload, completed_result, or payload.data in panel JavaScript.
     Use value.value, value.unit, or other nested fields only when the inspected
     property/action schema says the decoded device value itself has those fields.
+    Binary payloads resolve to `{ kind: "binary", contentType, bodyBase64,
+    sizeBytes }`. Use wot.isBinaryPayload(value), wot.binaryToBytes(value),
+    wot.binaryToBlob(value), or wot.binaryToObjectUrl(value) for binary media
+    and use wot.binaryFromBase64(...) / wot.binaryFromBytes(...) for binary
+    writeProperty or invokeAction inputs.
     observeProperty and subscribeEvent callbacks also receive the decoded event
     value directly.
 

@@ -16,6 +16,11 @@
  *   request : { source: 'wot-bridge', id, op, thingId, name, value?, input?, uriVariables? }
  *   reply   : { source: 'wot-bridge-host', id, ok, result?, error? }
  *   event   : { source: 'wot-bridge-host', kind: 'event', subscriptionId, value, eventType, name, thingId, timestamp }
+ *
+ * Binary read/action results use:
+ *   { kind: 'binary', contentType, bodyBase64, sizeBytes? }
+ * Use binaryToBytes/binaryToBlob/binaryToObjectUrl to consume them, and
+ * binaryFromBase64/binaryFromBytes to send binary write/action inputs.
  */
 (function () {
   'use strict';
@@ -84,6 +89,66 @@
     return { uriVariables: opts.uriVariables };
   }
 
+  function isBinaryPayload(value) {
+    return (
+      value &&
+      typeof value === 'object' &&
+      value.kind === 'binary' &&
+      typeof value.bodyBase64 === 'string'
+    );
+  }
+
+  function binaryToBytes(payload) {
+    if (!isBinaryPayload(payload)) {
+      throw new Error('Expected a binary payload from window.wot');
+    }
+    var raw = atob(payload.bodyBase64);
+    var bytes = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) {
+      bytes[i] = raw.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  function binaryToBlob(payload) {
+    return new Blob([binaryToBytes(payload)], {
+      type: payload.contentType || 'application/octet-stream',
+    });
+  }
+
+  function binaryToObjectUrl(payload) {
+    return URL.createObjectURL(binaryToBlob(payload));
+  }
+
+  function binaryFromBase64(bodyBase64, contentType) {
+    if (typeof bodyBase64 !== 'string') {
+      throw new Error('bodyBase64 is required');
+    }
+    return {
+      kind: 'binary',
+      contentType: contentType || 'application/octet-stream',
+      bodyBase64: bodyBase64,
+    };
+  }
+
+  function binaryFromBytes(bytes, contentType) {
+    if (!(bytes instanceof Uint8Array)) {
+      bytes = new Uint8Array(bytes);
+    }
+    var binary = '';
+    var chunkSize = 0x8000;
+    for (var i = 0; i < bytes.length; i += chunkSize) {
+      var chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+    return {
+      kind: 'binary',
+      contentType: contentType || 'application/octet-stream',
+      bodyBase64: btoa(binary),
+      sizeBytes: bytes.length,
+    };
+  }
+
   async function subscribe(op, thingId, name, callback, opts) {
     if (typeof callback !== 'function') {
       throw new Error('A callback is required for ' + op);
@@ -131,6 +196,12 @@
     subscribeEvent: function (thingId, name, callback, opts) {
       return subscribe('subscribeEvent', thingId, name, callback, opts);
     },
+    isBinaryPayload: isBinaryPayload,
+    binaryToBytes: binaryToBytes,
+    binaryToBlob: binaryToBlob,
+    binaryToObjectUrl: binaryToObjectUrl,
+    binaryFromBase64: binaryFromBase64,
+    binaryFromBytes: binaryFromBytes,
     unsubscribe: function (handle) {
       var subscriptionId =
         handle && handle.subscriptionId ? handle.subscriptionId : handle;

@@ -27,6 +27,9 @@ Panel JavaScript must treat window.wot.readProperty/writeProperty/invokeAction
 results as decoded device values directly. Do not access transport wrapper
 fields like result, payload, completed_result, or payload.data unless those
 fields are explicitly part of the inspected device value schema.
+Binary values come back as `{ kind: "binary", contentType, bodyBase64,
+sizeBytes }`; use window.wot.binaryToBlob, binaryToObjectUrl, or binaryToBytes
+instead of reading transport envelopes.
 
 Requested change:
 {instruction}
