@@ -10,7 +10,7 @@
 - Runtime event publication to Redis streams for automation jobs.
 - Subscription management and runtime health reporting.
 
-It does not own Thing registry persistence. `copilot` remains the source of truth for Things, credentials, search, jobs, and API keys.
+It does not own Thing registry persistence. `copilot` remains the source of truth for Things, credentials, search, jobs, and API keys. Virtual and record-backed Things arrive as normal catalog Thing Descriptions produced by `virtual-servient`; this service does not keep a separate virtual-record dispatch path.
 
 ## Runtime Shape
 
@@ -42,7 +42,7 @@ npm install
 npm run dev
 ```
 
-Use `npm run build` for TypeScript compilation and `npm run start` to run the compiled app.
+Use `npm run build` for TypeScript compilation, `npm run lint` for ESLint, and `npm run start` to run the compiled app.
 
 ## Environment
 
@@ -62,6 +62,8 @@ Compose also sets `HOST`, `PORT`, and runtime tokens from the root environment. 
 - [`src/runtime/servient.ts`](./src/runtime/servient.ts): node-wot servient setup.
 - [`src/runtime/operations.ts`](./src/runtime/operations.ts): Thing operation execution.
 - [`src/runtime/credentials.ts`](./src/runtime/credentials.ts): credential resolution.
+- [`src/services/form-selection.ts`](./src/services/form-selection.ts): TD form selection for runtime operations.
+- [`src/services/cache.ts`](./src/services/cache.ts): optional Thing Description cache.
 - [`src/services/thing-catalog-client.ts`](./src/services/thing-catalog-client.ts): copilot registry client.
 - [`src/services/stream-publisher.ts`](./src/services/stream-publisher.ts): Redis stream publishing.
 - [`src/services/subscriptions.ts`](./src/services/subscriptions.ts): subscription lifecycle.

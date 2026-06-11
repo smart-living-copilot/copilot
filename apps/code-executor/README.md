@@ -1,11 +1,12 @@
 # Code Executor
 
-`code-executor` is the internal Python execution service used by the copilot agent's `run_code` tool. It runs Python snippets in long-lived per-thread worker processes, captures stdout and chart/image artifacts, and returns compact results to `copilot`.
+`code-executor` is the internal Python execution service used by the copilot agent's `run_code` tool, analysis jobs, and virtual Thing handlers. It runs Python snippets in long-lived per-session worker processes, captures stdout and chart/image artifacts, and returns compact results to `copilot`.
 
 ## What This Service Owns
 
 - Python execution for analysis workflows.
-- One worker process per chat thread/session.
+- Virtual Thing computed-property, computed-action, and emitted-event handler execution.
+- One worker process per chat thread, job, or virtual Thing handler session.
 - Session-local variables and imports that survive successful calls.
 - Matplotlib, Plotly, and explicit image artifact capture.
 - Cleanup of idle sessions and expired artifacts.
@@ -15,15 +16,15 @@ The UI never executes Python directly, and browsers should not call this service
 ## Runtime Shape
 
 ```text
-copilot run_code tool
+copilot run_code / jobs / virtual Thing dispatcher
   -> code-executor
      -> session worker process
      -> stdout / image / Plotly artifacts
-  -> copilot structured tool result
-  -> ui artifact renderer
+  -> copilot tool result / job result / handler result
+  -> UI artifact renderer when artifacts are present
 ```
 
-The same thread id is used as the code-executor session id so analysis state follows the conversation.
+Chat turns use the thread id as the code-executor session id so analysis state follows the conversation. Jobs and virtual Thing bindings use their own stable session ids.
 
 ## Session Model
 
@@ -102,6 +103,6 @@ Settings are defined in [`code_executor/models/settings.py`](./code_executor/mod
 
 ## Current Gaps
 
-- There is no dedicated automated test suite in this package today.
+- The automated test suite is still small and currently focuses on web artifact behavior.
 - Artifact cleanup is TTL-based rather than thread-scoped.
 - The service favors practical isolation and rollback over strong sandbox guarantees.

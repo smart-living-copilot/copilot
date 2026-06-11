@@ -1,8 +1,9 @@
 """Prompt templates for agent orchestration.
 
 This package groups role-specific system prompts for routing, conversational
-responses, control actions, analysis tasks, and jobs execution. The constants are
-consumed by graph construction in :mod:`copilot.agent.builder`.
+responses, control actions, analysis tasks, jobs execution, and standalone
+virtual Thing authoring. The constants are consumed by graph construction in
+:mod:`copilot.agent.builder`.
 """
 
 from copilot.agent.prompts.router import ROUTER_PROMPT

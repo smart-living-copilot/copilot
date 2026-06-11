@@ -2,8 +2,8 @@
 
 The agent package hosts the LangGraph orchestration layer that powers conversational
 interactions and background execution. Incoming messages are routed into one of
-chat, control, analysis, or jobs flows, then passed through stateful LLM + tool
-loops with checkpoint-backed persistence.
+chat, control, analysis, jobs, or virtual Thing authoring flows, then passed
+through stateful LLM + tool loops with checkpoint-backed persistence.
 
 The module-level API in this package exposes:
 

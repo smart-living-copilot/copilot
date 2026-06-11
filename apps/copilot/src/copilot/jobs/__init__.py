@@ -6,7 +6,8 @@ three nested definition concepts:
 * ``trigger`` says when it runs: time-based schedules or WoT events.
 * ``action`` says what it does: prompt jobs invoke the LangGraph agent, while
   analysis jobs run deterministic Python in the code-executor service.
-* ``output`` says what the run produces: narrative text or a structured record.
+* ``output`` says what the run produces: narrative text or a structured record
+  that is exposed through a generic virtual Thing.
 
 The API layer in ``routes`` delegates to ``JobService``. The service validates
 requests, creates external schedules/subscriptions, starts Taskiq jobs, and
@@ -23,7 +24,9 @@ thread. User-facing job timelines come from ``job_run_events``; LangGraph
 checkpoints remain runtime state and legacy transcript fallback. Analysis jobs
 bypass LangGraph and store their code-executor output in ``job_runs.result``.
 
-Redis is used for Taskiq scheduling, Taskiq results, WoT event fan-out, and job
-run SSE notifications. The current schema is fresh-reset oriented for local
-development; old job tables should be dropped/reset rather than migrated.
+Redis is used for Taskiq scheduling, Taskiq results, WoT event fan-out, catalog
+Thing events, and job run SSE notifications. Structured-record jobs keep their
+record rows in the jobs domain while registering record-backed bindings through
+``copilot.virtual_things`` so runtime dispatch stays on the generic virtual
+Thing path.
 """

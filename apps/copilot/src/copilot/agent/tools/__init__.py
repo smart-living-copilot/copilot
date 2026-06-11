@@ -1,8 +1,9 @@
 """Agent tool registries.
 
-This package re-exports local, runtime, and job-scheduling tools used by the
-LangGraph nodes. `LOCAL_TOOLS` provides the ordered default local toolset
-consumed by graph builders, while `REGISTRY_TOOLS` exposes discovered WoT tools.
+This package re-exports local, runtime, job-scheduling, and virtual Thing
+authoring tools used by the LangGraph nodes. `LOCAL_TOOLS` provides the ordered
+default local toolset consumed by graph builders, while `REGISTRY_TOOLS` exposes
+discovered WoT tools.
 """
 
 from copilot.agent.tools.run_code import run_code

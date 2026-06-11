@@ -5,9 +5,9 @@
 ## What This Service Owns
 
 - LangGraph agent assembly, routing, prompts, and tool binding.
-- Backend API composition for chat transport, threads, Things, credentials, API keys, jobs, media, and speech.
-- Postgres persistence for LangGraph checkpoints, thread metadata, Thing registry data, credentials, API keys, search vectors, and jobs.
-- Redis-backed job events and scheduling coordination through Taskiq.
+- Backend API composition for chat transport, threads, Things, virtual Things, credentials, API keys, jobs, panels, media, and speech.
+- Postgres persistence for LangGraph checkpoints, thread metadata, Thing registry data, virtual Thing definitions, credentials, API keys, search vectors, panels, and jobs.
+- Redis-backed job events, Thing event outbox delivery, and scheduling coordination through Taskiq.
 - LiveKit agent worker integration for local voice and camera-assisted sessions.
 - The worker entrypoints for job execution, scheduling, Thing indexing, and LiveKit.
 
@@ -21,6 +21,8 @@ ui
      -> LangGraph agent
      -> code-executor for run_code
      -> wot-runtime for Thing operations
+     -> virtual-servient for produced virtual Thing TDs
+     -> rdf-service for SPARQL/RDF graph queries
      -> Postgres / Valkey
 ```
 
@@ -37,18 +39,20 @@ START
      -> control_llm -> control_tools -> control_llm -> END
      -> analysis_llm -> analysis_tools -> analysis_llm -> END
      -> jobs_llm -> jobs_tools -> jobs_llm -> END
+     -> virtual_things_llm -> virtual_things_tools -> virtual_things_llm -> END
 ```
 
 - `chat`: lightweight conversational responses.
 - `control`: device discovery and control.
 - `analysis`: device/data analysis plus Python execution.
 - `jobs`: automation job creation, inspection, debugging, manual runs, and deletion.
+- `virtual_things`: standalone computed properties/actions and emitted virtual events backed by `copilot.virtual_things` and produced by `virtual-servient`.
 
 Prompts live in [`src/copilot/agent/prompts`](./src/copilot/agent/prompts). Tool grouping lives in [`src/copilot/agent/tool_groups.py`](./src/copilot/agent/tool_groups.py).
 
 ## Jobs And Live Media
 
-Automation jobs use the same graph and persistence model as normal conversations, with hidden per-job checkpoint threads when a job needs user input. The Docker stack runs separate `job-worker` and `job-scheduler` processes from the same image.
+Automation jobs use the same graph and persistence model as normal conversations, with hidden per-job checkpoint threads when a job needs user input. Structured-record jobs persist record rows in `copilot.jobs.records` and register record-backed bindings through the generic virtual Thing path. The Docker stack runs separate `job-worker` and `job-scheduler` processes from the same image.
 
 Live voice uses a self-hosted LiveKit Server plus the `copilot livekit-agent` worker. The worker handles realtime media, speech-to-text, text-to-speech, interruption handling, transcription forwarding, and the bridge back into the LangGraph assistant.
 
@@ -91,6 +95,7 @@ Other local process roles:
 copilot job-worker
 copilot job-scheduler
 copilot thing-indexer
+copilot rdf-service
 copilot livekit-agent start
 ```
 
@@ -111,13 +116,13 @@ Common groups:
 - LLM, embedding, and vision model settings.
 - Shared internal API keys and registry tokens.
 - Postgres, pgvector, and LangGraph checkpoint configuration.
-- Redis, Taskiq jobs, WoT runtime, and event stream settings.
+- Redis, Taskiq jobs, WoT runtime, virtual-servient, RDF service, and event stream settings.
 - LiveKit, speech-to-text, and text-to-speech settings.
 - Code-executor URL, timeout, and retry settings.
 
 ## Security Boundary
 
-`copilot` assumes an internal-service deployment model. Public traffic should terminate at `ui`, with `copilot`, `code-executor`, `wot-runtime`, Postgres, and Valkey kept off the public internet.
+`copilot` assumes an internal-service deployment model. Public traffic should terminate at `ui`, with `copilot`, `code-executor`, `wot-runtime`, `virtual-servient`, `rdf-service`, Postgres, and Valkey kept off the public internet.
 
 Shared internal credentials protect service-to-service calls when configured. Registry API keys are intended for registry management and search, not direct unrestricted device control.
 
@@ -129,9 +134,13 @@ Shared internal credentials protect service-to-service calls when configured. Re
 - [`src/copilot/catalog`](./src/copilot/catalog): Thing registry, credentials, validation, and event outbox.
 - [`src/copilot/jobs`](./src/copilot/jobs): job definitions, runs, scheduler integration, records, events, and stores.
 - [`src/copilot/media`](./src/copilot/media): LiveKit token, dispatch, and media helpers.
+- [`src/copilot/panels`](./src/copilot/panels): generated panel rendering, persistence, versions, and edit helpers.
+- [`src/copilot/rdf`](./src/copilot/rdf): RDF graph indexing and SPARQL query service.
+- [`src/copilot/speech`](./src/copilot/speech): text-to-speech and transcription proxy routes.
 - [`src/copilot/threads`](./src/copilot/threads): thread metadata, message loading, titles, and routes.
 - [`src/copilot/search`](./src/copilot/search): embedding and vector search for Things.
 - [`src/copilot/thing_indexer`](./src/copilot/thing_indexer): Thing indexing worker.
+- [`src/copilot/virtual_things`](./src/copilot/virtual_things): virtual Thing definitions, bindings, validation, dispatch, and record-backed registration.
 - [`src/copilot/workers`](./src/copilot/workers): process role implementations.
 - [`src/copilot/migrations`](./src/copilot/migrations): Alembic migrations.
 

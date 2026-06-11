@@ -54,6 +54,8 @@ The Docker image defaults to:
 - `PORT=3013`
 - `WOT_PORT=3014`
 - `VIRTUAL_SERVIENT_PUBLIC_URL=http://virtual-servient:3014`
+- `VIRTUAL_SERVIENT_EVENTS_GROUP=virtual_servient`
+- `VIRTUAL_SERVIENT_RECONCILE_INTERVAL_MS=30000`
 
 Compose also sets `VIRTUAL_SERVIENT_REGISTRY_TOKEN` from the root environment. See [`src/config.ts`](./src/config.ts) and the root [`.env.example`](../../.env.example).
 
@@ -61,7 +63,10 @@ Compose also sets `VIRTUAL_SERVIENT_REGISTRY_TOKEN` from the root environment. S
 
 - [`src/index.ts`](./src/index.ts): service startup and health routes.
 - [`src/config.ts`](./src/config.ts): environment parsing.
-- [`src/manager.ts`](./src/manager.ts): definition reconciliation, production, triggers, and event emission.
+- [`src/manager.ts`](./src/manager.ts): definition reconciliation, production lifecycle, and event emission.
+- [`src/td.ts`](./src/td.ts): concrete Thing Description/form generation.
+- [`src/triggers.ts`](./src/triggers.ts): interval and source-event trigger setup.
+- [`src/types.ts`](./src/types.ts): shared virtual Thing and runtime types.
 - [`src/events.ts`](./src/events.ts): Redis stream consumer for definition and emission events.
 - [`src/servient.ts`](./src/servient.ts): node-wot servient setup.
 - [`src/clients/copilot.ts`](./src/clients/copilot.ts): internal copilot API client.

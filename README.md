@@ -1,6 +1,6 @@
 # Smart Living Copilot
 
-Smart Living Copilot is a multi-service smart home assistant stack. It combines a Next.js chat and operations UI, a Python LangGraph copilot service, a Python code execution service, and a node-wot runtime for Web of Things device access.
+Smart Living Copilot is a multi-service smart home assistant stack. It combines a Next.js chat and operations UI, a Python LangGraph copilot service, a Python code execution service, a node-wot runtime for Web of Things device access, and a virtual Thing producer for computed and record-backed Things.
 
 ## Services
 
@@ -10,6 +10,7 @@ browser
   -> copilot
      -> code-executor
      -> wot-runtime
+     -> virtual-servient
      -> postgres / valkey
 ```
 
@@ -17,9 +18,10 @@ browser
 - [`apps/copilot`](./apps/copilot/README.md): FastAPI + LangGraph service for agent orchestration, Thing registry APIs, jobs, persistence, and LiveKit worker roles.
 - [`apps/code-executor`](./apps/code-executor/README.md): internal Python worker service used by the agent's `run_code` tool.
 - [`apps/wot-runtime`](./apps/wot-runtime/README.md): internal node-wot runtime that reads, writes, invokes, and subscribes against Thing Descriptions.
+- [`apps/virtual-servient`](./apps/virtual-servient/README.md): internal node-wot producer that turns copilot virtual Thing definitions into concrete catalog Thing Descriptions.
 - [`examples/thing-descriptions`](./examples/thing-descriptions): sample Thing Description assets for local scenarios.
 
-Docker Compose also starts Postgres with pgvector, Valkey, LiveKit Server, and an optional Kokoro TTS profile.
+Docker Compose also starts Postgres with pgvector, Valkey, an RDF service, LiveKit Server, and an optional Kokoro TTS profile.
 
 ## Getting Started
 
@@ -49,6 +51,7 @@ Service-specific setup, test commands, and implementation notes live in the serv
 - [Copilot README](./apps/copilot/README.md)
 - [Code Executor README](./apps/code-executor/README.md)
 - [WoT Runtime README](./apps/wot-runtime/README.md)
+- [Virtual Servient README](./apps/virtual-servient/README.md)
 
 ## Top-Level Files
 

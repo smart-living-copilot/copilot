@@ -1,8 +1,8 @@
 """Job external resource definitions.
 
 This package tracks resources a job depends on (schedules, event subscriptions,
-and virtual record thing entries), plus helpers that reconcile those resources
-when jobs are activated, updated, or removed.
+and structured-record virtual Thing registrations), plus helpers that reconcile
+those resources when jobs are activated, updated, or removed.
 """
 
 from __future__ import annotations

@@ -1,8 +1,9 @@
-"""Virtual record job utilities.
+"""Structured-record job utilities.
 
-This package provides record schemas, identifier helpers, virtual-record persistence,
-and Thing Description rendering used by prompt jobs that write structured
-`VirtualRecord` output.
+This package provides record schemas, identifier helpers, record persistence,
+and Thing Description rendering used by jobs that write structured
+``VirtualRecord`` output. Record-backed Things are materialized through
+``copilot.virtual_things`` bindings rather than a separate public runtime path.
 """
 
 from __future__ import annotations
