@@ -281,6 +281,7 @@ def _runtime_binding(
         ],
         config=dict(binding.config or {}),
         state=_initial_state(binding),
+        timeout_seconds=binding.timeout_seconds,
         cache_ttl_seconds=binding.cache_ttl_seconds,
     )
 
@@ -296,6 +297,12 @@ def _sample_input(request: DefineVirtualThingRequest, binding: VirtualThingBindi
                 "source_thing_id": binding.trigger.thing_id,
                 "source_event_name": binding.trigger.event_name,
                 "payload": None,
+            }
+        if binding.trigger and binding.trigger.kind == "explicit":
+            return {
+                "trigger": "explicit",
+                "input": None,
+                "requested_at": "1970-01-01T00:00:00+00:00",
             }
         return {"trigger": "interval", "fired_at": "1970-01-01T00:00:00+00:00"}
     return None

@@ -92,6 +92,42 @@ class VirtualThingDispatcher:
         *,
         dry_run: bool = False,
     ) -> Any | None:
+        result = await self._evaluate_event_result(
+            thing_id,
+            event_name,
+            trigger_input,
+            dry_run=dry_run,
+        )
+        return result["payload"] if result["emitted"] else None
+
+    async def emit_event(
+        self,
+        thing_id: str,
+        event_name: str,
+        trigger_input: Any,
+    ) -> dict[str, Any]:
+        result = await self._evaluate_event_result(
+            thing_id,
+            event_name,
+            trigger_input,
+            dry_run=False,
+        )
+        if result["emitted"]:
+            self._store.enqueue_event_emission(
+                thing_id=thing_id,
+                event_name=event_name,
+                payload=result.get("payload"),
+            )
+        return result
+
+    async def _evaluate_event_result(
+        self,
+        thing_id: str,
+        event_name: str,
+        trigger_input: Any,
+        *,
+        dry_run: bool,
+    ) -> dict[str, Any]:
         binding = self._store.get_binding(
             thing_id=thing_id,
             affordance_type="event",
@@ -107,8 +143,13 @@ class VirtualThingDispatcher:
         _validate_event_result(event_name, result)
         if not dry_run:
             self._store.update_binding_state(binding_id=binding.id, state=result.get("state"))
-        emit = result["emit"]
-        return result.get("payload") if emit else None
+        emitted = result["emit"]
+        return {
+            "thing_id": thing_id,
+            "event_name": event_name,
+            "emitted": emitted,
+            "payload": result.get("payload") if emitted else None,
+        }
 
     async def _run_handler(
         self,
@@ -136,6 +177,7 @@ class VirtualThingDispatcher:
             response = await self._code_executor.execute(
                 session_id=f"virtual-thing:{binding.id}",
                 code=code,
+                timeout_seconds=getattr(binding, "timeout_seconds", None),
             )
         except httpx.TimeoutException as exc:
             raise TimeoutError("computed handler timed out") from exc

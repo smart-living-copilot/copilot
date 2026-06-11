@@ -332,10 +332,32 @@ export async function reconcileThingId(thingId: string, action: string): Promise
   await reconcileDefinition(await fetchDefinition(thingId), thingId);
 }
 
+export function emitVirtualThingEvent(thingId: string, eventName: string, payload: unknown): boolean {
+  const active = activeThings.get(thingId);
+  if (!active) {
+    return false;
+  }
+  active.thing.emitEvent(eventName, payload);
+  return true;
+}
+
 export async function stopAll(): Promise<void> {
   await Promise.all([...activeThings.keys()].map((thingId) => stopActiveThing(thingId)));
 }
 
 export function activeCount(): number {
   return activeThings.size;
+}
+
+export function __setActiveThingForTest(thingId: string, thing: any): void {
+  activeThings.set(thingId, {
+    thing,
+    timers: [],
+    subscriptions: [],
+    version: 0,
+  });
+}
+
+export function __clearActiveThingsForTest(): void {
+  activeThings.clear();
 }

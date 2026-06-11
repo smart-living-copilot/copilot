@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { canaryEventBindings, errorDetail } from './manager.js';
+import { handleEvent } from './events.js';
+import {
+  __clearActiveThingsForTest,
+  __setActiveThingForTest,
+  canaryEventBindings,
+  errorDetail,
+} from './manager.js';
 import type { VirtualThingDefinition } from './types.js';
 
 test('canaryEventBindings dry-runs emitted events without requiring real emission', async () => {
@@ -45,4 +51,26 @@ test('errorDetail includes axios response body', () => {
   });
 
   assert.match(errorDetail(error), /handler failed/);
+});
+
+test('handleEvent emits requested virtual Thing events on active things', async () => {
+  const emitted: unknown[][] = [];
+  __setActiveThingForTest('virtual:things:manual', {
+    emitEvent: (...args: unknown[]) => emitted.push(args),
+  });
+
+  try {
+    await handleEvent({
+      event_json: JSON.stringify({
+        eventType: 'virtualThingEventEmissionRequested',
+        id: 'virtual:things:manual',
+        eventName: 'signal',
+        payload: { ok: true },
+      }),
+    });
+  } finally {
+    __clearActiveThingsForTest();
+  }
+
+  assert.deepEqual(emitted, [['signal', { ok: true }]]);
 });

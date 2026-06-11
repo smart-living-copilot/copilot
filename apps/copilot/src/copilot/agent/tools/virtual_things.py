@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import math
+from datetime import datetime, timezone
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -10,6 +11,7 @@ from langchain_core.tools import tool
 from pydantic import ValidationError
 
 from copilot.virtual_things import DefineVirtualThingRequest, VirtualThingStore
+from copilot.virtual_things.dispatcher import VirtualThingDispatcher
 from copilot.virtual_things.validator import VirtualThingValidator
 
 _HANDLER_KEYS = ("handler_code", "handle", "source", "code", "handler")
@@ -162,6 +164,29 @@ async def delete_virtual_thing(thing_id: str) -> dict[str, Any]:
     except Exception as exc:
         return {"error": str(exc)}
     return {"ok": True, "thing_id": thing_id}
+
+
+@tool
+async def emit_virtual_thing_event(
+    thing_id: str,
+    event_name: str,
+    input: Any = None,
+) -> dict[str, Any]:
+    """Evaluate and emit a standalone virtual Thing event with an explicit trigger."""
+    try:
+        return await VirtualThingDispatcher().emit_event(
+            thing_id,
+            event_name,
+            {
+                "trigger": "explicit",
+                "input": input,
+                "requested_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+    except KeyError:
+        return {"error": "virtual thing event not found"}
+    except Exception as exc:
+        return {"error": str(exc)}
 
 
 def _build_define_args(spec: dict[str, Any]) -> dict[str, Any]:

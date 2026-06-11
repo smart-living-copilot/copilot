@@ -25,7 +25,7 @@ class VirtualThingCapability(BaseModel):
 class VirtualThingTrigger(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["interval", "source_event"]
+    kind: Literal["interval", "source_event", "explicit"]
     interval_seconds: int | None = Field(default=None, ge=1)
     thing_id: str | None = None
     event_name: str | None = None

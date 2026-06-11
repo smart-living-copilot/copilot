@@ -4,11 +4,9 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from copilot.auth import User, require_service
-from copilot.catalog.ids import decode_thing_id
 from copilot.core.api_dependencies import verify_internal_api_key
 from copilot.jobs.enums import JobRunEventType
 from copilot.jobs.schemas import (
@@ -18,7 +16,6 @@ from copilot.jobs.schemas import (
     UpdateJobRequest,
 )
 from copilot.jobs.record_summary import submitted_record_event_message
-from copilot.jobs.records import VirtualRecordStore, virtual_record_http_error
 from copilot.jobs.stores import JobNotWaitingForInput, JobRunNotCancellable
 from copilot.threads.messages import checkpoint_thread_messages
 from copilot.threads.store import get_thread
@@ -237,48 +234,6 @@ async def run_job(job_id: str, request: Request):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return result
-
-
-@router.get("/api/virtual-records/{thing_id:path}/properties/{property_name}")
-def read_virtual_record_property(
-    thing_id: str,
-    property_name: str,
-    _user: User = Depends(require_service(["wot_runtime"])),
-) -> dict[str, Any]:
-    try:
-        decoded_thing_id = decode_thing_id(thing_id)
-        return {
-            "thing_id": decoded_thing_id,
-            "property_name": property_name,
-            "value": VirtualRecordStore().read_property(
-                decoded_thing_id,
-                property_name,
-            ),
-        }
-    except Exception as exc:
-        raise virtual_record_http_error(exc) from exc
-
-
-@router.post("/api/virtual-records/{thing_id:path}/actions/{action_name}")
-def invoke_virtual_record_action(
-    thing_id: str,
-    action_name: str,
-    payload: dict[str, Any] = Body(default_factory=dict),
-    _user: User = Depends(require_service(["wot_runtime"])),
-) -> dict[str, Any]:
-    try:
-        decoded_thing_id = decode_thing_id(thing_id)
-        return {
-            "thing_id": decoded_thing_id,
-            "action_name": action_name,
-            "value": VirtualRecordStore().invoke_action(
-                decoded_thing_id,
-                action_name,
-                payload.get("input"),
-            ),
-        }
-    except Exception as exc:
-        raise virtual_record_http_error(exc) from exc
 
 
 def _messages_from_job_run_events(events: list[JobRunEvent]) -> list[dict[str, Any]]:

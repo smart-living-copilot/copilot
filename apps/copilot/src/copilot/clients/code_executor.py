@@ -89,14 +89,23 @@ class CodeExecutorClient:
             raise RuntimeError("Code executor did not return a web artifact filename")
         return filename
 
-    async def execute(self, *, session_id: str, code: str) -> dict[str, Any]:
+    async def execute(
+        self,
+        *,
+        session_id: str,
+        code: str,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
         attempts = max(1, self._settings.code_executor_retry_attempts)
         base_backoff = max(0.0, self._settings.code_executor_retry_backoff_seconds)
 
         last_error: Exception | None = None
-        async with httpx.AsyncClient(
-            timeout=self._settings.code_executor_timeout_seconds
-        ) as client:
+        timeout = (
+            self._settings.code_executor_timeout_seconds
+            if timeout_seconds is None
+            else timeout_seconds
+        )
+        async with httpx.AsyncClient(timeout=timeout) as client:
             for attempt in range(1, attempts + 1):
                 try:
                     response = await client.post(

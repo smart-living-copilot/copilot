@@ -61,6 +61,7 @@ class BuilderVirtualToolsTestCase(unittest.TestCase):
                     _tool("draft_virtual_thing_definition"),
                     _tool("define_virtual_thing"),
                     _tool("delete_virtual_thing"),
+                    _tool("emit_virtual_thing_event"),
                 ],
                 max_tokens=1000,
             )
@@ -82,6 +83,7 @@ class BuilderVirtualToolsTestCase(unittest.TestCase):
                 "draft_virtual_thing_definition",
                 "define_virtual_thing",
                 "delete_virtual_thing",
+                "emit_virtual_thing_event",
             ],
         )
         self.assertNotIn("things_upsert", captured["virtual_things"])

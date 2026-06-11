@@ -10,7 +10,6 @@ import {
 import { formatError, getRuntimeErrorCode, getRuntimeErrorStatus } from '../services/errors.js';
 import { decodePayloadEnvelope, encodePayloadEnvelope, normalizeBody } from '../services/payloads.js';
 import { ensureEventSubscription, ensurePropertyObservation, removeSubscription } from '../services/subscriptions.js';
-import { isVirtualRecordThingId } from '../services/virtual-records.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -254,13 +253,6 @@ function sendError(response: any, error: unknown): void {
   });
 }
 
-function sendVirtualRecordUnsupported(response: any, operation: string): void {
-  response.status(501).json({
-    detail: `Virtual record things do not support ${operation} in v1`,
-    error_code: 'unimplemented',
-  });
-}
-
 /**
  * Creates the Express router for wot_runtime's internal API.
  * This API is used by the search indexer and other registry components to interact with WoT devices.
@@ -386,10 +378,6 @@ export function createRuntimeRouter(): Router {
       const propertyName =
         getStringField(body, 'propertyName', 'property_name') ||
         getStringField(body, 'affordanceName', 'affordance_name');
-      if (isVirtualRecordThingId(thingId)) {
-        sendVirtualRecordUnsupported(response, 'ObserveProperty');
-        return;
-      }
 
       response.json(
         await ensurePropertyObservation({
@@ -409,10 +397,6 @@ export function createRuntimeRouter(): Router {
       const thingId = getStringField(body, 'thingId', 'thing_id');
       const eventName =
         getStringField(body, 'eventName', 'event_name') || getStringField(body, 'affordanceName', 'affordance_name');
-      if (isVirtualRecordThingId(thingId)) {
-        sendVirtualRecordUnsupported(response, 'SubscribeEvent');
-        return;
-      }
 
       response.json(
         await ensureEventSubscription({

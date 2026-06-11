@@ -25,6 +25,7 @@ class _FakeStore:
     def __init__(self, binding):
         self.binding = binding
         self.updated_state = None
+        self.enqueued_emission = None
 
     def get_binding(self, **_kwargs):
         return self.binding
@@ -32,20 +33,25 @@ class _FakeStore:
     def update_binding_state(self, *, binding_id, state):
         self.updated_state = (binding_id, state)
 
+    def enqueue_event_emission(self, *, thing_id, event_name, payload):
+        self.enqueued_emission = (thing_id, event_name, payload)
+
 
 class _FakeExecutor:
     def __init__(self, results):
         self.results = list(results)
         self.calls = 0
+        self.kwargs = []
 
-    async def execute(self, **_kwargs):
+    async def execute(self, **kwargs):
         self.calls += 1
+        self.kwargs.append(kwargs)
         result = self.results.pop(0)
         return {"stdout": f"{_RESULT_PREFIX}{result}"}
 
 
 class _LocalExecutor:
-    async def execute(self, *, session_id, code):
+    async def execute(self, *, session_id, code, timeout_seconds=None):
         stdout = io.StringIO()
         namespace = {
             "wot": SimpleNamespace(
@@ -182,6 +188,29 @@ class VirtualThingSchemasTestCase(unittest.TestCase):
                 "event_name": "opened",
             },
         )
+
+    def test_draft_tool_accepts_explicit_event_trigger(self):
+        result = draft_virtual_thing_definition.invoke(
+            {
+                "spec": {
+                    "title": "Manual Signal",
+                    "events": {
+                        "signal": {
+                            "data": {"type": "object"},
+                            "trigger": {"kind": "explicit"},
+                            "handler_code": (
+                                "def handle(input, state, context):\n"
+                                "    return {'emit': True, 'payload': input.get('input'), "
+                                "'state': state}"
+                            ),
+                        }
+                    },
+                }
+            }
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["define_args"]["bindings"][0]["trigger"], {"kind": "explicit"})
 
     def test_draft_tool_rejects_event_without_trigger(self):
         result = draft_virtual_thing_definition.invoke(
@@ -365,6 +394,7 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
             capabilities=[],
             config={},
             state=None,
+            timeout_seconds=7,
             cache_ttl_seconds=30,
         )
         executor = _FakeExecutor(["21", "22"])
@@ -381,6 +411,7 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
             await dispatcher.read_property("virtual:things:comfort", "temperature"), 21
         )
         self.assertEqual(executor.calls, 1)
+        self.assertEqual(executor.kwargs[0]["timeout_seconds"], 7)
 
     async def test_event_evaluate_persists_state_and_suppresses_null_emit(self):
         binding = SimpleNamespace(
@@ -393,6 +424,7 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
             capabilities=[],
             config={},
             state={"was_below": False},
+            timeout_seconds=30,
             cache_ttl_seconds=0,
         )
         store = _FakeStore(binding)
@@ -429,6 +461,7 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
             capabilities=[],
             config={},
             state=None,
+            timeout_seconds=30,
             cache_ttl_seconds=0,
         )
         store = _FakeStore(binding)
@@ -459,6 +492,7 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
             capabilities=[],
             config={},
             state=None,
+            timeout_seconds=30,
             cache_ttl_seconds=0,
         )
         store = _FakeStore(binding)
@@ -485,6 +519,7 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
             capabilities=[],
             config={},
             state=None,
+            timeout_seconds=30,
             cache_ttl_seconds=0,
         )
         dispatcher = VirtualThingDispatcher(
@@ -495,6 +530,50 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(ValueError, "returned None"):
             await dispatcher.evaluate_event("virtual:things:counter", "tick", {})
+
+    async def test_emit_event_enqueues_emission_when_handler_emits(self):
+        binding = SimpleNamespace(
+            id="event-binding",
+            thing_id="virtual:things:manual",
+            affordance_type="event",
+            affordance_name="signal",
+            kind="emitted",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    return {'emit': True, 'payload': input['input'], 'state': state}"
+            ),
+            capabilities=[],
+            config={},
+            state=None,
+            timeout_seconds=30,
+            cache_ttl_seconds=0,
+        )
+        store = _FakeStore(binding)
+        dispatcher = VirtualThingDispatcher(
+            store=store,
+            record_store=SimpleNamespace(),
+            code_executor=_LocalExecutor(),
+        )
+
+        result = await dispatcher.emit_event(
+            "virtual:things:manual",
+            "signal",
+            {"trigger": "explicit", "input": {"ok": True}},
+        )
+
+        self.assertEqual(
+            result,
+            {
+                "thing_id": "virtual:things:manual",
+                "event_name": "signal",
+                "emitted": True,
+                "payload": {"ok": True},
+            },
+        )
+        self.assertEqual(
+            store.enqueued_emission,
+            ("virtual:things:manual", "signal", {"ok": True}),
+        )
 
 
 class VirtualThingValidatorTestCase(unittest.IsolatedAsyncioTestCase):

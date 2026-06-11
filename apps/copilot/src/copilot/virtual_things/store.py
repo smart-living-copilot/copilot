@@ -200,6 +200,27 @@ class VirtualThingStore:
             binding.updated_at = utc_now()
             session.commit()
 
+    def enqueue_event_emission(
+        self,
+        *,
+        thing_id: str,
+        event_name: str,
+        payload: Any,
+    ) -> None:
+        with self._session_factory() as session:
+            enqueue_thing_event(
+                session,
+                {
+                    "eventType": "virtualThingEventEmissionRequested",
+                    "id": thing_id,
+                    "eventName": event_name,
+                    "payload": json_safe(payload),
+                    "hash": f"virtual-emission:{uuid4()}",
+                    "occurredAt": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            session.commit()
+
     def _replace_bindings(
         self,
         session: Session,

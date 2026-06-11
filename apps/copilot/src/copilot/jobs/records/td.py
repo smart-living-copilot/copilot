@@ -166,7 +166,7 @@ def _history_output_schema(value_schema: dict[str, Any] | None) -> dict[str, Any
 
 def _form(path: str, op: str) -> dict[str, Any]:
     return {
-        "href": f"urn:smart-living-copilot:virtual-records:{path}",
+        "href": f"urn:smart-living-copilot:virtual-things:{path}",
         "op": [op],
         "contentType": "application/json",
     }

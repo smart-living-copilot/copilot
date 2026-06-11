@@ -177,7 +177,7 @@ async def test_rdf_store_loads_minted_td_with_cached_wot_context(tmp_path):
     assert _values(response, "title")[0] == "Generated record store"
     assert "latest_temperature" in _values(response, "propertyName")
     assert "query_records" in _values(response, "actionName")
-    assert "urn:smart-living-copilot:virtual-records:property" in _values(response, "href")
+    assert "urn:smart-living-copilot:virtual-things:property" in _values(response, "href")
 
 
 @pytest.mark.anyio

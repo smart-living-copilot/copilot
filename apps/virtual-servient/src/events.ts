@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import log from './logger.js';
-import { reconcileThingId } from './manager.js';
+import { emitVirtualThingEvent, reconcileThingId } from './manager.js';
 import { getRedisClient } from './redis.js';
 
 let stopped = false;
@@ -24,12 +24,23 @@ function fieldsToObject(fields: string[]): Record<string, string> {
   return result;
 }
 
-async function handleEvent(fields: Record<string, string>): Promise<void> {
+export async function handleEvent(fields: Record<string, string>): Promise<void> {
   const raw = fields.event_json;
   if (!raw) {
     return;
   }
   const event = JSON.parse(raw);
+  if (event.eventType === 'virtualThingEventEmissionRequested') {
+    const emitted = emitVirtualThingEvent(
+      String(event.id || ''),
+      String(event.eventName || ''),
+      event.payload,
+    );
+    if (!emitted) {
+      log.warn(`Received emission request for inactive virtual Thing ${String(event.id || '')}`);
+    }
+    return;
+  }
   if (event.eventType !== 'virtualThingDefinitionChanged') {
     return;
   }

@@ -84,6 +84,7 @@ class ToolGroupsTestCase(unittest.TestCase):
                 _tool("draft_virtual_thing_definition"),
                 _tool("define_virtual_thing"),
                 _tool("delete_virtual_thing"),
+                _tool("emit_virtual_thing_event"),
             ]
         )
 
@@ -97,6 +98,7 @@ class ToolGroupsTestCase(unittest.TestCase):
                 "draft_virtual_thing_definition",
                 "define_virtual_thing",
                 "delete_virtual_thing",
+                "emit_virtual_thing_event",
             ],
         )
         self.assertEqual(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -104,6 +105,29 @@ async def evaluate_virtual_thing_event(
             payload.get("input"),
             dry_run=bool(payload.get("dry_run")),
         )
+    except Exception as exc:
+        raise virtual_thing_http_error(exc) from exc
+
+
+@router.post("/api/virtual-things/{thing_id:path}/events/{event_name}/emit")
+async def emit_virtual_thing_event(
+    thing_id: str,
+    event_name: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    _user: User = Depends(require_service(["virtual_servient"])),
+) -> dict[str, Any]:
+    try:
+        decoded_thing_id = decode_thing_id(thing_id)
+        result = await VirtualThingDispatcher().emit_event(
+            decoded_thing_id,
+            event_name,
+            {
+                "trigger": "explicit",
+                "input": payload.get("input"),
+                "requested_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return result
     except Exception as exc:
         raise virtual_thing_http_error(exc) from exc
 

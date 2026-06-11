@@ -4,11 +4,6 @@ import { getWotClient } from '../runtime/servient.js';
 import { buildCacheKey, getCached, setCached } from '../services/cache.js';
 import { fetchThingDescription, type ThingDescription } from '../services/thing-catalog-client.js';
 import {
-  invokeVirtualRecordAction,
-  isVirtualRecordThingId,
-  readVirtualRecordProperty,
-} from '../services/virtual-records.js';
-import {
   decodePayloadEnvelope,
   encodeInteractionOutputPayload,
   encodePayloadEnvelope,
@@ -184,10 +179,6 @@ export async function handleReadProperty(request: any): Promise<any> {
   if (!propertyName) {
     throw createRuntimeError('invalid_argument', 'target.affordance_name is required for ReadProperty');
   }
-  if (isVirtualRecordThingId(thingId)) {
-    return buildInteractionResponse(await readVirtualRecordProperty(thingId, propertyName));
-  }
-
   const { thing, document } = await consumeThing(request);
   if (!getAffordanceDefinition(document, propertyName, 'readproperty')) {
     throw createRuntimeError('not_found', `Thing '${thingId}' does not define property '${propertyName}'`);
@@ -229,10 +220,6 @@ export async function handleWriteProperty(request: any): Promise<any> {
   if (!propertyName) {
     throw createRuntimeError('invalid_argument', 'target.affordance_name is required for WriteProperty');
   }
-  if (isVirtualRecordThingId(thingId)) {
-    throw createRuntimeError('unimplemented', 'Virtual record things do not support WriteProperty');
-  }
-
   const input = decodePayloadEnvelope(request.input);
   if (input === undefined) {
     throw createRuntimeError('invalid_argument', 'input payload is required for WriteProperty');
@@ -270,15 +257,6 @@ export async function handleInvokeAction(request: any): Promise<any> {
   if (!actionName) {
     throw createRuntimeError('invalid_argument', 'target.affordance_name is required for InvokeAction');
   }
-  if (isVirtualRecordThingId(thingId)) {
-    const input = decodePayloadEnvelope(request.input);
-    return {
-      completedResult: buildInteractionResponse(
-        await invokeVirtualRecordAction(thingId, actionName, input),
-      ).response,
-    };
-  }
-
   const { thing, document } = await consumeThing(request);
   if (!getAffordanceDefinition(document, actionName, 'invokeaction')) {
     throw createRuntimeError('not_found', `Thing '${thingId}' does not define action '${actionName}'`);

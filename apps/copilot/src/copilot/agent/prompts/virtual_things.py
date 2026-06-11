@@ -25,6 +25,7 @@ bindings; virtual-servient produces the concrete Thing and catalog TD.
 7. Every event needs a trigger:
    - {"kind": "interval", "interval_seconds": N}
    - {"kind": "source_event", "thing_id": "...", "event_name": "..."}
+   - {"kind": "explicit"} for events fired manually through emit_virtual_thing_event.
 8. Declare every real Thing affordance a handler may use in capabilities with
    ops readProperty, writeProperty, or invokeAction.
 
@@ -36,7 +37,8 @@ bindings; virtual-servient produces the concrete Thing and catalog TD.
 4. Call define_virtual_thing with the returned define_args.
 5. For a quick test, use the normal runtime path after creation:
    read computed properties with wot_read_property, invoke computed actions with
-   wot_invoke_action, and subscribe to emitted events with wot_subscribe_event.
+   wot_invoke_action, subscribe to emitted events with wot_subscribe_event, and
+   fire explicit events with emit_virtual_thing_event.
 6. If deleting or disabling a standalone Virtual Thing, use delete_virtual_thing
    or define_virtual_thing with status="disabled".
 

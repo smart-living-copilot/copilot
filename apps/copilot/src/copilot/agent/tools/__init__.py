@@ -22,6 +22,7 @@ from copilot.agent.tools.virtual_things import (
     define_virtual_thing,
     delete_virtual_thing,
     draft_virtual_thing_definition,
+    emit_virtual_thing_event,
 )
 
 LOCAL_TOOLS = [
@@ -36,6 +37,7 @@ LOCAL_TOOLS = [
     draft_virtual_thing_definition,
     define_virtual_thing,
     delete_virtual_thing,
+    emit_virtual_thing_event,
     run_job_now,
     delete_job,
 ]
@@ -51,6 +53,7 @@ __all__ = [
     "delete_virtual_thing",
     "define_virtual_thing",
     "draft_virtual_thing_definition",
+    "emit_virtual_thing_event",
     "get_current_time",
     "list_jobs",
     "look_at_camera",

@@ -71,6 +71,7 @@ _VIRTUAL_THING_NAMES = {
     "draft_virtual_thing_definition",
     "define_virtual_thing",
     "delete_virtual_thing",
+    "emit_virtual_thing_event",
 }
 _NAMED_LOCAL_NAMES = {
     _GET_CURRENT_TIME,

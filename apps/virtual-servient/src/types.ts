@@ -5,7 +5,7 @@ export type VirtualThingBinding = {
   affordance_name: string;
   kind: 'record' | 'computed' | 'emitted';
   trigger?: {
-    kind: 'interval' | 'source_event';
+    kind: 'interval' | 'source_event' | 'explicit';
     interval_seconds?: number;
     thing_id?: string;
     event_name?: string;

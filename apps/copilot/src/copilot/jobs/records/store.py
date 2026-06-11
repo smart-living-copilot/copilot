@@ -7,9 +7,6 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from copilot.catalog.events import build_change_event, build_remove_event
-from copilot.catalog.events.outbox import enqueue_thing_event
-from copilot.catalog.store import delete_thing, get_thing as get_catalog_thing, put_thing
 from copilot.core.database import get_session_factory
 from copilot.jobs.records.db import VirtualRecord, VirtualRecordThing
 from copilot.jobs.records.schema import (
@@ -30,10 +27,7 @@ class VirtualRecordStore:
 
     def thing_exists(self, thing_id: str) -> bool:
         with self._session_factory() as session:
-            return (
-                session.get(VirtualRecordThing, thing_id) is not None
-                and get_catalog_thing(session, thing_id) is not None
-            )
+            return session.get(VirtualRecordThing, thing_id) is not None
 
     def create_or_update_thing(
         self,
@@ -75,8 +69,6 @@ class VirtualRecordStore:
                 row.description = description
                 row.updated_at = now
 
-            record, _created = put_thing(session, thing_id, td)
-            enqueue_thing_event(session, build_change_event("update", record))
             session.commit()
         from copilot.virtual_things import VirtualThingStore
 
@@ -95,8 +87,6 @@ class VirtualRecordStore:
             row = session.get(VirtualRecordThing, thing_id)
             if row is not None:
                 session.delete(row)
-            if delete_thing(session, thing_id):
-                enqueue_thing_event(session, build_remove_event(thing_id))
             session.commit()
         try:
             from copilot.virtual_things import VirtualThingStore
