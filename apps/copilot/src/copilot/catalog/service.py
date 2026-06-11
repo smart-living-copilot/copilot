@@ -14,7 +14,6 @@ from copilot.catalog.store import (
     list_things,
     put_thing,
 )
-from copilot.rdf.endpoint_context import validate_example_queries
 
 
 class ThingCatalogQueryService:
@@ -77,7 +76,6 @@ class ThingCatalogWriteService:
 
     def create(self, document: ThingDocument) -> ThingRecord:
         try:
-            validate_example_queries(document)
             record = create_thing(self._session, document)
             enqueue_thing_event(
                 self._session,
@@ -98,7 +96,6 @@ class ThingCatalogWriteService:
 
     def update(self, thing_id: str, document: ThingDocument) -> ThingRecord:
         try:
-            validate_example_queries(document)
             record, created = put_thing(
                 self._session,
                 thing_id,

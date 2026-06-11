@@ -120,14 +120,6 @@ class Settings(BaseSettings):
     rdf_events_claim_idle_ms: int = 60000
     rdf_events_retry_seconds: float = 5
     rdf_query_timeout_seconds: int = 20
-    rdf_endpoint_timeout_seconds: int = 10
-    rdf_endpoint_max_response_bytes: int = 2_000_000
-    rdf_endpoint_allowed_hosts: str = ""
-    rdf_endpoint_allow_private: bool = False
-    rdf_endpoint_user_agent: str = (
-        "SmartLivingCopilot/0.1.0 "
-        "(https://github.com/Smart-Living-Copilot/copilot; sparql-endpoint)"
-    )
 
     # Jobs and WoT runtime
     job_task_timeout_seconds: int = 300
@@ -280,26 +272,6 @@ class Settings(BaseSettings):
     @property
     def RDF_QUERY_TIMEOUT_SECONDS(self) -> int:
         return self.rdf_query_timeout_seconds
-
-    @property
-    def RDF_ENDPOINT_TIMEOUT_SECONDS(self) -> int:
-        return self.rdf_endpoint_timeout_seconds
-
-    @property
-    def RDF_ENDPOINT_MAX_RESPONSE_BYTES(self) -> int:
-        return self.rdf_endpoint_max_response_bytes
-
-    @property
-    def RDF_ENDPOINT_ALLOWED_HOSTS(self) -> str:
-        return self.rdf_endpoint_allowed_hosts
-
-    @property
-    def RDF_ENDPOINT_ALLOW_PRIVATE(self) -> bool:
-        return self.rdf_endpoint_allow_private
-
-    @property
-    def RDF_ENDPOINT_USER_AGENT(self) -> str:
-        return self.rdf_endpoint_user_agent
 
     @property
     def OPENAI_API_BASE_URL(self) -> str | None:

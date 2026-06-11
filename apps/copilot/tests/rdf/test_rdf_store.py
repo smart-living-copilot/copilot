@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 
 import pytest
 
@@ -37,20 +36,6 @@ def _minted_record_td() -> dict[str, object]:
             },
         },
     )
-
-
-def _endpoint_td(endpoint_url: str) -> dict[str, object]:
-    return {
-        "@context": {
-            "sd": "http://www.w3.org/ns/sparql-service-description#",
-        },
-        "@type": ["sd:Service"],
-        "id": "urn:slc:endpoint:building",
-        "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
-        "security": "nosec_sc",
-        "sd:endpoint": {"@id": endpoint_url},
-        "sd:supportedLanguage": {"@id": "sd:SPARQL11Query"},
-    }
 
 
 def _values(response: dict[str, object], variable: str) -> list[str]:
@@ -276,21 +261,6 @@ async def test_rdf_store_limits_construct_results(tmp_path):
     assert response["type"] == "construct"
     assert response["rdf"].count("schema.org/name") == 1
     assert response["truncated"] is True
-
-
-@pytest.mark.anyio
-async def test_rdf_store_validates_endpoint_urls_on_upsert(tmp_path):
-    settings = SimpleNamespace(
-        RDF_ENDPOINT_ALLOWED_HOSTS="",
-        RDF_ENDPOINT_ALLOW_PRIVATE=False,
-    )
-    store = RdfStoreService(str(tmp_path / "rdf"), settings=settings)
-
-    with pytest.raises(ValueError, match="private or reserved"):
-        await store.upsert_thing(
-            "urn:slc:endpoint:building",
-            _endpoint_td("http://127.0.0.1:9999/sparql"),
-        )
 
 
 @pytest.mark.anyio

@@ -21,9 +21,6 @@ from pyoxigraph import (
 )
 
 from copilot.rdf.contexts import expand_cached_jsonld_contexts
-from copilot.rdf.endpoint_client import (
-    endpoint_metadata_from_document,
-)
 from copilot.rdf.iris import thing_graph_iri
 from copilot.rdf.sparql_text import contains_service_clause, strip_sparql_comments
 from copilot.thing_indexer.summary_utils import clean_text, normalize_thing_td_payload
@@ -84,38 +81,6 @@ def _as_list(value: Any) -> list[Any]:
     return [value]
 
 
-def _document_type_values(document: dict[str, Any]) -> set[str]:
-    values: set[str] = set()
-    for value in _as_list(document.get("@type") or document.get("type")):
-        if isinstance(value, str) and value:
-            values.add(value)
-        elif isinstance(value, dict):
-            candidate = value.get("@id") or value.get("id")
-            if isinstance(candidate, str) and candidate:
-                values.add(candidate)
-    return values
-
-
-def _validate_endpoint_thing_if_needed(
-    *,
-    thing_id: str,
-    document: dict[str, Any],
-    settings: Any | None,
-) -> None:
-    if settings is None:
-        return
-    type_values = _document_type_values(document)
-    if not type_values.intersection(
-        {
-            "sd:Service",
-            "http://www.w3.org/ns/sparql-service-description#Service",
-            "https://www.w3.org/ns/sparql-service-description#Service",
-        }
-    ):
-        return
-    endpoint_metadata_from_document(thing_id=thing_id, document=document, settings=settings)
-
-
 def _triple_to_ntriples_bytes(triple: Any) -> bytes:
     store = Store()
     store.add(Quad(triple.subject, triple.predicate, triple.object))
@@ -133,12 +98,11 @@ class RdfReindexResult:
 
 
 class RdfStoreService:
-    def __init__(self, store_path: str, *, settings: Any | None = None) -> None:
+    def __init__(self, store_path: str) -> None:
         path = Path(store_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._store = Store(str(path))
         self._lock = asyncio.Lock()
-        self._settings = settings
 
     async def process_event(self, event: dict[str, Any]) -> None:
         thing_id = clean_text(event.get("id"))
@@ -182,11 +146,6 @@ class RdfStoreService:
             )
 
     def _upsert_thing_sync(self, thing_id: str, thing_td: dict[str, Any]) -> None:
-        _validate_endpoint_thing_if_needed(
-            thing_id=thing_id,
-            document=thing_td,
-            settings=self._settings,
-        )
         graph_name = NamedNode(thing_graph_iri(thing_id))
         payload = json.dumps(expand_cached_jsonld_contexts(thing_td), ensure_ascii=False)
 
@@ -215,11 +174,6 @@ class RdfStoreService:
         for thing_id, document in things:
             graph_name = NamedNode(thing_graph_iri(thing_id))
             try:
-                _validate_endpoint_thing_if_needed(
-                    thing_id=thing_id,
-                    document=document,
-                    settings=self._settings,
-                )
                 payload = json.dumps(expand_cached_jsonld_contexts(document), ensure_ascii=False)
                 parsed_store = Store()
                 parsed_store.load(

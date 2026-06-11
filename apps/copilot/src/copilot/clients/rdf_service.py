@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from urllib.parse import quote
 
 import aiohttp
 
@@ -108,23 +107,6 @@ class RdfServiceClient:
                 "query": query,
                 "limit": limit,
                 "use_default_graph_as_union": use_default_graph_as_union,
-            },
-        )
-
-    async def query_endpoint(
-        self,
-        *,
-        thing_id: str,
-        query: str,
-        limit: int,
-    ) -> dict[str, Any]:
-        encoded_thing_id = quote(thing_id, safe="")
-        return await self._request(
-            "POST",
-            f"/rdf/endpoint/{encoded_thing_id}/query",
-            {
-                "query": query,
-                "limit": limit,
             },
         )
 

@@ -15,18 +15,12 @@ from copilot.core.api_dependencies import verify_internal_api_key
 from copilot.core.config import get_settings
 from copilot.core.database import get_session_factory, init_db
 from copilot.rdf.consumer import RdfConsumerState, RdfStreamConsumer
-from copilot.rdf.endpoint_client import (
-    query_sparql_endpoint,
-    resolve_sparql_endpoint,
-)
 from copilot.rdf.models import (
-    RdfEndpointQueryRequest,
-    RdfEndpointQueryResponse,
     RdfQueryRequest,
     RdfQueryResponse,
     RdfReindexResponse,
 )
-from copilot.rdf.store import RdfStoreService, sparql_query_kind
+from copilot.rdf.store import RdfStoreService
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +72,7 @@ def _query_error_detail(exc: Exception) -> RdfErrorDetail:
             status_code=504,
         )
     if any(
-        marker in normalized
-        for marker in ("response exceeded", "size limit", "too large", "413")
+        marker in normalized for marker in ("response exceeded", "size limit", "too large", "413")
     ):
         return RdfErrorDetail(
             category="response_size",
@@ -117,18 +110,12 @@ def _load_all_things() -> list[tuple[str, dict[str, Any]]]:
         return [(record.id, record.document) for record in (to_record(thing) for thing in things)]
 
 
-def _resolve_endpoint(thing_id: str, settings: Any):
-    session_factory = get_session_factory()
-    with session_factory() as session:
-        return resolve_sparql_endpoint(session, thing_id=thing_id, settings=settings)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     logging.basicConfig(level=settings.log_level)
     await asyncio.to_thread(init_db)
-    rdf_store = RdfStoreService(settings.RDF_STORE_PATH, settings=settings)
+    rdf_store = RdfStoreService(settings.RDF_STORE_PATH)
     state = RdfConsumerState()
     stop_event = asyncio.Event()
     consumer = RdfStreamConsumer(
@@ -189,43 +176,6 @@ async def query_rdf(request: Request, payload: RdfQueryRequest) -> dict[str, Any
             status_code=detail.status_code,
             detail=detail.as_response_detail(),
         ) from exc
-
-
-@app.post("/rdf/endpoint/{thing_id:path}/query", response_model=RdfEndpointQueryResponse)
-async def query_rdf_endpoint(
-    thing_id: str,
-    request: Request,
-    payload: RdfEndpointQueryRequest,
-) -> dict[str, Any]:
-    verify_internal_api_key(request)
-    settings = _settings_from_app(request)
-    try:
-        sparql_query_kind(payload.query)
-        endpoint = await asyncio.to_thread(_resolve_endpoint, thing_id, settings)
-        response = await query_sparql_endpoint(
-            query=payload.query,
-            endpoint=endpoint,
-            settings=settings,
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        detail = _query_error_detail(exc)
-        if detail.category == "executor":
-            logger.exception("RDF endpoint query failed")
-        raise HTTPException(
-            status_code=detail.status_code,
-            detail=detail.as_response_detail(),
-        ) from exc
-
-    return {
-        "endpoint_id": thing_id,
-        "endpoint_url": response["endpoint_url"],
-        "query": payload.query,
-        "limit": payload.limit,
-        "content_type": response.get("content_type"),
-        "results": response["results"],
-    }
 
 
 @app.post("/rdf/reindex", response_model=RdfReindexResponse)
