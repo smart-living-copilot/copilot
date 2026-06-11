@@ -1,10 +1,11 @@
-import { Redis as RedisClient } from 'ioredis';
+import { Redis as RedisClient } from "ioredis";
 
-import { config } from './config.js';
-import log from './logger.js';
+import { config } from "./config.js";
+import log from "./logger.js";
 
 let clientPromise: Promise<RedisClient> | null = null;
 
+/** Returns the shared Redis client used for the Thing event stream. */
 export async function getRedisClient(): Promise<RedisClient> {
   if (!clientPromise) {
     clientPromise = (async () => {
@@ -12,7 +13,7 @@ export async function getRedisClient(): Promise<RedisClient> {
         lazyConnect: true,
         maxRetriesPerRequest: 1,
       });
-      client.on('error', (error) => log.error('Redis error', String(error)));
+      client.on("error", (error) => log.error("Redis error", String(error)));
       await client.connect();
       return client;
     })().catch((error) => {
@@ -28,6 +29,7 @@ export async function getRedisClient(): Promise<RedisClient> {
   }
 }
 
+/** Closes the shared Redis client during shutdown. */
 export async function closeRedisClient(): Promise<void> {
   const client = await clientPromise?.catch(() => null);
   clientPromise = null;

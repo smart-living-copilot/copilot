@@ -1,11 +1,11 @@
 export type ThingDescription = Record<string, unknown>;
 
 export type VirtualThingBinding = {
-  affordance_type: 'property' | 'action' | 'event';
+  affordance_type: "property" | "action" | "event";
   affordance_name: string;
-  kind: 'record' | 'computed' | 'emitted';
+  kind: "record" | "computed" | "emitted";
   trigger?: {
-    kind: 'interval' | 'source_event' | 'explicit';
+    kind: "interval" | "source_event" | "explicit";
     interval_seconds?: number;
     thing_id?: string;
     event_name?: string;
@@ -19,6 +19,6 @@ export type VirtualThingDefinition = {
   description: string;
   td: ThingDescription;
   version: number;
-  status: 'active' | 'disabled';
+  status: "active" | "disabled";
   bindings: VirtualThingBinding[];
 };

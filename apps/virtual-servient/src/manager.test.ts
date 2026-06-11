@@ -1,35 +1,35 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import assert from "node:assert/strict";
+import test from "node:test";
 
-import { handleEvent } from './events.js';
+import { handleEvent } from "./events.js";
 import {
   __clearActiveThingsForTest,
   __setActiveThingForTest,
   canaryEventBindings,
   errorDetail,
-} from './manager.js';
-import type { VirtualThingDefinition } from './types.js';
+} from "./manager.js";
+import type { VirtualThingDefinition } from "./types.js";
 
-test('canaryEventBindings dry-runs emitted events without requiring real emission', async () => {
+test("canaryEventBindings dry-runs emitted events without requiring real emission", async () => {
   const calls: unknown[][] = [];
   const definition: VirtualThingDefinition = {
-    id: 'virtual:things:counter',
-    title: 'Counter',
-    description: '',
+    id: "virtual:things:counter",
+    title: "Counter",
+    description: "",
     td: {},
     version: 1,
-    status: 'active',
+    status: "active",
     bindings: [
       {
-        affordance_type: 'event',
-        affordance_name: 'tick',
-        kind: 'emitted',
-        trigger: { kind: 'interval', interval_seconds: 10 },
+        affordance_type: "event",
+        affordance_name: "tick",
+        kind: "emitted",
+        trigger: { kind: "interval", interval_seconds: 10 },
       },
       {
-        affordance_type: 'property',
-        affordance_name: 'ignored',
-        kind: 'computed',
+        affordance_type: "property",
+        affordance_name: "ignored",
+        kind: "computed",
       },
     ],
   };
@@ -40,31 +40,31 @@ test('canaryEventBindings dry-runs emitted events without requiring real emissio
   });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0][0], 'virtual:things:counter');
-  assert.equal(calls[0][1], 'tick');
+  assert.equal(calls[0][0], "virtual:things:counter");
+  assert.equal(calls[0][1], "tick");
   assert.deepEqual(calls[0][3], { dryRun: true });
 });
 
-test('errorDetail includes axios response body', () => {
-  const error = Object.assign(new Error('Request failed'), {
-    response: { data: { detail: 'handler failed' } },
+test("errorDetail includes axios response body", () => {
+  const error = Object.assign(new Error("Request failed"), {
+    response: { data: { detail: "handler failed" } },
   });
 
   assert.match(errorDetail(error), /handler failed/);
 });
 
-test('handleEvent emits requested virtual Thing events on active things', async () => {
+test("handleEvent emits requested virtual Thing events on active things", async () => {
   const emitted: unknown[][] = [];
-  __setActiveThingForTest('virtual:things:manual', {
+  __setActiveThingForTest("virtual:things:manual", {
     emitEvent: (...args: unknown[]) => emitted.push(args),
   });
 
   try {
     await handleEvent({
       event_json: JSON.stringify({
-        eventType: 'virtualThingEventEmissionRequested',
-        id: 'virtual:things:manual',
-        eventName: 'signal',
+        eventType: "virtualThingEventEmissionRequested",
+        id: "virtual:things:manual",
+        eventName: "signal",
         payload: { ok: true },
       }),
     });
@@ -72,5 +72,5 @@ test('handleEvent emits requested virtual Thing events on active things', async 
     __clearActiveThingsForTest();
   }
 
-  assert.deepEqual(emitted, [['signal', { ok: true }]]);
+  assert.deepEqual(emitted, [["signal", { ok: true }]]);
 });

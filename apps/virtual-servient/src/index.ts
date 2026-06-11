@@ -1,36 +1,47 @@
-import http from 'node:http';
+import http from "node:http";
 
-import express from 'express';
+import express from "express";
 
-import { config } from './config.js';
-import { startDefinitionEventLoop, stopDefinitionEventLoop } from './events.js';
-import log from './logger.js';
-import { activeCount, reconcileAll, stopAll } from './manager.js';
-import { closeRedisClient } from './redis.js';
-import { getWot, shutdownWot } from './servient.js';
+import { config } from "./config.js";
+import { startDefinitionEventLoop, stopDefinitionEventLoop } from "./events.js";
+import log from "./logger.js";
+import { activeCount, reconcileAll, stopAll } from "./manager.js";
+import { closeRedisClient } from "./redis.js";
+import { getWot, shutdownWot } from "./servient.js";
 
 async function start(): Promise<void> {
   await getWot();
 
   const app = express();
-  app.get('/', (_request, response) => {
-    response.json({ name: 'virtual-servient', health: '/health', activeThings: activeCount() });
+  app.get("/", (_request, response) => {
+    response.json({
+      name: "virtual-servient",
+      health: "/health",
+      activeThings: activeCount(),
+    });
   });
-  app.get(['/health', '/health/live', '/health/ready'], (_request, response) => {
-    response.json({ status: 'ok', activeThings: activeCount() });
-  });
+  app.get(
+    ["/health", "/health/live", "/health/ready"],
+    (_request, response) => {
+      response.json({ status: "ok", activeThings: activeCount() });
+    },
+  );
 
   const server = http.createServer(app);
   await new Promise<void>((resolve) => {
     server.listen(config.port, config.host, () => {
-      log.info(`virtual-servient HTTP server listening on ${config.host}:${config.port}`);
+      log.info(
+        `virtual-servient HTTP server listening on ${config.host}:${config.port}`,
+      );
       resolve();
     });
   });
 
   await startDefinitionEventLoop();
   const reconcile = () => {
-    void reconcileAll().catch((error) => log.warn(`Periodic reconciliation failed: ${error}`));
+    void reconcileAll().catch((error) =>
+      log.warn(`Periodic reconciliation failed: ${error}`),
+    );
   };
   reconcile();
   const reconcileTimer = setInterval(reconcile, config.reconcileIntervalMs);
@@ -47,11 +58,13 @@ async function start(): Promise<void> {
     });
   };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 start().catch((error) => {
-  log.error(`Failed to start virtual-servient: ${error instanceof Error ? error.stack || error.message : String(error)}`);
+  log.error(
+    `Failed to start virtual-servient: ${error instanceof Error ? error.stack || error.message : String(error)}`,
+  );
   process.exit(1);
 });
