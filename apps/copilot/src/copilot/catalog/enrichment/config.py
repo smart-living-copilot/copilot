@@ -20,6 +20,8 @@ class OntologyConfig(BaseModel):
 class EnrichmentConfig(BaseModel):
     ontologies: list[OntologyConfig]
     system_prompt_extra: str = ""
+    # Path to an external SHACL shapes Turtle file. Empty -> packaged defaults.
+    shapes: str = ""
 
 
 @lru_cache(maxsize=8)
@@ -31,6 +33,9 @@ def load_enrichment_config(path: str = "") -> EnrichmentConfig:
             terms_path = ontology.get("terms")
             if isinstance(terms_path, str) and not Path(terms_path).is_absolute():
                 ontology["terms"] = str((config_path.parent / terms_path).resolve())
+        shapes_path = payload.get("shapes")
+        if isinstance(shapes_path, str) and shapes_path and not Path(shapes_path).is_absolute():
+            payload["shapes"] = str((config_path.parent / shapes_path).resolve())
     else:
         payload = _load_packaged_json("default.json")
     return EnrichmentConfig.model_validate(payload)

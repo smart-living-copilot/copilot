@@ -39,28 +39,33 @@
   {
     "label": "Temperature",
     "iri": "https://saref.etsi.org/core/Temperature",
-    "kind": "property"
+    "kind": "property",
+    "default_unit": "unit:DEG_C"
   },
   {
     "label": "Humidity",
     "iri": "https://saref.etsi.org/core/Humidity",
-    "kind": "property"
+    "kind": "property",
+    "default_unit": "unit:PERCENT"
   },
   {
     "label": "Illuminance",
     "iri": "https://saref.etsi.org/core/Illuminance",
     "kind": "property",
-    "aliases": ["light level", "brightness"]
+    "aliases": ["light level", "brightness"],
+    "default_unit": "unit:LUX"
   },
   {
     "label": "Power",
     "iri": "https://saref.etsi.org/core/Power",
-    "kind": "property"
+    "kind": "property",
+    "default_unit": "unit:W"
   },
   {
     "label": "Energy",
     "iri": "https://saref.etsi.org/core/Energy",
-    "kind": "property"
+    "kind": "property",
+    "default_unit": "unit:KiloW-HR"
   },
   {
     "label": "On Off State",

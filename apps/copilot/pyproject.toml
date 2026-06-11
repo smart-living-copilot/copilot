@@ -31,6 +31,7 @@ dependencies = [
     "taskiq-redis>=1.2,<2",
     "pycron>=3.2,<4",
     "python-dotenv>=1.0",
+    "pyshacl>=0.31,<1",
 ]
 
 [project.optional-dependencies]
@@ -61,6 +62,7 @@ packages = ["src/copilot"]
 "src/copilot/catalog/enrichment/data/vocab/sosa.json" = "copilot/catalog/enrichment/data/vocab/sosa.json"
 "src/copilot/catalog/enrichment/data/vocab/qudt-schema.json" = "copilot/catalog/enrichment/data/vocab/qudt-schema.json"
 "src/copilot/catalog/enrichment/data/vocab/qudt-units.json" = "copilot/catalog/enrichment/data/vocab/qudt-units.json"
+"src/copilot/catalog/enrichment/data/shapes/td-enrichment.ttl" = "copilot/catalog/enrichment/data/shapes/td-enrichment.ttl"
 "src/copilot/panels/wot_bridge.js" = "copilot/panels/wot_bridge.js"
 # Alembic config + the revision template are non-Python assets, so they must be
 # force-included for the runtime ``alembic upgrade head`` to find them in the

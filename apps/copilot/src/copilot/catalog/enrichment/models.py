@@ -19,6 +19,7 @@ class AffordanceAnnotation(BaseModel):
 
 class EnrichmentProposal(BaseModel):
     thing_types: list[str] = Field(default_factory=list)
+    thing_rationale: str = ""
     affordances: list[AffordanceAnnotation] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
@@ -28,6 +29,20 @@ class EnrichmentDiffItem(BaseModel):
     path: str
     value: Any
     label: str
+    rationale: str = ""
+
+
+class ShaclFinding(BaseModel):
+    severity: str
+    message: str
+    focus_node: str = ""
+    focus_label: str = ""
+    result_path: str = ""
+    source_shape: str = ""
+
+    @property
+    def blocks_enrichment(self) -> bool:
+        return self.severity.endswith("Violation")
 
 
 class EnrichmentValidation(BaseModel):
@@ -35,6 +50,8 @@ class EnrichmentValidation(BaseModel):
     attempts: int
     unknown_iris: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    shacl_conforms: bool = True
+    shacl_findings: list[ShaclFinding] = Field(default_factory=list)
 
 
 class EnrichmentResult(BaseModel):

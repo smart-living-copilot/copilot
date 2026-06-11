@@ -14,6 +14,16 @@ export interface EnrichmentDiffItem {
   path: string;
   value: unknown;
   label: string;
+  rationale?: string;
+}
+
+export interface ShaclFinding {
+  severity: string;
+  message: string;
+  focus_node?: string;
+  focus_label?: string;
+  result_path?: string;
+  source_shape?: string;
 }
 
 export interface EnrichmentValidation {
@@ -21,6 +31,8 @@ export interface EnrichmentValidation {
   attempts: number;
   unknown_iris?: string[];
   warnings?: string[];
+  shacl_conforms?: boolean;
+  shacl_findings?: ShaclFinding[];
 }
 
 export interface EnrichmentResult {

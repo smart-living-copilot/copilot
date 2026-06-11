@@ -142,7 +142,11 @@ async def enrich_owned_thing(
     except EnrichmentError as exc:
         raise HTTPException(
             status_code=422,
-            detail={"message": str(exc), "errors": exc.errors},
+            detail={
+                "message": str(exc),
+                "errors": exc.errors,
+                "shacl_findings": [finding.model_dump() for finding in exc.shacl_findings],
+            },
         ) from exc
 
     return result.model_dump()

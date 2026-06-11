@@ -17,9 +17,20 @@ test('enrichThing posts a draft document to the enrichment route', async () => {
             path: '@type',
             value: 'saref:TemperatureSensor',
             label: 'Thing type',
+            rationale: 'The title says this is a temperature sensor.',
           },
         ],
-        validation: { ok: true, attempts: 1 },
+        validation: {
+          ok: true,
+          attempts: 1,
+          shacl_conforms: true,
+          shacl_findings: [
+            {
+              severity: 'http://www.w3.org/ns/shacl#Warning',
+              message: 'Advisory finding',
+            },
+          ],
+        },
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
@@ -37,6 +48,14 @@ test('enrichThing posts a draft document to the enrichment route', async () => {
       JSON.stringify({ document: { id: 'urn:thing:alpha' } }),
     );
     assert.equal(result.enriched['@type'], 'saref:TemperatureSensor');
+    assert.equal(
+      result.diff[0]?.rationale,
+      'The title says this is a temperature sensor.',
+    );
+    assert.equal(
+      result.validation.shacl_findings?.[0]?.message,
+      'Advisory finding',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

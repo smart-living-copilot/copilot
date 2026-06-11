@@ -1,7 +1,11 @@
 from fastapi.testclient import TestClient
 
 from copilot.api.main import app
-from copilot.catalog.enrichment.models import EnrichmentResult, EnrichmentValidation
+from copilot.catalog.enrichment.models import (
+    EnrichmentResult,
+    EnrichmentValidation,
+    ShaclFinding,
+)
 from copilot.catalog.events import publish_pending_thing_events
 
 
@@ -193,7 +197,17 @@ def test_api_things_enrich_returns_proposal_without_catalog_event(
                     "label": "Thing type",
                 }
             ],
-            validation=EnrichmentValidation(ok=True, attempts=1),
+            validation=EnrichmentValidation(
+                ok=True,
+                attempts=1,
+                shacl_conforms=True,
+                shacl_findings=[
+                    ShaclFinding(
+                        severity="http://www.w3.org/ns/shacl#Warning",
+                        message="Advisory finding",
+                    )
+                ],
+            ),
         )
 
     monkeypatch.setattr("copilot.catalog.router.enrich_thing_document", fake_enrich)
@@ -214,6 +228,8 @@ def test_api_things_enrich_returns_proposal_without_catalog_event(
     assert response.status_code == 200, response.text
     assert response.json()["enriched"]["@type"] == "saref:TemperatureSensor"
     assert response.json()["diff"][0]["kind"] == "type"
+    assert response.json()["validation"]["shacl_conforms"] is True
+    assert response.json()["validation"]["shacl_findings"][0]["message"] == "Advisory finding"
     assert calls == [thing]
     assert publisher.events == []
 

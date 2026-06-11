@@ -1,0 +1,86 @@
+@prefix dash: <http://datashapes.org/dash#> .
+@prefix hctl: <https://www.w3.org/2019/wot/hypermedia#> .
+@prefix jsonschema: <https://www.w3.org/2019/wot/json-schema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix saref: <https://saref.etsi.org/core/> .
+@prefix s4ehaw: <https://saref.etsi.org/saref4ehaw/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix td: <https://www.w3.org/2019/wot/td#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# NOTE: Keep sh:targetClass here in sync with the measurement classes that declare
+# a "default_unit" in the vocabulary term files (e.g. data/vocab/saref-core.json):
+# every class that requires a unit must have an inferable default unit, or
+# enrichment cannot satisfy this shape. The test suite asserts the two stay aligned.
+<#SemanticMeasurementRequiresUnitShape>
+    a sh:NodeShape ;
+    sh:targetClass saref:Temperature, saref:Humidity, saref:Illuminance, saref:Power, saref:Energy ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:severity sh:Violation ;
+        sh:message "Semantic numeric measurements must include a qudt:unit IRI." ;
+    ] .
+
+<#QudtUnitMustBeIriShape>
+    a sh:NodeShape ;
+    sh:targetSubjectsOf qudt:unit ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:severity sh:Violation ;
+        sh:message "qudt:unit must point to a unit IRI node." ;
+    ] .
+
+<#TimeSeriesShape>
+    a sh:NodeShape ;
+    sh:targetClass s4ehaw:TimeSeriesMeasurement ;
+    sh:or (
+        [
+            sh:property [
+                sh:path jsonschema:items ;
+                sh:minCount 1 ;
+            ] ;
+        ]
+        [
+            sh:property [
+                sh:path jsonschema:properties ;
+                sh:minCount 1 ;
+            ] ;
+        ]
+        [
+            sh:property [
+                sh:path td:name ;
+                sh:pattern "history|series|timeseries|time_series" ;
+                sh:flags "i" ;
+            ] ;
+        ]
+    ) ;
+    sh:severity sh:Violation ;
+    sh:message "Time-series annotations should be used only for array/object affordances or history-like names." .
+
+<#SensorThingShouldHaveSemanticTypeShape>
+    a sh:NodeShape ;
+    sh:targetSubjectsOf td:title ;
+    sh:severity sh:Warning ;
+    sh:sparql [
+        sh:message "Sensor-like Thing titles should carry a semantic sensor/device @type." ;
+        sh:select """
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX saref: <https://saref.etsi.org/core/>
+            PREFIX sosa: <http://www.w3.org/ns/sosa/>
+            PREFIX td: <https://www.w3.org/2019/wot/td#>
+
+            SELECT $this WHERE {
+              $this td:title ?title .
+              FILTER regex(str(?title), "sensor|meter|thermometer", "i")
+              FILTER NOT EXISTS { $this rdf:type saref:Sensor }
+              FILTER NOT EXISTS { $this rdf:type sosa:Sensor }
+              FILTER NOT EXISTS { $this rdf:type saref:TemperatureSensor }
+              FILTER NOT EXISTS { $this rdf:type saref:HumiditySensor }
+              FILTER NOT EXISTS { $this rdf:type saref:MotionSensor }
+            }
+        """ ;
+    ] .

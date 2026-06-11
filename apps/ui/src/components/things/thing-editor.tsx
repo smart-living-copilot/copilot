@@ -80,6 +80,10 @@ function diffBadgeVariant(kind: EnrichmentDiffItem['kind']) {
   return 'outline';
 }
 
+function formatSeverity(value: string): string {
+  return value.split('#').pop() ?? value;
+}
+
 interface ThingEditorProps {
   mode: 'create' | 'edit';
   returnTo?: string;
@@ -385,6 +389,46 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
                 </div>
               ) : null}
 
+              {enrichment.validation.shacl_findings?.length ? (
+                <div className="space-y-2 rounded-md border border-border/70 p-3">
+                  <div className="text-sm font-medium">Semantic validation</div>
+                  <div className="space-y-2">
+                    {enrichment.validation.shacl_findings.map(
+                      (finding, index) => (
+                        <div
+                          className="space-y-1 text-sm"
+                          key={`${finding.source_shape ?? 'shape'}-${index}`}
+                        >
+                          <Badge
+                            variant={
+                              finding.severity.endsWith('Warning')
+                                ? 'outline'
+                                : 'secondary'
+                            }
+                          >
+                            {formatSeverity(finding.severity)}
+                          </Badge>
+                          <div>{finding.message}</div>
+                          {finding.focus_label ||
+                          finding.focus_node ||
+                          finding.result_path ? (
+                            <div className="break-all font-mono text-xs text-muted-foreground">
+                              {[
+                                finding.focus_label,
+                                finding.focus_node,
+                                finding.result_path,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </div>
+                          ) : null}
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="max-h-96 overflow-y-auto rounded-md border border-border/70">
                 {enrichment.diff.length ? (
                   <div className="divide-y divide-border/70">
@@ -406,6 +450,11 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
                           <div className="break-all font-mono text-xs">
                             {formatDiffValue(item.value)}
                           </div>
+                          {item.rationale ? (
+                            <div className="text-xs leading-5 text-muted-foreground">
+                              {item.rationale}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     ))}
