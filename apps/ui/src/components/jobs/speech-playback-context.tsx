@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 
 import { synthesizeSpeech } from '@/lib/speech-api';
@@ -21,6 +22,28 @@ function storedVoiceMode(): boolean {
     return window.localStorage.getItem(VOICE_MODE_KEY) === 'true';
   } catch {
     return false;
+  }
+}
+
+const voiceModeListeners = new Set<() => void>();
+
+function subscribeVoiceMode(callback: () => void): () => void {
+  voiceModeListeners.add(callback);
+  return () => {
+    voiceModeListeners.delete(callback);
+  };
+}
+
+function setStoredVoiceMode(next: boolean): void {
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(VOICE_MODE_KEY, String(next));
+    } catch {
+      // Preference persistence is best-effort.
+    }
+  }
+  for (const listener of voiceModeListeners) {
+    listener();
   }
 }
 
@@ -96,14 +119,13 @@ export function SpeechPlaybackProvider({
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [status, setStatus] = useState<PlaybackStatus>('idle');
-  // Start from the SSR-safe default so the first client render matches the
-  // server HTML, then sync the persisted preference after mount to avoid a
-  // hydration mismatch.
-  const [voiceMode, setVoiceMode] = useState<boolean>(false);
-
-  useEffect(() => {
-    setVoiceMode(storedVoiceMode());
-  }, []);
+  // Persisted preference read through an external store so the first client
+  // render matches the server HTML (false) without a setState-in-effect.
+  const voiceMode = useSyncExternalStore(
+    subscribeVoiceMode,
+    storedVoiceMode,
+    () => false,
+  );
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -189,14 +211,9 @@ export function SpeechPlaybackProvider({
   }, [ensureAudio]);
 
   const toggleVoiceMode = useCallback(() => {
-    setVoiceMode((current) => {
-      const next = !current;
-      if (next) unlock();
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(VOICE_MODE_KEY, String(next));
-      }
-      return next;
-    });
+    const next = !storedVoiceMode();
+    if (next) unlock();
+    setStoredVoiceMode(next);
   }, [unlock]);
 
   useEffect(() => () => stop(), [stop]);
