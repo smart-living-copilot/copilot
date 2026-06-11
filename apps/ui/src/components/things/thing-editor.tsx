@@ -1,15 +1,20 @@
 'use client';
 
 import { json as jsonLanguage } from '@codemirror/lang-json';
+import { EditorView } from '@codemirror/view';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
+  Braces,
   CheckCircle2,
+  ChevronDown,
   Loader2,
   Save,
   Sparkles,
   Trash2,
+  Undo2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -28,6 +33,10 @@ import {
 import { CodeEditor } from '@/components/code-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  ButtonGroup,
+  ButtonGroupSeparator,
+} from '@/components/ui/button-group';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog,
@@ -37,6 +46,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Separator } from '@/components/ui/separator';
 import { getLocalReturnTo, isCollectionReturnTo } from '@/lib/return-to';
 import { useUnsavedChangesGuard } from '@/hooks/use-unsaved-changes-guard';
 
@@ -56,7 +72,21 @@ const THING_TEMPLATE = `{
   "events": {}
 }`;
 
-const jsonExtensions = [jsonLanguage()];
+const jsonExtensions = [jsonLanguage(), EditorView.lineWrapping];
+
+function documentStats(document?: Record<string, unknown>) {
+  const countAffordances = (key: string) => {
+    const value = document?.[key];
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.keys(value as Record<string, unknown>).length
+      : 0;
+  };
+  return {
+    properties: countAffordances('properties'),
+    actions: countAffordances('actions'),
+    events: countAffordances('events'),
+  };
+}
 
 function summarizeDocument(documentText: string) {
   try {
@@ -129,6 +159,9 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
   }, [mode, thingId]);
 
   const summary = summarizeDocument(documentText);
+  const isValid = !('error' in summary);
+  const stats = documentStats(isValid ? summary.document : undefined);
+  const lineCount = documentText.split('\n').length;
   const isDirty =
     mode === 'create'
       ? documentText !== THING_TEMPLATE
@@ -157,6 +190,13 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
     } catch {
       toast.error('Fix the JSON before formatting');
     }
+  }
+
+  function handleRevert() {
+    setDocumentText(
+      mode === 'create' ? THING_TEMPLATE : (thing?.json ?? THING_TEMPLATE),
+    );
+    toast.success('Reverted unsaved changes');
   }
 
   const handleSave = useCallback(async () => {
@@ -269,7 +309,8 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
     }
   }
 
-  const headerTitle = mode === 'create' ? 'Create thing' : 'Edit thing';
+  const headerTitle =
+    mode === 'create' ? 'Create Thing Description' : 'Edit Thing Description';
   const headerDescription =
     mode === 'create'
       ? 'Write or paste a W3C Thing Description JSON document.'
@@ -293,31 +334,50 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
         <FormPageHeader
           title={headerTitle}
           description={headerDescription}
-          cancelHref={cancelHref}
           extraActions={
             <>
-              <Button
-                disabled={!canEnrich || isSubmitting || isEnriching}
-                onClick={() => void handleEnrich()}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                {isEnriching ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                Enrich
-              </Button>
-              <Button
-                onClick={handleFormatDocument}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Format JSON
-              </Button>
+              <ButtonGroup>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!canEnrich || isSubmitting || isEnriching}
+                  onClick={() => void handleEnrich()}
+                >
+                  {isEnriching ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <Sparkles />
+                  )}
+                  Enrich
+                </Button>
+                <ButtonGroupSeparator />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="outline"
+                      aria-label="More document actions"
+                    >
+                      <ChevronDown />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-auto">
+                    <DropdownMenuItem onSelect={handleFormatDocument}>
+                      <Braces />
+                      Format JSON
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={handleRevert}
+                      disabled={!isDirty}
+                    >
+                      <Undo2 />
+                      Revert unsaved changes
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </ButtonGroup>
               {mode === 'edit' && thing ? (
                 <ConfirmDialog
                   destructive
@@ -344,23 +404,9 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
               ) : null}
             </>
           }
-          submitLabel={mode === 'create' ? 'Create thing' : 'Save changes'}
-          submitIcon={<Save className="h-4 w-4" />}
-          isSubmitting={isSubmitting}
-          disabled={isSubmitting || !canSave}
         />
 
         <Card className="overflow-hidden">
-          {'error' in summary && (
-            <div className="border-b border-destructive/20 bg-destructive/8 px-5 py-3 text-sm text-destructive">
-              <div className="flex items-center gap-2 font-medium">
-                <AlertTriangle className="h-4 w-4" />
-                Invalid JSON
-              </div>
-              <p className="mt-2">{summary.error}</p>
-            </div>
-          )}
-
           <div className="min-h-[720px]">
             <CodeEditor
               className="rounded-none border-0 text-[13px]"
@@ -369,6 +415,62 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
               onChange={setDocumentText}
               value={documentText}
             />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border/70 bg-muted/30 px-4 py-2.5">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+              {isValid ? (
+                <>
+                  <span className="flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-500">
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                    Valid
+                  </span>
+                  <Separator orientation="vertical" className="h-3.5" />
+                  <span className="text-muted-foreground">
+                    {stats.properties}{' '}
+                    {stats.properties === 1 ? 'property' : 'properties'} ·{' '}
+                    {stats.actions} {stats.actions === 1 ? 'action' : 'actions'}{' '}
+                    · {stats.events} {stats.events === 1 ? 'event' : 'events'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="flex items-center gap-1.5 font-medium text-destructive">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    Invalid JSON
+                  </span>
+                  <span className="min-w-0 break-words text-muted-foreground">
+                    {summary.error}
+                  </span>
+                </>
+              )}
+              <Separator orientation="vertical" className="h-3.5" />
+              {isDirty ? (
+                <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-500">
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                  Unsaved
+                </span>
+              ) : (
+                <span className="text-muted-foreground">Saved</span>
+              )}
+              <span className="tabular-nums text-muted-foreground">
+                {lineCount} {lineCount === 1 ? 'line' : 'lines'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" asChild>
+                <Link href={cancelHref}>Cancel</Link>
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmitting || !canSave}
+              >
+                {isSubmitting ? <Loader2 className="animate-spin" /> : <Save />}
+                {mode === 'create' ? 'Create thing' : 'Save changes'}
+              </Button>
+            </div>
           </div>
         </Card>
       </form>
