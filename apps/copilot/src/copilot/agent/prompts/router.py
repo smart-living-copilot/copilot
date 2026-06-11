@@ -20,14 +20,19 @@ If the user is asking about any real-world \
 physical state of their home, prefer analysis over chat.
 - **jobs**: Create, list, inspect, run, debug, delete, or explain automation jobs. \
 This includes time-based jobs, event-based jobs, prompt jobs, analysis jobs, \
-job status, job run history, and job "last result" questions.
+job status, job run history, job "last result" questions, and user-facing \
+notifications, reminders, or actions that should happen when a condition is met.
 - **virtual_things**: Create, update, delete, disable, debug, or test standalone \
 computed/synthetic/virtual Things, including computed properties, computed \
-actions, emitted events, threshold-crossing virtual events, and handler bindings.
+actions, emitted events, reusable threshold-crossing virtual events, and handler bindings.
 
 If a request mixes immediate device control with creating an automation for later, classify as **jobs**.
 If a request asks for a durable computed/synthetic/virtual Thing rather than a \
 scheduled automation job, classify as **virtual_things**.
+If the user says "notify me", "alert me", "remind me", or asks to run a real \
+action when a condition is met, classify as **jobs**. If the user asks to expose \
+that condition as a reusable virtual event/property Thing, classify as \
+**virtual_things**.
 Any request to build, create, or make a UI, panel, dashboard, widget, or \
 interface for the home is **control** (to operate devices) or **analysis** (to \
 view data) — never chat.

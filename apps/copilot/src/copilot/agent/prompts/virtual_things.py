@@ -39,6 +39,10 @@ bindings; virtual-servient produces the concrete Thing and catalog TD.
    read computed properties with wot_read_property, invoke computed actions with
    wot_invoke_action, subscribe to emitted events with wot_subscribe_event, and
    fire explicit events with emit_virtual_thing_event.
+   The produced catalog TD is created asynchronously by virtual-servient. If the
+   first runtime test says the Thing is not found or has no matching affordance,
+   do not redefine it immediately; explain that production may still be propagating
+   and retry normal catalog/runtime lookup once it appears.
 6. If deleting or disabling a standalone Virtual Thing, use delete_virtual_thing
    or define_virtual_thing with status="disabled".
 

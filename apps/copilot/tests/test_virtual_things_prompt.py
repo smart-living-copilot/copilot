@@ -15,6 +15,10 @@ class VirtualThingPromptTestCase(unittest.TestCase):
         self.assertIn("def handle(input, state, context)", VIRTUAL_THINGS_PROMPT)
         self.assertIn("state = state or {}", VIRTUAL_THINGS_PROMPT)
 
+    def test_authoring_prompt_mentions_async_virtual_servient_production(self) -> None:
+        self.assertIn("created asynchronously by virtual-servient", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("do not redefine it immediately", VIRTUAL_THINGS_PROMPT)
+
 
 if __name__ == "__main__":
     unittest.main()

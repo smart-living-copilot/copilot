@@ -1,6 +1,12 @@
 import unittest
 
-from copilot.agent.prompts import ANALYSIS_PROMPT, CONTROL_PROMPT, JOBS_PROMPT, ROUTER_PROMPT
+from copilot.agent.prompts import (
+    ANALYSIS_PROMPT,
+    CONTROL_PROMPT,
+    JOBS_PROMPT,
+    RESPOND_PROMPT,
+    ROUTER_PROMPT,
+)
 
 
 class RouterGuidanceTestCase(unittest.TestCase):
@@ -8,6 +14,10 @@ class RouterGuidanceTestCase(unittest.TestCase):
         self.assertIn("external knowledge graphs", ROUTER_PROMPT)
         self.assertIn("SPARQL endpoint", ROUTER_PROMPT)
         self.assertIn("RDF entity", ROUTER_PROMPT)
+
+    def test_router_prompt_distinguishes_alert_jobs_from_reusable_virtual_things(self) -> None:
+        self.assertIn("notify me", ROUTER_PROMPT)
+        self.assertIn("reusable virtual event/property Thing", ROUTER_PROMPT)
 
 
 class AnalysisGuidanceTestCase(unittest.TestCase):
@@ -31,6 +41,14 @@ class AnalysisGuidanceTestCase(unittest.TestCase):
         self.assertNotIn("sparql_query", ANALYSIS_PROMPT)
         self.assertIn("wot_get_action", ANALYSIS_PROMPT)
         self.assertIn("run_code", ANALYSIS_PROMPT)
+
+    def test_analysis_prompt_prefers_direct_reads_for_simple_snapshots(self) -> None:
+        self.assertIn("simple current snapshot questions", ANALYSIS_PROMPT)
+        self.assertIn("use wot_read_property directly", ANALYSIS_PROMPT)
+
+    def test_analysis_prompt_requires_confirmation_before_writes(self) -> None:
+        self.assertIn("treat it as device", ANALYSIS_PROMPT)
+        self.assertIn("ask for explicit", ANALYSIS_PROMPT)
 
     def test_analysis_prompt_explains_sparql_tool_choice(self) -> None:
         self.assertIn("## Discovery Tool Choice", ANALYSIS_PROMPT)
@@ -58,6 +76,15 @@ class ControlGuidanceTestCase(unittest.TestCase):
         self.assertIn("read-only SPARQL", CONTROL_PROMPT)
         self.assertIn("wot_invoke_action", CONTROL_PROMPT)
         self.assertIn("sparqlQuery", CONTROL_PROMPT)
+
+    def test_control_prompt_supports_writable_properties(self) -> None:
+        self.assertIn("writable properties", CONTROL_PROMPT)
+        self.assertIn("wot_write_property", CONTROL_PROMPT)
+
+
+class RespondGuidanceTestCase(unittest.TestCase):
+    def test_respond_prompt_forbids_inventing_runtime_state(self) -> None:
+        self.assertIn("Never invent current device state", RESPOND_PROMPT)
 
 
 class JobGuidanceTestCase(unittest.TestCase):
