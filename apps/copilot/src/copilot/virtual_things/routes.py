@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from copilot.auth import User, require_service
+from copilot.auth import User, require_scopes
 from copilot.catalog.ids import decode_thing_id
 from copilot.jobs.records.ids import is_virtual_record_thing_id
 from copilot.jobs.records.http import virtual_record_http_error
@@ -22,7 +22,7 @@ router = APIRouter(tags=["virtual-things"])
 @router.get("/api/virtual-things/definitions")
 def list_virtual_thing_definitions(
     include_disabled: bool = False,
-    _user: User = Depends(require_service(["virtual_servient"])),
+    _user: User = Depends(require_scopes(["things:read"])),
 ) -> dict[str, Any]:
     definitions = VirtualThingStore().list_definitions(include_disabled=include_disabled)
     return {
@@ -36,7 +36,7 @@ def list_virtual_thing_definitions(
 def get_virtual_thing_definition(
     thing_id: str,
     include_disabled: bool = False,
-    _user: User = Depends(require_service(["virtual_servient"])),
+    _user: User = Depends(require_scopes(["things:read"])),
 ) -> dict[str, Any]:
     try:
         decoded_thing_id = decode_thing_id(thing_id)
@@ -53,7 +53,7 @@ def get_virtual_thing_definition(
 async def read_virtual_thing_property(
     thing_id: str,
     property_name: str,
-    _user: User = Depends(require_service(["virtual_servient"])),
+    _user: User = Depends(require_scopes(["things:read"])),
 ) -> dict[str, Any]:
     try:
         decoded_thing_id = decode_thing_id(thing_id)
@@ -74,7 +74,7 @@ async def invoke_virtual_thing_action(
     thing_id: str,
     action_name: str,
     payload: dict[str, Any] = Body(default_factory=dict),
-    _user: User = Depends(require_service(["virtual_servient"])),
+    _user: User = Depends(require_scopes(["things:write"])),
 ) -> dict[str, Any]:
     try:
         decoded_thing_id = decode_thing_id(thing_id)
@@ -96,7 +96,7 @@ async def evaluate_virtual_thing_event(
     thing_id: str,
     event_name: str,
     payload: dict[str, Any] = Body(default_factory=dict),
-    _user: User = Depends(require_service(["virtual_servient"])),
+    _user: User = Depends(require_scopes(["things:write"])),
 ) -> Any:
     try:
         decoded_thing_id = decode_thing_id(thing_id)
@@ -115,7 +115,7 @@ async def emit_virtual_thing_event(
     thing_id: str,
     event_name: str,
     payload: dict[str, Any] = Body(default_factory=dict),
-    _user: User = Depends(require_service(["virtual_servient"])),
+    _user: User = Depends(require_scopes(["things:write"])),
 ) -> dict[str, Any]:
     try:
         decoded_thing_id = decode_thing_id(thing_id)
@@ -137,7 +137,7 @@ async def emit_virtual_thing_event(
 async def define_virtual_thing_definition(
     thing_id: str,
     payload: DefineVirtualThingRequest,
-    _user: User = Depends(require_service(["virtual_servient"])),
+    _user: User = Depends(require_scopes(["things:write"])),
 ) -> dict[str, Any]:
     try:
         decoded_thing_id = decode_thing_id(thing_id)
@@ -170,7 +170,7 @@ async def define_virtual_thing_definition(
 @router.delete("/api/virtual-things/definitions/{thing_id:path}")
 def delete_virtual_thing_definition(
     thing_id: str,
-    _user: User = Depends(require_service(["virtual_servient"])),
+    _user: User = Depends(require_scopes(["things:delete"])),
 ) -> dict[str, Any]:
     try:
         decoded_thing_id = decode_thing_id(thing_id)
