@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import io
 import os
 import sys
@@ -13,6 +14,8 @@ from typing import Any
 
 from code_executor.constants import MAX_STDOUT_CHARS, SENSITIVE_ENV_VARS
 from code_executor.wot_client import SandboxWotClient
+
+_LAST_EXPR_GLOBAL = "__code_executor_last_expr__"
 
 
 class ExecutionEnvironment:
@@ -61,7 +64,11 @@ class ExecutionEnvironment:
         success = True
         try:
             with redirect_stdout(stdout_buffer):
-                exec(code, self.user_globals)
+                self.user_globals.pop(_LAST_EXPR_GLOBAL, None)
+                compiled_code, captures_last_expr = self._compile_code(code)
+                exec(compiled_code, self.user_globals)
+                if captures_last_expr:
+                    self._print_last_expression_value(stdout_buffer)
         except Exception:
             success = False
             self._print_short_traceback(stdout_buffer)
@@ -90,6 +97,37 @@ class ExecutionEnvironment:
             "records": records,
             "reports": reports,
         }
+
+    @staticmethod
+    def _compile_code(code: str) -> tuple[Any, bool]:
+        tree = ast.parse(code, mode="exec")
+        captures_last_expr = bool(tree.body and isinstance(tree.body[-1], ast.Expr))
+        if captures_last_expr:
+            last_expr = tree.body[-1]
+            if isinstance(last_expr, ast.Expr):
+                tree.body[-1] = ast.copy_location(
+                    ast.Assign(
+                        targets=[ast.Name(id=_LAST_EXPR_GLOBAL, ctx=ast.Store())],
+                        value=last_expr.value,
+                    ),
+                    last_expr,
+                )
+                ast.fix_missing_locations(tree)
+        return compile(tree, "<string>", "exec"), captures_last_expr
+
+    def _print_last_expression_value(self, stdout_buffer: io.StringIO) -> None:
+        if (
+            stdout_buffer.getvalue().strip()
+            or self.reports
+            or self.images
+            or self.plotly
+        ):
+            return
+
+        value = self.user_globals.get(_LAST_EXPR_GLOBAL)
+        if value is None:
+            return
+        print(repr(value))
 
     @staticmethod
     def _prepare_process_environment() -> None:
