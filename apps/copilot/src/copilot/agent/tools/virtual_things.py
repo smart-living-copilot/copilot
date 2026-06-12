@@ -6,12 +6,16 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
-from pydantic import ValidationError
 
-from copilot.virtual_things import DefineVirtualThingRequest, VirtualThingStore
+from copilot.virtual_things.builder import (
+    VirtualThingBuilder,
+    action_definition,
+    event_definition,
+    event_trigger,
+    property_definition,
+)
 from copilot.virtual_things.dispatcher import VirtualThingDispatcher
-from copilot.virtual_things.draft import build_define_args_from_draft
-from copilot.virtual_things.validator import VirtualThingValidator
+from copilot.virtual_things.store import VirtualThingStore
 
 
 def _thread_id_from_config(config: RunnableConfig) -> str | None:
@@ -20,119 +24,125 @@ def _thread_id_from_config(config: RunnableConfig) -> str | None:
 
 
 @tool
-def draft_virtual_thing_definition(spec: dict[str, Any]) -> dict[str, Any]:
-    """Validate a simplified standalone virtual Thing draft.
+async def create_virtual_thing(
+    title: str,
+    config: RunnableConfig,
+    description: str = "",
+    thing_id: str | None = None,
+) -> dict[str, Any]:
+    """Start a standalone virtual Thing. Returns its thing_id.
 
-    This tool does not persist anything. It converts a friendly authoring spec
-    into the canonical arguments for define_virtual_thing:
-
-    {
-      "title": "...",
-      "description": "...",
-      "properties": {"score": {"type": "number", "handler_code": "..."}},
-      "actions": {"hello": {"input": {...}, "output": {...}, "handler_code": "..."}},
-      "events": {"tick": {"data": {...}, "trigger": {...}, "handler_code": "..."}}
-    }
-
-    Handler code must be Python and must define:
-    def handle(input, state, context)
+    The Thing is created `disabled` and empty. Use the returned thing_id with
+    add_virtual_property, add_virtual_action, and add_virtual_event to add its
+    affordances one at a time, then call activate_virtual_thing. Calling this
+    again with the same thing_id returns the existing Thing unchanged so you can
+    keep adding affordances. To start over, delete_virtual_thing first.
     """
-    try:
-        define_args = build_define_args_from_draft(spec)
-        request = DefineVirtualThingRequest(
-            id=define_args.get("thing_id"),
-            title=define_args["title"],
-            description=define_args.get("description", ""),
-            td=define_args["td"],
-            bindings=define_args["bindings"],
-            status=define_args.get("status", "active"),
-        )
-    except (ValidationError, ValueError, SyntaxError) as exc:
-        return {"error": str(exc)}
-
-    validation_report = VirtualThingValidator().validate_static(request)
-    if not validation_report["ok"]:
-        return {
-            "error": "virtual thing static validation failed",
-            "validation_report": validation_report,
-        }
-
-    canonical_args = {
-        "title": request.title,
-        "description": request.description,
-        "status": request.status,
-        "thing_id": request.id,
-        "td": request.td,
-        "bindings": [
-            binding.model_dump(mode="json", exclude_none=True) for binding in request.bindings
-        ],
-    }
-    return {
-        "ok": True,
-        "thing_id": request.id,
-        "define_args": canonical_args,
-        "validation_report": validation_report,
-    }
+    builder = VirtualThingBuilder()
+    return await asyncio.to_thread(
+        builder.create,
+        title=title,
+        description=description,
+        thing_id=thing_id,
+        owner_thread_id=_thread_id_from_config(config),
+    )
 
 
 @tool
-async def define_virtual_thing(
-    title: str,
-    td: dict[str, Any],
-    bindings: list[dict[str, Any]],
-    config: RunnableConfig,
-    thing_id: str | None = None,
-    description: str = "",
-    status: str = "active",
+async def add_virtual_property(
+    thing_id: str,
+    name: str,
+    handler_code: str,
+    value_schema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Create or replace a standalone virtual Thing definition.
+    """Add or replace a computed property on a virtual Thing.
 
-    Use this for durable computed WoT capabilities: computed properties,
-    computed actions, and emitted events. Submit the whole Thing Description
-    affordance schema plus every affordance binding in one call. Binding code
-    must define `handle(input, state, context)`.
-
-    For computed properties/actions, return the computed value directly.
-    For emitted events, return an object: {"emit": bool, "payload": value,
-    "state": next_state}. Returning emit=false suppresses the event; state is
-    persisted so handlers can implement threshold or edge detection.
-
-    To read or combine real Things, call the injected `wot` client inside handle:
-    `wot.read_property(thing_id, name)`, `wot.invoke_action(thing_id, name, input)`,
-    `wot.write_property(thing_id, name, value)`. Pass literal thing_id/name strings
-    so the required capability grants are inferred automatically.
+    handler_code is Python defining `def handle(input, state, context)` that
+    returns the computed value. Read real Things inside handle with the injected
+    `wot` client (wot.read_property / wot.invoke_action / wot.write_property);
+    capability grants are inferred from literal thing_id/name strings.
+    value_schema is an optional JSON Schema for the value and may be omitted.
     """
-    try:
-        request = DefineVirtualThingRequest(
-            id=thing_id,
-            title=title,
-            description=description,
-            td=td,
-            bindings=bindings,
-            status=status,
-            owner_thread_id=_thread_id_from_config(config),
-        )
-    except (ValidationError, ValueError) as exc:
-        return {"error": str(exc)}
-
-    validation_report = await VirtualThingValidator().validate(
-        request,
-        run_smoke=request.status == "active",
+    builder = VirtualThingBuilder()
+    return await asyncio.to_thread(
+        builder.add_affordance,
+        thing_id=thing_id,
+        affordance_type="property",
+        affordance_name=name,
+        handler_code=handler_code,
+        td_definition=property_definition(value_schema),
     )
-    if not validation_report["ok"]:
-        return {
-            "error": "virtual thing validation failed",
-            "validation_report": validation_report,
-        }
 
-    try:
-        definition = await asyncio.to_thread(VirtualThingStore().define_thing, request)
-    except Exception as exc:
-        return {"error": str(exc)}
-    return {
-        "virtual_thing": definition.model_dump(mode="json", by_alias=True),
-        "validation_report": validation_report,
-    }
+
+@tool
+async def add_virtual_action(
+    thing_id: str,
+    name: str,
+    handler_code: str,
+    input_schema: dict[str, Any] | None = None,
+    output_schema: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Add or replace a computed action on a virtual Thing.
+
+    handler_code is Python defining `def handle(input, state, context)` that
+    returns the result. `input` is the action input. input_schema and
+    output_schema are optional JSON Schemas and may be omitted.
+    """
+    builder = VirtualThingBuilder()
+    return await asyncio.to_thread(
+        builder.add_affordance,
+        thing_id=thing_id,
+        affordance_type="action",
+        affordance_name=name,
+        handler_code=handler_code,
+        td_definition=action_definition(input_schema, output_schema),
+    )
+
+
+@tool
+async def add_virtual_event(
+    thing_id: str,
+    name: str,
+    handler_code: str,
+    interval_seconds: int | None = None,
+    source_thing_id: str | None = None,
+    source_event_name: str | None = None,
+    data_schema: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Add or replace an emitted event on a virtual Thing.
+
+    handler_code is Python defining `def handle(input, state, context)` that
+    returns {"emit": bool, "payload": value, "state": next_state}. Use `state`
+    for threshold or edge detection; initialize it with `state = state or {}`.
+
+    The trigger is set from these arguments:
+    - interval_seconds=N evaluates the handler every N seconds.
+    - source_thing_id + source_event_name re-evaluates on another Thing's event.
+    - omit all three to make the event explicit (fire via emit_virtual_thing_event).
+    data_schema is an optional JSON Schema for the payload and may be omitted.
+    """
+    builder = VirtualThingBuilder()
+    return await asyncio.to_thread(
+        builder.add_affordance,
+        thing_id=thing_id,
+        affordance_type="event",
+        affordance_name=name,
+        handler_code=handler_code,
+        td_definition=event_definition(data_schema),
+        trigger=event_trigger(interval_seconds, source_thing_id, source_event_name),
+    )
+
+
+@tool
+async def activate_virtual_thing(thing_id: str) -> dict[str, Any]:
+    """Validate and activate a virtual Thing after its affordances are added.
+
+    Runs a smoke test of every handler and, if it passes, flips the Thing from
+    `disabled` to `active`. virtual-servient then produces the concrete catalog
+    TD asynchronously. If a smoke test fails, fix the affordance with the
+    matching add_virtual_* tool and call this again.
+    """
+    return await VirtualThingBuilder().activate(thing_id)
 
 
 @tool

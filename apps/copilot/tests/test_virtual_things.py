@@ -2,12 +2,21 @@ import contextlib
 import io
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
 
-from copilot.agent.tools.virtual_things import define_virtual_thing, draft_virtual_thing_definition
+from copilot.virtual_things.builder import (
+    VirtualThingBuilder,
+    action_definition,
+    event_definition,
+    event_trigger,
+    property_definition,
+)
 from copilot.virtual_things.capabilities import infer_capabilities
 from copilot.virtual_things.dispatcher import _RESULT_PREFIX, VirtualThingDispatcher
-from copilot.virtual_things.schemas import DefineVirtualThingRequest, VirtualThingBindingSpec
+from copilot.virtual_things.schemas import (
+    DefineVirtualThingRequest,
+    VirtualThingBindingSpec,
+    VirtualThingDefinition,
+)
 from copilot.virtual_things.validator import VirtualThingValidator
 
 
@@ -66,204 +75,204 @@ class _LocalExecutor:
         return {"stdout": stdout.getvalue()}
 
 
-class VirtualThingSchemasTestCase(unittest.TestCase):
-    def test_draft_tool_returns_canonical_define_args_for_hello_action(self):
-        result = draft_virtual_thing_definition.invoke(
-            {
-                "spec": {
-                    "title": "Hello World Virtual Thing",
-                    "description": "Says hello.",
-                    "actions": {
-                        "sayHello": {
-                            "output": {"type": "string"},
-                            "handler_code": (
-                                "def handle(input, state, context):\n    return 'hello world'"
-                            ),
-                        }
-                    },
-                }
-            }
-        )
+class _FakeDefinitionStore:
+    def __init__(self):
+        self.things = {}
+        self.requests = []
 
-        self.assertTrue(result["ok"])
-        define_args = result["define_args"]
-        self.assertEqual(define_args["title"], "Hello World Virtual Thing")
-        self.assertEqual(define_args["thing_id"], result["thing_id"])
-        self.assertIn("security", define_args["td"])
+    def get_definition(self, thing_id, *, include_disabled=False):
+        definition = self.things.get(thing_id)
+        if definition is None or (definition.status != "active" and not include_disabled):
+            raise KeyError(thing_id)
+        return definition
+
+    def define_thing(self, request):
+        self.requests.append(request)
+        previous = self.things.get(request.id)
+        definition = VirtualThingDefinition(
+            id=request.id,
+            title=request.title,
+            description=request.description,
+            owner_thread_id=request.owner_thread_id,
+            td=request.td,
+            version=(previous.version + 1) if previous else 1,
+            status=request.status,
+            bindings=request.bindings,
+        )
+        self.things[request.id] = definition
+        return definition
+
+
+class VirtualThingBuilderTestCase(unittest.TestCase):
+    def _builder(self):
+        store = _FakeDefinitionStore()
+        return VirtualThingBuilder(store=store, validator=VirtualThingValidator()), store
+
+    def test_create_starts_disabled_and_empty(self):
+        builder, store = self._builder()
+        result = builder.create(title="Grid Headroom", description="Says hi")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["virtual_thing"]["status"], "disabled")
+        self.assertEqual(result["virtual_thing"]["bindings"], [])
+        self.assertEqual(store.requests[0].status, "disabled")
+
+    def test_create_is_idempotent_and_keeps_existing_affordances(self):
+        builder, _ = self._builder()
+        thing_id = "virtual:things:comfort-abc12345"
+        builder.create(title="Comfort", thing_id=thing_id)
+        builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="property",
+            affordance_name="score",
+            handler_code="def handle(input, state, context):\n    return 72",
+            td_definition=property_definition({"type": "number"}),
+        )
+        again = builder.create(title="Comfort", thing_id=thing_id)
+        self.assertTrue(again.get("existing"))
+        self.assertEqual(len(again["virtual_thing"]["bindings"]), 1)
+
+    def test_add_property_builds_td_and_binding(self):
+        builder, _ = self._builder()
+        thing_id = builder.create(title="Comfort Score")["thing_id"]
+        result = builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="property",
+            affordance_name="currentScore",
+            handler_code="def handle(input, state, context):\n    return 72",
+            td_definition=property_definition({"type": "number", "readOnly": True}),
+        )
+        self.assertTrue(result["ok"], result)
+        td = result["virtual_thing"]["td"]
+        self.assertEqual(td["properties"]["currentScore"]["type"], "number")
+        binding = result["virtual_thing"]["bindings"][0]
+        self.assertEqual(binding["affordance_type"], "property")
+        self.assertEqual(binding["kind"], "computed")
+
+    def test_add_action_records_output_schema(self):
+        builder, _ = self._builder()
+        thing_id = builder.create(title="Hello World")["thing_id"]
+        result = builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="action",
+            affordance_name="sayHello",
+            handler_code="def handle(input, state, context):\n    return 'hello world'",
+            td_definition=action_definition(None, {"type": "string"}),
+        )
+        self.assertTrue(result["ok"], result)
         self.assertEqual(
-            define_args["bindings"],
-            [
-                {
-                    "affordance_type": "action",
-                    "affordance_name": "sayHello",
-                    "kind": "computed",
-                    "handler_code": "def handle(input, state, context):\n    return 'hello world'",
-                    "config": {},
-                    "capabilities": [],
-                    "timeout_seconds": 30,
-                    "cache_ttl_seconds": 30,
-                }
-            ],
+            result["virtual_thing"]["td"]["actions"]["sayHello"]["output"],
+            {"type": "string"},
         )
 
-    def test_draft_tool_accepts_computed_property_schema(self):
-        result = draft_virtual_thing_definition.invoke(
-            {
-                "spec": {
-                    "title": "Comfort Score",
-                    "properties": {
-                        "currentScore": {
-                            "schema": {"type": "number", "readOnly": True},
-                            "cache_ttl_seconds": 5,
-                            "handler_code": "def handle(input, state, context):\n    return 72",
-                        }
-                    },
-                }
-            }
+    def test_add_event_uses_interval_trigger(self):
+        builder, _ = self._builder()
+        thing_id = builder.create(title="Counter")["thing_id"]
+        result = builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="event",
+            affordance_name="tick",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    state = state or {}\n"
+                "    counter = state.get('counter', 0) + 1\n"
+                "    return {'emit': True, 'payload': {'counter': counter}, "
+                "'state': {'counter': counter}}"
+            ),
+            td_definition=event_definition({"type": "object"}),
+            trigger=event_trigger(10, None, None),
         )
-
-        self.assertTrue(result["ok"])
-        define_args = result["define_args"]
-        self.assertEqual(define_args["td"]["properties"]["currentScore"]["type"], "number")
-        self.assertEqual(define_args["bindings"][0]["cache_ttl_seconds"], 5)
-
-    def test_draft_tool_accepts_interval_event(self):
-        result = draft_virtual_thing_definition.invoke(
-            {
-                "spec": {
-                    "title": "Counter Event Thing",
-                    "events": {
-                        "tick": {
-                            "data": {"type": "object"},
-                            "trigger": {"kind": "interval", "interval_seconds": 10},
-                            "state": {"counter": 0},
-                            "handler_code": (
-                                "def handle(input, state, context):\n"
-                                "    state = state or {}\n"
-                                "    counter = state.get('counter', 0) + 1\n"
-                                "    return {'emit': True, 'payload': {'counter': counter}, "
-                                "'state': {'counter': counter}}"
-                            ),
-                        }
-                    },
-                }
-            }
-        )
-
-        self.assertTrue(result["ok"])
-        binding = result["define_args"]["bindings"][0]
-        self.assertEqual(binding["affordance_type"], "event")
+        self.assertTrue(result["ok"], result)
+        binding = result["virtual_thing"]["bindings"][0]
         self.assertEqual(binding["kind"], "emitted")
-        self.assertEqual(binding["trigger"], {"kind": "interval", "interval_seconds": 10})
-        self.assertEqual(binding["state"], {"counter": 0})
+        self.assertEqual(binding["trigger"]["kind"], "interval")
+        self.assertEqual(binding["trigger"]["interval_seconds"], 10)
 
-    def test_draft_tool_accepts_source_event_trigger(self):
-        result = draft_virtual_thing_definition.invoke(
-            {
-                "spec": {
-                    "title": "Door Edge Signal",
-                    "events": {
-                        "openedEdge": {
-                            "data": {"type": "object"},
-                            "trigger": {
-                                "kind": "source_event",
-                                "thing_id": "urn:source-door",
-                                "event_name": "opened",
-                            },
-                            "handler_code": (
-                                "def handle(input, state, context):\n"
-                                "    return {'emit': True, 'payload': input, 'state': state}"
-                            ),
-                        }
-                    },
-                }
-            }
-        )
-
-        self.assertTrue(result["ok"])
+    def test_event_trigger_helper_covers_source_and_explicit(self):
+        self.assertEqual(event_trigger(None, None, None), {"kind": "explicit"})
         self.assertEqual(
-            result["define_args"]["bindings"][0]["trigger"],
-            {
-                "kind": "source_event",
-                "thing_id": "urn:source-door",
-                "event_name": "opened",
-            },
+            event_trigger(None, "urn:source-door", "opened"),
+            {"kind": "source_event", "thing_id": "urn:source-door", "event_name": "opened"},
         )
 
-    def test_draft_tool_accepts_explicit_event_trigger(self):
-        result = draft_virtual_thing_definition.invoke(
-            {
-                "spec": {
-                    "title": "Manual Signal",
-                    "events": {
-                        "signal": {
-                            "data": {"type": "object"},
-                            "trigger": {"kind": "explicit"},
-                            "handler_code": (
-                                "def handle(input, state, context):\n"
-                                "    return {'emit': True, 'payload': input.get('input'), "
-                                "'state': state}"
-                            ),
-                        }
-                    },
-                }
-            }
+    def test_re_adding_affordance_replaces_binding(self):
+        builder, _ = self._builder()
+        thing_id = builder.create(title="Comfort")["thing_id"]
+        builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="property",
+            affordance_name="score",
+            handler_code="def handle(input, state, context):\n    return 1",
+            td_definition=property_definition({"type": "number"}),
         )
-
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["define_args"]["bindings"][0]["trigger"], {"kind": "explicit"})
-
-    def test_draft_tool_rejects_event_without_trigger(self):
-        result = draft_virtual_thing_definition.invoke(
-            {
-                "spec": {
-                    "title": "Broken Event Thing",
-                    "events": {
-                        "tick": {
-                            "data": {"type": "object"},
-                            "handler_code": (
-                                "def handle(input, state, context):\n"
-                                "    return {'emit': True, 'payload': input, 'state': state}"
-                            ),
-                        }
-                    },
-                }
-            }
+        result = builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="property",
+            affordance_name="score",
+            handler_code="def handle(input, state, context):\n    return 2",
+            td_definition=property_definition({"type": "number"}),
         )
+        bindings = result["virtual_thing"]["bindings"]
+        self.assertEqual(len(bindings), 1)
+        self.assertIn("return 2", bindings[0]["handler_code"])
 
-        self.assertIn("requires trigger", result["error"])
-
-    def test_draft_tool_rejects_missing_handler(self):
-        result = draft_virtual_thing_definition.invoke(
-            {
-                "spec": {
-                    "title": "Broken Action Thing",
-                    "actions": {"sayHello": {"output": {"type": "string"}}},
-                }
-            }
+    def test_add_affordance_rejects_javascript_handler(self):
+        builder, _ = self._builder()
+        thing_id = builder.create(title="Broken JS")["thing_id"]
+        result = builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="action",
+            affordance_name="sayHello",
+            handler_code="function handle(input, state, context) { return 'hello world'; }",
+            td_definition=action_definition(None, {"type": "string"}),
         )
+        self.assertIn("must be Python", result["error"])
 
-        self.assertIn("requires handler_code", result["error"])
-
-    def test_draft_tool_rejects_javascript_handler(self):
-        result = draft_virtual_thing_definition.invoke(
-            {
-                "spec": {
-                    "title": "Broken JS Thing",
-                    "actions": {
-                        "sayHello": {
-                            "output": {"type": "string"},
-                            "handler_code": (
-                                "function handle(input, state, context) { return 'hello world'; }"
-                            ),
-                        }
-                    },
-                }
-            }
+    def test_add_affordance_rejects_bad_handler_signature(self):
+        builder, _ = self._builder()
+        thing_id = builder.create(title="Bad Sig")["thing_id"]
+        result = builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="property",
+            affordance_name="value",
+            handler_code="def handle(input):\n    return 1",
+            td_definition=property_definition({"type": "number"}),
         )
+        self.assertIn("validation failed", result["error"])
+        self.assertFalse(result["validation_report"]["ok"])
 
-        self.assertIn("must be Python code", result["error"])
+    def test_add_affordance_infers_capabilities_from_wot_calls(self):
+        builder, _ = self._builder()
+        thing_id = builder.create(title="Grid Headroom")["thing_id"]
+        result = builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="property",
+            affordance_name="headroom",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    f = wot.read_property('urn:dev:forecast', 'nextHourKw')\n"
+                "    u = wot.read_property('urn:dev:meter', 'powerKw')\n"
+                "    return f - u"
+            ),
+            td_definition=property_definition({"type": "number"}),
+        )
+        self.assertTrue(result["ok"], result)
+        capabilities = result["virtual_thing"]["bindings"][0]["capabilities"]
+        thing_ids = {cap["thing_id"] for cap in capabilities}
+        self.assertEqual(thing_ids, {"urn:dev:forecast", "urn:dev:meter"})
 
+    def test_add_affordance_on_missing_thing_errors(self):
+        builder, _ = self._builder()
+        result = builder.add_affordance(
+            thing_id="urn:smart-living-copilot:virtual-things:missing",
+            affordance_type="property",
+            affordance_name="value",
+            handler_code="def handle(input, state, context):\n    return 1",
+            td_definition=property_definition(None),
+        )
+        self.assertEqual(result["error"], "virtual thing not found")
+
+
+class VirtualThingSchemasTestCase(unittest.TestCase):
     def test_define_request_injects_abstract_forms_and_validates_bindings(self):
         request = DefineVirtualThingRequest(
             title="Comfort Sensor",
@@ -453,31 +462,6 @@ class VirtualThingCapabilityInferenceTestCase(unittest.TestCase):
         self.assertEqual(set(grants), {"urn:dev:forecast", "urn:dev:meter"})
         self.assertEqual(grants["urn:dev:meter"].ops, ["readProperty"])
         self.assertEqual(grants["urn:dev:meter"].affordances, ["powerKw"])
-
-    def test_draft_tool_attaches_inferred_capabilities(self):
-        result = draft_virtual_thing_definition.invoke(
-            {
-                "spec": {
-                    "title": "Grid Headroom",
-                    "properties": {
-                        "headroom": {
-                            "schema": {"type": "number"},
-                            "handler_code": (
-                                "def handle(input, state, context):\n"
-                                "    f = wot.read_property('urn:dev:forecast', 'nextHourKw')\n"
-                                "    u = wot.read_property('urn:dev:meter', 'powerKw')\n"
-                                "    return f - u"
-                            ),
-                        }
-                    },
-                }
-            }
-        )
-
-        self.assertTrue(result["ok"], result)
-        capabilities = result["define_args"]["bindings"][0]["capabilities"]
-        thing_ids = {cap["thing_id"] for cap in capabilities}
-        self.assertEqual(thing_ids, {"urn:dev:forecast", "urn:dev:meter"})
 
 
 class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
@@ -832,7 +816,7 @@ class VirtualThingValidatorTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(report["ok"])
         self.assertIn("schema validation", report["issues"][0]["message"])
 
-    async def test_define_tool_does_not_persist_when_active_validation_fails(self):
+    async def test_activate_does_not_persist_when_smoke_validation_fails(self):
         class RejectingValidator:
             async def validate(self, _request, *, run_smoke):
                 self.run_smoke = run_smoke
@@ -842,34 +826,41 @@ class VirtualThingValidatorTestCase(unittest.IsolatedAsyncioTestCase):
                     "issues": [{"phase": "smoke", "message": "boom"}],
                 }
 
+        thing_id = "urn:smart-living-copilot:virtual-things:broken"
+        store = _FakeDefinitionStore()
+        store.things[thing_id] = VirtualThingDefinition(
+            id=thing_id,
+            title="Broken",
+            description="",
+            owner_thread_id=None,
+            td={
+                "@context": "https://www.w3.org/2022/wot/td/v1.1",
+                "id": thing_id,
+                "title": "Broken",
+                "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+                "security": "nosec_sc",
+                "properties": {"value": {"type": "number"}},
+            },
+            version=1,
+            status="disabled",
+            bindings=[
+                VirtualThingBindingSpec(
+                    affordance_type="property",
+                    affordance_name="value",
+                    kind="computed",
+                    handler_code="def handle(input, state, context):\n    return 1",
+                )
+            ],
+        )
         validator = RejectingValidator()
-        with (
-            patch(
-                "copilot.agent.tools.virtual_things.VirtualThingValidator",
-                return_value=validator,
-            ),
-            patch("copilot.agent.tools.virtual_things.VirtualThingStore") as store_cls,
-        ):
-            result = await define_virtual_thing.ainvoke(
-                {
-                    "title": "Broken",
-                    "td": {"properties": {"value": {"type": "number"}}},
-                    "bindings": [
-                        {
-                            "affordance_type": "property",
-                            "affordance_name": "value",
-                            "kind": "computed",
-                            "handler_code": "def handle(input, state, context):\n    return 1",
-                        }
-                    ],
-                },
-                config={"configurable": {"thread_id": "thread-1"}},
-            )
+        builder = VirtualThingBuilder(store=store, validator=validator)
+
+        result = await builder.activate(thing_id)
 
         self.assertEqual(result["error"], "virtual thing validation failed")
         self.assertFalse(result["validation_report"]["ok"])
         self.assertTrue(validator.run_smoke)
-        store_cls.assert_not_called()
+        self.assertEqual(store.requests, [])
 
 
 if __name__ == "__main__":

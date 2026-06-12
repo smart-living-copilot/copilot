@@ -252,8 +252,8 @@ async def things_upsert(thing_id: str, document: dict[str, Any]) -> dict[str, An
         return {
             "error": (
                 "This looks like an abstract computed/emitted virtual Thing. "
-                "Use define_virtual_thing instead of things_upsert so copilot "
-                "can create bindings and virtual-servient can produce concrete HTTP forms."
+                "Use create_virtual_thing plus add_virtual_* instead of things_upsert "
+                "so copilot can create bindings and virtual-servient can produce concrete HTTP forms."
             )
         }
     sanitized = validate_document(document)

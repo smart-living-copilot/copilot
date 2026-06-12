@@ -1,7 +1,7 @@
 """Virtual Thing definition, binding, dispatch, and validation support.
 
 The package owns copilot's abstract virtual Thing model: persisted Thing
-Descriptions, friendly draft normalization, per-affordance bindings, computed
+Descriptions, incremental affordance authoring, per-affordance bindings, computed
 handler execution, emitted event evaluation, explicit emission requests, and the
 internal API used by virtual-servient. Materialized record Things are registered
 here as ``record`` bindings, while standalone computed and emitted Things use

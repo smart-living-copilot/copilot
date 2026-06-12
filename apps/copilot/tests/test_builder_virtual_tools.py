@@ -58,17 +58,20 @@ class BuilderVirtualToolsTestCase(unittest.TestCase):
                     _tool("get_current_time"),
                     _tool("create_prompt_job"),
                     _tool("create_analysis_job"),
-                    _tool("draft_virtual_thing_definition"),
-                    _tool("define_virtual_thing"),
+                    _tool("create_virtual_thing"),
+                    _tool("add_virtual_property"),
+                    _tool("add_virtual_action"),
+                    _tool("add_virtual_event"),
+                    _tool("activate_virtual_thing"),
                     _tool("delete_virtual_thing"),
                     _tool("emit_virtual_thing_event"),
                 ],
                 max_tokens=1000,
             )
 
-        self.assertNotIn("define_virtual_thing", captured["control"])
+        self.assertNotIn("create_virtual_thing", captured["control"])
         self.assertNotIn("delete_virtual_thing", captured["control"])
-        self.assertNotIn("define_virtual_thing", captured["jobs"])
+        self.assertNotIn("create_virtual_thing", captured["jobs"])
         self.assertNotIn("delete_virtual_thing", captured["jobs"])
         self.assertEqual(
             captured["virtual_things"],
@@ -80,8 +83,11 @@ class BuilderVirtualToolsTestCase(unittest.TestCase):
                 "wot_invoke_action",
                 "wot_subscribe_event",
                 "wot_remove_subscription",
-                "draft_virtual_thing_definition",
-                "define_virtual_thing",
+                "create_virtual_thing",
+                "add_virtual_property",
+                "add_virtual_action",
+                "add_virtual_event",
+                "activate_virtual_thing",
                 "delete_virtual_thing",
                 "emit_virtual_thing_event",
             ],

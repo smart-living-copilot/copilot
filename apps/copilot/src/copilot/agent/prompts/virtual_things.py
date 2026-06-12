@@ -7,85 +7,82 @@ Standalone Virtual Things are durable WoT Things with computed properties,
 computed actions, or emitted events. Copilot stores the abstract definition and
 bindings; virtual-servient produces the concrete Thing and catalog TD.
 
-## Core Rules
-1. Never use things_upsert for standalone Virtual Things. It cannot create
-   handler bindings, event trigger loops, or produced HTTP forms.
-2. Never invent forms or urn:virtual URLs. The virtual-servient owns concrete
-   forms after define_virtual_thing succeeds.
-3. Always call draft_virtual_thing_definition before define_virtual_thing.
-   Pass only the returned define_args into define_virtual_thing.
-4. Handler source must be Python and define exactly:
-   def handle(input, state, context)
-5. For computed properties/actions, handle returns the computed value directly.
-6. For emitted events, handle returns {"emit": bool, "payload": value,
-   "state": next_state}. Use state for threshold crossing and edge detection.
-   Initialize state with `state = state or {}` and assign every returned value
-   before conditionals so handlers never return None or reference an
-   uninitialized variable.
-7. Every event needs a trigger:
-   - {"kind": "interval", "interval_seconds": N}
-   - {"kind": "source_event", "thing_id": "...", "event_name": "..."}
-   - {"kind": "explicit"} for events fired manually through emit_virtual_thing_event.
-8. To combine or read real Things, call the injected `wot` client from inside
-   handle (see Handler Runtime). Capabilities are derived automatically from
-   those calls; you only declare capabilities by hand for a thing_id that is not
-   a literal string in the code.
+## Authoring model
+You build a Virtual Thing incrementally, one affordance per tool call. Never
+submit a whole Thing Description by hand and never invent forms or urn:virtual
+URLs; virtual-servient owns concrete forms after activation.
 
-## Handler Runtime
-Handler code runs in a sandbox with an injected `wot` client. These are the only
-ways to reach real Things, and each returns the value synchronously:
-   value  = wot.read_property(thing_id, property_name)
-   result = wot.invoke_action(thing_id, action_name, input)
-   wot.write_property(thing_id, property_name, value)
-Use the exact source thing_id and affordance names you discovered with
-things_search / things_get. Pass them as literal strings so capabilities can be
-inferred. `input` is the affordance input (or event trigger), `state` is the
-persisted dict, `context` carries thing_id and config.
+1. create_virtual_thing(title, description) -> returns thing_id. The Thing
+   starts disabled and empty.
+2. Add each affordance with its own call, passing the thing_id:
+   - add_virtual_property(thing_id, name, handler_code, value_schema?)
+   - add_virtual_action(thing_id, name, handler_code, input_schema?, output_schema?)
+   - add_virtual_event(thing_id, name, handler_code, interval_seconds? |
+     source_thing_id+source_event_name?, data_schema?)
+   Re-adding the same name replaces that affordance. Schemas are optional; omit
+   them unless the user needs a specific contract.
+3. activate_virtual_thing(thing_id) runs a smoke test and makes the Thing active.
+   If it reports issues, fix the named affordance with the matching add_* tool
+   and call activate again.
 
-### Worked example: combine a forecast service and a smart meter
+Never use things_upsert for standalone Virtual Things; it cannot create handler
+bindings, event triggers, or produced forms.
+
+## Handler code
+Every property/action/event handler is Python defining exactly:
+    def handle(input, state, context)
+- Computed property/action: return the computed value directly.
+- Emitted event: return {"emit": bool, "payload": value, "state": next_state}.
+  emit=false suppresses the event; state is persisted across evaluations, so use
+  it for threshold crossing and edge detection. Start with `state = state or {}`
+  and assign every returned value before conditionals so the handler never
+  returns None or references an uninitialized variable.
+
+`input` is the affordance input (or event trigger), `state` is the persisted
+dict, `context` carries thing_id and config.
+
+## Reaching real Things
+Inside handle, the injected `wot` client is the only way to reach real Things,
+and each call returns synchronously:
+    value  = wot.read_property(thing_id, property_name)
+    result = wot.invoke_action(thing_id, action_name, input)
+    wot.write_property(thing_id, property_name, value)
+Pass the exact thing_id and affordance names you discovered with things_search /
+things_get as literal strings, so the required capability grants are inferred
+automatically.
+
+### Worked example
 A computed property that flags when forecast load exceeds metered capacity:
 
+    tid = create_virtual_thing("Grid Headroom").thing_id
+    add_virtual_property(tid, "headroom", '''
     def handle(input, state, context):
         forecast = wot.read_property("urn:dev:forecast-service", "nextHourKw")
         usage = wot.read_property("urn:dev:smart-meter", "powerKw")
-        headroom = forecast - usage
-        return {"forecastKw": forecast, "usageKw": usage, "headroomKw": headroom}
-
-Draft spec for it (capabilities for both Things are added for you):
-
-    {
-      "title": "Grid Headroom",
-      "properties": {
-        "headroom": {
-          "schema": {"type": "object"},
-          "handler_code": "<the handle function above>"
-        }
-      }
-    }
+        return {"forecastKw": forecast, "usageKw": usage,
+                "headroomKw": forecast - usage}
+    ''')
+    activate_virtual_thing(tid)
 
 ## Reusing Prior Analysis
 If the user is turning an analysis you just ran into a Virtual Thing, do not
 re-derive it. When a "Prior Analysis Code" section is provided below, reuse that
-run_code source as the basis for the handler: keep the modelling logic, and adapt
+run_code source as the basis for the handler: keep the modelling logic and adapt
 it to def handle(input, state, context) that reads live values through
 wot.read_property instead of loading historical series.
 
-## Authoring Procedure
-1. Discover and inspect source Things only when the virtual handler depends on
-   real devices or existing events.
-2. Draft a simplified spec with title, description, and properties/actions/events.
-3. Call draft_virtual_thing_definition and repair any validation errors.
-4. Call define_virtual_thing with the returned define_args.
-5. For a quick test, use the normal runtime path after creation:
-   read computed properties with wot_read_property, invoke computed actions with
+## Procedure
+1. Inspect source Things only when the handler depends on real devices or events.
+2. create_virtual_thing, then add each affordance, repairing any errors a call
+   reports before moving on.
+3. activate_virtual_thing and repair any smoke-test issues.
+4. For a quick test, use the normal runtime path after activation: read computed
+   properties with wot_read_property, invoke computed actions with
    wot_invoke_action, subscribe to emitted events with wot_subscribe_event, and
-   fire explicit events with emit_virtual_thing_event.
-   The produced catalog TD is created asynchronously by virtual-servient. If the
-   first runtime test says the Thing is not found or has no matching affordance,
-   do not redefine it immediately; explain that production may still be propagating
-   and retry normal catalog/runtime lookup once it appears.
-6. If deleting or disabling a standalone Virtual Thing, use delete_virtual_thing
-   or define_virtual_thing with status="disabled".
+   fire explicit events with emit_virtual_thing_event. The catalog TD is produced
+   asynchronously, so if the first runtime test says the Thing is not found, do
+   not redefine it; explain that production may still be propagating and retry.
+5. To disable or remove a Virtual Thing, use delete_virtual_thing.
 
 ## Safety
 Handlers that write properties or invoke actions on real devices must be treated

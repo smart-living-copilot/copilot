@@ -68,8 +68,11 @@ _LOOK_AT_CAMERA = "look_at_camera"
 _ASK_JOB_USER = "ask_job_user"
 _SUBMIT_JOB_RECORD = "submit_job_record"
 _VIRTUAL_THING_NAMES = {
-    "draft_virtual_thing_definition",
-    "define_virtual_thing",
+    "create_virtual_thing",
+    "add_virtual_property",
+    "add_virtual_action",
+    "add_virtual_event",
+    "activate_virtual_thing",
     "delete_virtual_thing",
     "emit_virtual_thing_event",
 }

@@ -8,9 +8,10 @@ class VirtualThingPromptTestCase(unittest.TestCase):
         self.assertIn("virtual_things", ROUTER_PROMPT)
         self.assertIn("computed/synthetic/virtual Things", ROUTER_PROMPT)
 
-    def test_authoring_prompt_uses_draft_before_define_and_forbids_upsert(self) -> None:
-        self.assertIn("draft_virtual_thing_definition", VIRTUAL_THINGS_PROMPT)
-        self.assertIn("define_virtual_thing", VIRTUAL_THINGS_PROMPT)
+    def test_authoring_prompt_uses_incremental_builder_and_forbids_upsert(self) -> None:
+        self.assertIn("create_virtual_thing", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("add_virtual_property", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("activate_virtual_thing", VIRTUAL_THINGS_PROMPT)
         self.assertIn("Never use things_upsert", VIRTUAL_THINGS_PROMPT)
         self.assertIn("def handle(input, state, context)", VIRTUAL_THINGS_PROMPT)
         self.assertIn("state = state or {}", VIRTUAL_THINGS_PROMPT)
@@ -20,8 +21,8 @@ class VirtualThingPromptTestCase(unittest.TestCase):
         self.assertIn("Prior Analysis Code", VIRTUAL_THINGS_PROMPT)
 
     def test_authoring_prompt_mentions_async_virtual_servient_production(self) -> None:
-        self.assertIn("created asynchronously by virtual-servient", VIRTUAL_THINGS_PROMPT)
-        self.assertIn("do not redefine it immediately", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("asynchronously", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("redefine it", VIRTUAL_THINGS_PROMPT)
 
 
 if __name__ == "__main__":

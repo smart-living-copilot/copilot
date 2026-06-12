@@ -81,8 +81,11 @@ class ToolGroupsTestCase(unittest.TestCase):
                 _tool("create_analysis_job"),
                 _tool("list_jobs"),
                 _tool("run_job_now"),
-                _tool("draft_virtual_thing_definition"),
-                _tool("define_virtual_thing"),
+                _tool("create_virtual_thing"),
+                _tool("add_virtual_property"),
+                _tool("add_virtual_action"),
+                _tool("add_virtual_event"),
+                _tool("activate_virtual_thing"),
                 _tool("delete_virtual_thing"),
                 _tool("emit_virtual_thing_event"),
             ]
@@ -95,8 +98,11 @@ class ToolGroupsTestCase(unittest.TestCase):
         self.assertEqual(
             [tool.name for tool in grouped.virtual_thing_tools],
             [
-                "draft_virtual_thing_definition",
-                "define_virtual_thing",
+                "create_virtual_thing",
+                "add_virtual_property",
+                "add_virtual_action",
+                "add_virtual_event",
+                "activate_virtual_thing",
                 "delete_virtual_thing",
                 "emit_virtual_thing_event",
             ],
