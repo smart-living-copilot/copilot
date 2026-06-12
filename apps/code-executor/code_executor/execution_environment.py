@@ -16,6 +16,7 @@ from code_executor.constants import MAX_STDOUT_CHARS, SENSITIVE_ENV_VARS
 from code_executor.wot_client import SandboxWotClient
 
 _LAST_EXPR_GLOBAL = "__code_executor_last_expr__"
+_MACHINE_READABLE_STDOUT_PREFIXES = ("__VIRTUAL_THING_RESULT__",)
 
 
 class ExecutionEnvironment:
@@ -286,8 +287,36 @@ class ExecutionEnvironment:
         if len(stdout) <= MAX_STDOUT_CHARS:
             return stdout
 
-        return (
+        trimmed = (
             stdout[:MAX_STDOUT_CHARS]
             + f"\n\n... truncated ({len(stdout)} chars total)."
             " Print only summaries, not raw data."
         )
+        last_machine_line = _last_machine_readable_stdout_line(stdout)
+        if last_machine_line is None:
+            return trimmed
+
+        if last_machine_line in trimmed.splitlines():
+            return trimmed
+        return f"{trimmed}\n{last_machine_line}"
+
+
+def _last_machine_readable_stdout_line(stdout: str) -> str | None:
+    last_start = -1
+    for prefix in _MACHINE_READABLE_STDOUT_PREFIXES:
+        start = stdout.rfind(f"\n{prefix}")
+        if start >= 0:
+            start += 1
+        elif stdout.startswith(prefix):
+            start = 0
+        else:
+            continue
+        last_start = max(last_start, start)
+
+    if last_start < 0:
+        return None
+
+    end = stdout.find("\n", last_start)
+    if end < 0:
+        return stdout[last_start:]
+    return stdout[last_start:end].rstrip("\r")

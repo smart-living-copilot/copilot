@@ -3,7 +3,10 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
+from code_executor.constants import MAX_STDOUT_CHARS
 from code_executor.execution_environment import ExecutionEnvironment
+
+RESULT_PREFIX = "__VIRTUAL_THING_RESULT__"
 
 
 class ExecutionEnvironmentOutputTestCase(unittest.TestCase):
@@ -50,6 +53,23 @@ class ExecutionEnvironmentOutputTestCase(unittest.TestCase):
         result = self.env.execute_code("None")
 
         self.assertEqual(result["stdout"], "")
+
+    def test_trims_large_human_stdout(self) -> None:
+        result = self.env.execute_code(f"print({'x' * (MAX_STDOUT_CHARS + 50)!r})")
+
+        self.assertIn("... truncated", result["stdout"])
+        self.assertLess(len(result["stdout"]), MAX_STDOUT_CHARS + 200)
+
+    def test_preserves_virtual_thing_result_line_when_stdout_is_trimmed(self) -> None:
+        payload = (
+            RESULT_PREFIX + '{"payload":"' + ("x" * (MAX_STDOUT_CHARS + 50)) + '"}'
+        )
+        result = self.env.execute_code(
+            f"print({'debug ' + ('d' * MAX_STDOUT_CHARS)!r})\nprint({payload!r})"
+        )
+
+        self.assertIn("... truncated", result["stdout"])
+        self.assertIn(payload, result["stdout"].splitlines())
 
 
 if __name__ == "__main__":
