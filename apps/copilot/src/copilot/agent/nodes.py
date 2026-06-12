@@ -118,8 +118,16 @@ def _strip_wot_calls(message: BaseMessage) -> BaseMessage:
 
 
 def _trim_conversation(messages: Sequence[BaseMessage], max_tokens: int) -> list[BaseMessage]:
+    # Strip ``wot_calls`` BEFORE counting tokens: those device-interaction
+    # payloads are removed from the prompt anyway, but a single run_code result
+    # can carry megabytes of them. Trimming on the un-stripped messages let that
+    # invisible data consume the whole budget and evict the real conversation.
+    prepared = [
+        _strip_wot_calls(message)
+        for message in without_device_interaction_summary_messages(messages)
+    ]
     trimmed = trim_messages(
-        without_device_interaction_summary_messages(messages),
+        prepared,
         max_tokens=max_tokens,
         token_counter="approximate",
         strategy="last",
@@ -128,8 +136,7 @@ def _trim_conversation(messages: Sequence[BaseMessage], max_tokens: int) -> list
     )
     if trimmed and isinstance(trimmed[0], SystemMessage):
         trimmed.pop(0)
-    sanitized = _sanitize_message_sequence(trimmed)
-    return [_strip_wot_calls(m) for m in sanitized]
+    return _sanitize_message_sequence(trimmed)
 
 
 def _sanitize_message_sequence(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
