@@ -10,6 +10,8 @@ function headers(): Record<string, string> {
   };
 }
 
+const VIRTUAL_THING_PREFIX = "virtual:things:";
+
 function apiUrl(path: string): string {
   return `${config.registryUrl}${path}`;
 }
@@ -136,6 +138,34 @@ export async function fetchCatalogThing(
     return payload.document as ThingDescription;
   }
   return payload as ThingDescription;
+}
+
+/** Lists catalog TD ids produced by the virtual servient (virtual:things:). */
+export async function listVirtualCatalogThingIds(): Promise<string[]> {
+  const perPage = 200;
+  const ids: string[] = [];
+  for (let page = 1; ; page += 1) {
+    const response = await axios.get(apiUrl("/api/things"), {
+      headers: headers(),
+      params: { page, per_page: perPage },
+      timeout: config.requestTimeoutMs,
+    });
+    const items = response.data?.items;
+    const rows: Array<{ id?: unknown }> = Array.isArray(items) ? items : [];
+    for (const row of rows) {
+      if (
+        typeof row.id === "string" &&
+        row.id.startsWith(VIRTUAL_THING_PREFIX)
+      ) {
+        ids.push(row.id);
+      }
+    }
+    const total = Number(response.data?.total ?? 0);
+    if (rows.length === 0 || page * perPage >= total) {
+      break;
+    }
+  }
+  return ids;
 }
 
 /** Deletes the concrete catalog TD for a stopped virtual Thing. */

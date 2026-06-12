@@ -3,6 +3,7 @@ import {
   fetchDefinition,
   fetchDefinitions,
   invokeVirtualAction,
+  listVirtualCatalogThingIds,
   readVirtualProperty,
   upsertCatalogThing,
 } from "./clients/copilot.js";
@@ -47,20 +48,22 @@ export function errorDetail(error: unknown): string {
 
 async function stopActiveThing(thingId: string): Promise<void> {
   const active = activeThings.get(thingId);
-  if (!active) {
-    return;
+  if (active) {
+    activeThings.delete(thingId);
+    for (const timer of active.timers) {
+      clearInterval(timer);
+    }
+    await Promise.all(
+      active.subscriptions.map((subscription) =>
+        subscription?.stop?.().catch(() => undefined),
+      ),
+    );
+    await Promise.resolve(active.thing?.destroy?.()).catch(() => undefined);
+    await Promise.resolve(active.thing?.unexpose?.()).catch(() => undefined);
   }
-  activeThings.delete(thingId);
-  for (const timer of active.timers) {
-    clearInterval(timer);
-  }
-  await Promise.all(
-    active.subscriptions.map((subscription) =>
-      subscription?.stop?.().catch(() => undefined),
-    ),
-  );
-  await Promise.resolve(active.thing?.destroy?.()).catch(() => undefined);
-  await Promise.resolve(active.thing?.unexpose?.()).catch(() => undefined);
+  // Always remove the catalog TD, even when this instance is not tracking the
+  // produced Thing (e.g. after a restart). Otherwise a deleted definition
+  // leaves an orphan TD in the catalog that keeps reappearing.
   await deleteCatalogThing(thingId).catch((error) =>
     log.warn(`Failed to delete catalog TD for ${thingId}: ${error}`),
   );
@@ -158,8 +161,39 @@ export async function reconcileAll(): Promise<void> {
       await stopActiveThing(existingId);
     }
   }
+  await sweepOrphanCatalogThings(new Set(definitions.map((d) => d.id)));
   for (const definition of definitions) {
     await reconcileDefinition(definition);
+  }
+}
+
+/**
+ * Removes catalog TDs whose virtual Thing definition no longer exists. Each
+ * candidate is re-checked against copilot (404) before deletion so a malformed
+ * or partial definitions response can never wipe live Things.
+ */
+async function sweepOrphanCatalogThings(
+  definedIds: Set<string>,
+): Promise<void> {
+  let catalogIds: string[];
+  try {
+    catalogIds = await listVirtualCatalogThingIds();
+  } catch (error) {
+    log.warn(`Orphan catalog sweep skipped: ${errorDetail(error)}`);
+    return;
+  }
+  for (const catalogId of catalogIds) {
+    if (definedIds.has(catalogId)) {
+      continue;
+    }
+    if ((await fetchDefinition(catalogId)) !== null) {
+      continue;
+    }
+    await deleteCatalogThing(catalogId)
+      .then(() => log.info(`Removed orphan catalog TD ${catalogId}`))
+      .catch((error) =>
+        log.warn(`Failed to remove orphan catalog TD ${catalogId}: ${error}`),
+      );
   }
 }
 
