@@ -118,7 +118,7 @@ __vt_caps = __vt_context.get("capabilities") or []
 # start with ``__`` or Python name-mangling rewrites them (e.g. ``__vt_check`` ->
 # ``_VtGuardedWot__vt_check``), which raises NameError the first time a handler
 # actually calls a capability.
-_vt_real_wot = wot
+_vt_real_wot = getattr(wot, "_vt_real_wot", wot)
 
 def _vt_check(op, thing_id, name):
     for cap in __vt_caps:
@@ -132,19 +132,24 @@ def _vt_check(op, thing_id, name):
     raise PermissionError(f"Virtual Thing handler is not allowed to {{op}} {{thing_id}}/{{name}}")
 
 class _VtGuardedWot:
+    _vt_is_guarded_wot = True
+
+    def __init__(self, real_wot):
+        self._vt_real_wot = real_wot
+
     def read_property(self, thing_id, property_name, uri_variables=None):
         _vt_check("readProperty", thing_id, property_name)
-        return _vt_real_wot.read_property(thing_id, property_name, uri_variables)
+        return self._vt_real_wot.read_property(thing_id, property_name, uri_variables)
 
     def write_property(self, thing_id, property_name, value, uri_variables=None):
         _vt_check("writeProperty", thing_id, property_name)
-        return _vt_real_wot.write_property(thing_id, property_name, value, uri_variables)
+        return self._vt_real_wot.write_property(thing_id, property_name, value, uri_variables)
 
     def invoke_action(self, thing_id, action_name, input=None, uri_variables=None):
         _vt_check("invokeAction", thing_id, action_name)
-        return _vt_real_wot.invoke_action(thing_id, action_name, input, uri_variables)
+        return self._vt_real_wot.invoke_action(thing_id, action_name, input, uri_variables)
 
-wot = _VtGuardedWot()
+wot = _VtGuardedWot(_vt_real_wot)
 __vt_wot_module = __vt_types.ModuleType("wot")
 __vt_wot_module.read_property = wot.read_property
 __vt_wot_module.write_property = wot.write_property

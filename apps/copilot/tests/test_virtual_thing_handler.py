@@ -59,6 +59,33 @@ class VirtualThingGuardedWotTestCase(unittest.TestCase):
 
         self.assertEqual(result, {"fridge": 0.4})
 
+    def test_declared_capability_call_succeeds_after_reused_namespace(self) -> None:
+        code = handler_wrapper(
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    return wot.invoke_action('urn:nilm', 'disaggregate', input)"
+            ),
+            input_value={"series": [1, 2, 3]},
+            state={},
+            context=_context(
+                [{"thing_id": "urn:nilm", "ops": ["invokeAction"], "affordances": ["disaggregate"]}]
+            ),
+        )
+        namespace = {"wot": _fake_wot(invoke_action=lambda *a, **k: {"fridge": 0.4})}
+
+        first_stdout = io.StringIO()
+        with contextlib.redirect_stdout(first_stdout):
+            exec(code, namespace)
+        second_stdout = io.StringIO()
+        with contextlib.redirect_stdout(second_stdout):
+            exec(code, namespace)
+
+        self.assertIn(f"{RESULT_PREFIX}{json.dumps({'fridge': 0.4})}", first_stdout.getvalue())
+        self.assertIn(
+            f"{RESULT_PREFIX}{json.dumps({'fridge': 0.4})}",
+            second_stdout.getvalue(),
+        )
+
     def test_undeclared_capability_is_blocked(self) -> None:
         code = handler_wrapper(
             handler_code=(
