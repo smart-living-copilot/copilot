@@ -26,4 +26,4 @@ if [ ! -d node_modules ] || [ "$CURRENT_HASH" != "$INSTALLED_HASH" ]; then
   printf '%s' "$CURRENT_HASH" > "$STAMP_FILE"
 fi
 
-exec npm run dev -- --webpack --hostname 0.0.0.0
+exec npm run dev -- --hostname 0.0.0.0
