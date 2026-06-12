@@ -225,6 +225,33 @@ def _make_router_messages(messages: Sequence[BaseMessage], max_tokens: int) -> l
     return tail
 
 
+def _latest_run_code_source(messages: Sequence[BaseMessage]) -> str | None:
+    """Return the source of the most recent run_code tool call, if any.
+
+    The virtual_things branch has no run_code tool, and a large analysis result
+    is usually trimmed out of its context window. Pinning the source lets the
+    model reuse prior modelling logic instead of re-deriving it from scratch.
+    """
+    for message in reversed(messages):
+        if not isinstance(message, AIMessage) or not message.tool_calls:
+            continue
+        for tool_call in message.tool_calls:
+            if tool_call.get("name") != "run_code":
+                continue
+            args = tool_call.get("args") or {}
+            source = args.get("code") if isinstance(args, dict) else None
+            if isinstance(source, str) and source.strip():
+                return source.strip()
+    return None
+
+
+def _prior_analysis_block(messages: Sequence[BaseMessage]) -> str:
+    source = _latest_run_code_source(messages)
+    if not source:
+        return ""
+    return f"\n\n## Prior Analysis Code\n```python\n{source}\n```"
+
+
 def _current_time_block() -> str:
     now = datetime.now(timezone.utc)
     ts_ms = int(now.timestamp() * 1000)
@@ -399,7 +426,11 @@ def make_virtual_things_node(
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
-        system_message = SystemMessage(content=VIRTUAL_THINGS_PROMPT + _current_time_block())
+        system_message = SystemMessage(
+            content=VIRTUAL_THINGS_PROMPT
+            + _prior_analysis_block(state["messages"])
+            + _current_time_block()
+        )
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)

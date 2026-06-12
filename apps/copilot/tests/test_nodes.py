@@ -6,8 +6,10 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from copilot.agent.nodes import (
     IntentClassification,
+    _latest_run_code_source,
     _make_llm_node,
     _make_router_messages,
+    _prior_analysis_block,
     _sanitize_message_sequence,
     _strip_wot_calls,
 )
@@ -296,6 +298,42 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(llm.bound_tools, [])
         self.assertEqual(llm.invocations[0][0], "plain")
+
+
+class PriorAnalysisBlockTestCase(unittest.TestCase):
+    def _run_code_message(self, code: str) -> AIMessage:
+        return AIMessage(
+            content="",
+            tool_calls=[{"id": "c1", "name": "run_code", "args": {"code": code}}],
+        )
+
+    def test_returns_latest_run_code_source(self) -> None:
+        messages = [
+            HumanMessage(content="analyze"),
+            self._run_code_message("print('first')"),
+            ToolMessage(content="ok", tool_call_id="c1"),
+            self._run_code_message("print('second')"),
+            ToolMessage(content="ok", tool_call_id="c1"),
+        ]
+
+        self.assertEqual(_latest_run_code_source(messages), "print('second')")
+
+    def test_ignores_non_run_code_tool_calls(self) -> None:
+        messages = [
+            AIMessage(
+                content="",
+                tool_calls=[{"id": "t1", "name": "things_search", "args": {"q": "meter"}}],
+            ),
+        ]
+
+        self.assertIsNone(_latest_run_code_source(messages))
+        self.assertEqual(_prior_analysis_block(messages), "")
+
+    def test_block_embeds_source_when_present(self) -> None:
+        block = _prior_analysis_block([self._run_code_message("x = 1")])
+
+        self.assertIn("## Prior Analysis Code", block)
+        self.assertIn("x = 1", block)
 
 
 if __name__ == "__main__":

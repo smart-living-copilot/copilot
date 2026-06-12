@@ -63,6 +63,13 @@ Draft spec for it (capabilities for both Things are added for you):
       }
     }
 
+## Reusing Prior Analysis
+If the user is turning an analysis you just ran into a Virtual Thing, do not
+re-derive it. When a "Prior Analysis Code" section is provided below, reuse that
+run_code source as the basis for the handler: keep the modelling logic, and adapt
+it to def handle(input, state, context) that reads live values through
+wot.read_property instead of loading historical series.
+
 ## Authoring Procedure
 1. Discover and inspect source Things only when the virtual handler depends on
    real devices or existing events.

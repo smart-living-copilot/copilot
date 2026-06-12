@@ -15,6 +15,10 @@ class VirtualThingPromptTestCase(unittest.TestCase):
         self.assertIn("def handle(input, state, context)", VIRTUAL_THINGS_PROMPT)
         self.assertIn("state = state or {}", VIRTUAL_THINGS_PROMPT)
 
+    def test_authoring_prompt_directs_reuse_of_prior_analysis(self) -> None:
+        self.assertIn("Reusing Prior Analysis", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("Prior Analysis Code", VIRTUAL_THINGS_PROMPT)
+
     def test_authoring_prompt_mentions_async_virtual_servient_production(self) -> None:
         self.assertIn("created asynchronously by virtual-servient", VIRTUAL_THINGS_PROMPT)
         self.assertIn("do not redefine it immediately", VIRTUAL_THINGS_PROMPT)
