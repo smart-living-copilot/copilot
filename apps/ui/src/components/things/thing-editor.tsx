@@ -30,6 +30,8 @@ import {
   fetchThing,
   updateThing,
 } from '@/lib/things-api';
+import { isVirtualThingId } from '@/lib/virtual-things';
+import { deleteVirtualThing } from '@/lib/virtual-things-api';
 import { CodeEditor } from '@/components/code-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -175,6 +177,10 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
     returnTo,
     mode === 'create' ? '/things' : fallbackDetailHref,
   );
+  const virtualEditorHref =
+    mode === 'edit' && thingId
+      ? `/virtual-things/${encodeURIComponent(thingId)}/edit`
+      : null;
 
   useUnsavedChangesGuard(
     Boolean(isDirty && !isSubmitting && !isDeleting),
@@ -299,7 +305,9 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
 
     setIsDeleting(true);
     try {
-      await deleteThing(thing.id);
+      await (isVirtualThingId(thing.id)
+        ? deleteVirtualThing(thing.id)
+        : deleteThing(thing.id));
       toast.success(`Deleted ${thing.title}`);
       router.push('/things');
     } catch (error) {
@@ -323,6 +331,22 @@ export function ThingEditor({ mode, returnTo, thingId }: ThingEditorProps) {
       <Card>
         <CardContent className="flex min-h-64 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (mode === 'edit' && thingId && isVirtualThingId(thingId)) {
+    return (
+      <Card className="rounded-md border-border/70">
+        <CardContent className="flex min-h-64 flex-col items-start justify-center gap-4 p-6">
+          <div className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="h-4 w-4" />
+            Virtual Thing bindings are edited separately.
+          </div>
+          <Button asChild>
+            <Link href={virtualEditorHref ?? '/things'}>Edit bindings</Link>
+          </Button>
         </CardContent>
       </Card>
     );

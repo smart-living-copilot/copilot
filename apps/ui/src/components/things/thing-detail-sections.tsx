@@ -31,6 +31,7 @@ import {
   ThingSecuritySection,
 } from './thing-detail-tables';
 import { ThingIndexStatusBadge } from './thing-index-status-badge';
+import { VirtualThingStatusToggle } from './virtual-thing-status-toggle';
 
 const DETAIL_TABS_TRIGGER_CLASSNAME =
   'flex-none rounded-none border-b-2 border-transparent px-4 py-2.5 font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-active:border-primary data-active:bg-transparent data-active:text-foreground data-active:shadow-none';
@@ -82,6 +83,7 @@ export interface ThingDetailLayoutProps {
   onDelete: () => Promise<void> | void;
   onDeleteCredential: (securityName: string) => Promise<void> | void;
   onOpenCredential: (definition: SecurityDefinition) => void;
+  isVirtual?: boolean;
 }
 
 export function ThingDetailPageLayout({
@@ -101,10 +103,13 @@ export function ThingDetailPageLayout({
   onDelete,
   onDeleteCredential,
   onOpenCredential,
+  isVirtual = false,
 }: ThingDetailLayoutProps) {
   const pathname = usePathname();
   const editHref = withReturnTo(
-    `/things/${encodeURIComponent(thing.id)}/edit`,
+    isVirtual
+      ? `/virtual-things/${encodeURIComponent(thing.id)}/edit`
+      : `/things/${encodeURIComponent(thing.id)}/edit`,
     pathname,
   );
 
@@ -120,6 +125,7 @@ export function ThingDetailPageLayout({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <ThingIndexStatusBadge status={indexStatus} />
+            {isVirtual ? <Badge variant="secondary">Virtual</Badge> : null}
             <Badge variant="outline">Security {securityStr}</Badge>
             <Badge variant="outline">
               {properties.length} propert{properties.length === 1 ? 'y' : 'ies'}
@@ -133,16 +139,21 @@ export function ThingDetailPageLayout({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {isVirtual ? <VirtualThingStatusToggle thingId={thing.id} /> : null}
           <Button asChild variant="outline">
             <Link href={editHref}>
               <Pencil className="h-4 w-4" />
-              Edit JSON
+              {isVirtual ? 'Edit bindings' : 'Edit JSON'}
             </Link>
           </Button>
           <ConfirmDialog
             destructive
             confirmLabel={isDeleting ? 'Removing...' : 'Remove'}
-            description="This permanently removes the Thing Description and related credentials. This cannot be undone."
+            description={
+              isVirtual
+                ? 'This permanently removes the Virtual Thing definition, bindings, and produced Thing. This cannot be undone.'
+                : 'This permanently removes the Thing Description and related credentials. This cannot be undone.'
+            }
             onConfirm={onDelete}
             title={`Remove "${thing.title}"?`}
             trigger={

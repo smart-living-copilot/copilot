@@ -12,6 +12,7 @@ import { Eye, Plus, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { type ThingRecord, fetchThings } from '@/lib/things-api';
+import { isVirtualThingId } from '@/lib/virtual-things';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -226,13 +227,18 @@ export function ThingsList() {
                       <TableRow key={record.id}>
                         <TableCell className="min-w-[280px]">
                           <div className="space-y-1">
-                            <button
-                              className="font-medium transition-colors hover:text-primary"
-                              onClick={() => setSelectedThingId(record.id)}
-                              type="button"
-                            >
-                              {record.title}
-                            </button>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                className="font-medium transition-colors hover:text-primary"
+                                onClick={() => setSelectedThingId(record.id)}
+                                type="button"
+                              >
+                                {record.title}
+                              </button>
+                              {isVirtualThingId(record.id) ? (
+                                <Badge variant="secondary">Virtual</Badge>
+                              ) : null}
+                            </div>
                             <p className="line-clamp-2 max-w-xl text-sm leading-5 text-muted-foreground">
                               {record.description || 'No description provided.'}
                             </p>

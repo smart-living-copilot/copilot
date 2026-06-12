@@ -56,6 +56,18 @@ function getRecordBreadcrumbTarget(
     };
   }
 
+  // Virtual Things live under /things; their logic editor lives at
+  // /virtual-things/{id}/edit, so resolve the label and point the detail crumb
+  // back at the shared Things detail page.
+  if (section === 'virtual-things' && rawId) {
+    const id = decodePathSegment(rawId);
+    return {
+      href: `/things/${encodeURIComponent(id)}`,
+      id,
+      kind: 'thing',
+    };
+  }
+
   return null;
 }
 
@@ -143,6 +155,16 @@ function useBreadcrumbs(): BreadcrumbSegment[] {
       segments.push({ label: recordLabel ?? 'Job detail' });
     } else if (pathname !== '/jobs') {
       segments.push({ label: 'Detail' });
+    }
+  } else if (pathname.startsWith('/virtual-things')) {
+    segments.push({ label: 'Things', href: '/things' });
+
+    if (target?.kind === 'thing') {
+      segments.push({
+        label: recordLabel ?? 'Thing detail',
+        href: target.href,
+      });
+      segments.push({ label: 'Edit bindings' });
     }
   } else if (pathname.startsWith('/panels')) {
     segments.push({ label: 'Panels', href: '/panels' });

@@ -8,6 +8,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { httpClient, httpJson } from '@/lib/http-client';
 import { type ThingRecord, deleteThing, fetchThing } from '@/lib/things-api';
+import { isVirtualThingId } from '@/lib/virtual-things';
+import { deleteVirtualThing } from '@/lib/virtual-things-api';
 
 import {
   ThingDetailPageLayout,
@@ -113,6 +115,7 @@ export function ThingDetail({
   }, [fetchCredentials]);
 
   const doc = thing?.document as Record<string, unknown> | undefined;
+  const isVirtual = isVirtualThingId(thingId);
 
   const detailData = useMemo(() => {
     if (!thing || !doc) {
@@ -155,7 +158,9 @@ export function ThingDetail({
 
     setIsDeleting(true);
     try {
-      await deleteThing(thing.id);
+      await (isVirtualThingId(thing.id)
+        ? deleteVirtualThing(thing.id)
+        : deleteThing(thing.id));
       toast.success(`Deleted ${thing.title}`);
       if (onDeleted) {
         onDeleted(thing.id);
@@ -231,6 +236,7 @@ export function ThingDetail({
     onDelete: handleDelete,
     onDeleteCredential: handleDeleteCredential,
     onOpenCredential: handleOpenCredential,
+    isVirtual,
   };
 
   return (
