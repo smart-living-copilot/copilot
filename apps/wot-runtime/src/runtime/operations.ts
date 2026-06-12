@@ -121,6 +121,70 @@ function interactionError(
   throw error;
 }
 
+function schemaIncludesType(schema: Record<string, unknown>, expectedType: string): boolean {
+  const type = schema.type;
+  if (type === expectedType) {
+    return true;
+  }
+  return Array.isArray(type) && type.includes(expectedType);
+}
+
+function actionInputSchema(actionDef: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(actionDef) || !isPlainObject(actionDef.input)) {
+    return null;
+  }
+  return actionDef.input;
+}
+
+function objectInputRequiredFields(actionDef: unknown): string[] | null {
+  const schema = actionInputSchema(actionDef);
+  if (!schema || !schemaIncludesType(schema, 'object')) {
+    return null;
+  }
+  return Array.isArray(schema.required)
+    ? schema.required.filter((field): field is string => typeof field === 'string' && field.trim().length > 0)
+    : [];
+}
+
+/**
+ * Defaults omitted optional object action inputs to an empty object.
+ */
+export function resolveInvokeActionInput(actionDef: unknown, input: unknown): unknown {
+  const requiredFields = objectInputRequiredFields(actionDef);
+  if (requiredFields === null) {
+    return input;
+  }
+  if ((input === undefined || input === null) && requiredFields.length === 0) {
+    return {};
+  }
+  return input;
+}
+
+/**
+ * Builds a clear validation message for omitted required object action inputs.
+ */
+export function missingInvokeActionInputMessage(
+  actionDef: unknown,
+  thingId: string,
+  actionName: string,
+  input: unknown,
+): string | null {
+  if (input !== undefined && input !== null) {
+    return null;
+  }
+
+  const requiredFields = objectInputRequiredFields(actionDef);
+  if (!requiredFields?.length) {
+    return null;
+  }
+
+  return (
+    `InvokeAction input for '${thingId}/${actionName}' must be an object with required ` +
+    `field${requiredFields.length === 1 ? '' : 's'}: ${requiredFields.join(', ')}. ` +
+    `Pass an object matching the Thing Description input schema.`
+  );
+}
+
 
 /**
  * Fetches a Thing Description and consumes it via the node-wot servient.
@@ -271,8 +335,13 @@ export async function handleInvokeAction(request: any): Promise<any> {
   })();
 
   const options = buildInteractionOptions(request, resolvedFormIndex) || {};
-  const input = decodePayloadEnvelope(request.input);
   const actionDef = getAffordanceDefinition(document, actionName, 'invokeaction');
+  const decodedInput = decodePayloadEnvelope(request.input);
+  const missingInputMessage = missingInvokeActionInputMessage(actionDef, thingId, actionName, decodedInput);
+  if (missingInputMessage) {
+    throw createRuntimeError('invalid_argument', missingInputMessage);
+  }
+  const input = resolveInvokeActionInput(actionDef, decodedInput);
 
   if (isPlainObject(actionDef) && actionDef.synchronous === false) {
     throw createRuntimeError(
