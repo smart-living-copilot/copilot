@@ -5,8 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from copilot.agent.tools.virtual_things import define_virtual_thing, draft_virtual_thing_definition
+from copilot.virtual_things.capabilities import infer_capabilities
 from copilot.virtual_things.dispatcher import _RESULT_PREFIX, VirtualThingDispatcher
-from copilot.virtual_things.schemas import DefineVirtualThingRequest
+from copilot.virtual_things.schemas import DefineVirtualThingRequest, VirtualThingBindingSpec
 from copilot.virtual_things.validator import VirtualThingValidator
 
 
@@ -380,6 +381,103 @@ class VirtualThingSchemasTestCase(unittest.TestCase):
         self.assertEqual(binding.affordance_name, "tick")
         self.assertEqual(binding.kind, "emitted")
         self.assertEqual(binding.trigger.interval_seconds if binding.trigger else None, 10)
+
+
+class VirtualThingCapabilityInferenceTestCase(unittest.TestCase):
+    def test_infers_grants_for_each_source_thing(self):
+        handler = (
+            "def handle(input, state, context):\n"
+            "    forecast = wot.read_property('urn:dev:forecast', 'nextHourKw')\n"
+            "    usage = wot.read_property('urn:dev:meter', 'powerKw')\n"
+            "    wot.invoke_action('urn:dev:meter', 'reset')\n"
+            "    return forecast - usage"
+        )
+
+        capabilities = infer_capabilities(handler)
+
+        self.assertEqual(
+            capabilities,
+            [
+                {
+                    "thing_id": "urn:dev:forecast",
+                    "ops": ["readProperty"],
+                    "affordances": ["nextHourKw"],
+                },
+                {
+                    "thing_id": "urn:dev:meter",
+                    "ops": ["invokeAction", "readProperty"],
+                    "affordances": ["powerKw", "reset"],
+                },
+            ],
+        )
+
+    def test_dynamic_thing_id_is_not_inferred(self):
+        handler = (
+            "def handle(input, state, context):\n"
+            "    target = context['config']['thing_id']\n"
+            "    return wot.read_property(target, 'value')"
+        )
+
+        self.assertEqual(infer_capabilities(handler), [])
+
+    def test_dynamic_affordance_grants_all_affordances(self):
+        handler = (
+            "def handle(input, state, context):\n"
+            "    return wot.read_property('urn:dev:meter', input['name'])"
+        )
+
+        self.assertEqual(
+            infer_capabilities(handler),
+            [{"thing_id": "urn:dev:meter", "ops": ["readProperty"], "affordances": []}],
+        )
+
+    def test_binding_merges_explicit_and_inferred_capabilities(self):
+        binding = VirtualThingBindingSpec(
+            affordance_type="property",
+            affordance_name="headroom",
+            kind="computed",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    return wot.read_property('urn:dev:meter', 'powerKw')"
+            ),
+            capabilities=[
+                {
+                    "thing_id": "urn:dev:forecast",
+                    "ops": ["readProperty"],
+                    "affordances": ["nextHourKw"],
+                }
+            ],
+        )
+
+        grants = {cap.thing_id: cap for cap in binding.capabilities}
+        self.assertEqual(set(grants), {"urn:dev:forecast", "urn:dev:meter"})
+        self.assertEqual(grants["urn:dev:meter"].ops, ["readProperty"])
+        self.assertEqual(grants["urn:dev:meter"].affordances, ["powerKw"])
+
+    def test_draft_tool_attaches_inferred_capabilities(self):
+        result = draft_virtual_thing_definition.invoke(
+            {
+                "spec": {
+                    "title": "Grid Headroom",
+                    "properties": {
+                        "headroom": {
+                            "schema": {"type": "number"},
+                            "handler_code": (
+                                "def handle(input, state, context):\n"
+                                "    f = wot.read_property('urn:dev:forecast', 'nextHourKw')\n"
+                                "    u = wot.read_property('urn:dev:meter', 'powerKw')\n"
+                                "    return f - u"
+                            ),
+                        }
+                    },
+                }
+            }
+        )
+
+        self.assertTrue(result["ok"], result)
+        capabilities = result["define_args"]["bindings"][0]["capabilities"]
+        thing_ids = {cap["thing_id"] for cap in capabilities}
+        self.assertEqual(thing_ids, {"urn:dev:forecast", "urn:dev:meter"})
 
 
 class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):

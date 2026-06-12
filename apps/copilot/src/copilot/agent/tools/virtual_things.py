@@ -96,6 +96,11 @@ async def define_virtual_thing(
     For emitted events, return an object: {"emit": bool, "payload": value,
     "state": next_state}. Returning emit=false suppresses the event; state is
     persisted so handlers can implement threshold or edge detection.
+
+    To read or combine real Things, call the injected `wot` client inside handle:
+    `wot.read_property(thing_id, name)`, `wot.invoke_action(thing_id, name, input)`,
+    `wot.write_property(thing_id, name, value)`. Pass literal thing_id/name strings
+    so the required capability grants are inferred automatically.
     """
     try:
         request = DefineVirtualThingRequest(

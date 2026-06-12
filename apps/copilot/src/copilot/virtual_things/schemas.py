@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from copilot.catalog.validation import validate_document
+from copilot.virtual_things.capabilities import infer_capabilities
 from copilot.virtual_things.ids import make_virtual_thing_id
 
 AffordanceType = Literal["property", "action", "event"]
@@ -128,6 +129,13 @@ class VirtualThingBindingSpec(BaseModel):
             raise ValueError("computed bindings only support properties and actions")
         return self
 
+    @model_validator(mode="after")
+    def _grant_inferred_capabilities(self) -> "VirtualThingBindingSpec":
+        inferred = infer_capabilities(self.handler_code)
+        if inferred:
+            self.capabilities = _merge_capabilities(self.capabilities, inferred)
+        return self
+
 
 class DefineVirtualThingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -178,6 +186,49 @@ class VirtualThingDefinition(BaseModel):
     version: int
     status: VirtualThingStatus
     bindings: list[VirtualThingBindingSpec]
+
+
+def _merge_capabilities(
+    explicit: list[VirtualThingCapability],
+    inferred: list[dict[str, Any]],
+) -> list[VirtualThingCapability]:
+    """Union explicitly declared grants with statically inferred ones by thing_id.
+
+    Empty ``affordances`` means "every affordance", so it dominates a specific
+    list when the two are merged for the same Thing.
+    """
+    grants: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+
+    def _accumulate(thing_id: str, ops: list[str], affordances: list[str]) -> None:
+        grant = grants.get(thing_id)
+        if grant is None:
+            grant = {"ops": set(), "affordances": set(), "all_affordances": False}
+            grants[thing_id] = grant
+            order.append(thing_id)
+        grant["ops"].update(ops)
+        if affordances:
+            grant["affordances"].update(affordances)
+        else:
+            grant["all_affordances"] = True
+
+    for capability in explicit:
+        _accumulate(capability.thing_id, capability.ops, capability.affordances)
+    for capability in inferred:
+        _accumulate(capability["thing_id"], capability["ops"], capability["affordances"])
+
+    return [
+        VirtualThingCapability(
+            thing_id=thing_id,
+            ops=sorted(grants[thing_id]["ops"]),
+            affordances=(
+                []
+                if grants[thing_id]["all_affordances"]
+                else sorted(grants[thing_id]["affordances"])
+            ),
+        )
+        for thing_id in order
+    ]
 
 
 def json_safe(value: Any) -> Any:
