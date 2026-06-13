@@ -1,5 +1,7 @@
 'use client';
 
+import { Suspense } from 'react';
+
 import { DetailDrawerShell } from '@/components/detail-drawer-shell';
 import { ThingDetail } from '@/components/things/thing-detail';
 
@@ -25,7 +27,15 @@ export function ThingDetailDrawer({
       title="Thing Details"
       width="min(100vw, 64rem)"
     >
-      {thingId ? <ThingDetail thingId={thingId} onDeleted={onDeleted} /> : null}
+      {thingId ? (
+        <Suspense fallback={null}>
+          <ThingDetail
+            thingId={thingId}
+            onDeleted={onDeleted}
+            variant="drawer"
+          />
+        </Suspense>
+      ) : null}
     </DetailDrawerShell>
   );
 }

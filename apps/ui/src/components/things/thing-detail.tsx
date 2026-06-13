@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { type RJSFSchema } from '@rjsf/utils';
 import { toast } from 'sonner';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,8 +10,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { httpClient, httpJson } from '@/lib/http-client';
 import { type ThingRecord, deleteThing, fetchThing } from '@/lib/things-api';
 import { isVirtualThingId } from '@/lib/virtual-things';
-import { deleteVirtualThing } from '@/lib/virtual-things-api';
+import {
+  deleteVirtualThing,
+  fetchVirtualThingDefinition,
+  type VirtualThingBinding,
+  type VirtualThingDefinition,
+} from '@/lib/virtual-things-api';
 
+import { BindingDrawer, bindingKey } from './binding-drawer';
+import { RunAffordanceDialog } from './run-affordance-dialog';
 import {
   ThingDetailPageLayout,
   type ThingDetailLayoutProps,
@@ -27,14 +35,55 @@ import {
   type ThingIndexStatus,
 } from './thing-detail-model';
 
+function tabForBindingKey(
+  key: string | null,
+): 'properties' | 'events' | 'actions' | undefined {
+  if (key?.startsWith('action:')) return 'actions';
+  if (key?.startsWith('event:')) return 'events';
+  if (key?.startsWith('property:')) return 'properties';
+  return undefined;
+}
+
+/** Pull the input JSON Schema for an affordance out of the Thing Description. */
+function inputSchemaFromDoc(
+  doc: Record<string, unknown> | undefined,
+  binding: VirtualThingBinding | null,
+): RJSFSchema | null {
+  if (!doc || !binding) return null;
+  const collection =
+    binding.affordance_type === 'action'
+      ? doc.actions
+      : binding.affordance_type === 'event'
+        ? doc.events
+        : null;
+  if (!collection || typeof collection !== 'object') return null;
+  const affordance = (collection as Record<string, unknown>)[
+    binding.affordance_name
+  ];
+  if (!affordance || typeof affordance !== 'object') return null;
+  const schema = (affordance as Record<string, unknown>)[
+    binding.affordance_type === 'action' ? 'input' : 'data'
+  ];
+  return schema && typeof schema === 'object' ? (schema as RJSFSchema) : null;
+}
+
 export function ThingDetail({
   thingId,
   onDeleted,
+  variant = 'page',
 }: {
   thingId: string;
   onDeleted?: (thingId: string) => void;
+  /**
+   * 'page' = standalone details page (binding editor opens in place).
+   * 'drawer' = hosted in the compact detail drawer (binding deep-links to the
+   * full page instead of stacking a second drawer).
+   */
+  variant?: 'page' | 'drawer';
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [thing, setThing] = useState<ThingRecord | null>(null);
   const [isPending, setIsPending] = useState(true);
@@ -45,6 +94,15 @@ export function ThingDetail({
   const [activeSecDef, setActiveSecDef] = useState<SecurityDefinition | null>(
     null,
   );
+  const [definition, setDefinition] = useState<VirtualThingDefinition | null>(
+    null,
+  );
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeBindingKey, setActiveBindingKey] = useState<string | null>(null);
+  const [runBindingKey, setRunBindingKey] = useState<string | null>(null);
+  const [runOpen, setRunOpen] = useState(false);
+
+  const isVirtual = isVirtualThingId(thingId);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,8 +172,81 @@ export function ThingDetail({
     void fetchCredentials();
   }, [fetchCredentials]);
 
+  useEffect(() => {
+    if (!isVirtual) {
+      setDefinition(null);
+      return;
+    }
+    let cancelled = false;
+    fetchVirtualThingDefinition(thingId, true)
+      .then((data) => {
+        if (!cancelled) setDefinition(data);
+      })
+      .catch(() => {
+        if (!cancelled) setDefinition(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVirtual, thingId]);
+
+  const bindingMap = useMemo(() => {
+    if (!definition) return undefined;
+    return new Map<string, VirtualThingBinding>(
+      definition.bindings.map((binding) => [bindingKey(binding), binding]),
+    );
+  }, [definition]);
+
+  const setBindingParam = useCallback(
+    (key: string | null) => {
+      const params = new URLSearchParams(Array.from(searchParams.entries()));
+      if (key) params.set('binding', key);
+      else params.delete('binding');
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
+  // Open the editor in place (full details page).
+  const handleOpenBinding = useCallback(
+    (key: string) => {
+      setActiveBindingKey(key);
+      setDrawerOpen(true);
+      setBindingParam(key);
+    },
+    [setBindingParam],
+  );
+
+  // Deep-link target to the full page (compact drawer context).
+  const buildBindingHref = useCallback(
+    (key: string) =>
+      `/things/${encodeURIComponent(thingId)}?binding=${encodeURIComponent(key)}`,
+    [thingId],
+  );
+
+  const handleRun = useCallback(
+    (affordanceType: VirtualThingBinding['affordance_type'], name: string) => {
+      setRunBindingKey(`${affordanceType}:${name}`);
+      setRunOpen(true);
+    },
+    [],
+  );
+
+  // Auto-open the editor when arriving via a ?binding= deep link (page only).
+  const deepLinkBinding =
+    variant === 'page' ? searchParams.get('binding') : null;
+  useEffect(() => {
+    if (!deepLinkBinding || !bindingMap?.has(deepLinkBinding)) return;
+    setActiveBindingKey(deepLinkBinding);
+    setDrawerOpen(true);
+  }, [deepLinkBinding, bindingMap]);
+
+  const runBinding = runBindingKey
+    ? (bindingMap?.get(runBindingKey) ?? null)
+    : null;
+
   const doc = thing?.document as Record<string, unknown> | undefined;
-  const isVirtual = isVirtualThingId(thingId);
 
   const detailData = useMemo(() => {
     if (!thing || !doc) {
@@ -237,11 +368,43 @@ export function ThingDetail({
     onDeleteCredential: handleDeleteCredential,
     onOpenCredential: handleOpenCredential,
     isVirtual,
+    bindings: isVirtual ? bindingMap : undefined,
+    onRun: isVirtual ? handleRun : undefined,
+    onOpenBinding:
+      isVirtual && variant === 'page' ? handleOpenBinding : undefined,
+    bindingHref:
+      isVirtual && variant === 'drawer' ? buildBindingHref : undefined,
+    activeBindingKey: isVirtual ? activeBindingKey : null,
+    defaultTab:
+      variant === 'page' ? tabForBindingKey(deepLinkBinding) : undefined,
   };
 
   return (
     <>
       <ThingDetailPageLayout {...sharedProps} />
+
+      {isVirtual && variant === 'page' ? (
+        <BindingDrawer
+          definition={definition}
+          activeKey={activeBindingKey}
+          open={drawerOpen}
+          onOpenChange={(next) => {
+            setDrawerOpen(next);
+            if (!next) setBindingParam(null);
+          }}
+          onSaved={setDefinition}
+        />
+      ) : null}
+
+      {isVirtual ? (
+        <RunAffordanceDialog
+          thingId={thingId}
+          binding={runBinding}
+          inputSchema={inputSchemaFromDoc(doc, runBinding)}
+          open={runOpen}
+          onOpenChange={setRunOpen}
+        />
+      ) : null}
 
       {activeSecDef ? (
         <CredentialDialog

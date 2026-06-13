@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { type ThingRecord } from '@/lib/things-api';
+import { type VirtualThingBinding } from '@/lib/virtual-things-api';
 import { withReturnTo } from '@/lib/return-to';
 
 import {
@@ -84,6 +85,15 @@ export interface ThingDetailLayoutProps {
   onDeleteCredential: (securityName: string) => Promise<void> | void;
   onOpenCredential: (definition: SecurityDefinition) => void;
   isVirtual?: boolean;
+  bindings?: Map<string, VirtualThingBinding>;
+  onRun?: (
+    affordanceType: VirtualThingBinding['affordance_type'],
+    name: string,
+  ) => void;
+  onOpenBinding?: (key: string) => void;
+  bindingHref?: (key: string) => string;
+  activeBindingKey?: string | null;
+  defaultTab?: 'properties' | 'events' | 'actions';
 }
 
 export function ThingDetailPageLayout({
@@ -104,12 +114,16 @@ export function ThingDetailPageLayout({
   onDeleteCredential,
   onOpenCredential,
   isVirtual = false,
+  bindings,
+  onRun,
+  onOpenBinding,
+  bindingHref,
+  activeBindingKey,
+  defaultTab,
 }: ThingDetailLayoutProps) {
   const pathname = usePathname();
   const editHref = withReturnTo(
-    isVirtual
-      ? `/virtual-things/${encodeURIComponent(thing.id)}/edit`
-      : `/things/${encodeURIComponent(thing.id)}/edit`,
+    `/things/${encodeURIComponent(thing.id)}/edit`,
     pathname,
   );
 
@@ -140,12 +154,14 @@ export function ThingDetailPageLayout({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {isVirtual ? <VirtualThingStatusToggle thingId={thing.id} /> : null}
-          <Button asChild variant="outline">
-            <Link href={editHref}>
-              <Pencil className="h-4 w-4" />
-              {isVirtual ? 'Edit bindings' : 'Edit JSON'}
-            </Link>
-          </Button>
+          {!isVirtual ? (
+            <Button asChild variant="outline">
+              <Link href={editHref}>
+                <Pencil className="h-4 w-4" />
+                Edit JSON
+              </Link>
+            </Button>
+          ) : null}
           <ConfirmDialog
             destructive
             confirmLabel={isDeleting ? 'Removing...' : 'Remove'}
@@ -208,7 +224,7 @@ export function ThingDetailPageLayout({
         onOpenCredential={onOpenCredential}
       />
 
-      <Tabs defaultValue="properties" className="space-y-5">
+      <Tabs defaultValue={defaultTab ?? 'properties'} className="space-y-5">
         <div className="overflow-x-auto">
           <TabsList
             variant="line"
@@ -242,15 +258,36 @@ export function ThingDetailPageLayout({
         </div>
 
         <TabsContent value="properties" className="mt-0">
-          <ThingPropertiesSection properties={properties} />
+          <ThingPropertiesSection
+            properties={properties}
+            bindings={bindings}
+            onRun={onRun}
+            onOpenBinding={onOpenBinding}
+            bindingHref={bindingHref}
+            activeKey={activeBindingKey}
+          />
         </TabsContent>
 
         <TabsContent value="events" className="mt-0">
-          <ThingEventsSection events={events} />
+          <ThingEventsSection
+            events={events}
+            bindings={bindings}
+            onRun={onRun}
+            onOpenBinding={onOpenBinding}
+            bindingHref={bindingHref}
+            activeKey={activeBindingKey}
+          />
         </TabsContent>
 
         <TabsContent value="actions" className="mt-0">
-          <ThingActionsSection actions={actions} />
+          <ThingActionsSection
+            actions={actions}
+            bindings={bindings}
+            onRun={onRun}
+            onOpenBinding={onOpenBinding}
+            bindingHref={bindingHref}
+            activeKey={activeBindingKey}
+          />
         </TabsContent>
 
         <TabsContent value="semantic" className="mt-0">

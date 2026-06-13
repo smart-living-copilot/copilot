@@ -1,7 +1,16 @@
 'use client';
 
 import { type ReactNode } from 'react';
-import { Check, Lock, Shield, Trash2, X } from 'lucide-react';
+import Link from 'next/link';
+import {
+  Check,
+  ChevronRight,
+  Lock,
+  Play,
+  Shield,
+  Trash2,
+  X,
+} from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,6 +29,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
+
+import { type VirtualThingBinding } from '@/lib/virtual-things-api';
 
 import {
   type ActionDef,
@@ -28,6 +40,102 @@ import {
   type SecurityDefinition,
   type StoredCredential,
 } from './thing-detail-model';
+
+/**
+ * Per-row Run / Binding controls. Shown for Virtual Things only.
+ * - `onRun` runs the affordance (a dialog) — available in every context.
+ * - `onOpenBinding` opens the binding editor in place (full details page).
+ * - `bindingHref` deep-links to the full page (compact drawer context).
+ * Pass one of `onOpenBinding` / `bindingHref`, not both.
+ */
+export interface RowActionsProps {
+  bindings?: Map<string, VirtualThingBinding>;
+  onRun?: (
+    affordanceType: VirtualThingBinding['affordance_type'],
+    name: string,
+  ) => void;
+  onOpenBinding?: (key: string) => void;
+  bindingHref?: (key: string) => string;
+  /** Binding key whose row is currently selected/open in the editor. */
+  activeKey?: string | null;
+}
+
+function isActiveRow(
+  activeKey: string | null | undefined,
+  affordanceType: VirtualThingBinding['affordance_type'],
+  name: string,
+) {
+  return activeKey === `${affordanceType}:${name}`;
+}
+
+function hasRowActions({
+  bindings,
+  onRun,
+  onOpenBinding,
+  bindingHref,
+}: RowActionsProps) {
+  return Boolean(bindings && (onRun || onOpenBinding || bindingHref));
+}
+
+function RowActionsHeadCell({ show }: { show: boolean }) {
+  return show ? (
+    <TableHead className="w-px text-right">Actions</TableHead>
+  ) : null;
+}
+
+function RowActionsCell({
+  affordanceType,
+  name,
+  bindings,
+  onRun,
+  onOpenBinding,
+  bindingHref,
+}: RowActionsProps & {
+  affordanceType: VirtualThingBinding['affordance_type'];
+  name: string;
+}) {
+  if (!hasRowActions({ bindings, onRun, onOpenBinding, bindingHref })) {
+    return null;
+  }
+  const key = `${affordanceType}:${name}`;
+  const runnable = bindings?.has(key) ?? false;
+  return (
+    <TableCell className="text-right">
+      {runnable ? (
+        <div className="flex items-center justify-end gap-1">
+          {onRun ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onRun(affordanceType, name)}
+            >
+              <Play className="h-3.5 w-3.5" />
+              Run
+            </Button>
+          ) : null}
+          {onOpenBinding ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="-mr-2"
+              onClick={() => onOpenBinding(key)}
+            >
+              Binding
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          ) : bindingHref ? (
+            <Button size="sm" variant="ghost" className="-mr-2" asChild>
+              <Link href={bindingHref(key)}>
+                Binding
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </TableCell>
+  );
+}
 
 function ThingSectionCard({
   title,
@@ -75,9 +183,20 @@ function BooleanStateIcon({ value }: { value?: boolean }) {
 
 export function ThingPropertiesSection({
   properties,
+  bindings,
+  onRun,
+  onOpenBinding,
+  bindingHref,
+  activeKey,
 }: {
   properties: PropertyDef[];
-}) {
+} & RowActionsProps) {
+  const showActions = hasRowActions({
+    bindings,
+    onRun,
+    onOpenBinding,
+    bindingHref,
+  });
   return (
     <ThingSectionCard
       title="Properties"
@@ -99,11 +218,18 @@ export function ThingPropertiesSection({
                 <TableHead>Observable</TableHead>
                 <TableHead>Unit</TableHead>
                 <TableHead>Description</TableHead>
+                <RowActionsHeadCell show={showActions} />
               </TableRow>
             </TableHeader>
             <TableBody>
               {properties.map((property) => (
-                <TableRow key={property.name}>
+                <TableRow
+                  key={property.name}
+                  className={cn(
+                    isActiveRow(activeKey, 'property', property.name) &&
+                      'bg-primary/5',
+                  )}
+                >
                   <NameCell value={property.name} />
                   <TableCell>
                     <SchemaBadge value={property.type} />
@@ -118,6 +244,14 @@ export function ThingPropertiesSection({
                   <TableCell className="text-muted-foreground">
                     {property.description ?? '-'}
                   </TableCell>
+                  <RowActionsCell
+                    affordanceType="property"
+                    name={property.name}
+                    bindings={bindings}
+                    onRun={onRun}
+                    onOpenBinding={onOpenBinding}
+                    bindingHref={bindingHref}
+                  />
                 </TableRow>
               ))}
             </TableBody>
@@ -130,7 +264,22 @@ export function ThingPropertiesSection({
   );
 }
 
-export function ThingActionsSection({ actions }: { actions: ActionDef[] }) {
+export function ThingActionsSection({
+  actions,
+  bindings,
+  onRun,
+  onOpenBinding,
+  bindingHref,
+  activeKey,
+}: {
+  actions: ActionDef[];
+} & RowActionsProps) {
+  const showActions = hasRowActions({
+    bindings,
+    onRun,
+    onOpenBinding,
+    bindingHref,
+  });
   return (
     <ThingSectionCard
       title="Actions"
@@ -150,11 +299,18 @@ export function ThingActionsSection({ actions }: { actions: ActionDef[] }) {
                 <TableHead>Input</TableHead>
                 <TableHead>Output</TableHead>
                 <TableHead>Description</TableHead>
+                <RowActionsHeadCell show={showActions} />
               </TableRow>
             </TableHeader>
             <TableBody>
               {actions.map((action) => (
-                <TableRow key={action.name}>
+                <TableRow
+                  key={action.name}
+                  className={cn(
+                    isActiveRow(activeKey, 'action', action.name) &&
+                      'bg-primary/5',
+                  )}
+                >
                   <NameCell value={action.name} />
                   <TableCell>
                     <SchemaBadge value={action.inputSchema} />
@@ -165,6 +321,14 @@ export function ThingActionsSection({ actions }: { actions: ActionDef[] }) {
                   <TableCell className="text-muted-foreground">
                     {action.description ?? '-'}
                   </TableCell>
+                  <RowActionsCell
+                    affordanceType="action"
+                    name={action.name}
+                    bindings={bindings}
+                    onRun={onRun}
+                    onOpenBinding={onOpenBinding}
+                    bindingHref={bindingHref}
+                  />
                 </TableRow>
               ))}
             </TableBody>
@@ -177,7 +341,22 @@ export function ThingActionsSection({ actions }: { actions: ActionDef[] }) {
   );
 }
 
-export function ThingEventsSection({ events }: { events: EventDef[] }) {
+export function ThingEventsSection({
+  events,
+  bindings,
+  onRun,
+  onOpenBinding,
+  bindingHref,
+  activeKey,
+}: {
+  events: EventDef[];
+} & RowActionsProps) {
+  const showActions = hasRowActions({
+    bindings,
+    onRun,
+    onOpenBinding,
+    bindingHref,
+  });
   return (
     <ThingSectionCard
       title="Events"
@@ -196,11 +375,18 @@ export function ThingEventsSection({ events }: { events: EventDef[] }) {
                 <TableHead>Name</TableHead>
                 <TableHead>Data</TableHead>
                 <TableHead>Description</TableHead>
+                <RowActionsHeadCell show={showActions} />
               </TableRow>
             </TableHeader>
             <TableBody>
               {events.map((event) => (
-                <TableRow key={event.name}>
+                <TableRow
+                  key={event.name}
+                  className={cn(
+                    isActiveRow(activeKey, 'event', event.name) &&
+                      'bg-primary/5',
+                  )}
+                >
                   <NameCell value={event.name} />
                   <TableCell>
                     <SchemaBadge value={event.dataSchema} />
@@ -208,6 +394,14 @@ export function ThingEventsSection({ events }: { events: EventDef[] }) {
                   <TableCell className="text-muted-foreground">
                     {event.description ?? '-'}
                   </TableCell>
+                  <RowActionsCell
+                    affordanceType="event"
+                    name={event.name}
+                    bindings={bindings}
+                    onRun={onRun}
+                    onOpenBinding={onOpenBinding}
+                    bindingHref={bindingHref}
+                  />
                 </TableRow>
               ))}
             </TableBody>

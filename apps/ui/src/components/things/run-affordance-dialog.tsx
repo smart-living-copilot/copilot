@@ -2,13 +2,14 @@
 
 import { json as jsonLanguage } from '@codemirror/lang-json';
 import { EditorView } from '@codemirror/view';
+import Form from '@rjsf/shadcn';
+import { type RJSFSchema } from '@rjsf/utils';
+import validator from '@rjsf/validator-ajv8';
 import { Copy, Loader2, Play } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { CodeEditor } from '@/components/code-editor';
-import { AffordanceIcon } from '@/components/things/affordance-icon';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -29,6 +30,9 @@ import {
 } from '@/lib/virtual-things-api';
 
 const jsonExtensions = [jsonLanguage(), EditorView.lineWrapping];
+const HIDE_SUBMIT_UI_SCHEMA = {
+  'ui:submitButtonOptions': { norender: true },
+} as const;
 
 function parseJsonInput(value: string): unknown {
   const trimmed = value.trim();
@@ -39,42 +43,71 @@ function parseJsonInput(value: string): unknown {
 export function RunAffordanceDialog({
   thingId,
   binding,
+  inputSchema,
   note,
   open,
   onOpenChange,
 }: {
   thingId: string;
   binding: VirtualThingBinding | null;
+  /** JSON Schema for the affordance input, used to render the form view. */
+  inputSchema?: RJSFSchema | null;
   /** Optional caption, e.g. a warning that runs use the last saved version. */
   note?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const [eventMode, setEventMode] = useState<'evaluate' | 'emit'>('evaluate');
+  const [inputMode, setInputMode] = useState<'form' | 'raw'>('form');
   const [inputText, setInputText] = useState('{}');
+  const [formData, setFormData] = useState<unknown>(undefined);
   const [resultText, setResultText] = useState('');
   const [isRunning, setIsRunning] = useState(false);
 
   const needsInput = !!binding && binding.affordance_type !== 'property';
   const isEvent = binding?.affordance_type === 'event';
+  const canUseForm = needsInput && !!inputSchema;
 
   useEffect(() => {
     setResultText('');
     setInputText('{}');
+    setFormData(undefined);
     setEventMode('evaluate');
-  }, [binding?.affordance_type, binding?.affordance_name]);
+    setInputMode(inputSchema ? 'form' : 'raw');
+  }, [binding?.affordance_type, binding?.affordance_name, inputSchema]);
+
+  function switchInputMode(next: 'form' | 'raw') {
+    if (next === inputMode) return;
+    if (next === 'form') {
+      try {
+        setFormData(parseJsonInput(inputText));
+      } catch {
+        toast.error('Fix the raw JSON before switching to the form');
+        return;
+      }
+    } else {
+      setInputText(JSON.stringify(formData ?? null, null, 2));
+    }
+    setInputMode(next);
+  }
 
   async function handleRun() {
     if (!binding || isRunning) return;
 
     let input: unknown;
-    try {
-      input = parseJsonInput(inputText);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : 'Invalid JSON input',
-      );
-      return;
+    if (needsInput) {
+      if (inputMode === 'form') {
+        input = formData;
+      } else {
+        try {
+          input = parseJsonInput(inputText);
+        } catch (error) {
+          toast.error(
+            error instanceof Error ? error.message : 'Invalid JSON input',
+          );
+          return;
+        }
+      }
     }
 
     setIsRunning(true);
@@ -114,48 +147,82 @@ export function RunAffordanceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {binding ? <AffordanceIcon type={binding.affordance_type} /> : null}
-            <span className="font-mono text-base">
-              {binding
-                ? `${binding.affordance_type}:${binding.affordance_name}`
-                : 'Run'}
-            </span>
-            {binding ? <Badge variant="secondary">{binding.kind}</Badge> : null}
+          <DialogTitle className="pr-8 font-mono text-base">
+            {binding ? binding.affordance_name : 'Run'}
           </DialogTitle>
           <DialogDescription>
-            {note ??
-              (isEvent
-                ? 'Evaluate runs a dry-run; Emit fires the event for real.'
-                : 'Execute this affordance and inspect the result.')}
+            {binding ? (
+              <>
+                <span className="capitalize">{binding.affordance_type}</span>
+                {` · ${binding.kind}`}
+              </>
+            ) : (
+              'Execute this affordance and inspect the result.'
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          {note ? (
+            <p className="text-sm text-muted-foreground">{note}</p>
+          ) : null}
+
           {isEvent ? (
-            <Tabs
-              value={eventMode}
-              onValueChange={(value) =>
-                setEventMode(value as 'evaluate' | 'emit')
-              }
-            >
-              <TabsList>
-                <TabsTrigger value="evaluate">Evaluate</TabsTrigger>
-                <TabsTrigger value="emit">Emit</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <div className="space-y-1.5">
+              <Tabs
+                value={eventMode}
+                onValueChange={(value) =>
+                  setEventMode(value as 'evaluate' | 'emit')
+                }
+              >
+                <TabsList>
+                  <TabsTrigger value="evaluate">Evaluate</TabsTrigger>
+                  <TabsTrigger value="emit">Emit</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <p className="text-xs text-muted-foreground">
+                Evaluate runs a dry-run; Emit fires the event for real.
+              </p>
+            </div>
           ) : null}
 
           {needsInput ? (
             <div className="space-y-1.5">
-              <span className="text-sm font-medium">Input</span>
-              <CodeEditor
-                className="text-[13px]"
-                extensions={jsonExtensions}
-                height="12rem"
-                onChange={setInputText}
-                value={inputText}
-              />
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Input</span>
+                {canUseForm ? (
+                  <Tabs
+                    value={inputMode}
+                    onValueChange={(value) =>
+                      switchInputMode(value as 'form' | 'raw')
+                    }
+                  >
+                    <TabsList>
+                      <TabsTrigger value="form">Form</TabsTrigger>
+                      <TabsTrigger value="raw">Raw</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                ) : null}
+              </div>
+              {inputMode === 'form' && inputSchema ? (
+                <div className="max-h-72 overflow-y-auto rounded-md border border-border/70 p-3">
+                  <Form
+                    schema={inputSchema}
+                    validator={validator}
+                    formData={formData}
+                    onChange={(event) => setFormData(event.formData)}
+                    uiSchema={HIDE_SUBMIT_UI_SCHEMA}
+                  />
+                </div>
+              ) : (
+                <CodeEditor
+                  className="text-[13px]"
+                  extensions={jsonExtensions}
+                  height="12rem"
+                  onChange={setInputText}
+                  value={inputText}
+                />
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">

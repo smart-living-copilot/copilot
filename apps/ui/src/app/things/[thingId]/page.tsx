@@ -1,6 +1,6 @@
 'use client';
 
-import { use } from 'react';
+import { Suspense, use } from 'react';
 import { ThingDetail } from '@/components/things/thing-detail';
 import { AppShell } from '@/components/app-shell';
 
@@ -13,7 +13,9 @@ export default function ThingDetailPage({
 
   return (
     <AppShell>
-      <ThingDetail thingId={decodeURIComponent(thingId)} />
+      <Suspense fallback={null}>
+        <ThingDetail thingId={decodeURIComponent(thingId)} />
+      </Suspense>
     </AppShell>
   );
 }

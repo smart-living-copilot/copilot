@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+/* Generate utility classes used by the bundled @rjsf/shadcn form theme. */
+@source '../../node_modules/@rjsf/shadcn/lib';
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
