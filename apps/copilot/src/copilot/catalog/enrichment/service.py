@@ -43,6 +43,7 @@ async def enrich_thing_document(
     config: EnrichmentConfig,
     llm: Any,
     max_repair_attempts: int = 2,
+    runnable_config: dict[str, Any] | None = None,
 ) -> EnrichmentResult:
     try:
         sanitized = validate_document(document)
@@ -61,6 +62,7 @@ async def enrich_thing_document(
             config=config,
             vocabulary=vocabulary,
             errors=errors,
+            runnable_config=runnable_config,
         )
         shacl_findings = []
         unknown = unknown_proposal_iris(proposal, vocabulary)
@@ -137,6 +139,7 @@ async def _invoke_proposal(
     config: EnrichmentConfig,
     vocabulary: Vocabulary,
     errors: list[str],
+    runnable_config: dict[str, Any] | None = None,
 ) -> EnrichmentProposal:
     repair = ""
     if errors:
@@ -148,7 +151,8 @@ async def _invoke_proposal(
         [
             SystemMessage(content=_system_prompt(config, vocabulary)),
             HumanMessage(content=f"Thing Description JSON:\n{document!r}{repair}"),
-        ]
+        ],
+        config=runnable_config,
     )
     return EnrichmentProposal.model_validate(response)
 

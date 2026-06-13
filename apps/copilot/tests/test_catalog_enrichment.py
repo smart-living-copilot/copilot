@@ -105,9 +105,11 @@ class FakeStructuredLlm:
     def __init__(self, proposals):
         self.proposals = list(proposals)
         self.calls = 0
+        self.configs = []
 
-    async def ainvoke(self, _messages):
+    async def ainvoke(self, _messages, config=None):
         self.calls += 1
+        self.configs.append(config)
         return self.proposals.pop(0)
 
 
@@ -500,6 +502,35 @@ async def test_enrich_infers_unit_before_shacl_repair_is_needed():
     assert result.validation.attempts == 1
     assert llm.structured.calls == 1
     assert result.enriched["properties"]["temperature"]["qudt:unit"] == {"@id": "unit:DEG_C"}
+
+
+@pytest.mark.anyio
+async def test_enrich_forwards_runnable_config_to_llm():
+    """runnable_config (e.g. AG-UI stream-suppression metadata) reaches every ainvoke."""
+    config = load_enrichment_config()
+    proposal = EnrichmentProposal(
+        thing_types=["https://saref.etsi.org/core/TemperatureSensor"],
+        affordances=[
+            {
+                "section": "properties",
+                "name": "temperature",
+                "types": ["https://saref.etsi.org/core/Temperature"],
+                "rationale": "The property is numeric and named temperature.",
+            }
+        ],
+    )
+    llm = FakeLlm([proposal])
+    runnable_config = {"metadata": {"emit-messages": False}}
+
+    await enrich_thing_document(
+        sample_thing_without_unit(),
+        config=config,
+        llm=llm,
+        max_repair_attempts=1,
+        runnable_config=runnable_config,
+    )
+
+    assert llm.structured.configs == [runnable_config]
 
 
 @pytest.mark.anyio
