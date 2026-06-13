@@ -24,7 +24,6 @@ import {
   getStatusLabel,
   type JobDisplayStatus,
 } from '@/lib/job-formatters';
-import { getCodeArtifactSummary } from '@/lib/job-run-output';
 import { type JobRecord } from '@/lib/jobs-api';
 
 interface JobDetailsOverviewTabProps {
@@ -259,9 +258,6 @@ export function JobDetailsOverviewTab({
         <CodeOutputPanel
           result={latestCodeResult ?? {}}
           title="Latest output"
-          readText={
-            latestCodeResult?.stdout?.trim() || latestCodeResult?.error?.trim()
-          }
         />
       ) : (
         <>
@@ -281,18 +277,11 @@ export function JobDetailsOverviewTab({
               job.last_response ||
               'No result captured yet.'
             }
-            readText={
-              latestSubmittedRecordSummary || job.last_response || undefined
-            }
           />
           {latestCodeResult?.artifacts?.length ? (
             <CodeOutputPanel
               result={latestCodeResult}
               title="Generated artifacts"
-              readText={
-                latestCodeResult.stdout?.trim() ||
-                getCodeArtifactSummary(latestCodeResult)
-              }
             />
           ) : null}
         </>

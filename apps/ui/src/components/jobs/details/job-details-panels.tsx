@@ -4,10 +4,6 @@ import { Send } from 'lucide-react';
 import { RunCodeArtifactCard } from '@/components/copilot/chat-tool-call-cards';
 import { type RunCodeResult } from '@/components/copilot/chat-tool-call-model';
 import { PulseDot } from '@/components/jobs/details/pulse-dot';
-import {
-  ReadAloudButton,
-  VoiceAnswerButton,
-} from '@/components/jobs/job-speech-controls';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -57,28 +53,17 @@ export function TextPanel({
   description,
   value,
   compact = false,
-  readText,
 }: {
   title: string;
   description?: string;
   value: string;
   compact?: boolean;
-  readText?: string;
 }) {
   return (
     <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
       <CardHeader className="border-b border-border/70">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">{title}</CardTitle>
-            {description ? (
-              <CardDescription>{description}</CardDescription>
-            ) : null}
-          </div>
-          {readText?.trim() ? (
-            <ReadAloudButton text={readText} compact />
-          ) : null}
-        </div>
+        <CardTitle className="text-base">{title}</CardTitle>
+        {description ? <CardDescription>{description}</CardDescription> : null}
       </CardHeader>
       <CardContent>
         <pre
@@ -98,11 +83,9 @@ export function TextPanel({
 export function CodeOutputPanel({
   result,
   title = 'Code output',
-  readText,
 }: {
   result: RunCodeResult;
   title?: string;
-  readText?: string;
 }) {
   const artifactSummary = getCodeArtifactSummary(result);
   const hasStdout = !!result.stdout?.trim();
@@ -122,17 +105,10 @@ export function CodeOutputPanel({
   return (
     <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
       <CardHeader className="border-b border-border/70">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">{title}</CardTitle>
-            <CardDescription>
-              {artifactSummary || 'Text output from the latest analysis run.'}
-            </CardDescription>
-          </div>
-          {readText?.trim() ? (
-            <ReadAloudButton text={readText} compact />
-          ) : null}
-        </div>
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CardDescription>
+          {artifactSummary || 'Text output from the latest analysis run.'}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {hasError ? (
@@ -172,14 +148,12 @@ export function JobReplyPanel({
   value,
   isSubmitting,
   onChange,
-  onVoiceAnswer,
   onSubmit,
 }: {
   question: string;
   value: string;
   isSubmitting: boolean;
   onChange: (value: string) => void;
-  onVoiceAnswer: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const canSubmit = value.trim().length > 0 && !isSubmitting;
@@ -202,11 +176,8 @@ export function JobReplyPanel({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-md border border-primary/20 bg-background p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs font-medium text-muted-foreground">
-              Question
-            </div>
-            <ReadAloudButton text={question} compact />
+          <div className="text-xs font-medium text-muted-foreground">
+            Question
           </div>
           <p className="mt-2 whitespace-pre-wrap break-words text-base leading-7 text-foreground">
             {question}
@@ -232,10 +203,6 @@ export function JobReplyPanel({
               Press Cmd/Ctrl + Enter to submit
             </span>
             <div className="flex justify-end gap-2">
-              <VoiceAnswerButton
-                disabled={isSubmitting}
-                onTranscript={onVoiceAnswer}
-              />
               <Button type="submit" size="sm" disabled={!canSubmit}>
                 {isSubmitting ? (
                   <Spinner className="size-4" />

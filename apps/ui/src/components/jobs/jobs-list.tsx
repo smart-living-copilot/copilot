@@ -5,7 +5,6 @@ import { Plus, RefreshCw } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
 import { JobDetailsDrawer } from '@/components/jobs/job-details-drawer';
-import { VoiceModeToggle } from '@/components/jobs/job-speech-controls';
 import { JobListFilters } from '@/components/jobs/list/job-list-filters';
 import { JobListTable } from '@/components/jobs/list/job-list-table';
 import { useJobsList } from '@/components/jobs/list/use-jobs-list';
@@ -53,7 +52,6 @@ export function JobsList() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <VoiceModeToggle />
             <Button asChild>
               <Link href="/jobs/new">
                 <Plus className="h-4 w-4" />

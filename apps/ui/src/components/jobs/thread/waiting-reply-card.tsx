@@ -2,10 +2,6 @@ import { type FormEvent } from 'react';
 import Link from 'next/link';
 import { Eye, Send } from 'lucide-react';
 
-import {
-  ReadAloudButton,
-  VoiceAnswerButton,
-} from '@/components/jobs/job-speech-controls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,7 +14,6 @@ interface WaitingReplyCardProps {
   isSubmitting: boolean;
   detailsHref: string;
   onChange: (value: string) => void;
-  onVoiceAnswer: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
@@ -28,7 +23,6 @@ export function WaitingReplyCard({
   isSubmitting,
   detailsHref,
   onChange,
-  onVoiceAnswer,
   onSubmit,
 }: WaitingReplyCardProps) {
   const canSubmit = value.trim().length > 0 && !isSubmitting;
@@ -48,11 +42,8 @@ export function WaitingReplyCard({
           </p>
         </div>
         <div className="rounded-md border bg-muted/20 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs font-medium text-muted-foreground">
-              Question
-            </div>
-            <ReadAloudButton text={question} compact />
+          <div className="text-xs font-medium text-muted-foreground">
+            Question
           </div>
           <p className="mt-2 whitespace-pre-wrap break-words text-base leading-7 text-foreground">
             {question}
@@ -74,10 +65,6 @@ export function WaitingReplyCard({
                 Details
               </Link>
             </Button>
-            <VoiceAnswerButton
-              disabled={isSubmitting}
-              onTranscript={onVoiceAnswer}
-            />
             <Button type="submit" disabled={!canSubmit}>
               {isSubmitting ? (
                 <Spinner className="size-4" />

@@ -10,10 +10,6 @@ import {
 import { BarChart3, Send } from 'lucide-react';
 import { toast } from 'sonner';
 
-import {
-  ReadAloudButton,
-  VoiceAnswerButton,
-} from '@/components/jobs/job-speech-controls';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
@@ -30,10 +26,9 @@ import {
 } from '@/lib/jobs-api';
 
 /**
- * Rich body rendered inside a job event toast. Shows the run summary, a
- * read-aloud (TTS) control, and — for prompt jobs waiting on human feedback —
- * an inline answer form with voice dictation (STT) so the loop can be closed
- * without leaving the page.
+ * Rich body rendered inside a job event toast. Shows the run summary and — for
+ * prompt jobs waiting on human feedback — an inline answer form so the loop can
+ * be closed without leaving the page.
  */
 export function JobToastContent({
   job,
@@ -50,16 +45,13 @@ export function JobToastContent({
 
   return (
     <div className="space-y-2.5">
-      <div className="flex items-start justify-between gap-2">
-        <button
-          type="button"
-          className="cursor-pointer text-left text-sm leading-5"
-          onClick={onOpen}
-        >
-          {detail}
-        </button>
-        <ReadAloudButton text={detail} compact />
-      </div>
+      <button
+        type="button"
+        className="cursor-pointer text-left text-sm leading-5"
+        onClick={onOpen}
+      >
+        {detail}
+      </button>
       {isWaiting ? (
         <JobToastAnswerForm job={job} onAnswered={onAnswered} />
       ) : (
@@ -146,13 +138,6 @@ function JobToastAnswerForm({
     clientReplyId: string;
   } | null>(null);
 
-  const handleVoiceAnswer = useCallback((message: string) => {
-    setValue((current) => {
-      const currentText = current.trim();
-      return currentText ? `${currentText} ${message}` : message;
-    });
-  }, []);
-
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -201,10 +186,6 @@ function JobToastAnswerForm({
         disabled={isSubmitting}
       />
       <div className="flex items-center justify-end gap-2">
-        <VoiceAnswerButton
-          disabled={isSubmitting}
-          onTranscript={handleVoiceAnswer}
-        />
         <Button type="submit" size="sm" disabled={!canSubmit}>
           {isSubmitting ? (
             <Spinner className="size-4" />

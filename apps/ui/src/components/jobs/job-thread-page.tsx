@@ -196,13 +196,6 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
     [inputValue, isWaiting, jobId, load],
   );
 
-  const handleVoiceAnswer = useCallback((message: string) => {
-    setInputValue((current) => {
-      const currentText = current.trim();
-      return currentText ? `${currentText} ${message}` : message;
-    });
-  }, []);
-
   const handleRunPageChange = useCallback(
     (offset: number) => {
       const nextOffset = Math.max(0, offset);
@@ -264,7 +257,6 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
                 isSubmitting={isReplying}
                 detailsHref={`/jobs/${jobId}`}
                 onChange={setInputValue}
-                onVoiceAnswer={handleVoiceAnswer}
                 onSubmit={submitReply}
               />
               {events.length ? <JobEventTimeline events={events} /> : null}
@@ -296,7 +288,6 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
           description="Execution attempts connected to this checkpoint thread."
           outcome={formatJobRunOutcome}
           onPageChange={handleRunPageChange}
-          readOutcome
         />
       ) : null}
     </div>

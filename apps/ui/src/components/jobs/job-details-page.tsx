@@ -56,7 +56,6 @@ export function JobDetailsPage({
     handleRun,
     handleRunPageChange,
     handleReply,
-    handleVoiceAnswer,
     handleToggleEnabled,
     handleCancel,
     handleDelete,
@@ -108,7 +107,6 @@ export function JobDetailsPage({
               value={replyText}
               isSubmitting={isReplying}
               onChange={setReplyText}
-              onVoiceAnswer={handleVoiceAnswer}
               onSubmit={handleReply}
             />
           ) : null}
@@ -200,7 +198,6 @@ export function JobDetailsPage({
                 description="Recent starts, completion times, and captured outcomes."
                 outcome={formatJobRunOutcome}
                 onPageChange={handleRunPageChange}
-                readOutcome
                 showFinished
                 minWidthClassName="min-w-[860px]"
               />

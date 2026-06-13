@@ -2,7 +2,6 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ReadAloudButton } from '@/components/jobs/job-speech-controls';
 import {
   Card,
   CardContent,
@@ -43,7 +42,6 @@ interface JobRunHistoryCardProps {
   onPageChange?: (offset: number) => void;
   showFinished?: boolean;
   minWidthClassName?: string;
-  readOutcome?: boolean;
 }
 
 export function JobRunHistoryCard({
@@ -56,7 +54,6 @@ export function JobRunHistoryCard({
   onPageChange,
   showFinished = false,
   minWidthClassName = 'min-w-[760px]',
-  readOutcome = false,
 }: JobRunHistoryCardProps) {
   const total = totalRuns ?? runs.length;
   const pageSize = limit ?? Math.max(runs.length, 1);
@@ -113,14 +110,9 @@ export function JobRunHistoryCard({
                         </TableCell>
                       ) : null}
                       <TableCell className="align-top text-sm text-muted-foreground">
-                        <div className="flex items-start gap-2">
-                          <p className="line-clamp-3 flex-1 whitespace-pre-wrap break-words">
-                            {outcomeText}
-                          </p>
-                          {readOutcome ? (
-                            <ReadAloudButton text={outcomeText} compact />
-                          ) : null}
-                        </div>
+                        <p className="line-clamp-3 whitespace-pre-wrap break-words">
+                          {outcomeText}
+                        </p>
                       </TableCell>
                     </TableRow>
                   );

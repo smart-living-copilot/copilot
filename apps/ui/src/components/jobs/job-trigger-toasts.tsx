@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 import { useJobDetail } from '@/components/jobs/job-detail-context';
 import { useJobNotifications } from '@/components/jobs/job-notifications-context';
 import { JobToastContent } from '@/components/jobs/job-toast-content';
-import { useSpeechPlayback } from '@/components/jobs/speech-playback-context';
 import { useJobEvents } from '@/hooks/use-job-events';
 import { type JobRecord } from '@/lib/jobs-api';
 
@@ -33,7 +32,6 @@ function summarizeResult(job: JobRecord): string {
 
 export function JobTriggerToasts() {
   const { openJobDetail } = useJobDetail();
-  const { voiceMode, play } = useSpeechPlayback();
   const { addNotification } = useJobNotifications();
   const seenRunsRef = useRef<Set<string>>(new Set());
 
@@ -102,13 +100,8 @@ export function JobTriggerToasts() {
         summary: detail,
         at: job.last_run_at ?? new Date().toISOString(),
       });
-
-      if (voiceMode && detail.trim()) {
-        // Best-effort hands-free read-out; ignore autoplay/synthesis failures.
-        void play(toastId, detail).catch(() => {});
-      }
     },
-    [addNotification, openJobDetail, play, voiceMode],
+    [addNotification, openJobDetail],
   );
 
   useJobEvents(handleJob);

@@ -219,13 +219,6 @@ export function useJobDetails(
     [isWaitingForReply, job, load, replyText],
   );
 
-  const handleVoiceAnswer = useCallback((message: string) => {
-    setReplyText((current) => {
-      const currentText = current.trim();
-      return currentText ? `${currentText} ${message}` : message;
-    });
-  }, []);
-
   const handleToggleEnabled = useCallback(async () => {
     if (!job) return;
     setIsBusy(true);
@@ -304,7 +297,6 @@ export function useJobDetails(
     handleRun,
     handleRunPageChange,
     handleReply,
-    handleVoiceAnswer,
     handleToggleEnabled,
     handleCancel,
     handleDelete,
