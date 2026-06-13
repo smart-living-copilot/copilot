@@ -30,7 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
-
+import { type RuntimeAffordanceType } from '@/lib/wot-runtime-api';
 import { type VirtualThingBinding } from '@/lib/virtual-things-api';
 
 import {
@@ -42,7 +42,7 @@ import {
 } from './thing-detail-model';
 
 /**
- * Per-row Run / Binding controls. Shown for Virtual Things only.
+ * Per-row Run / Binding controls.
  * - `onRun` runs the affordance (a dialog) — available in every context.
  * - `onOpenBinding` opens the binding editor in place (full details page).
  * - `bindingHref` deep-links to the full page (compact drawer context).
@@ -50,10 +50,8 @@ import {
  */
 export interface RowActionsProps {
   bindings?: Map<string, VirtualThingBinding>;
-  onRun?: (
-    affordanceType: VirtualThingBinding['affordance_type'],
-    name: string,
-  ) => void;
+  onRun?: (affordanceType: RuntimeAffordanceType, name: string) => void;
+  runRequiresBinding?: boolean;
   onOpenBinding?: (key: string) => void;
   bindingHref?: (key: string) => string;
   /** Binding key whose row is currently selected/open in the editor. */
@@ -62,7 +60,7 @@ export interface RowActionsProps {
 
 function isActiveRow(
   activeKey: string | null | undefined,
-  affordanceType: VirtualThingBinding['affordance_type'],
+  affordanceType: RuntimeAffordanceType,
   name: string,
 ) {
   return activeKey === `${affordanceType}:${name}`;
@@ -71,10 +69,13 @@ function isActiveRow(
 function hasRowActions({
   bindings,
   onRun,
+  runRequiresBinding,
   onOpenBinding,
   bindingHref,
 }: RowActionsProps) {
-  return Boolean(bindings && (onRun || onOpenBinding || bindingHref));
+  const canRun = Boolean(onRun && (!runRequiresBinding || bindings));
+  const canOpenBinding = Boolean(bindings && (onOpenBinding || bindingHref));
+  return canRun || canOpenBinding;
 }
 
 function RowActionsHeadCell({ show }: { show: boolean }) {
@@ -88,51 +89,59 @@ function RowActionsCell({
   name,
   bindings,
   onRun,
+  runRequiresBinding,
   onOpenBinding,
   bindingHref,
 }: RowActionsProps & {
-  affordanceType: VirtualThingBinding['affordance_type'];
+  affordanceType: RuntimeAffordanceType;
   name: string;
 }) {
-  if (!hasRowActions({ bindings, onRun, onOpenBinding, bindingHref })) {
+  if (
+    !hasRowActions({
+      bindings,
+      onRun,
+      runRequiresBinding,
+      onOpenBinding,
+      bindingHref,
+    })
+  ) {
     return null;
   }
   const key = `${affordanceType}:${name}`;
-  const runnable = bindings?.has(key) ?? false;
+  const runnable = runRequiresBinding ? (bindings?.has(key) ?? false) : true;
+  const hasBinding = bindings?.has(key) ?? false;
   return (
     <TableCell className="text-right">
-      {runnable ? (
-        <div className="flex items-center justify-end gap-1">
-          {onRun ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => onRun(affordanceType, name)}
-            >
-              <Play className="h-3.5 w-3.5" />
-              Run
-            </Button>
-          ) : null}
-          {onOpenBinding ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="-mr-2"
-              onClick={() => onOpenBinding(key)}
-            >
+      <div className="flex items-center justify-end gap-1">
+        {onRun && runnable ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onRun(affordanceType, name)}
+          >
+            <Play className="h-3.5 w-3.5" />
+            Run
+          </Button>
+        ) : null}
+        {hasBinding && onOpenBinding ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="-mr-2"
+            onClick={() => onOpenBinding(key)}
+          >
+            Binding
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        ) : hasBinding && bindingHref ? (
+          <Button size="sm" variant="ghost" className="-mr-2" asChild>
+            <Link href={bindingHref(key)}>
               Binding
               <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
-          ) : bindingHref ? (
-            <Button size="sm" variant="ghost" className="-mr-2" asChild>
-              <Link href={bindingHref(key)}>
-                Binding
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Link>
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
+            </Link>
+          </Button>
+        ) : null}
+      </div>
     </TableCell>
   );
 }
@@ -185,6 +194,7 @@ export function ThingPropertiesSection({
   properties,
   bindings,
   onRun,
+  runRequiresBinding,
   onOpenBinding,
   bindingHref,
   activeKey,
@@ -194,6 +204,7 @@ export function ThingPropertiesSection({
   const showActions = hasRowActions({
     bindings,
     onRun,
+    runRequiresBinding,
     onOpenBinding,
     bindingHref,
   });
@@ -249,6 +260,7 @@ export function ThingPropertiesSection({
                     name={property.name}
                     bindings={bindings}
                     onRun={onRun}
+                    runRequiresBinding={runRequiresBinding}
                     onOpenBinding={onOpenBinding}
                     bindingHref={bindingHref}
                   />
@@ -268,6 +280,7 @@ export function ThingActionsSection({
   actions,
   bindings,
   onRun,
+  runRequiresBinding,
   onOpenBinding,
   bindingHref,
   activeKey,
@@ -277,6 +290,7 @@ export function ThingActionsSection({
   const showActions = hasRowActions({
     bindings,
     onRun,
+    runRequiresBinding,
     onOpenBinding,
     bindingHref,
   });
@@ -326,6 +340,7 @@ export function ThingActionsSection({
                     name={action.name}
                     bindings={bindings}
                     onRun={onRun}
+                    runRequiresBinding={runRequiresBinding}
                     onOpenBinding={onOpenBinding}
                     bindingHref={bindingHref}
                   />
@@ -345,6 +360,7 @@ export function ThingEventsSection({
   events,
   bindings,
   onRun,
+  runRequiresBinding,
   onOpenBinding,
   bindingHref,
   activeKey,
@@ -354,6 +370,7 @@ export function ThingEventsSection({
   const showActions = hasRowActions({
     bindings,
     onRun,
+    runRequiresBinding,
     onOpenBinding,
     bindingHref,
   });
@@ -399,6 +416,7 @@ export function ThingEventsSection({
                     name={event.name}
                     bindings={bindings}
                     onRun={onRun}
+                    runRequiresBinding={runRequiresBinding}
                     onOpenBinding={onOpenBinding}
                     bindingHref={bindingHref}
                   />

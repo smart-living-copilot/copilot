@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { httpClient, httpJson } from '@/lib/http-client';
 import { type ThingRecord, deleteThing, fetchThing } from '@/lib/things-api';
 import { isVirtualThingId } from '@/lib/virtual-things';
+import { type RuntimeAffordanceType } from '@/lib/wot-runtime-api';
 import {
   deleteVirtualThing,
   fetchVirtualThingDefinition,
@@ -18,7 +19,10 @@ import {
 } from '@/lib/virtual-things-api';
 
 import { BindingDrawer, bindingKey } from './binding-drawer';
-import { RunAffordanceDialog } from './run-affordance-dialog';
+import {
+  RunAffordanceDialog,
+  type RunAffordanceTarget,
+} from './run-affordance-dialog';
 import {
   ThingDetailPageLayout,
   type ThingDetailLayoutProps,
@@ -47,24 +51,58 @@ function tabForBindingKey(
 /** Pull the input JSON Schema for an affordance out of the Thing Description. */
 function inputSchemaFromDoc(
   doc: Record<string, unknown> | undefined,
-  binding: VirtualThingBinding | null,
+  target: RunAffordanceTarget | null,
 ): RJSFSchema | null {
-  if (!doc || !binding) return null;
-  const collection =
-    binding.affordance_type === 'action'
-      ? doc.actions
-      : binding.affordance_type === 'event'
-        ? doc.events
-        : null;
-  if (!collection || typeof collection !== 'object') return null;
-  const affordance = (collection as Record<string, unknown>)[
-    binding.affordance_name
-  ];
-  if (!affordance || typeof affordance !== 'object') return null;
+  if (!target) return null;
+  const affordance = affordanceFromDoc(doc, target);
+  if (!affordance) return null;
   const schema = (affordance as Record<string, unknown>)[
-    binding.affordance_type === 'action' ? 'input' : 'data'
+    target.affordanceType === 'action'
+      ? 'input'
+      : target.source === 'virtual'
+        ? 'data'
+        : 'subscription'
   ];
   return schema && typeof schema === 'object' ? (schema as RJSFSchema) : null;
+}
+
+function affordanceFromDoc(
+  doc: Record<string, unknown> | undefined,
+  target: RunAffordanceTarget | null,
+): Record<string, unknown> | null {
+  if (!doc || !target) return null;
+  const collection =
+    target.affordanceType === 'property'
+      ? doc.properties
+      : target.affordanceType === 'action'
+        ? doc.actions
+        : doc.events;
+  if (!collection || typeof collection !== 'object') return null;
+  const affordance = (collection as Record<string, unknown>)[
+    target.affordanceName
+  ];
+  return affordance && typeof affordance === 'object' && !Array.isArray(affordance)
+    ? (affordance as Record<string, unknown>)
+    : null;
+}
+
+function uriVariablesSchemaFromDoc(
+  doc: Record<string, unknown> | undefined,
+  target: RunAffordanceTarget | null,
+): RJSFSchema | null {
+  const affordance = affordanceFromDoc(doc, target);
+  const uriVariables = affordance?.uriVariables;
+  if (
+    !uriVariables ||
+    typeof uriVariables !== 'object' ||
+    Array.isArray(uriVariables)
+  ) {
+    return null;
+  }
+  return {
+    type: 'object',
+    properties: uriVariables as Record<string, RJSFSchema>,
+  };
 }
 
 export function ThingDetail({
@@ -99,7 +137,7 @@ export function ThingDetail({
   );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeBindingKey, setActiveBindingKey] = useState<string | null>(null);
-  const [runBindingKey, setRunBindingKey] = useState<string | null>(null);
+  const [runTarget, setRunTarget] = useState<RunAffordanceTarget | null>(null);
   const [runOpen, setRunOpen] = useState(false);
 
   const isVirtual = isVirtualThingId(thingId);
@@ -226,11 +264,19 @@ export function ThingDetail({
   );
 
   const handleRun = useCallback(
-    (affordanceType: VirtualThingBinding['affordance_type'], name: string) => {
-      setRunBindingKey(`${affordanceType}:${name}`);
+    (affordanceType: RuntimeAffordanceType, name: string) => {
+      const key = `${affordanceType}:${name}`;
+      const binding = bindingMap?.get(key);
+      setRunTarget({
+        thingId,
+        affordanceType,
+        affordanceName: name,
+        source: isVirtual ? 'virtual' : 'runtime',
+        kind: binding?.kind,
+      });
       setRunOpen(true);
     },
-    [],
+    [bindingMap, isVirtual, thingId],
   );
 
   // Auto-open the editor when arriving via a ?binding= deep link (page only).
@@ -241,10 +287,6 @@ export function ThingDetail({
     setActiveBindingKey(deepLinkBinding);
     setDrawerOpen(true);
   }, [deepLinkBinding, bindingMap]);
-
-  const runBinding = runBindingKey
-    ? (bindingMap?.get(runBindingKey) ?? null)
-    : null;
 
   const doc = thing?.document as Record<string, unknown> | undefined;
 
@@ -373,7 +415,8 @@ export function ThingDetail({
         ? `/things/${encodeURIComponent(thingId)}`
         : undefined,
     bindings: isVirtual ? bindingMap : undefined,
-    onRun: isVirtual ? handleRun : undefined,
+    onRun: handleRun,
+    runRequiresBinding: isVirtual,
     onOpenBinding:
       isVirtual && variant === 'page' ? handleOpenBinding : undefined,
     bindingHref:
@@ -400,15 +443,13 @@ export function ThingDetail({
         />
       ) : null}
 
-      {isVirtual ? (
-        <RunAffordanceDialog
-          thingId={thingId}
-          binding={runBinding}
-          inputSchema={inputSchemaFromDoc(doc, runBinding)}
-          open={runOpen}
-          onOpenChange={setRunOpen}
-        />
-      ) : null}
+      <RunAffordanceDialog
+        target={runTarget}
+        inputSchema={inputSchemaFromDoc(doc, runTarget)}
+        uriVariablesSchema={uriVariablesSchemaFromDoc(doc, runTarget)}
+        open={runOpen}
+        onOpenChange={setRunOpen}
+      />
 
       {activeSecDef ? (
         <CredentialDialog

@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { type ThingRecord } from '@/lib/things-api';
+import { type RuntimeAffordanceType } from '@/lib/wot-runtime-api';
 import { type VirtualThingBinding } from '@/lib/virtual-things-api';
 import { withReturnTo } from '@/lib/return-to';
 
@@ -56,10 +57,8 @@ export interface ThingDetailLayoutProps {
   /** When set (drawer context), shows an "Open" button linking to the page. */
   openHref?: string;
   bindings?: Map<string, VirtualThingBinding>;
-  onRun?: (
-    affordanceType: VirtualThingBinding['affordance_type'],
-    name: string,
-  ) => void;
+  onRun?: (affordanceType: RuntimeAffordanceType, name: string) => void;
+  runRequiresBinding?: boolean;
   onOpenBinding?: (key: string) => void;
   bindingHref?: (key: string) => string;
   activeBindingKey?: string | null;
@@ -87,6 +86,7 @@ export function ThingDetailPageLayout({
   openHref,
   bindings,
   onRun,
+  runRequiresBinding,
   onOpenBinding,
   bindingHref,
   activeBindingKey,
@@ -223,6 +223,7 @@ export function ThingDetailPageLayout({
             properties={properties}
             bindings={bindings}
             onRun={onRun}
+            runRequiresBinding={runRequiresBinding}
             onOpenBinding={onOpenBinding}
             bindingHref={bindingHref}
             activeKey={activeBindingKey}
@@ -234,6 +235,7 @@ export function ThingDetailPageLayout({
             events={events}
             bindings={bindings}
             onRun={onRun}
+            runRequiresBinding={runRequiresBinding}
             onOpenBinding={onOpenBinding}
             bindingHref={bindingHref}
             activeKey={activeBindingKey}
@@ -245,6 +247,7 @@ export function ThingDetailPageLayout({
             actions={actions}
             bindings={bindings}
             onRun={onRun}
+            runRequiresBinding={runRequiresBinding}
             onOpenBinding={onOpenBinding}
             bindingHref={bindingHref}
             activeKey={activeBindingKey}

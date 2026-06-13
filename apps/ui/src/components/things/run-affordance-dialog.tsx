@@ -5,12 +5,17 @@ import { EditorView } from '@codemirror/view';
 import Form from '@rjsf/shadcn';
 import { type RJSFSchema } from '@rjsf/utils';
 import validator from '@rjsf/validator-ajv8';
-import { Copy, Loader2, Play } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ChevronDown, Copy, Loader2, Play } from 'lucide-react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { CodeEditor } from '@/components/code-editor';
 import { Button } from '@/components/ui/button';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogClose,
@@ -22,11 +27,16 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  invokeRuntimeAction,
+  readRuntimeProperty,
+  subscribeRuntimeEvent,
+  type RuntimeAffordanceType,
+} from '@/lib/wot-runtime-api';
+import {
   evaluateVirtualEvent,
   emitVirtualEvent,
   invokeVirtualAction,
   readVirtualProperty,
-  type VirtualThingBinding,
 } from '@/lib/virtual-things-api';
 
 const jsonExtensions = [jsonLanguage(), EditorView.lineWrapping];
@@ -34,24 +44,124 @@ const HIDE_SUBMIT_UI_SCHEMA = {
   'ui:submitButtonOptions': { norender: true },
 } as const;
 
+export type RunAffordanceTarget = {
+  thingId: string;
+  affordanceType: RuntimeAffordanceType;
+  affordanceName: string;
+  source: 'virtual' | 'runtime';
+  kind?: string;
+};
+
 function parseJsonInput(value: string): unknown {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return JSON.parse(trimmed);
 }
 
+function ParameterSection({
+  actions,
+  children,
+  open,
+  onOpenChange,
+  title,
+}: {
+  actions?: ReactNode;
+  children: ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+}) {
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={onOpenChange}
+      className="space-y-1.5"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <CollapsibleTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="group -ml-2 h-8 px-2 text-sm font-medium"
+          >
+            <ChevronDown className="h-4 w-4 transition-transform group-data-[state=closed]:-rotate-90" />
+            {title}
+          </Button>
+        </CollapsibleTrigger>
+        {actions}
+      </div>
+      <CollapsibleContent className="data-closed:hidden">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+async function runTarget(
+  target: RunAffordanceTarget,
+  input: unknown,
+  uriVariables: Record<string, unknown> | undefined,
+  eventMode: 'evaluate' | 'emit',
+): Promise<unknown> {
+  if (target.source === 'virtual') {
+    if (target.affordanceType === 'property') {
+      return readVirtualProperty(target.thingId, target.affordanceName);
+    }
+    if (target.affordanceType === 'action') {
+      return invokeVirtualAction(
+        target.thingId,
+        target.affordanceName,
+        input,
+      );
+    }
+    if (eventMode === 'emit') {
+      return emitVirtualEvent(target.thingId, target.affordanceName, input);
+    }
+    return evaluateVirtualEvent(
+      target.thingId,
+      target.affordanceName,
+      input,
+      true,
+    );
+  }
+
+  if (target.affordanceType === 'property') {
+    return readRuntimeProperty(
+      target.thingId,
+      target.affordanceName,
+      uriVariables,
+    );
+  }
+  if (target.affordanceType === 'action') {
+    return invokeRuntimeAction(
+      target.thingId,
+      target.affordanceName,
+      input,
+      uriVariables,
+    );
+  }
+  return subscribeRuntimeEvent(
+    target.thingId,
+    target.affordanceName,
+    input,
+    uriVariables,
+  );
+}
+
 export function RunAffordanceDialog({
-  thingId,
-  binding,
+  target,
   inputSchema,
+  uriVariablesSchema,
   note,
   open,
   onOpenChange,
 }: {
-  thingId: string;
-  binding: VirtualThingBinding | null;
+  target: RunAffordanceTarget | null;
   /** JSON Schema for the affordance input, used to render the form view. */
   inputSchema?: RJSFSchema | null;
+  /** JSON Schema for URI variables, rendered separately from body input. */
+  uriVariablesSchema?: RJSFSchema | null;
   /** Optional caption, e.g. a warning that runs use the last saved version. */
   note?: string;
   open: boolean;
@@ -61,20 +171,35 @@ export function RunAffordanceDialog({
   const [inputMode, setInputMode] = useState<'form' | 'raw'>('form');
   const [inputText, setInputText] = useState('{}');
   const [formData, setFormData] = useState<unknown>(undefined);
+  const [uriVariablesData, setUriVariablesData] = useState<unknown>(undefined);
+  const [inputOpen, setInputOpen] = useState(true);
+  const [uriVariablesOpen, setUriVariablesOpen] = useState(false);
   const [resultText, setResultText] = useState('');
   const [isRunning, setIsRunning] = useState(false);
 
-  const needsInput = !!binding && binding.affordance_type !== 'property';
-  const isEvent = binding?.affordance_type === 'event';
-  const canUseForm = needsInput && !!inputSchema;
+  const needsInput = !!target && target.affordanceType !== 'property';
+  const showInput = needsInput && !!inputSchema;
+  const showUriVariables = target?.source === 'runtime' && !!uriVariablesSchema;
+  const hasRunParameters = showInput || showUriVariables;
+  const isVirtualEvent =
+    target?.source === 'virtual' && target.affordanceType === 'event';
 
   useEffect(() => {
     setResultText('');
     setInputText('{}');
     setFormData(undefined);
+    setUriVariablesData(undefined);
     setEventMode('evaluate');
     setInputMode(inputSchema ? 'form' : 'raw');
-  }, [binding?.affordance_type, binding?.affordance_name, inputSchema]);
+    setInputOpen(Boolean(inputSchema));
+    setUriVariablesOpen(!inputSchema && Boolean(uriVariablesSchema));
+  }, [
+    target?.affordanceType,
+    target?.affordanceName,
+    target?.source,
+    inputSchema,
+    uriVariablesSchema,
+  ]);
 
   function switchInputMode(next: 'form' | 'raw') {
     if (next === inputMode) return;
@@ -92,10 +217,10 @@ export function RunAffordanceDialog({
   }
 
   async function handleRun() {
-    if (!binding || isRunning) return;
+    if (!target || isRunning) return;
 
     let input: unknown;
-    if (needsInput) {
+    if (showInput) {
       if (inputMode === 'form') {
         input = formData;
       } else {
@@ -109,23 +234,18 @@ export function RunAffordanceDialog({
         }
       }
     }
+    const uriVariables =
+      showUriVariables &&
+      uriVariablesData &&
+      typeof uriVariablesData === 'object' &&
+      !Array.isArray(uriVariablesData)
+        ? (uriVariablesData as Record<string, unknown>)
+        : undefined;
 
     setIsRunning(true);
     setResultText('');
     try {
-      const result =
-        binding.affordance_type === 'property'
-          ? await readVirtualProperty(thingId, binding.affordance_name)
-          : binding.affordance_type === 'action'
-            ? await invokeVirtualAction(thingId, binding.affordance_name, input)
-            : eventMode === 'emit'
-              ? await emitVirtualEvent(thingId, binding.affordance_name, input)
-              : await evaluateVirtualEvent(
-                  thingId,
-                  binding.affordance_name,
-                  input,
-                  true,
-                );
+      const result = await runTarget(target, input, uriVariables, eventMode);
       setResultText(JSON.stringify(result, null, 2));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Run failed');
@@ -148,13 +268,13 @@ export function RunAffordanceDialog({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="pr-8 font-mono text-base">
-            {binding ? binding.affordance_name : 'Run'}
+            {target ? target.affordanceName : 'Run'}
           </DialogTitle>
           <DialogDescription>
-            {binding ? (
+            {target ? (
               <>
-                <span className="capitalize">{binding.affordance_type}</span>
-                {` · ${binding.kind}`}
+                <span className="capitalize">{target.affordanceType}</span>
+                {target.kind ? ` · ${target.kind}` : ' · runtime'}
               </>
             ) : (
               'Execute this affordance and inspect the result.'
@@ -167,7 +287,7 @@ export function RunAffordanceDialog({
             <p className="text-sm text-muted-foreground">{note}</p>
           ) : null}
 
-          {isEvent ? (
+          {isVirtualEvent ? (
             <div className="space-y-1.5">
               <Tabs
                 value={eventMode}
@@ -186,47 +306,73 @@ export function RunAffordanceDialog({
             </div>
           ) : null}
 
-          {needsInput ? (
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Input</span>
-                {canUseForm ? (
-                  <Tabs
-                    value={inputMode}
-                    onValueChange={(value) =>
-                      switchInputMode(value as 'form' | 'raw')
-                    }
-                  >
-                    <TabsList>
-                      <TabsTrigger value="form">Form</TabsTrigger>
-                      <TabsTrigger value="raw">Raw</TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                ) : null}
-              </div>
-              {inputMode === 'form' && inputSchema ? (
-                <div className="max-h-72 overflow-y-auto rounded-md border border-border/70 p-3">
-                  <Form
-                    schema={inputSchema}
-                    validator={validator}
-                    formData={formData}
-                    onChange={(event) => setFormData(event.formData)}
-                    uiSchema={HIDE_SUBMIT_UI_SCHEMA}
-                  />
-                </div>
-              ) : (
-                <CodeEditor
-                  className="text-[13px]"
-                  extensions={jsonExtensions}
-                  height="12rem"
-                  onChange={setInputText}
-                  value={inputText}
-                />
-              )}
+          {hasRunParameters ? (
+            <div className="space-y-3">
+              {showInput ? (
+                <ParameterSection
+                  title="Input"
+                  open={inputOpen}
+                  onOpenChange={setInputOpen}
+                  actions={
+                    <Tabs
+                      value={inputMode}
+                      onValueChange={(value) =>
+                        switchInputMode(value as 'form' | 'raw')
+                      }
+                    >
+                      <TabsList>
+                        <TabsTrigger value="form">Form</TabsTrigger>
+                        <TabsTrigger value="raw">Raw</TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                  }
+                >
+                  {inputMode === 'form' && inputSchema ? (
+                    <div className="max-h-72 overflow-y-auto rounded-md border border-border/70 p-3">
+                      <Form
+                        schema={inputSchema}
+                        validator={validator}
+                        formData={formData}
+                        onChange={(event) => setFormData(event.formData)}
+                        uiSchema={HIDE_SUBMIT_UI_SCHEMA}
+                      />
+                    </div>
+                  ) : (
+                    <CodeEditor
+                      className="text-[13px]"
+                      extensions={jsonExtensions}
+                      height="12rem"
+                      onChange={setInputText}
+                      value={inputText}
+                    />
+                  )}
+                </ParameterSection>
+              ) : null}
+
+              {showUriVariables && uriVariablesSchema ? (
+                <ParameterSection
+                  title="URI Variables"
+                  open={uriVariablesOpen}
+                  onOpenChange={setUriVariablesOpen}
+                >
+                  <div className="max-h-72 overflow-y-auto rounded-md border border-border/70 p-3">
+                    <Form
+                      schema={uriVariablesSchema}
+                      validator={validator}
+                      formData={uriVariablesData}
+                      onChange={(event) =>
+                        setUriVariablesData(event.formData)
+                      }
+                      uiSchema={HIDE_SUBMIT_UI_SCHEMA}
+                    />
+                  </div>
+                </ParameterSection>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              This {binding?.affordance_type ?? 'affordance'} takes no input.
+              This {target?.affordanceType ?? 'affordance'} has no declared
+              input or URI variables.
             </p>
           )}
 
@@ -265,7 +411,7 @@ export function RunAffordanceDialog({
           <Button
             type="button"
             onClick={() => void handleRun()}
-            disabled={isRunning || !binding}
+            disabled={isRunning || !target}
           >
             {isRunning ? <Loader2 className="animate-spin" /> : <Play />}
             Run
