@@ -17,6 +17,26 @@ def _schema_summary(schema: Any) -> str:
     return " ".join(parts) if parts else str(schema)
 
 
+def _semantic_type_labels(value: Any) -> list[str]:
+    """Local names of semantic ``@type`` IRIs (e.g. ``saref:TemperatureSensor`` -> ``TemperatureSensor``).
+
+    Returns the human-meaningful class tokens so enrichment's semantic types become part of
+    the embedded text and thus reachable by semantic ``things_search`` — not only SPARQL.
+    """
+    if isinstance(value, str):
+        raw = [value]
+    elif isinstance(value, list):
+        raw = [item for item in value if isinstance(item, str)]
+    else:
+        return []
+    labels: list[str] = []
+    for item in raw:
+        local = item.rsplit(":", 1)[-1].rsplit("/", 1)[-1].rsplit("#", 1)[-1].strip()
+        if local and local not in labels:
+            labels.append(local)
+    return labels
+
+
 def _format_affordance_line(
     name: str,
     definition: dict[str, Any],
@@ -32,6 +52,10 @@ def _format_affordance_line(
     elif unit:
         parts.append(f"({unit})")
 
+    semantic_types = _semantic_type_labels(definition.get("@type"))
+    if semantic_types:
+        parts.append(f"[{', '.join(semantic_types)}]")
+
     if "input" in definition:
         parts.append(f"-> input: {_schema_summary(definition['input'])}")
     if "output" in definition:
@@ -45,6 +69,10 @@ def build_chunk_content(
     device_summary: str,
 ) -> str:
     sections: list[str] = [device_summary]
+
+    thing_types = _semantic_type_labels(thing_td.get("@type"))
+    if thing_types:
+        sections.append(f"Semantic types: {', '.join(thing_types)}")
 
     for td_key, label in [
         ("properties", "Properties"),
