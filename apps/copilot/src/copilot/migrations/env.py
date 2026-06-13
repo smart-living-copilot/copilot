@@ -17,15 +17,15 @@ if config.config_file_name is not None:
 
 def _import_models_for_metadata() -> None:
     """Register all SQLAlchemy models on Base.metadata for autogenerate."""
-    import copilot.api_keys.models  # noqa: F401
-    import copilot.catalog.credentials.models  # noqa: F401
-    import copilot.catalog.events.models  # noqa: F401
-    import copilot.catalog.models  # noqa: F401
-    import copilot.jobs.db  # noqa: F401
-    import copilot.jobs.records.db  # noqa: F401
-    import copilot.panels.models  # noqa: F401
-    import copilot.search.models  # noqa: F401
-    import copilot.threads.models  # noqa: F401
+    import copilot.api_keys.models
+    import copilot.catalog.credentials.models
+    import copilot.catalog.events.models
+    import copilot.catalog.models
+    import copilot.jobs.db
+    import copilot.jobs.records.db
+    import copilot.panels.models
+    import copilot.search.models
+    import copilot.threads.models
     import copilot.virtual_things.db  # noqa: F401
 
 

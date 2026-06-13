@@ -26,7 +26,8 @@ notifications, reminders, or actions that should happen when a condition is met.
 computed/synthetic/virtual Things, including computed properties, computed \
 actions, emitted events, reusable threshold-crossing virtual events, and handler bindings.
 
-If a request mixes immediate device control with creating an automation for later, classify as **jobs**.
+If a request mixes immediate device control with creating an automation for later, \
+classify as **jobs**.
 If a request asks for a durable computed/synthetic/virtual Thing rather than a \
 scheduled automation job, classify as **virtual_things**.
 If the user says "notify me", "alert me", "remind me", or asks to run a real \

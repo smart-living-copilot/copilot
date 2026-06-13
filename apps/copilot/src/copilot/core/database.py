@@ -26,7 +26,7 @@ def sqlalchemy_url(database_url: str) -> str:
     return database_url
 
 
-@lru_cache()
+@lru_cache
 def get_connection_pool() -> ConnectionPool[DatabaseConnection]:
     return ConnectionPool(
         conninfo=psycopg_conninfo(get_settings().DATABASE_URL),
@@ -37,12 +37,12 @@ def get_connection_pool() -> ConnectionPool[DatabaseConnection]:
     )
 
 
-@lru_cache()
+@lru_cache
 def get_sqlalchemy_engine() -> Engine:
     return create_engine(sqlalchemy_url(get_settings().DATABASE_URL), pool_pre_ping=True)
 
 
-@lru_cache()
+@lru_cache
 def get_session_factory() -> sessionmaker[Session]:
     return sessionmaker(bind=get_sqlalchemy_engine(), expire_on_commit=False)
 

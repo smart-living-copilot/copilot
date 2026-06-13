@@ -16,7 +16,7 @@ class ThingIndexerStreamConfig:
     retry_seconds: float
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "ThingIndexerStreamConfig":
+    def from_settings(cls, settings: Settings) -> ThingIndexerStreamConfig:
         return cls(
             stream=settings.THING_EVENTS_STREAM,
             group=settings.SEARCH_INDEXER_EVENTS_GROUP,

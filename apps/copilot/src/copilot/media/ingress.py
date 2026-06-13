@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import datetime
 from threading import Lock
 from typing import Any
 
 from copilot.core.settings import Settings
+from copilot.core.time import utc_now
 from copilot.media.models import MediaSessionStats
 
 logger = logging.getLogger(__name__)
@@ -16,7 +17,7 @@ _settings = Settings()
 
 
 def _utc_now() -> str:
-    return datetime.now(UTC).isoformat()
+    return utc_now().isoformat()
 
 
 def encode_frame_to_jpeg(frame: Any) -> bytes | None:
@@ -123,7 +124,7 @@ class MediaSessionRegistry:
         max_age_seconds: float = 5.0,
     ) -> tuple[bytes, str | None] | None:
         """Return the latest active LiveKit camera frame for a thread."""
-        cutoff = datetime.now(UTC).timestamp() - max_age_seconds
+        cutoff = utc_now().timestamp() - max_age_seconds
         with self._lock:
             for stats in self._sessions.values():
                 if stats.thread_id != thread_id:

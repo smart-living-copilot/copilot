@@ -8,15 +8,15 @@ from fastapi import HTTPException
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
-from copilot.core.config import get_settings as get_registry_settings
-from copilot.core.database import get_session_factory
-from copilot.search import get_active_search_service
 from copilot.catalog import serialize_thing, validate_document
 from copilot.catalog.ids import decode_thing_id
 from copilot.catalog.service import ThingCatalogQueryService, ThingCatalogWriteService
 from copilot.clients.rdf_service import RdfServiceClient
 from copilot.clients.wot_runtime import WotRuntimeClient
+from copilot.core.config import get_settings as get_registry_settings
+from copilot.core.database import get_session_factory
 from copilot.rdf.schema import CLASSES_QUERY, PREDICATES_QUERY, summarize_schema
+from copilot.search import get_active_search_service
 
 
 def _tool_error(exc: HTTPException) -> ValueError:
@@ -253,7 +253,8 @@ async def things_upsert(thing_id: str, document: dict[str, Any]) -> dict[str, An
             "error": (
                 "This looks like an abstract computed/emitted virtual Thing. "
                 "Use create_virtual_thing plus add_virtual_* instead of things_upsert "
-                "so copilot can create bindings and virtual-servient can produce concrete HTTP forms."
+                "so copilot can create bindings and virtual-servient can produce "
+                "concrete HTTP forms."
             )
         }
     sanitized = validate_document(document)

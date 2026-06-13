@@ -15,13 +15,13 @@ from copilot.jobs.enums import (
 )
 from copilot.jobs.schemas import Job, JobRun
 from copilot.jobs.stores.base import (
+    JobNotWaitingForInput,
+    JobRunNotCancellable,
     _JobStoreBase,
     _json_safe,
     _to_job,
     _to_job_run,
     iso,
-    JobNotWaitingForInput,
-    JobRunNotCancellable,
     utc_now,
 )
 from copilot.jobs.stores.replies import (

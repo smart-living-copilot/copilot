@@ -6,11 +6,8 @@ default local toolset consumed by graph builders, while `REGISTRY_TOOLS` exposes
 discovered WoT tools.
 """
 
-from copilot.agent.tools.run_code import run_code
 from copilot.agent.tools.create_web_interface import create_web_interface
 from copilot.agent.tools.get_current_time import get_current_time
-from copilot.agent.tools.look_at_camera import look_at_camera
-from copilot.agent.tools.wot_registry import REGISTRY_TOOLS as REGISTRY_TOOLS
 from copilot.agent.tools.job_scheduler import (
     create_analysis_job,
     create_prompt_job,
@@ -19,6 +16,8 @@ from copilot.agent.tools.job_scheduler import (
     list_jobs,
     run_job_now,
 )
+from copilot.agent.tools.look_at_camera import look_at_camera
+from copilot.agent.tools.run_code import run_code
 from copilot.agent.tools.virtual_things import (
     activate_virtual_thing,
     add_virtual_action,
@@ -28,6 +27,7 @@ from copilot.agent.tools.virtual_things import (
     delete_virtual_thing,
     emit_virtual_thing_event,
 )
+from copilot.agent.tools.wot_registry import REGISTRY_TOOLS as REGISTRY_TOOLS
 
 LOCAL_TOOLS = [
     run_code,

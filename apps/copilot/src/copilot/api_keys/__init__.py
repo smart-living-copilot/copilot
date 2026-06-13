@@ -5,7 +5,6 @@ operations (including bootstrap of the initial admin key and usage tracking)
 used by auth middleware and protected routes.
 """
 
-from copilot.core.scopes import API_KEY_SCOPES, VALID_SCOPES
 from copilot.api_keys.store import (
     create_api_key,
     ensure_init_admin_key,
@@ -16,6 +15,7 @@ from copilot.api_keys.store import (
     revoke_api_key,
     touch_last_used,
 )
+from copilot.core.scopes import API_KEY_SCOPES, VALID_SCOPES
 
 __all__ = [
     "API_KEY_SCOPES",

@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 import secrets
 
 from fastapi import Request
@@ -8,6 +7,7 @@ from copilot.auth.models import User
 from copilot.core.config import get_settings
 from copilot.core.database import get_session_factory
 from copilot.core.scopes import SERVICE_SCOPES
+from copilot.core.time import utc_now
 
 SERVICE_NAME_HEADER = "X-Registry-Service"
 SERVICE_TOKEN_HEADER = "X-Registry-Service-Token"
@@ -59,7 +59,7 @@ def get_api_key_user(request: Request) -> User | None:
         row = lookup_api_key_by_hash(session, key_hash)
         if row is None or not row.is_active:
             return None
-        if row.expires_at is not None and row.expires_at < datetime.now(timezone.utc):
+        if row.expires_at is not None and row.expires_at < utc_now():
             return None
 
         touch_last_used(session, row)

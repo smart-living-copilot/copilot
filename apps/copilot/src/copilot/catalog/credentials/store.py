@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -7,10 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from copilot.catalog.credentials.models import CredentialRecord, ThingCredential
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+from copilot.core.time import utc_now
 
 
 def _to_record(credential: ThingCredential) -> CredentialRecord:
@@ -78,7 +74,7 @@ def set_credential(
     credentials: dict[str, Any],
 ) -> CredentialRecord:
     """Upsert a credential for a thing's security definition."""
-    now = _utcnow()
+    now = utc_now()
     stmt = insert(ThingCredential).values(
         id=str(uuid.uuid4()),
         thing_id=thing_id,

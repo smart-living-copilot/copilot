@@ -5,17 +5,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from copilot.core.config import Settings
-from copilot.thing_indexer.chunking import generate_chunk
 from copilot.search.embeddings import (
-    create_openai_embeddings,
     create_openai_client,
+    create_openai_embeddings,
 )
+from copilot.search.vector_store import SearchVectorStore
+from copilot.thing_indexer.chunking import generate_chunk
 from copilot.thing_indexer.metadata import build_index_metadata
 from copilot.thing_indexer.prompting import (
     SUMMARY_PROMPT_VERSION,
     generate_summary,
 )
-from copilot.search.vector_store import SearchVectorStore
 from copilot.thing_indexer.summary_utils import (
     ThingTDMetadata,
     clean_text,
@@ -23,7 +23,6 @@ from copilot.thing_indexer.summary_utils import (
     extract_td_metadata,
     normalize_thing_td_payload,
 )
-
 
 logger = logging.getLogger(__name__)
 

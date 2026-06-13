@@ -8,7 +8,6 @@ import httpx
 
 from copilot.core.settings import Settings
 
-
 logger = logging.getLogger(__name__)
 
 

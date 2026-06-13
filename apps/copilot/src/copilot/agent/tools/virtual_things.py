@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
+from copilot.agent.tools._config import thread_id_from_config as _thread_id_from_config
+from copilot.core.time import utc_now
 from copilot.virtual_things.builder import (
     VirtualThingBuilder,
     action_definition,
@@ -16,11 +17,6 @@ from copilot.virtual_things.builder import (
 )
 from copilot.virtual_things.dispatcher import VirtualThingDispatcher
 from copilot.virtual_things.store import VirtualThingStore
-
-
-def _thread_id_from_config(config: RunnableConfig) -> str | None:
-    value = config.get("configurable", {}).get("thread_id")
-    return value if isinstance(value, str) and value else None
 
 
 @tool
@@ -171,7 +167,7 @@ async def emit_virtual_thing_event(
             {
                 "trigger": "explicit",
                 "input": input,
-                "requested_at": datetime.now(timezone.utc).isoformat(),
+                "requested_at": utc_now().isoformat(),
             },
         )
     except KeyError:

@@ -3,9 +3,9 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from copilot.catalog.models import ThingConflictError, ThingDocument, ThingRecord
-from copilot.catalog.events.outbox import enqueue_thing_event
 from copilot.catalog.events import build_change_event, build_remove_event
+from copilot.catalog.events.outbox import enqueue_thing_event
+from copilot.catalog.models import ThingConflictError, ThingDocument, ThingRecord
 from copilot.catalog.presentation import serialize_thing
 from copilot.catalog.store import (
     create_thing,

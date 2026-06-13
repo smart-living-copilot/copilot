@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from copilot.core.time import utc_now
 from copilot.panels.models import Panel, PanelVersion
 
 VersionSource = str
@@ -135,7 +135,7 @@ class PanelService:
         panel.title = next_title
         panel.html = next_html
         panel.capabilities = next_capabilities
-        panel.updated_at = datetime.now(UTC)
+        panel.updated_at = utc_now()
         self._append_version(panel, source=version_source)
         self._session.commit()
         self._session.refresh(panel)
@@ -166,7 +166,7 @@ class PanelService:
         panel.title = version.title
         panel.html = version.html
         panel.capabilities = version.capabilities or []
-        panel.updated_at = datetime.now(UTC)
+        panel.updated_at = utc_now()
         self._append_version(panel, source="restore")
         self._session.commit()
         self._session.refresh(panel)

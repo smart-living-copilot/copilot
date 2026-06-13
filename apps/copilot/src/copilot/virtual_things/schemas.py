@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 import math
 from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from copilot.catalog.validation import validate_document
+from copilot.core.json import json_safe
 from copilot.virtual_things.capabilities import infer_capabilities
 from copilot.virtual_things.derivation import annotate_computed_derivations
 from copilot.virtual_things.ids import make_virtual_thing_id
@@ -36,7 +36,7 @@ class VirtualThingTrigger(BaseModel):
     subscription_input: Any | None = None
 
     @model_validator(mode="after")
-    def _validate_trigger(self) -> "VirtualThingTrigger":
+    def _validate_trigger(self) -> VirtualThingTrigger:
         if self.kind == "interval" and self.interval_seconds is None:
             raise ValueError("interval triggers require interval_seconds")
         if self.kind == "source_event" and (not self.thing_id or not self.event_name):
@@ -87,40 +87,14 @@ class VirtualThingBindingSpec(BaseModel):
         if not isinstance(value, dict):
             return value
         normalized = dict(value)
-        if "affordance_name" not in normalized and "affordance" in normalized:
-            normalized["affordance_name"] = normalized.pop("affordance")
-        if "handler_code" not in normalized:
-            for key in ("handle", "source", "code", "handler"):
-                if key in normalized:
-                    normalized["handler_code"] = normalized.pop(key)
-                    break
-        kind = normalized.get("kind")
-        if kind == "event":
-            normalized["kind"] = "emitted"
-            normalized.setdefault("affordance_type", "event")
-        elif kind == "action":
-            normalized["kind"] = "computed"
-            normalized.setdefault("affordance_type", "action")
-        elif kind == "property":
-            normalized["kind"] = "computed"
-            normalized.setdefault("affordance_type", "property")
-        if "trigger" not in normalized:
-            if "interval_seconds" in normalized:
-                normalized["trigger"] = {
-                    "kind": "interval",
-                    "interval_seconds": normalized.pop("interval_seconds"),
-                }
-            elif "evaluationInterval" in normalized:
-                interval_ms = normalized.pop("evaluationInterval")
-                if isinstance(interval_ms, (int, float)):
-                    normalized["trigger"] = {
-                        "kind": "interval",
-                        "interval_seconds": max(1, math.ceil(interval_ms / 1000)),
-                    }
+        _normalize_affordance_alias(normalized)
+        _normalize_handler_code_alias(normalized)
+        _normalize_kind_alias(normalized)
+        _normalize_trigger_alias(normalized)
         return normalized
 
     @model_validator(mode="after")
-    def _validate_binding_shape(self) -> "VirtualThingBindingSpec":
+    def _validate_binding_shape(self) -> VirtualThingBindingSpec:
         if self.kind in {"computed", "emitted"} and not self.handler_code:
             raise ValueError(f"{self.kind} bindings require handler_code")
         if self.kind == "emitted":
@@ -133,7 +107,7 @@ class VirtualThingBindingSpec(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _grant_inferred_capabilities(self) -> "VirtualThingBindingSpec":
+    def _grant_inferred_capabilities(self) -> VirtualThingBindingSpec:
         inferred = infer_capabilities(self.handler_code)
         if inferred:
             self.capabilities = _merge_capabilities(self.capabilities, inferred)
@@ -167,7 +141,7 @@ class DefineVirtualThingRequest(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def _normalize_and_validate(self) -> "DefineVirtualThingRequest":
+    def _normalize_and_validate(self) -> DefineVirtualThingRequest:
         thing_id = self.id or make_virtual_thing_id(self.title)
         td = {**self.td, "id": thing_id, "title": self.title}
         if self.description:
@@ -191,6 +165,53 @@ class VirtualThingDefinition(BaseModel):
     version: int
     status: VirtualThingStatus
     bindings: list[VirtualThingBindingSpec]
+
+
+def _normalize_affordance_alias(value: dict[str, Any]) -> None:
+    if "affordance_name" not in value and "affordance" in value:
+        value["affordance_name"] = value.pop("affordance")
+
+
+def _normalize_handler_code_alias(value: dict[str, Any]) -> None:
+    if "handler_code" in value:
+        return
+    for key in ("handle", "source", "code", "handler"):
+        if key in value:
+            value["handler_code"] = value.pop(key)
+            return
+
+
+def _normalize_kind_alias(value: dict[str, Any]) -> None:
+    aliases = {
+        "event": ("emitted", "event"),
+        "action": ("computed", "action"),
+        "property": ("computed", "property"),
+    }
+    alias = aliases.get(value.get("kind"))
+    if alias is None:
+        return
+    kind, affordance_type = alias
+    value["kind"] = kind
+    value.setdefault("affordance_type", affordance_type)
+
+
+def _normalize_trigger_alias(value: dict[str, Any]) -> None:
+    if "trigger" in value:
+        return
+    if "interval_seconds" in value:
+        value["trigger"] = {
+            "kind": "interval",
+            "interval_seconds": value.pop("interval_seconds"),
+        }
+        return
+    if "evaluationInterval" not in value:
+        return
+    interval_ms = value.pop("evaluationInterval")
+    if isinstance(interval_ms, (int, float)):
+        value["trigger"] = {
+            "kind": "interval",
+            "interval_seconds": max(1, math.ceil(interval_ms / 1000)),
+        }
 
 
 def _merge_capabilities(
@@ -234,10 +255,6 @@ def _merge_capabilities(
         )
         for thing_id in order
     ]
-
-
-def json_safe(value: Any) -> Any:
-    return json.loads(json.dumps(value, ensure_ascii=True, default=str))
 
 
 def validate_virtual_thing_td(td: Any) -> dict[str, Any]:

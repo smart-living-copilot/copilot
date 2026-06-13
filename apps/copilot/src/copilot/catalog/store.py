@@ -1,6 +1,5 @@
 import hashlib
 import json
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import Text, cast, func, literal_column, or_, select
@@ -14,6 +13,7 @@ from copilot.catalog.models import (
     ThingDocument,
     ThingRecord,
 )
+from copilot.core.time import utc_now
 
 
 def sanitize_document(document: ThingDocument) -> ThingDocument:
@@ -132,7 +132,7 @@ def _thing_values(
     include_created_at: bool,
 ) -> dict[str, Any]:
     thing_id, title, tags, description = summarize_document(document)
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     values: dict[str, Any] = {
         "id": thing_id,
         "title": title,

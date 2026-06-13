@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import suppress
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -46,6 +47,16 @@ def _extract_updated_panel(
     messages: list[Any],
 ) -> tuple[str, list[dict[str, Any]]] | None:
     """Pull the latest create_web_interface html (args) + capabilities (result)."""
+    calls_by_id = _create_web_interface_calls_by_id(messages)
+    result: tuple[str, list[dict[str, Any]]] | None = None
+    for message in messages:
+        panel = _updated_panel_from_tool_message(message, calls_by_id)
+        if panel is not None:
+            result = panel
+    return result
+
+
+def _create_web_interface_calls_by_id(messages: list[Any]) -> dict[str, dict[str, Any]]:
     calls_by_id: dict[str, dict[str, Any]] = {}
     for message in messages:
         if isinstance(message, AIMessage):
@@ -54,26 +65,32 @@ def _extract_updated_panel(
                     call_id = tool_call.get("id")
                     if isinstance(call_id, str):
                         calls_by_id[call_id] = tool_call
+    return calls_by_id
 
-    result: tuple[str, list[dict[str, Any]]] | None = None
-    for message in messages:
-        if not isinstance(message, ToolMessage):
-            continue
-        tool_call = calls_by_id.get(message.tool_call_id)
-        if not tool_call:
-            continue
-        html = (tool_call.get("args") or {}).get("html")
-        if not isinstance(html, str) or not html:
-            continue
-        content = message.content
-        parsed = json.loads(content) if isinstance(content, str) else content
-        artifacts = parsed.get("artifacts") if isinstance(parsed, dict) else None
-        if not isinstance(artifacts, list) or not artifacts:
-            continue
-        capabilities = artifacts[0].get("capabilities")
-        result = (html, capabilities if isinstance(capabilities, list) else [])
 
-    return result
+def _updated_panel_from_tool_message(
+    message: Any,
+    calls_by_id: dict[str, dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]] | None:
+    if not isinstance(message, ToolMessage):
+        return None
+    tool_call = calls_by_id.get(message.tool_call_id)
+    if not tool_call:
+        return None
+    html = (tool_call.get("args") or {}).get("html")
+    if not isinstance(html, str) or not html:
+        return None
+    artifacts = _tool_message_artifacts(message.content)
+    if not artifacts:
+        return None
+    capabilities = artifacts[0].get("capabilities")
+    return html, capabilities if isinstance(capabilities, list) else []
+
+
+def _tool_message_artifacts(content: Any) -> list[Any]:
+    parsed = json.loads(content) if isinstance(content, str) else content
+    artifacts = parsed.get("artifacts") if isinstance(parsed, dict) else None
+    return artifacts if isinstance(artifacts, list) else []
 
 
 async def run_panel_edit(
@@ -99,10 +116,8 @@ async def run_panel_edit(
     finally:
         # Edit threads are throwaway; don't leave checkpoints lying around.
         if checkpointer is not None:
-            try:
+            with suppress(Exception):
                 await checkpointer.adelete_thread(thread_id)
-            except Exception:
-                pass
 
     messages = state.get("messages", []) if isinstance(state, dict) else []
     return _extract_updated_panel(messages)

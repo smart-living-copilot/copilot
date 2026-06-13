@@ -219,64 +219,95 @@ class RdfStoreService:
         )
 
         if kind == "SELECT":
-            if not isinstance(result, QuerySolutions):
-                raise ValueError("SPARQL SELECT did not return query solutions")
-            variables = [variable.value for variable in result.variables]
-            rows = []
-            truncated = False
-            for index, binding in enumerate(result):
-                if index >= limit:
-                    truncated = True
-                    break
-                rows.append(
-                    {
-                        variable: _term_to_compact_binding(value)
-                        for variable in variables
-                        if (value := binding[variable]) is not None
-                    }
-                )
-            return {
-                "type": "select",
-                "query": query,
-                "limit": limit,
-                "variables": variables,
-                "rows": rows,
-                "truncated": truncated,
-            }
+            return _select_query_result(result, query=query, limit=limit)
 
         if kind == "ASK":
-            if isinstance(result, QueryBoolean):
-                boolean = bool(result)
-            else:
-                data = _json_bytes_to_object(result.serialize(format=QueryResultsFormat.JSON))
-                boolean = bool(data.get("boolean", False))
-            return {
-                "type": "ask",
-                "query": query,
-                "limit": limit,
-                "boolean": boolean,
-                "truncated": False,
-            }
+            return _ask_query_result(result, query=query, limit=limit)
 
-        chunks: list[bytes] = []
-        total_bytes = 0
-        truncated = False
-        for index, triple in enumerate(result):
-            if index >= limit:
-                truncated = True
-                break
-            chunk = _triple_to_ntriples_bytes(triple)
-            if total_bytes + len(chunk) > _GRAPH_RESULT_MAX_BYTES:
-                truncated = True
-                break
-            chunks.append(chunk)
-            total_bytes += len(chunk)
-        rdf = b"".join(chunks).decode("utf-8")
-        return {
-            "type": kind.lower(),
-            "query": query,
-            "limit": limit,
-            "format": "application/n-triples",
-            "rdf": rdf,
-            "truncated": truncated,
-        }
+        return _graph_query_result(result, query=query, kind=kind, limit=limit)
+
+
+def _select_query_result(result: Any, *, query: str, limit: int) -> dict[str, Any]:
+    if not isinstance(result, QuerySolutions):
+        raise ValueError("SPARQL SELECT did not return query solutions")
+    variables = [variable.value for variable in result.variables]
+    rows, truncated = _select_rows(result, variables=variables, limit=limit)
+    return {
+        "type": "select",
+        "query": query,
+        "limit": limit,
+        "variables": variables,
+        "rows": rows,
+        "truncated": truncated,
+    }
+
+
+def _select_rows(
+    result: QuerySolutions,
+    *,
+    variables: list[str],
+    limit: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    rows = []
+    truncated = False
+    for index, binding in enumerate(result):
+        if index >= limit:
+            truncated = True
+            break
+        rows.append(
+            {
+                variable: _term_to_compact_binding(value)
+                for variable in variables
+                if (value := binding[variable]) is not None
+            }
+        )
+    return rows, truncated
+
+
+def _ask_query_result(result: Any, *, query: str, limit: int) -> dict[str, Any]:
+    return {
+        "type": "ask",
+        "query": query,
+        "limit": limit,
+        "boolean": _query_boolean(result),
+        "truncated": False,
+    }
+
+
+def _query_boolean(result: Any) -> bool:
+    if isinstance(result, QueryBoolean):
+        return bool(result)
+    data = _json_bytes_to_object(result.serialize(format=QueryResultsFormat.JSON))
+    return bool(data.get("boolean", False))
+
+
+def _graph_query_result(
+    result: Any,
+    *,
+    query: str,
+    kind: str,
+    limit: int,
+) -> dict[str, Any]:
+    rdf, truncated = _graph_result_rdf(result, limit=limit)
+    return {
+        "type": kind.lower(),
+        "query": query,
+        "limit": limit,
+        "format": "application/n-triples",
+        "rdf": rdf,
+        "truncated": truncated,
+    }
+
+
+def _graph_result_rdf(result: Any, *, limit: int) -> tuple[str, bool]:
+    chunks: list[bytes] = []
+    total_bytes = 0
+    for index, triple in enumerate(result):
+        if index >= limit:
+            return b"".join(chunks).decode("utf-8"), True
+        chunk = _triple_to_ntriples_bytes(triple)
+        if total_bytes + len(chunk) > _GRAPH_RESULT_MAX_BYTES:
+            return b"".join(chunks).decode("utf-8"), True
+        chunks.append(chunk)
+        total_bytes += len(chunk)
+    return b"".join(chunks).decode("utf-8"), False

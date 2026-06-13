@@ -18,13 +18,13 @@ from copilot.threads.store import (
 from copilot.threads.titles import suggest_thread_title
 
 __all__ = [
+    "ThreadKind",
     "create_thread",
     "delete_thread",
     "get_thread",
     "list_threads",
     "suggest_thread_title",
     "sync_thread_after_run",
-    "ThreadKind",
     "touch_thread",
     "update_thread_title",
 ]

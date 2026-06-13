@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from copilot.media.ingress import encode_frame_to_jpeg, media_sessions
@@ -30,8 +30,8 @@ def _media_session_id(ctx: Any, thread_id: str) -> str:
 
 
 def _frame_to_bgr_array(frame: Any):
-    from livekit.rtc.video_frame import proto_video
     import numpy as np
+    from livekit.rtc.video_frame import proto_video
 
     rgb_frame = (
         frame
@@ -100,6 +100,133 @@ async def _capture_video_track(
         await stream.aclose()
 
 
+class _LiveKitCameraCapture:
+    def __init__(
+        self,
+        *,
+        room: Any,
+        video_kind: Any,
+        session_id: str,
+        thread_id: str,
+    ) -> None:
+        self._room = room
+        self._video_kind = video_kind
+        self._session_id = session_id
+        self._thread_id = thread_id
+        self._capture_tasks_by_track_sid: dict[str, asyncio.Task[None]] = {}
+        self._stop_tasks: set[asyncio.Task[None]] = set()
+        self._handlers = {
+            "track_published": self._on_track_published,
+            "track_subscribed": self._on_track_subscribed,
+            "track_unsubscribed": self._on_track_unsubscribed,
+        }
+
+    @staticmethod
+    def _track_sid(track: Any) -> str:
+        sid = getattr(track, "sid", "")
+        return sid if isinstance(sid, str) and sid else str(id(track))
+
+    def _is_video_track(self, track: Any) -> bool:
+        return getattr(track, "kind", None) == self._video_kind
+
+    def _is_video_publication(self, publication: Any) -> bool:
+        return getattr(publication, "kind", None) == self._video_kind
+
+    def start(self) -> None:
+        media_sessions.set_metadata(self._session_id, thread_id=self._thread_id)
+        for name, handler in self._handlers.items():
+            self._room.on(name, handler)
+        self._start_existing_tracks()
+
+    def _start_existing_tracks(self) -> None:
+        for participant in getattr(self._room, "remote_participants", {}).values():
+            for publication in getattr(participant, "track_publications", {}).values():
+                self._ensure_subscribed(publication)
+                track = getattr(publication, "track", None)
+                if track is not None and getattr(publication, "subscribed", False):
+                    self._start_capture(track)
+
+    def _ensure_subscribed(self, publication: Any) -> None:
+        """Explicitly subscribe to a remote video publication."""
+        if not self._is_video_publication(publication):
+            return
+        set_subscribed = getattr(publication, "set_subscribed", None)
+        if set_subscribed is None or getattr(publication, "subscribed", False):
+            return
+        try:
+            set_subscribed(True)
+            logger.debug(
+                "Requested LiveKit video subscription for thread_id=%s sid=%s",
+                self._thread_id,
+                getattr(publication, "sid", "?"),
+            )
+        except Exception:
+            logger.exception("Failed to subscribe to LiveKit video publication")
+
+    def _start_capture(self, track: Any) -> None:
+        if not self._is_video_track(track):
+            return
+        sid = self._track_sid(track)
+        if sid in self._capture_tasks_by_track_sid:
+            return
+        task = asyncio.create_task(
+            _capture_video_track(
+                track=track,
+                session_id=self._session_id,
+                thread_id=self._thread_id,
+            ),
+            name=f"livekit-video-capture-{sid}",
+        )
+        self._capture_tasks_by_track_sid[sid] = task
+        logger.info(
+            "Started LiveKit camera capture for thread_id=%s track_sid=%s",
+            self._thread_id,
+            sid,
+        )
+
+    async def _stop_capture(self, track: Any) -> None:
+        sid = self._track_sid(track)
+        task = self._capture_tasks_by_track_sid.pop(sid, None)
+        if task is None:
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    def _on_track_published(self, publication: Any, _participant: Any) -> None:
+        self._ensure_subscribed(publication)
+
+    def _on_track_subscribed(self, track: Any, _publication: Any, _participant: Any) -> None:
+        self._start_capture(track)
+
+    def _on_track_unsubscribed(
+        self,
+        track: Any,
+        _publication: Any,
+        _participant: Any,
+    ) -> None:
+        task = asyncio.create_task(
+            self._stop_capture(track),
+            name=f"livekit-video-stop-{self._track_sid(track)}",
+        )
+        self._stop_tasks.add(task)
+        task.add_done_callback(self._stop_tasks.discard)
+
+    async def close(self) -> None:
+        for name, handler in self._handlers.items():
+            self._room.off(name, handler)
+        if self._stop_tasks:
+            await asyncio.gather(*self._stop_tasks, return_exceptions=True)
+        for task in self._capture_tasks_by_track_sid.values():
+            task.cancel()
+        if self._capture_tasks_by_track_sid:
+            await asyncio.gather(
+                *self._capture_tasks_by_track_sid.values(),
+                return_exceptions=True,
+            )
+        media_sessions.close(self._session_id)
+
+
 @asynccontextmanager
 async def livekit_camera_capture(ctx: Any, thread_id: str):
     """Subscribe to remote camera tracks and capture frames while active."""
@@ -111,93 +238,15 @@ async def livekit_camera_capture(ctx: Any, thread_id: str):
         return
 
     session_id = _media_session_id(ctx, thread_id)
-    media_sessions.set_metadata(session_id, thread_id=thread_id)
-    tasks_by_track_sid: dict[str, asyncio.Task[None]] = {}
-
-    def track_sid(track: Any) -> str:
-        sid = getattr(track, "sid", "")
-        return sid if isinstance(sid, str) and sid else str(id(track))
-
-    def is_video_track(track: Any) -> bool:
-        return getattr(track, "kind", None) == rtc.TrackKind.KIND_VIDEO
-
-    def is_video_publication(publication: Any) -> bool:
-        return getattr(publication, "kind", None) == rtc.TrackKind.KIND_VIDEO
-
-    def ensure_subscribed(publication: Any) -> None:
-        """Explicitly subscribe to a remote video publication.
-
-        RoomIO only subscribes to the audio it needs, so the camera track is
-        never subscribed unless we ask for it. Requesting the subscription here
-        is what drives the ``track_subscribed`` event that starts capture.
-        """
-        if not is_video_publication(publication):
-            return
-        set_subscribed = getattr(publication, "set_subscribed", None)
-        if set_subscribed is None or getattr(publication, "subscribed", False):
-            return
-        try:
-            set_subscribed(True)
-            logger.debug(
-                "Requested LiveKit video subscription for thread_id=%s sid=%s",
-                thread_id,
-                getattr(publication, "sid", "?"),
-            )
-        except Exception:
-            logger.exception("Failed to subscribe to LiveKit video publication")
-
-    def start_capture(track: Any) -> None:
-        if not is_video_track(track):
-            return
-        sid = track_sid(track)
-        if sid in tasks_by_track_sid:
-            return
-        task = asyncio.create_task(
-            _capture_video_track(track=track, session_id=session_id, thread_id=thread_id),
-            name=f"livekit-video-capture-{sid}",
-        )
-        tasks_by_track_sid[sid] = task
-        logger.info("Started LiveKit camera capture for thread_id=%s track_sid=%s", thread_id, sid)
-
-    async def stop_capture(track: Any) -> None:
-        sid = track_sid(track)
-        task = tasks_by_track_sid.pop(sid, None)
-        if task is None:
-            return
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-    def on_track_published(publication: Any, _participant: Any) -> None:
-        ensure_subscribed(publication)
-
-    def on_track_subscribed(track: Any, _publication: Any, _participant: Any) -> None:
-        start_capture(track)
-
-    def on_track_unsubscribed(track: Any, _publication: Any, _participant: Any) -> None:
-        asyncio.create_task(stop_capture(track))
-
-    room.on("track_published", on_track_published)
-    room.on("track_subscribed", on_track_subscribed)
-    room.on("track_unsubscribed", on_track_unsubscribed)
-
-    for participant in getattr(room, "remote_participants", {}).values():
-        for publication in getattr(participant, "track_publications", {}).values():
-            ensure_subscribed(publication)
-            track = getattr(publication, "track", None)
-            if track is not None and getattr(publication, "subscribed", False):
-                start_capture(track)
+    capture = _LiveKitCameraCapture(
+        room=room,
+        video_kind=rtc.TrackKind.KIND_VIDEO,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    capture.start()
 
     try:
         yield
     finally:
-        room.off("track_published", on_track_published)
-        room.off("track_subscribed", on_track_subscribed)
-        room.off("track_unsubscribed", on_track_unsubscribed)
-        for task in tasks_by_track_sid.values():
-            task.cancel()
-        if tasks_by_track_sid:
-            await asyncio.gather(*tasks_by_track_sid.values(), return_exceptions=True)
-        media_sessions.close(session_id)
+        await capture.close()

@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends
 
 from copilot.auth import User, require_user
 
-
 router = APIRouter(prefix="/api", tags=["me"])
 
 

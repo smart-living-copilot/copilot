@@ -1,22 +1,21 @@
 from __future__ import annotations
 
 import logging
-
 from collections.abc import AsyncIterator
 from datetime import timedelta
 from typing import Any
 
 from taskiq.exceptions import TaskiqResultTimeoutError
 
+from copilot.clients.wot_runtime import WotRuntimeClient
 from copilot.core.settings import Settings
 from copilot.jobs.enums import JobRunStatus
-from copilot.jobs.schemas import CreateJobRequest, Job, JobRun, JobRunEvent, UpdateJobRequest
-from copilot.jobs.results import JobRunEventStream
 from copilot.jobs.records import VirtualRecordStore
 from copilot.jobs.resources import JobResourceManager
+from copilot.jobs.results import JobRunEventStream
 from copilot.jobs.schedule import JobScheduleManager, build_schedule_source
+from copilot.jobs.schemas import CreateJobRequest, Job, JobRun, JobRunEvent, UpdateJobRequest
 from copilot.jobs.stores import JobNotWaitingForInput, JobStore, utc_now
-from copilot.clients.wot_runtime import WotRuntimeClient
 from copilot.jobs.taskiq_app import broker, run_job_task
 
 logger = logging.getLogger(__name__)

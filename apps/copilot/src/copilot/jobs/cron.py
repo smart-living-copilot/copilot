@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pycron
+
+from copilot.core.time import as_utc as _as_utc
+from copilot.core.time import utc_now
 
 DEFAULT_CRON_TIMEZONE = "UTC"
 CRON_LOOKAHEAD_MINUTES = 5 * 366 * 24 * 60
@@ -43,12 +46,12 @@ def next_cron_run_at(
     cron_expression = normalize_cron_expression(expression)
     cron_timezone = normalize_cron_timezone(timezone_name)
     zone = ZoneInfo(cron_timezone)
-    after_utc = _as_utc(after or datetime.now(timezone.utc))
+    after_utc = _as_utc(after or utc_now())
     candidate = after_utc.astimezone(zone).replace(second=0, microsecond=0) + timedelta(minutes=1)
 
     for _ in range(CRON_LOOKAHEAD_MINUTES):
         if _cron_matches(cron_expression, candidate):
-            return candidate.astimezone(timezone.utc)
+            return candidate.astimezone(UTC)
         candidate += timedelta(minutes=1)
 
     raise CronScheduleError(
@@ -66,12 +69,6 @@ def validate_cron_schedule(
     cron_timezone = normalize_cron_timezone(timezone_name)
     next_cron_run_at(cron_expression, cron_timezone, after=after)
     return cron_expression, cron_timezone
-
-
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 def _cron_matches(expression: str, candidate: datetime) -> bool:

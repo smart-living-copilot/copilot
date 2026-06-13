@@ -7,6 +7,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
+from copilot.core.text import truncate_text as _truncate_text
 from copilot.jobs.enums import (
     JobInteractionMode,
     JobRunStatus,
@@ -242,30 +243,40 @@ def _code_result_from_messages(messages: list[Any]) -> dict[str, Any] | None:
 
 
 def _artifacts_from_run_code_result(content: dict[str, Any]) -> list[dict[str, str]]:
-    artifacts: list[dict[str, str]] = []
-    raw_artifacts = content.get("artifacts")
-    if isinstance(raw_artifacts, list):
-        for raw_artifact in raw_artifacts:
-            artifact = _artifact_from_mapping(raw_artifact)
-            if artifact:
-                artifacts.append(artifact)
-
+    artifacts = _artifacts_from_mappings(content.get("artifacts"))
     if artifacts:
         return artifacts
 
-    images = content.get("images")
-    if isinstance(images, list):
-        for index, filename in enumerate(images, start=1):
-            if isinstance(filename, str) and filename:
-                artifacts.append({"ref": f"image_{index}", "kind": "image", "filename": filename})
+    return [
+        *_artifacts_from_filenames(content.get("images"), ref_prefix="image", kind="image"),
+        *_artifacts_from_filenames(content.get("plotly"), ref_prefix="chart", kind="plotly"),
+    ]
 
-    charts = content.get("plotly")
-    if isinstance(charts, list):
-        for index, filename in enumerate(charts, start=1):
-            if isinstance(filename, str) and filename:
-                artifacts.append({"ref": f"chart_{index}", "kind": "plotly", "filename": filename})
 
+def _artifacts_from_mappings(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    artifacts: list[dict[str, str]] = []
+    for raw_artifact in value:
+        artifact = _artifact_from_mapping(raw_artifact)
+        if artifact:
+            artifacts.append(artifact)
     return artifacts
+
+
+def _artifacts_from_filenames(
+    value: Any,
+    *,
+    ref_prefix: str,
+    kind: str,
+) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    return [
+        {"ref": f"{ref_prefix}_{index}", "kind": kind, "filename": filename}
+        for index, filename in enumerate(value, start=1)
+        if isinstance(filename, str) and filename
+    ]
 
 
 def _artifact_from_mapping(value: Any) -> dict[str, str] | None:
@@ -324,7 +335,8 @@ def job_run_prompt(job: Job) -> str:
         "This background job must store exactly one validated record before it "
         "finishes successfully. If user input is needed, call ask_job_user and stop. "
         "After receiving enough information, call submit_job_record with data that "
-        "matches this JSON Schema. Do not claim success until submit_job_record returns ok=true.\n\n"
+        "matches this JSON Schema. Do not claim success until submit_job_record "
+        "returns ok=true.\n\n"
         f"JSON Schema:\n{schema}"
     )
 
@@ -386,12 +398,6 @@ def _messages_after_latest_human(result: Any) -> list[Any]:
         if isinstance(message, HumanMessage):
             latest_human_index = index
     return messages[latest_human_index + 1 :]
-
-
-def _truncate_text(value: str, *, max_length: int) -> str:
-    if len(value) <= max_length:
-        return value
-    return f"{value[: max_length - 3]}..."
 
 
 def _parsed_tool_message_content(message: ToolMessage) -> Any:

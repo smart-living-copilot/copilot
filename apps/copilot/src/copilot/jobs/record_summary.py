@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from copilot.core.text import truncate_text as _truncate_text
+
 
 def submitted_record_event_message(payload: Any) -> str:
     summary = submitted_record_summary(payload)
@@ -27,9 +29,3 @@ def submitted_record_summary(payload: Any) -> str:
         parts.append(f"{key}={_truncate_text(str(value_text), max_length=80)}")
 
     return _truncate_text(", ".join(parts), max_length=320)
-
-
-def _truncate_text(value: str, *, max_length: int) -> str:
-    if len(value) <= max_length:
-        return value
-    return f"{value[: max_length - 3]}..."

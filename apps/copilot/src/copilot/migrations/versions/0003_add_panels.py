@@ -7,8 +7,8 @@ Create Date: 2026-06-04 00:00:00
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "0003_add_panels"

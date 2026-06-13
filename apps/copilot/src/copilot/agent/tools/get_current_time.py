@@ -1,7 +1,8 @@
 """Tool to get the current time and date in various formats."""
 
-from datetime import datetime
 import time
+from datetime import datetime
+
 from langchain_core.tools import tool
 
 

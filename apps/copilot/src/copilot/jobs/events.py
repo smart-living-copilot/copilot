@@ -6,12 +6,12 @@ from uuid import uuid4
 
 import redis.asyncio as redis
 
+from copilot.clients.wot_runtime import WotRuntimeClient
 from copilot.core.settings import Settings
 from copilot.jobs.resources import EventSubscriptionReconciler
 from copilot.jobs.stores import JobStore
 from copilot.jobs.stream import StreamConfig, ensure_stream_group, parse_runtime_stream_fields
 from copilot.jobs.taskiq_app import run_job_task
-from copilot.clients.wot_runtime import WotRuntimeClient
 
 logger = logging.getLogger(__name__)
 

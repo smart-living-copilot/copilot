@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
+
+from copilot.core.json import json_safe
 
 
 def validate_record_schema(schema: Any) -> dict[str, Any]:
@@ -19,11 +20,7 @@ def validate_record_schema(schema: Any) -> dict[str, Any]:
     properties = schema.get("properties")
     if properties is not None and not isinstance(properties, dict):
         raise ValueError("record_schema.properties must be an object")
-    return _json_safe(schema)
-
-
-def _json_safe(value: Any) -> Any:
-    return json.loads(json.dumps(value, ensure_ascii=True, default=str))
+    return json_safe(schema)
 
 
 def validate_record_data(schema: Any, data: Any) -> None:

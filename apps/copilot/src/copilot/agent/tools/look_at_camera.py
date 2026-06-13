@@ -13,8 +13,9 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, SecretStr
 
-from copilot.media import media_sessions
+from copilot.agent.tools._config import thread_id_from_config as _thread_id_from_config
 from copilot.core.settings import Settings
+from copilot.media import media_sessions
 
 logger = logging.getLogger(__name__)
 
@@ -88,11 +89,6 @@ def _frame_to_message(jpeg_bytes: bytes, user_hint: str | None) -> HumanMessage:
             },
         ]
     )
-
-
-def _thread_id_from_config(config: RunnableConfig | None) -> str | None:
-    value = (config or {}).get("configurable", {}).get("thread_id")
-    return value if isinstance(value, str) and value else None
 
 
 def is_look_at_camera_available(config: RunnableConfig | None) -> bool:

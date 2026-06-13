@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from copilot.core.database import get_session_factory
+from copilot.core.time import utc_now
 from copilot.threads.models import DEFAULT_THREAD_TITLE, Thread, ThreadKind, ThreadRecord
 from copilot.threads.titles import MAX_THREAD_TITLE_LENGTH
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return utc_now().isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _clean_title(title: str | None, *, default: str | None) -> str | None:

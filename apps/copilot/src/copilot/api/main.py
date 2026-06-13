@@ -14,30 +14,30 @@ try:
 except ImportError:  # pragma: no cover - exercised when optional dep is absent locally.
     AsyncPostgresSaver = None  # type: ignore[assignment]
 
-from copilot.core.llm import make_llm
+from copilot.agent import build_graph
+from copilot.agent.tools import LOCAL_TOOLS, REGISTRY_TOOLS
+from copilot.api.wot_runtime import router as wot_runtime_router
+from copilot.api_keys.router import router as api_keys_router
+from copilot.auth.router import router as me_router
+from copilot.catalog.router import router as things_router
 from copilot.core.api_dependencies import verify_internal_api_key
 from copilot.core.config import get_settings as get_registry_settings
 from copilot.core.database import get_connection_pool, init_db, psycopg_conninfo
 from copilot.core.health import router as registry_health_router
 from copilot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
-from copilot.agent import build_graph
-from copilot.media.routes import create_media_router
+from copilot.core.llm import make_llm
 from copilot.core.settings import Settings as AgentSettings
+from copilot.jobs.active import set_active_job_service
+from copilot.jobs.routes import router as jobs_router
+from copilot.jobs.service import JobService
+from copilot.media.routes import create_media_router
+from copilot.panels.router import router as panels_router
+from copilot.search.router import router as search_router
 from copilot.threads import (
     suggest_thread_title,
     sync_thread_after_run,
 )
 from copilot.threads.routes import create_threads_router
-from copilot.agent.tools import LOCAL_TOOLS, REGISTRY_TOOLS
-from copilot.api_keys.router import router as api_keys_router
-from copilot.auth.router import router as me_router
-from copilot.jobs.active import set_active_job_service
-from copilot.jobs.routes import router as jobs_router
-from copilot.jobs.service import JobService
-from copilot.search.router import router as search_router
-from copilot.catalog.router import router as things_router
-from copilot.api.wot_runtime import router as wot_runtime_router
-from copilot.panels.router import router as panels_router
 from copilot.virtual_things.routes import router as virtual_things_router
 
 logger = logging.getLogger(__name__)
@@ -296,31 +296,38 @@ def _current_checkpointer() -> Any | None:
 
 def _request_thread_id(input_data: Any) -> str | None:
     if isinstance(input_data, dict):
-        for key in ("threadId", "thread_id"):
-            value = input_data.get(key)
-            if isinstance(value, str) and value:
-                return value
+        return _thread_id_from_mapping(input_data)
 
-        configurable = input_data.get("configurable")
-        if isinstance(configurable, dict):
-            for key in ("threadId", "thread_id"):
-                value = configurable.get(key)
-                if isinstance(value, str) and value:
-                    return value
-        return None
-
-    for attr in ("threadId", "thread_id"):
-        value = getattr(input_data, attr, None)
-        if isinstance(value, str) and value:
-            return value
-
+    direct_value = _thread_id_from_attrs(input_data)
+    if direct_value:
+        return direct_value
     configurable = getattr(input_data, "configurable", None)
-    if isinstance(configurable, dict):
-        for key in ("threadId", "thread_id"):
-            value = configurable.get(key)
-            if isinstance(value, str) and value:
-                return value
+    return _thread_id_from_mapping(configurable) if isinstance(configurable, dict) else None
 
+
+def _thread_id_from_mapping(value: dict[str, Any]) -> str | None:
+    direct_value = _first_string_value(value, ("threadId", "thread_id"))
+    if direct_value:
+        return direct_value
+    configurable = value.get("configurable")
+    return _first_string_value(configurable, ("threadId", "thread_id"))
+
+
+def _thread_id_from_attrs(value: Any) -> str | None:
+    for attr in ("threadId", "thread_id"):
+        raw_value = getattr(value, attr, None)
+        if isinstance(raw_value, str) and raw_value:
+            return raw_value
+    return None
+
+
+def _first_string_value(value: Any, keys: tuple[str, ...]) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    for key in keys:
+        raw_value = value.get(key)
+        if isinstance(raw_value, str) and raw_value:
+            return raw_value
     return None
 
 

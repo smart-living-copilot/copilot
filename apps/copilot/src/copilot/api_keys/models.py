@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, Index, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -53,8 +52,8 @@ class ApiKeyRecord:
     user_id: str
     created_at: datetime
     updated_at: datetime
-    expires_at: Optional[datetime] = None
-    last_used_at: Optional[datetime] = None
+    expires_at: datetime | None = None
+    last_used_at: datetime | None = None
     is_active: bool = True
 
 
@@ -68,6 +67,6 @@ class ApiKeyRow:
     user_id: str
     created_at: datetime
     updated_at: datetime
-    expires_at: Optional[datetime] = None
-    last_used_at: Optional[datetime] = None
+    expires_at: datetime | None = None
+    last_used_at: datetime | None = None
     is_active: bool = True

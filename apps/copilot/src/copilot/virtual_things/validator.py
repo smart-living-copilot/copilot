@@ -309,40 +309,68 @@ def _sample_input(request: DefineVirtualThingRequest, binding: VirtualThingBindi
 
 
 def _sample_for_schema(schema: dict[str, Any]) -> Any:
+    explicit_sample = _explicit_schema_sample(schema)
+    if explicit_sample is not _NO_SAMPLE:
+        return explicit_sample
+
+    combiner_sample = _combiner_schema_sample(schema)
+    if combiner_sample is not _NO_SAMPLE:
+        return combiner_sample
+
+    return _sample_for_schema_type(schema, _normalized_schema_type(schema))
+
+
+_NO_SAMPLE = object()
+
+
+def _explicit_schema_sample(schema: dict[str, Any]) -> Any:
     if "default" in schema:
         return schema["default"]
     if "const" in schema:
         return schema["const"]
-    if isinstance(schema.get("enum"), list) and schema["enum"]:
-        return schema["enum"][0]
+    enum = schema.get("enum")
+    if isinstance(enum, list) and enum:
+        return enum[0]
+    return _NO_SAMPLE
+
+
+def _combiner_schema_sample(schema: dict[str, Any]) -> Any:
     for combiner in ("oneOf", "anyOf", "allOf"):
         candidates = schema.get(combiner)
         if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict):
             return _sample_for_schema(candidates[0])
+    return _NO_SAMPLE
 
+
+def _normalized_schema_type(schema: dict[str, Any]) -> Any:
     schema_type = schema.get("type")
     if isinstance(schema_type, list):
-        schema_type = next((item for item in schema_type if item != "null"), schema_type[0])
+        return next((item for item in schema_type if item != "null"), schema_type[0])
+    return schema_type
+
+
+def _sample_for_schema_type(schema: dict[str, Any], schema_type: Any) -> Any:
+    sample_by_type = {
+        "array": [],
+        "integer": int(schema.get("minimum", 0)),
+        "number": float(schema.get("minimum", 0)),
+        "boolean": False,
+        "null": None,
+    }
     if schema_type == "object":
-        properties = schema.get("properties")
-        if not isinstance(properties, dict):
-            return {}
-        return {
-            name: _sample_for_schema(prop_schema)
-            for name, prop_schema in properties.items()
-            if isinstance(name, str) and isinstance(prop_schema, dict)
-        }
-    if schema_type == "array":
-        return []
-    if schema_type == "integer":
-        return int(schema.get("minimum", 0))
-    if schema_type == "number":
-        return float(schema.get("minimum", 0))
-    if schema_type == "boolean":
-        return False
-    if schema_type == "null":
-        return None
-    return ""
+        return _sample_object_schema(schema)
+    return sample_by_type.get(schema_type, "")
+
+
+def _sample_object_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return {}
+    return {
+        name: _sample_for_schema(prop_schema)
+        for name, prop_schema in properties.items()
+        if isinstance(name, str) and isinstance(prop_schema, dict)
+    }
 
 
 def _validate_contract(

@@ -2,14 +2,14 @@ import asyncio
 import logging
 import signal
 import sys
+from contextlib import suppress
 
 from copilot.core.config import get_settings
 from copilot.core.database import init_db
 from copilot.thing_indexer.consumer import (
-    ThingIndexerStreamConsumer,
     ThingIndexerConsumerState,
+    ThingIndexerStreamConsumer,
 )
-
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -49,10 +49,8 @@ async def main() -> None:
 
 
 def run() -> None:
-    try:
+    with suppress(KeyboardInterrupt):
         asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
 
 
 if __name__ == "__main__":

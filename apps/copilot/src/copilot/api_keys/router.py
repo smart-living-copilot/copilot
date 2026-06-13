@@ -1,14 +1,13 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from copilot.api_keys.service import ApiKeyManagementService
 from copilot.auth import User, require_scopes
 from copilot.core.api_dependencies import SessionDep
 from copilot.core.scopes import API_KEY_SCOPES
-from copilot.api_keys.service import ApiKeyManagementService
-
 
 router = APIRouter(prefix="/api", tags=["api-keys"])
 
@@ -16,7 +15,7 @@ router = APIRouter(prefix="/api", tags=["api-keys"])
 class CreateApiKeyRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     scopes: list[str] = Field(..., min_length=1)
-    expires_at: Optional[datetime] = None
+    expires_at: datetime | None = None
 
 
 class ApiKeyResponse(BaseModel):
@@ -27,8 +26,8 @@ class ApiKeyResponse(BaseModel):
     user_id: str
     created_at: datetime
     updated_at: datetime
-    expires_at: Optional[datetime] = None
-    last_used_at: Optional[datetime] = None
+    expires_at: datetime | None = None
+    last_used_at: datetime | None = None
     is_active: bool
 
 

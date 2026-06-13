@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-
 _SAFE_LIVEKIT_NAME = re.compile(r"[^A-Za-z0-9_-]+")
 _MAX_ROOM_COMPONENT_LENGTH = 80
 
@@ -201,6 +200,175 @@ def _dispatch_job_failed(api: Any, dispatch: Any) -> str | None:
     return None
 
 
+def _validate_livekit_dispatch_request(settings: Any, room: str) -> None:
+    if not is_livekit_configured(settings):
+        raise ValueError("LiveKit is not configured")
+    if not room or not is_expected_livekit_room(settings, room):
+        raise ValueError("LiveKit room is invalid")
+
+
+def _livekit_agent_name(settings: Any) -> str:
+    agent_name = str(getattr(settings, "livekit_agent_name", "smart-living-copilot")).strip()
+    if not agent_name:
+        raise ValueError("LiveKit agent name is not configured")
+    return agent_name
+
+
+def _matching_agent_dispatches(
+    dispatches: Any,
+    *,
+    dispatch_id: str,
+    agent_name: str,
+    metadata: str,
+) -> list[Any]:
+    return [
+        item
+        for item in dispatches
+        if getattr(item, "id", "") == dispatch_id
+        or (
+            not dispatch_id
+            and getattr(item, "agent_name", "") == agent_name
+            and getattr(item, "metadata", "") == metadata
+        )
+    ]
+
+
+async def _ensure_agent_dispatch(
+    api: Any,
+    client: Any,
+    *,
+    dispatch_id: str,
+    room: str,
+    agent_name: str,
+    metadata: str,
+) -> str:
+    if dispatch_id:
+        return dispatch_id
+    dispatch = await client.agent_dispatch.create_dispatch(
+        api.CreateAgentDispatchRequest(
+            room=room,
+            agent_name=agent_name,
+            metadata=metadata,
+        )
+    )
+    return getattr(dispatch, "id", "")
+
+
+def _dispatch_is_running_or_failed(api: Any, matching_dispatches: list[Any]) -> bool:
+    for item in matching_dispatches:
+        if _dispatch_job_is_running(api, item):
+            return True
+        error = _dispatch_job_failed(api, item)
+        if error:
+            raise LiveKitAgentDispatchError(error)
+    return False
+
+
+async def _poll_agent_dispatch(
+    api: Any,
+    client: Any,
+    *,
+    dispatch_id: str,
+    room: str,
+    agent_name: str,
+    metadata: str,
+) -> tuple[str, list[Any], bool]:
+    dispatch_id = await _ensure_agent_dispatch(
+        api,
+        client,
+        dispatch_id=dispatch_id,
+        room=room,
+        agent_name=agent_name,
+        metadata=metadata,
+    )
+    dispatches = await client.agent_dispatch.list_dispatch(room)
+    matching_dispatches = _matching_agent_dispatches(
+        dispatches,
+        dispatch_id=dispatch_id,
+        agent_name=agent_name,
+        metadata=metadata,
+    )
+    return (
+        dispatch_id,
+        matching_dispatches,
+        _dispatch_is_running_or_failed(api, matching_dispatches),
+    )
+
+
+def _agent_dispatch_timeout_error(
+    api: Any,
+    *,
+    agent_name: str,
+    room: str,
+    matching_dispatches: list[Any],
+    last_error: Exception | None,
+) -> LiveKitAgentDispatchError:
+    status = "pending"
+    if matching_dispatches:
+        status = _dispatch_job_status(api, matching_dispatches[-1]) or status
+    message = f"LiveKit agent '{agent_name}' was not assigned to room '{room}' ({status})"
+    if last_error is not None:
+        message = f"{message}: {last_error}"
+    return LiveKitAgentDispatchError(message)
+
+
+async def _wait_for_agent_dispatch(
+    api: Any,
+    client: Any,
+    *,
+    room: str,
+    agent_name: str,
+    metadata: str,
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+) -> str:
+    dispatch_id = ""
+    deadline = time.monotonic() + max(timeout_seconds, 0.0)
+    last_error: Exception | None = None
+    matching_dispatches: list[Any] = []
+
+    while True:
+        try:
+            dispatch_id, matching_dispatches, is_running = await _poll_agent_dispatch(
+                api,
+                client,
+                dispatch_id=dispatch_id,
+                room=room,
+                agent_name=agent_name,
+                metadata=metadata,
+            )
+            if is_running:
+                return dispatch_id
+        except LiveKitAgentDispatchError:
+            raise
+        except Exception as exc:
+            last_error = exc
+            matching_dispatches = []
+
+        if time.monotonic() >= deadline:
+            raise _agent_dispatch_timeout_error(
+                api,
+                agent_name=agent_name,
+                room=room,
+                matching_dispatches=matching_dispatches,
+                last_error=last_error,
+            ) from last_error
+
+        await asyncio.sleep(max(poll_interval_seconds, 0.0))
+
+
+async def _delete_dispatch_if_created(client: Any, dispatch_id: str, room: str) -> None:
+    if dispatch_id:
+        with suppress(Exception):
+            await client.agent_dispatch.delete_dispatch(dispatch_id, room)
+
+
+async def _close_livekit_api_client(client: Any) -> None:
+    close = getattr(client, "aclose", None)
+    if close is not None:
+        await close()
+
+
 async def dispatch_livekit_agent(
     settings: Any,
     *,
@@ -211,15 +379,8 @@ async def dispatch_livekit_agent(
     timeout_seconds: float = 15.0,
     poll_interval_seconds: float = 0.25,
 ) -> None:
-    if not is_livekit_configured(settings):
-        raise ValueError("LiveKit is not configured")
-    if not room or not is_expected_livekit_room(settings, room):
-        raise ValueError("LiveKit room is invalid")
-
-    agent_name = str(getattr(settings, "livekit_agent_name", "smart-living-copilot")).strip()
-    if not agent_name:
-        raise ValueError("LiveKit agent name is not configured")
-
+    _validate_livekit_dispatch_request(settings, room)
+    agent_name = _livekit_agent_name(settings)
     api = api_module or _load_livekit_api_module()
     metadata = livekit_session_metadata(
         thread_id=thread_id,
@@ -233,63 +394,19 @@ async def dispatch_livekit_agent(
     )
 
     dispatch_id = ""
-    deadline = time.monotonic() + max(timeout_seconds, 0.0)
-    last_error: Exception | None = None
     try:
         try:
-            while True:
-                try:
-                    if not dispatch_id:
-                        dispatch = await client.agent_dispatch.create_dispatch(
-                            api.CreateAgentDispatchRequest(
-                                room=room,
-                                agent_name=agent_name,
-                                metadata=metadata,
-                            )
-                        )
-                        dispatch_id = getattr(dispatch, "id", "")
-
-                    dispatches = await client.agent_dispatch.list_dispatch(room)
-                    matching_dispatches = [
-                        item
-                        for item in dispatches
-                        if getattr(item, "id", "") == dispatch_id
-                        or (
-                            not dispatch_id
-                            and getattr(item, "agent_name", "") == agent_name
-                            and getattr(item, "metadata", "") == metadata
-                        )
-                    ]
-                    for item in matching_dispatches:
-                        if _dispatch_job_is_running(api, item):
-                            return
-                        error = _dispatch_job_failed(api, item)
-                        if error:
-                            raise LiveKitAgentDispatchError(error)
-                except LiveKitAgentDispatchError:
-                    raise
-                except Exception as exc:
-                    last_error = exc
-                    matching_dispatches = []
-
-                if time.monotonic() >= deadline:
-                    status = "pending"
-                    if matching_dispatches:
-                        status = _dispatch_job_status(api, matching_dispatches[-1]) or status
-                    message = (
-                        f"LiveKit agent '{agent_name}' was not assigned to room '{room}' ({status})"
-                    )
-                    if last_error is not None:
-                        message = f"{message}: {last_error}"
-                    raise LiveKitAgentDispatchError(message) from last_error
-
-                await asyncio.sleep(max(poll_interval_seconds, 0.0))
+            dispatch_id = await _wait_for_agent_dispatch(
+                api,
+                client,
+                room=room,
+                agent_name=agent_name,
+                metadata=metadata,
+                timeout_seconds=timeout_seconds,
+                poll_interval_seconds=poll_interval_seconds,
+            )
         except LiveKitAgentDispatchError:
-            if dispatch_id:
-                with suppress(Exception):
-                    await client.agent_dispatch.delete_dispatch(dispatch_id, room)
+            await _delete_dispatch_if_created(client, dispatch_id, room)
             raise
     finally:
-        close = getattr(client, "aclose", None)
-        if close is not None:
-            await close()
+        await _close_livekit_api_client(client)

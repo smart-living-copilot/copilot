@@ -40,34 +40,10 @@ def infer_capabilities(handler_code: str | None) -> list[dict[str, Any]]:
     grants: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
+        capability = _capability_from_wot_call(node)
+        if capability is None:
             continue
-        func = node.func
-        if not isinstance(func, ast.Attribute):
-            continue
-        if not (isinstance(func.value, ast.Name) and func.value.id == "wot"):
-            continue
-        op = _OP_BY_METHOD.get(func.attr)
-        if op is None:
-            continue
-
-        thing_id = _string_arg(node, 0, ("thing_id",))
-        if not isinstance(thing_id, str):
-            # Dynamic or missing thing_id cannot be scoped; author must declare it.
-            continue
-        name = _string_arg(node, 1, _NAME_KEYWORDS)
-
-        grant = grants.get(thing_id)
-        if grant is None:
-            grant = {"ops": set(), "affordances": set(), "all_affordances": False}
-            grants[thing_id] = grant
-            order.append(thing_id)
-        grant["ops"].add(op)
-        if isinstance(name, str):
-            grant["affordances"].add(name)
-        else:
-            # Dynamic/absent affordance name -> grant every affordance on this Thing.
-            grant["all_affordances"] = True
+        _merge_capability_grant(grants, order, capability)
 
     return [
         {
@@ -81,6 +57,44 @@ def infer_capabilities(handler_code: str | None) -> list[dict[str, Any]]:
         }
         for thing_id in order
     ]
+
+
+def _capability_from_wot_call(node: ast.AST) -> tuple[str, str, Any] | None:
+    if not isinstance(node, ast.Call):
+        return None
+    func = node.func
+    if not isinstance(func, ast.Attribute):
+        return None
+    if not (isinstance(func.value, ast.Name) and func.value.id == "wot"):
+        return None
+    op = _OP_BY_METHOD.get(func.attr)
+    if op is None:
+        return None
+
+    thing_id = _string_arg(node, 0, ("thing_id",))
+    if not isinstance(thing_id, str):
+        # Dynamic or missing thing_id cannot be scoped; author must declare it.
+        return None
+    return thing_id, op, _string_arg(node, 1, _NAME_KEYWORDS)
+
+
+def _merge_capability_grant(
+    grants: dict[str, dict[str, Any]],
+    order: list[str],
+    capability: tuple[str, str, Any],
+) -> None:
+    thing_id, op, name = capability
+    grant = grants.get(thing_id)
+    if grant is None:
+        grant = {"ops": set(), "affordances": set(), "all_affordances": False}
+        grants[thing_id] = grant
+        order.append(thing_id)
+    grant["ops"].add(op)
+    if isinstance(name, str):
+        grant["affordances"].add(name)
+    else:
+        # Dynamic/absent affordance name -> grant every affordance on this Thing.
+        grant["all_affordances"] = True
 
 
 def _string_arg(node: ast.Call, index: int, keywords: tuple[str, ...]) -> Any:

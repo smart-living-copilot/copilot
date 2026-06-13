@@ -1,10 +1,10 @@
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Any, Protocol
 
 import redis
 
+from copilot.core.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class ValkeyThingEventStreamPublisher:
                 "event_type": str(event.get("eventType", "")),
                 "thing_id": str(event.get("id", "")),
                 "event_hash": str(event.get("hash", "")),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": utc_now().isoformat(),
             },
         )
 

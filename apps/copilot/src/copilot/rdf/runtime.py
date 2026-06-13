@@ -16,7 +16,7 @@ class RdfStreamConfig:
     retry_seconds: float
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "RdfStreamConfig":
+    def from_settings(cls, settings: Settings) -> RdfStreamConfig:
         return cls(
             stream=settings.THING_EVENTS_STREAM,
             group=settings.RDF_EVENTS_GROUP,

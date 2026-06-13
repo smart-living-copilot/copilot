@@ -3,9 +3,9 @@ from datetime import datetime
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from copilot.api_keys.models import ApiKeyRecord
 from copilot.api_keys.store import create_api_key, list_api_keys, revoke_api_key
 from copilot.auth.models import User
-from copilot.api_keys.models import ApiKeyRecord
 from copilot.core.scopes import VALID_SCOPES
 
 

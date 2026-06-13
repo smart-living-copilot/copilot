@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import suppress
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -9,13 +10,13 @@ from fastapi.responses import StreamingResponse
 
 from copilot.core.api_dependencies import verify_internal_api_key
 from copilot.jobs.enums import JobRunEventType
+from copilot.jobs.record_summary import submitted_record_event_message
 from copilot.jobs.schemas import (
     CreateJobRequest,
     JobRunEvent,
     ReplyJobRequest,
     UpdateJobRequest,
 )
-from copilot.jobs.record_summary import submitted_record_event_message
 from copilot.jobs.stores import JobNotWaitingForInput, JobRunNotCancellable
 from copilot.threads.messages import checkpoint_thread_messages
 from copilot.threads.store import get_thread
@@ -118,10 +119,8 @@ async def get_job_thread(job_id: str, request: Request):
         raise HTTPException(status_code=404, detail="job not found")
 
     run = None
-    try:
+    with suppress(KeyError):
         run = await service.get_active_or_last_job_run(job_id)
-    except KeyError:
-        pass
 
     thread_id = run.job_thread_id if run is not None else job.job_thread_id
     record = await asyncio.to_thread(get_thread, thread_id)

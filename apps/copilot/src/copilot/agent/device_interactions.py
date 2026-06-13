@@ -69,46 +69,36 @@ def latest_turn_device_interactions(messages_value: Any) -> list[dict[str, Any]]
         return []
 
     messages = list(messages_value)
-    latest_user_index = -1
-    for index in range(len(messages) - 1, -1, -1):
-        if isinstance(messages[index], HumanMessage):
-            latest_user_index = index
-            break
-
+    latest_user_index = _latest_user_message_index(messages)
     if latest_user_index < 0:
         return []
 
-    turn_messages = [
-        message
-        for message in messages[latest_user_index + 1 :]
-        if not is_device_interaction_summary_message(message)
-    ]
+    turn_messages = _messages_after_latest_user(messages, latest_user_index)
     tool_calls_by_id = _tool_calls_by_id(turn_messages)
 
     interactions: list[dict[str, Any]] = []
     for message in turn_messages:
-        if not isinstance(message, ToolMessage):
-            continue
-
-        tool_call = tool_calls_by_id.get(message.tool_call_id)
-        if not tool_call:
-            continue
-
-        tool_name = tool_call.get("name")
-        if tool_name == "run_code":
-            interactions.extend(_run_code_wot_interactions(message.content))
-            continue
-
-        if isinstance(tool_name, str):
-            interaction = _direct_wot_interaction(
-                tool_name=tool_name,
-                args=tool_call.get("args"),
-                result=message.content,
-            )
-            if interaction:
-                interactions.append(interaction)
+        interactions.extend(_tool_message_device_interactions(message, tool_calls_by_id))
 
     return interactions
+
+
+def _latest_user_message_index(messages: Sequence[Any]) -> int:
+    for index in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[index], HumanMessage):
+            return index
+    return -1
+
+
+def _messages_after_latest_user(
+    messages: Sequence[BaseMessage],
+    latest_user_index: int,
+) -> list[BaseMessage]:
+    return [
+        message
+        for message in messages[latest_user_index + 1 :]
+        if not is_device_interaction_summary_message(message)
+    ]
 
 
 def _tool_calls_by_id(messages: Sequence[BaseMessage]) -> dict[str, dict[str, Any]]:
@@ -121,6 +111,32 @@ def _tool_calls_by_id(messages: Sequence[BaseMessage]) -> dict[str, dict[str, An
             if isinstance(tool_call_id, str):
                 tool_calls[tool_call_id] = tool_call
     return tool_calls
+
+
+def _tool_message_device_interactions(
+    message: BaseMessage,
+    tool_calls_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not isinstance(message, ToolMessage):
+        return []
+
+    tool_call = tool_calls_by_id.get(message.tool_call_id)
+    if not tool_call:
+        return []
+
+    tool_name = tool_call.get("name")
+    if tool_name == "run_code":
+        return _run_code_wot_interactions(message.content)
+
+    if not isinstance(tool_name, str):
+        return []
+
+    interaction = _direct_wot_interaction(
+        tool_name=tool_name,
+        args=tool_call.get("args"),
+        result=message.content,
+    )
+    return [interaction] if interaction else []
 
 
 def _optional_record(value: Any) -> dict[str, Any] | None:

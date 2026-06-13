@@ -7,12 +7,11 @@ from dataclasses import dataclass
 import redis.asyncio as redis
 
 from copilot.core.config import Settings
+from copilot.core.stream_runtime import StreamConsumerState, ensure_stream_group
+from copilot.search.vector_store import SearchVectorStore
 from copilot.thing_indexer.runtime import ThingIndexerStreamConfig
 from copilot.thing_indexer.service import ThingIndexerService
-from copilot.search.vector_store import SearchVectorStore
 from copilot.thing_indexer.stream_utils import parse_stream_event
-from copilot.core.stream_runtime import StreamConsumerState, ensure_stream_group
-
 
 logger = logging.getLogger(__name__)
 

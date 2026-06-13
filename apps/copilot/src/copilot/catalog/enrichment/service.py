@@ -335,9 +335,7 @@ def _is_numeric_schema(schema: dict[str, Any]) -> bool:
     schema_type = schema.get("type")
     if schema_type in {"number", "integer"}:
         return True
-    if isinstance(schema_type, list) and {"number", "integer"} & set(schema_type):
-        return True
-    return False
+    return isinstance(schema_type, list) and bool({"number", "integer"} & set(schema_type))
 
 
 def _needs_unit_completion(schema: dict[str, Any]) -> bool:

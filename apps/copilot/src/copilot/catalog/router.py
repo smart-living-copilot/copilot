@@ -3,14 +3,6 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
 from copilot.auth import User, require_scopes
-from copilot.core.api_dependencies import SessionDep
-from copilot.core.llm import make_llm
-from copilot.core.settings import Settings
-from copilot.catalog.ids import decode_thing_id
-from copilot.catalog.service import (
-    ThingCatalogQueryService,
-    ThingCatalogWriteService,
-)
 from copilot.catalog import serialize_thing, validate_document
 from copilot.catalog.credentials.router import router as credentials_router
 from copilot.catalog.enrichment import (
@@ -18,6 +10,14 @@ from copilot.catalog.enrichment import (
     enrich_thing_document,
     load_enrichment_config,
 )
+from copilot.catalog.ids import decode_thing_id
+from copilot.catalog.service import (
+    ThingCatalogQueryService,
+    ThingCatalogWriteService,
+)
+from copilot.core.api_dependencies import SessionDep
+from copilot.core.llm import make_llm
+from copilot.core.settings import Settings
 
 router = APIRouter(prefix="/api", tags=["things"])
 
@@ -125,6 +125,7 @@ async def enrich_owned_thing(
     document = body.get("document")
     if not isinstance(document, dict):
         raise HTTPException(status_code=422, detail="Body must include a document object")
+    decode_thing_id(thing_id)
 
     settings = getattr(request.app.state, "settings", None)
     if not isinstance(settings, Settings):

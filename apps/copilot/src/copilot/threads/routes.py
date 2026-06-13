@@ -10,17 +10,92 @@ from fastapi import APIRouter, Body, HTTPException, Request
 
 from copilot.threads.messages import checkpoint_thread_messages
 from copilot.threads.models import (
-    CreateThreadRequest,
     DEFAULT_THREAD_TITLE,
+    CreateThreadRequest,
     UpdateThreadTitleRequest,
 )
 from copilot.threads.store import (
     create_thread,
-    delete_thread as delete_thread_metadata,
     get_thread,
     list_threads,
     update_thread_title,
 )
+from copilot.threads.store import (
+    delete_thread as delete_thread_metadata,
+)
+
+
+async def _get_thread_messages_payload(
+    *,
+    get_checkpointer: Callable[[], Any | None],
+    thread_id: str,
+) -> list[dict[str, Any]]:
+    checkpointer = get_checkpointer()
+    if checkpointer is None:
+        raise HTTPException(status_code=503, detail="Checkpointer not ready")
+
+    return await checkpoint_thread_messages(checkpointer, thread_id)
+
+
+async def _create_thread_record(body: CreateThreadRequest | None) -> dict[str, Any]:
+    payload = body or CreateThreadRequest()
+    return await asyncio.to_thread(
+        create_thread,
+        thread_id=payload.id,
+        title=payload.title or DEFAULT_THREAD_TITLE,
+        created_at=payload.created_at,
+        updated_at=payload.updated_at,
+    )
+
+
+async def _update_thread_record(
+    *,
+    thread_id: str,
+    body: UpdateThreadTitleRequest,
+) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(
+            update_thread_title,
+            thread_id=thread_id,
+            title=body.title,
+            force=body.force,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+async def _thread_record_with_messages(
+    *,
+    get_checkpointer: Callable[[], Any | None],
+    thread_id: str,
+) -> dict[str, Any]:
+    record = await asyncio.to_thread(get_thread, thread_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    messages = await _get_thread_messages_payload(
+        get_checkpointer=get_checkpointer,
+        thread_id=thread_id,
+    )
+    return {**record, "messages": messages}
+
+
+async def _delete_thread_record(
+    *,
+    get_checkpointer: Callable[[], Any | None],
+    thread_id: str,
+) -> dict[str, Any]:
+    checkpointer = get_checkpointer()
+    if checkpointer is not None:
+        await checkpointer.adelete_thread(thread_id)
+
+    deleted = await asyncio.to_thread(delete_thread_metadata, thread_id)
+
+    return {
+        "ok": True,
+        "thread_id": thread_id,
+        "deleted": deleted,
+    }
 
 
 def create_threads_router(
@@ -29,13 +104,6 @@ def create_threads_router(
     verify_internal_api_key: Callable[[Request], None],
 ) -> APIRouter:
     router = APIRouter(prefix="/threads", tags=["threads"])
-
-    async def get_thread_messages_payload(thread_id: str) -> list[dict[str, Any]]:
-        checkpointer = get_checkpointer()
-        if checkpointer is None:
-            raise HTTPException(status_code=503, detail="Checkpointer not ready")
-
-        return await checkpoint_thread_messages(checkpointer, thread_id)
 
     @router.get("")
     async def get_threads(request: Request):
@@ -49,15 +117,7 @@ def create_threads_router(
     ):
         verify_internal_api_key(request)
 
-        payload = body or CreateThreadRequest()
-
-        return await asyncio.to_thread(
-            create_thread,
-            thread_id=payload.id,
-            title=payload.title or DEFAULT_THREAD_TITLE,
-            created_at=payload.created_at,
-            updated_at=payload.updated_at,
-        )
+        return await _create_thread_record(body)
 
     @router.patch("/{thread_id}")
     async def patch_thread(
@@ -67,41 +127,24 @@ def create_threads_router(
     ):
         verify_internal_api_key(request)
 
-        try:
-            return await asyncio.to_thread(
-                update_thread_title,
-                thread_id=thread_id,
-                title=body.title,
-                force=body.force,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return await _update_thread_record(thread_id=thread_id, body=body)
 
     @router.get("/{thread_id}")
     async def get_thread_by_id(thread_id: str, request: Request):
         verify_internal_api_key(request)
 
-        record = await asyncio.to_thread(get_thread, thread_id)
-        if record is None:
-            raise HTTPException(status_code=404, detail="Thread not found")
-
-        messages = await get_thread_messages_payload(thread_id)
-        return {**record, "messages": messages}
+        return await _thread_record_with_messages(
+            get_checkpointer=get_checkpointer,
+            thread_id=thread_id,
+        )
 
     @router.delete("/{thread_id}")
     async def delete_thread(thread_id: str, request: Request):
         verify_internal_api_key(request)
 
-        checkpointer = get_checkpointer()
-        if checkpointer is not None:
-            await checkpointer.adelete_thread(thread_id)
-
-        deleted = await asyncio.to_thread(delete_thread_metadata, thread_id)
-
-        return {
-            "ok": True,
-            "thread_id": thread_id,
-            "deleted": deleted,
-        }
+        return await _delete_thread_record(
+            get_checkpointer=get_checkpointer,
+            thread_id=thread_id,
+        )
 
     return router

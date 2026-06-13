@@ -56,8 +56,8 @@ __all__ = [
     "PromptAction",
     "ReplyJobRequest",
     "StructuredRecordOutput",
-    "TimeTriggerKind",
     "TimeTrigger",
+    "TimeTriggerKind",
     "UpdateJobRequest",
     "VirtualRecordThing",
 ]

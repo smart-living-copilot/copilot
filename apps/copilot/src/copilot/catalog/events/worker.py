@@ -1,7 +1,7 @@
 import asyncio
-from dataclasses import dataclass
 import logging
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -10,7 +10,6 @@ from copilot.catalog.events.outbox import (
     publish_pending_thing_events,
 )
 from copilot.catalog.events.publisher import ThingEventPublisher
-
 
 logger = logging.getLogger(__name__)
 DEFAULT_OUTBOX_POLL_INTERVAL_SECONDS = 0.5
@@ -68,7 +67,7 @@ class ThingEventOutboxPublisherWorker:
                         stop_event.wait(),
                         timeout=self._poll_interval_seconds,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
         finally:
             self._state.loop_running = False

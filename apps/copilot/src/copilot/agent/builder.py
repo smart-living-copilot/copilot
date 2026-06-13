@@ -6,10 +6,11 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
+from copilot.agent.device_interactions import make_device_interaction_summary_node
 from copilot.agent.nodes import (
     CopilotState,
-    make_background_job_node,
     make_analysis_node,
+    make_background_job_node,
     make_control_node,
     make_jobs_node,
     make_respond_node,
@@ -17,7 +18,6 @@ from copilot.agent.nodes import (
     make_virtual_things_node,
     respond_should_continue,
 )
-from copilot.agent.device_interactions import make_device_interaction_summary_node
 from copilot.agent.tool_groups import group_local_tools, partition_registry_tools
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from copilot.catalog.events.outbox import enqueue_thing_event
 from copilot.core.database import get_session_factory
+from copilot.core.time import utc_now
 from copilot.jobs.records.td import build_virtual_record_td
-from copilot.jobs.stores import utc_now
 from copilot.virtual_things.db import VirtualThing, VirtualThingBinding
 from copilot.virtual_things.schemas import (
     DefineVirtualThingRequest,
@@ -238,7 +238,7 @@ class VirtualThingStore:
                     "eventName": event_name,
                     "payload": json_safe(payload),
                     "hash": f"virtual-emission:{uuid4()}",
-                    "occurredAt": datetime.now(timezone.utc).isoformat(),
+                    "occurredAt": utc_now().isoformat(),
                 },
             )
             session.commit()
@@ -330,5 +330,5 @@ def _definition_event(action: str, thing_id: str, version: int) -> dict[str, Any
         "id": thing_id,
         "hash": f"virtual-definition:{version}",
         "version": version,
-        "occurredAt": datetime.now(timezone.utc).isoformat(),
+        "occurredAt": utc_now().isoformat(),
     }

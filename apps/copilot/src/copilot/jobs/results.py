@@ -66,35 +66,11 @@ class JobRunEventStream:
     ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
         start_id = last_event_id or "$"
         while True:
-            client = redis.from_url(
-                self._settings.redis_url,
-                decode_responses=True,
-                socket_timeout=35,
-                socket_keepalive=True,
-            )
+            client = self._stream_client()
             try:
-                while True:
-                    records = await client.xread(
-                        streams={self._settings.jobs_run_events_stream: start_id},
-                        count=20,
-                        block=30000,
-                    )
-                    if not records:
-                        continue
-
-                    for _stream_name, entries in records:
-                        for event_id, fields in entries:
-                            start_id = event_id
-                            payload = fields.get("payload")
-                            if not payload:
-                                continue
-                            try:
-                                event = json.loads(payload)
-                            except json.JSONDecodeError:
-                                logger.warning("Ignoring invalid job run event %s", event_id)
-                                continue
-                            if isinstance(event, dict):
-                                yield event_id, event
+                async for event_id, event in self._read_events(client, start_id):
+                    start_id = event_id
+                    yield event_id, event
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -102,3 +78,48 @@ class JobRunEventStream:
                 await asyncio.sleep(2)
             finally:
                 await client.aclose()
+
+    def _stream_client(self):
+        return redis.from_url(
+            self._settings.redis_url,
+            decode_responses=True,
+            socket_timeout=35,
+            socket_keepalive=True,
+        )
+
+    async def _read_events(
+        self,
+        client: Any,
+        start_id: str,
+    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        while True:
+            records = await client.xread(
+                streams={self._settings.jobs_run_events_stream: start_id},
+                count=20,
+                block=30000,
+            )
+            for event_id, event in _decode_stream_records(records):
+                start_id = event_id
+                yield event_id, event
+
+
+def _decode_stream_records(records: Any) -> list[tuple[str, dict[str, Any]]]:
+    events: list[tuple[str, dict[str, Any]]] = []
+    for _stream_name, entries in records or []:
+        for event_id, fields in entries:
+            event = _decode_stream_event(event_id, fields)
+            if event is not None:
+                events.append((event_id, event))
+    return events
+
+
+def _decode_stream_event(event_id: str, fields: Any) -> dict[str, Any] | None:
+    payload = fields.get("payload") if isinstance(fields, dict) else None
+    if not payload:
+        return None
+    try:
+        event = json.loads(payload)
+    except json.JSONDecodeError:
+        logger.warning("Ignoring invalid job run event %s", event_id)
+        return None
+    return event if isinstance(event, dict) else None

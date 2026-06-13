@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
+from copilot.core.time import utc_now
 from copilot.thing_indexer.summary_utils import ThingTDMetadata
 
 
@@ -27,7 +27,7 @@ def build_index_metadata(
         "eventNames": td_metadata["eventNames"],
         "eventType": event_type,
         "tdHash": td_hash,
-        "indexedAt": indexed_at or datetime.now(timezone.utc).isoformat(),
+        "indexedAt": indexed_at or utc_now().isoformat(),
         "promptVersion": prompt_version,
         "summarySource": summary_source,
         "summaryModel": summary_model,

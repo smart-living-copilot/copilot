@@ -5,10 +5,10 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from copilot.catalog.store import get_thing
 from copilot.core.config import Settings
 from copilot.search.embeddings import create_openai_embeddings
 from copilot.search.vector_store import SearchVectorStore
-from copilot.catalog.store import get_thing
 
 
 def _coerce_string_list(value: Any) -> list[str]:

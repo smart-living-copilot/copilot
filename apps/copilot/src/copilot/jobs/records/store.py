@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -15,7 +15,6 @@ from copilot.jobs.records.schema import (
     validate_record_data,
     validate_record_schema,
 )
-from copilot.jobs.records.td import build_virtual_record_td
 from copilot.jobs.stores import _json_safe, iso, utc_now
 
 
@@ -40,12 +39,6 @@ class VirtualRecordStore:
         description: str,
     ) -> dict[str, Any]:
         schema = validate_record_schema(record_schema)
-        td = build_virtual_record_td(
-            thing_id=thing_id,
-            title=title,
-            description=description,
-            record_schema=schema,
-        )
         now = utc_now()
         with self._session_factory() as session:
             row = session.get(VirtualRecordThing, thing_id)
@@ -257,7 +250,7 @@ def _parse_datetime(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def _bounded_limit(value: Any) -> int:

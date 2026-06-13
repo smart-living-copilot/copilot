@@ -4,14 +4,8 @@ from typing import Any
 
 import aiohttp
 
+from copilot.clients._base import setting_value as _setting_value
 from copilot.core.config import Settings
-
-
-def _setting_value(settings: Any, *names: str, default: Any = None) -> Any:
-    for name in names:
-        if hasattr(settings, name):
-            return getattr(settings, name)
-    return default
 
 
 class WotRuntimeClient:
@@ -198,21 +192,23 @@ class WotRuntimeClient:
         url = f"{self._base_url}{path}"
         request_timeout = timeout or self._default_timeout
 
-        async with aiohttp.ClientSession(timeout=request_timeout) as session:
-            async with session.request(
+        async with (
+            aiohttp.ClientSession(timeout=request_timeout) as session,
+            session.request(
                 method,
                 url,
                 json=payload,
                 headers=self._headers,
-            ) as response:
-                data = await response.json(content_type=None)
-                if response.status >= 400:
-                    detail = data.get("detail") if isinstance(data, dict) else None
-                    if not detail and response.status == 413:
-                        detail = "Request payload too large"
-                    raise ValueError(
-                        detail or f"wot_runtime request failed with status {response.status}"
-                    )
-                if not isinstance(data, dict):
-                    raise ValueError("wot_runtime returned a non-object response")
-                return data
+            ) as response,
+        ):
+            data = await response.json(content_type=None)
+            if response.status >= 400:
+                detail = data.get("detail") if isinstance(data, dict) else None
+                if not detail and response.status == 413:
+                    detail = "Request payload too large"
+                raise ValueError(
+                    detail or f"wot_runtime request failed with status {response.status}"
+                )
+            if not isinstance(data, dict):
+                raise ValueError("wot_runtime returned a non-object response")
+            return data

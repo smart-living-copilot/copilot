@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from copilot.core.time import as_utc as _as_utc
 from copilot.jobs.cron import DEFAULT_CRON_TIMEZONE, next_cron_run_at, validate_cron_schedule
 
 
@@ -29,6 +30,7 @@ class OnceSchedule(_TimeScheduleBase):
         return run_at if run_at > _as_utc(now) else None
 
     def initial_next_run_at(self, now: datetime) -> datetime | None:
+        del now
         return self.run_at
 
 
@@ -112,9 +114,3 @@ def initial_next_run_at_for_schedule(
 
 def is_one_shot_schedule(schedule: TimeSchedule) -> bool:
     return isinstance(schedule, OnceSchedule)
-
-
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)

@@ -26,8 +26,8 @@ from copilot.virtual_things.store import VirtualThingStore
 from copilot.virtual_things.validator import VirtualThingValidator
 
 __all__ = [
-    "DefineVirtualThingRequest",
     "VIRTUAL_THING_PREFIX",
+    "DefineVirtualThingRequest",
     "VirtualThingBindingSpec",
     "VirtualThingCapability",
     "VirtualThingDefinition",

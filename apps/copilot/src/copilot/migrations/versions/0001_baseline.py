@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import os
 
+import sqlalchemy as sa
 from alembic import op
 from pgvector.sqlalchemy import VECTOR
-import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = "0001_baseline"

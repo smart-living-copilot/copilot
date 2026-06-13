@@ -1,17 +1,14 @@
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from copilot.api_keys.models import ApiKey, ApiKeyRecord, ApiKeyRow
 from copilot.core.scopes import API_KEY_SCOPES, VALID_SCOPES
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+from copilot.core.time import utc_now
 
 
 def _validate_scopes(scopes: list[str]) -> None:
@@ -69,7 +66,7 @@ def create_api_key(
     _validate_scopes(scopes)
 
     raw_key = generate_api_key()
-    now = _utcnow()
+    now = utc_now()
     row = ApiKey(
         id=str(uuid.uuid4()),
         key_prefix=raw_key[:12],
@@ -107,7 +104,7 @@ def revoke_api_key(session: Session, key_id: str, user_id: str) -> bool:
         return False
 
     row.is_active = False
-    row.updated_at = _utcnow()
+    row.updated_at = utc_now()
     session.commit()
     return True
 
@@ -124,7 +121,7 @@ def touch_last_used(session: Session, row: ApiKeyRow) -> None:
     stored = session.get(ApiKey, row.id)
     if stored is None:
         return
-    stored.last_used_at = _utcnow()
+    stored.last_used_at = utc_now()
     session.commit()
 
 
@@ -139,7 +136,7 @@ def ensure_init_admin_key(
     """
     key_hash = hash_api_key(raw_token)
     scopes = list(API_KEY_SCOPES)
-    now = _utcnow()
+    now = utc_now()
     row = session.scalar(select(ApiKey).where(ApiKey.key_hash == key_hash))
     if row is None:
         session.add(

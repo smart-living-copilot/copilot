@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from copilot.auth import User, require_scopes
 from copilot.catalog.ids import decode_thing_id
-from copilot.jobs.records.ids import is_virtual_record_thing_id
+from copilot.core.time import utc_now
 from copilot.jobs.records.http import virtual_record_http_error
+from copilot.jobs.records.ids import is_virtual_record_thing_id
 from copilot.virtual_things.dispatcher import VirtualThingDispatcher
 from copilot.virtual_things.handler import VirtualThingHandlerError
 from copilot.virtual_things.schemas import DefineVirtualThingRequest
@@ -125,7 +125,7 @@ async def emit_virtual_thing_event(
             {
                 "trigger": "explicit",
                 "input": payload.get("input"),
-                "requested_at": datetime.now(timezone.utc).isoformat(),
+                "requested_at": utc_now().isoformat(),
             },
         )
         return result

@@ -28,11 +28,7 @@ def _flatten_text_content(content: Any) -> str:
         return content.strip()
 
     if isinstance(content, dict):
-        block_type = content.get("type")
-        text = content.get("text")
-        if block_type in {"text", "input_text"} and isinstance(text, str):
-            return text.strip()
-        return ""
+        return _text_content_block(content)
 
     if not isinstance(content, list):
         return ""
@@ -45,17 +41,21 @@ def _flatten_text_content(content: Any) -> str:
                 parts.append(text)
             continue
 
-        if not isinstance(item, dict):
-            continue
-
-        block_type = item.get("type")
-        text = item.get("text")
-        if block_type in {"text", "input_text"} and isinstance(text, str):
-            stripped = text.strip()
-            if stripped:
-                parts.append(stripped)
+        text = _text_content_block(item)
+        if text:
+            parts.append(text)
 
     return " ".join(parts).strip()
+
+
+def _text_content_block(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    block_type = value.get("type")
+    text = value.get("text")
+    if block_type in {"text", "input_text"} and isinstance(text, str):
+        return text.strip()
+    return ""
 
 
 def suggest_thread_title(

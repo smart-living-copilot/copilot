@@ -18,7 +18,7 @@ def _schema_summary(schema: Any) -> str:
 
 
 def _semantic_type_labels(value: Any) -> list[str]:
-    """Local names of semantic ``@type`` IRIs (e.g. ``saref:TemperatureSensor`` -> ``TemperatureSensor``).
+    """Local names of semantic ``@type`` IRIs.
 
     Returns the human-meaningful class tokens so enrichment's semantic types become part of
     the embedded text and thus reachable by semantic ``things_search`` — not only SPARQL.

@@ -4,10 +4,9 @@ from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel
 
 from copilot.auth import User, require_scopes, require_service
-from copilot.core.api_dependencies import SessionDep
-from copilot.catalog.ids import decode_thing_id
 from copilot.catalog.credentials.service import CredentialService
-
+from copilot.catalog.ids import decode_thing_id
+from copilot.core.api_dependencies import SessionDep
 
 router = APIRouter(tags=["thing credentials"])
 

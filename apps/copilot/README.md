@@ -60,6 +60,8 @@ Live voice uses a self-hosted LiveKit Server plus the `copilot livekit-agent` wo
 
 The application schema is owned by Alembic migrations in [`src/copilot/migrations`](./src/copilot/migrations). They ship inside the `copilot` package so `alembic upgrade head` resolves them in every install mode. App startup calls `alembic upgrade head`, so API, worker, LiveKit, and indexer processes share the same schema path.
 
+Migration versions intentionally skip `0002`; the dropped revision was superseded before release, and the remaining chain starts at `0001` then continues with `0003`.
+
 Run migrations manually from `apps/copilot` when needed (the config lives in the package, so pass it with `-c`):
 
 ```bash

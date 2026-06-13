@@ -18,25 +18,25 @@ from copilot.agent.tools.look_at_camera import look_at_camera
 from copilot.agent.tools.run_code import run_code
 from copilot.agent.tools.submit_job_record import submit_job_record
 from copilot.agent.tools.wot_registry import REGISTRY_TOOLS
-from copilot.core.config import get_settings as get_registry_settings
-from copilot.core.database import init_db, psycopg_conninfo
-from copilot.core.llm import make_llm
-from copilot.core.settings import Settings
 from copilot.clients.code_executor import (
     CodeExecutorClient,
     format_code_execution_result,
 )
+from copilot.core.config import get_settings as get_registry_settings
+from copilot.core.database import init_db, psycopg_conninfo
+from copilot.core.llm import make_llm
+from copilot.core.settings import Settings
 from copilot.jobs.enums import JobRunSource, JobRunStatus
-from copilot.jobs.records import VirtualRecordStore
-from copilot.jobs.record_summary import submitted_record_summary
-from copilot.jobs.schemas import AnalysisAction, Job, JobRun, StructuredRecordOutput
 from copilot.jobs.graph_results import (
     graph_config_for_run,
     graph_input_for_run,
     job_result_from_graph_result,
     job_run_status_from_result,
 )
+from copilot.jobs.record_summary import submitted_record_summary
+from copilot.jobs.records import VirtualRecordStore
 from copilot.jobs.results import JobRunEventPublisher
+from copilot.jobs.schemas import AnalysisAction, Job, JobRun, StructuredRecordOutput
 from copilot.jobs.stores import JobStore, utc_now
 from copilot.search import ThingSearchService, set_active_search_service
 

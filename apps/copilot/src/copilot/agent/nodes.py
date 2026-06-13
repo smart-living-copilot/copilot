@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
-from datetime import datetime, timezone
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 
 from copilotkit import CopilotKitState
 from langchain_core.messages import (
@@ -22,8 +21,9 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END
 from pydantic import BaseModel, Field
 
-from copilot.agent.tools.look_at_camera import is_look_at_camera_available
-from copilot.jobs.enums import JobOutputKind
+from copilot.agent.device_interactions import (
+    without_device_interaction_summary_messages,
+)
 from copilot.agent.prompts import (
     ANALYSIS_PROMPT,
     CONTROL_PROMPT,
@@ -32,9 +32,9 @@ from copilot.agent.prompts import (
     ROUTER_PROMPT,
     VIRTUAL_THINGS_PROMPT,
 )
-from copilot.agent.device_interactions import (
-    without_device_interaction_summary_messages,
-)
+from copilot.agent.tools.look_at_camera import is_look_at_camera_available
+from copilot.core.time import utc_now
+from copilot.jobs.enums import JobOutputKind
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +260,7 @@ def _prior_analysis_block(messages: Sequence[BaseMessage]) -> str:
 
 
 def _current_time_block() -> str:
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     ts_ms = int(now.timestamp() * 1000)
     ts_s = int(now.timestamp())
     return (
@@ -331,7 +331,7 @@ def _make_llm_node(
     # ``"RunnableConfig"`` or ``"Optional[RunnableConfig]"``. Writing it as
     # ``RunnableConfig | None`` silently disables injection, so ``config`` (and
     # the ``thread_id`` that look_at_camera needs) arrives as ``None``.
-    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
+    async def node(state: CopilotState, config: RunnableConfig | None = None):
         active_tools = _active_tools_for_config(tools, config)
         runnable = (
             llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
@@ -384,7 +384,7 @@ def make_analysis_node(
     parallel_tool_calls: bool = True,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
-    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
+    async def node(state: CopilotState, config: RunnableConfig | None = None):
         system_message = SystemMessage(content=ANALYSIS_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
@@ -408,7 +408,7 @@ def make_jobs_node(
     parallel_tool_calls: bool = True,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
-    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
+    async def node(state: CopilotState, config: RunnableConfig | None = None):
         system_message = SystemMessage(content=JOBS_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
@@ -432,7 +432,7 @@ def make_virtual_things_node(
     parallel_tool_calls: bool = True,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
-    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
+    async def node(state: CopilotState, config: RunnableConfig | None = None):
         system_message = SystemMessage(
             content=VIRTUAL_THINGS_PROMPT
             + _prior_analysis_block(state["messages"])
@@ -460,7 +460,7 @@ def make_background_job_node(
     parallel_tool_calls: bool = True,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
-    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
+    async def node(state: CopilotState, config: RunnableConfig | None = None):
         system_message = SystemMessage(content=BACKGROUND_JOB_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         active_tools = _active_tools_for_config(tools, config)

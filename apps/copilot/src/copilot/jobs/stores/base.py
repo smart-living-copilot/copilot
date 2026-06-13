@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from copilot.core.database import get_session_factory
+from copilot.core.json import json_safe as _json_safe
+from copilot.core.time import utc_now as utc_now
 from copilot.jobs.db import JobRecord, JobRunEventRecord, JobRunRecord
 from copilot.jobs.enums import (
     JobInteractionMode,
@@ -28,16 +29,8 @@ class JobRunNotCancellable(RuntimeError):
 _UNSET: object = object()
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def iso(value: datetime) -> str:
-    return value.astimezone(timezone.utc).isoformat()
-
-
-def _json_safe(value):
-    return json.loads(json.dumps(value, ensure_ascii=True, default=str))
+    return value.astimezone(UTC).isoformat()
 
 
 def _updated_resource_health(

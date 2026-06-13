@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 from taskiq import TaskiqEvents
@@ -44,10 +45,8 @@ async def _worker_shutdown(_state: object) -> None:
     if _event_stop is not None:
         _event_stop.set()
     if _event_task is not None:
-        try:
+        with suppress(asyncio.CancelledError):
             await _event_task
-        except asyncio.CancelledError:
-            pass
         _event_task = None
     if _event_consumer is not None:
         await _event_consumer.close()

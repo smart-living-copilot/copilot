@@ -2,8 +2,8 @@ from fastapi import HTTPException
 from jsonschema import ValidationError
 
 from copilot.catalog.models import ThingDocument
-from copilot.catalog.store import sanitize_document
 from copilot.catalog.schema import format_validation_error, validate_thing_document
+from copilot.catalog.store import sanitize_document
 
 
 def validate_document(document: ThingDocument) -> ThingDocument:

@@ -1,6 +1,5 @@
 import logging
 from collections.abc import Collection
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
@@ -8,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from copilot.catalog.events.models import ThingEventOutbox, ThingEventOutboxRecord
 from copilot.catalog.events.publisher import ThingEventPublisher
+from copilot.core.time import utc_now
 
 if TYPE_CHECKING:
     from copilot.catalog.events.worker import ThingEventOutboxPublisherState
@@ -104,7 +104,7 @@ def _publish_next_pending_event(
 
         row.attempt_count += 1
         row.last_error = ""
-        row.published_at = datetime.now(timezone.utc)
+        row.published_at = utc_now()
         session.commit()
 
         if state is not None:

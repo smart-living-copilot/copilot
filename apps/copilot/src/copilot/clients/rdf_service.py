@@ -5,6 +5,7 @@ from typing import Any
 
 import aiohttp
 
+from copilot.clients._base import setting_value as _setting_value
 from copilot.core.config import Settings
 
 
@@ -21,13 +22,6 @@ class RdfServiceError(ValueError):
         self.status = status
         self.category = category
         self.retryable = retryable
-
-
-def _setting_value(settings: Any, *names: str, default: Any = None) -> Any:
-    for name in names:
-        if hasattr(settings, name):
-            return getattr(settings, name)
-    return default
 
 
 def _decode_response_payload(status: int, text: str) -> dict[str, Any]:
@@ -117,12 +111,14 @@ class RdfServiceClient:
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         url = f"{self._base_url}{path}"
-        async with aiohttp.ClientSession(timeout=self._timeout) as session:
-            async with session.request(
+        async with (
+            aiohttp.ClientSession(timeout=self._timeout) as session,
+            session.request(
                 method,
                 url,
                 json=payload,
                 headers=self._headers,
-            ) as response:
-                text = await response.text()
-                return _decode_response_payload(response.status, text)
+            ) as response,
+        ):
+            text = await response.text()
+            return _decode_response_payload(response.status, text)

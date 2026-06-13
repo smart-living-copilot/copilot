@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 try:
@@ -138,10 +138,8 @@ def _thread_id_from_context(ctx: Any, settings: Settings) -> str:
     candidates: list[str | None] = []
     job = getattr(ctx, "job", None)
     candidates.append(getattr(job, "metadata", None))
-    try:
+    with suppress(Exception):
         candidates.append(getattr(ctx.token_claims(), "metadata", None))
-    except Exception:
-        pass
 
     for raw_metadata in candidates:
         metadata = _json_object(raw_metadata)

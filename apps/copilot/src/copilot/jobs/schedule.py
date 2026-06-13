@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from taskiq import ScheduledTask
 from taskiq.abc.schedule_source import ScheduleSource
@@ -35,8 +35,8 @@ def schedule_id_for_job(job_id: str) -> str:
 
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def scheduled_task_for_job(job: Job) -> ScheduledTask:

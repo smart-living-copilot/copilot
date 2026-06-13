@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -110,7 +109,7 @@ class JobResourceManager:
                 )
                 continue
             try:
-                await self._create_or_update_record_thing(job, request=None)
+                await self._create_or_update_record_thing(job, _request=None)
                 repaired += 1
             except Exception as exc:
                 await mark_resource_health(
@@ -195,7 +194,7 @@ class JobResourceManager:
         request: CreateJobRequest | None = None,
     ) -> None:
         if isinstance(job.output, StructuredRecordOutput):
-            await self._create_or_update_record_thing(job, request=request)
+            await self._create_or_update_record_thing(job, _request=request)
         if isinstance(job.trigger, TimeTrigger):
             try:
                 await self._schedule_manager.add_job(job)
@@ -241,7 +240,7 @@ class JobResourceManager:
             await asyncio.to_thread(self._record_store.delete_thing, previous_thing_id)
 
         if isinstance(updated.output, StructuredRecordOutput):
-            await self._create_or_update_record_thing(updated, request=None)
+            await self._create_or_update_record_thing(updated, _request=None)
 
         if isinstance(updated.trigger, TimeTrigger):
             try:
@@ -270,7 +269,7 @@ class JobResourceManager:
 
         return updated
 
-    async def _update_event_job_resources(self, previous: Job, updated: Job) -> Job:
+    async def _update_event_job_resources(self, _previous: Job, updated: Job) -> Job:
         if not updated.enabled:
             if updated.subscription_id:
                 try:
@@ -377,7 +376,7 @@ class JobResourceManager:
         self,
         job: Job,
         *,
-        request: CreateJobRequest | None,
+        _request: CreateJobRequest | None,
     ) -> None:
         if not isinstance(job.output, StructuredRecordOutput):
             return

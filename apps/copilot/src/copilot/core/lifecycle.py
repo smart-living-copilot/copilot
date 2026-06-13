@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable, Protocol
+from collections.abc import Awaitable, Callable
+from typing import Protocol
 
 from fastapi import FastAPI
 from psycopg_pool import ConnectionPool
 
-from copilot.core.config import Settings
-from copilot.core.bootstrap import BackendBootstrapService
-from copilot.core.database import DatabaseConnection, get_session_factory
-from copilot.search import ThingSearchService, set_active_search_service
 from copilot.catalog.events import (
     ThingEventOutboxPublisherState,
     ThingEventOutboxPublisherWorker,
     ValkeyThingEventStreamPublisher,
 )
+from copilot.core.bootstrap import BackendBootstrapService
+from copilot.core.config import Settings
+from copilot.core.database import DatabaseConnection, get_session_factory
+from copilot.search import ThingSearchService, set_active_search_service
 
 
 class BackgroundTaskState(Protocol):

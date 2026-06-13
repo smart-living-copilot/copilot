@@ -4,7 +4,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 AffordanceSection = Literal["properties", "actions", "events"]
 DiffKind = Literal["prefix", "type", "unit"]
 

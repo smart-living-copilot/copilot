@@ -10,8 +10,8 @@ from copilot.jobs.db import JobRecord
 from copilot.jobs.enums import JobTriggerKind
 from copilot.jobs.schemas import CreateJobRequest, Job, JobDefinition
 from copilot.jobs.stores.base import (
-    _JobStoreBase,
     _UNSET,
+    _JobStoreBase,
     _json_safe,
     _source_thread_id_for_job,
     _to_job,
