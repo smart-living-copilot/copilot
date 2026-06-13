@@ -58,6 +58,30 @@ function hasConcreteForm(
   });
 }
 
+function affordanceMap(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function withFallbackAffordances(
+  document: ThingDescription,
+  fallback: ThingDescription,
+): ThingDescription {
+  const td = JSON.parse(JSON.stringify(document)) as ThingDescription;
+  for (const section of ["properties", "actions", "events"]) {
+    const fallbackAffordances = affordanceMap(fallback[section]);
+    if (!fallbackAffordances) {
+      continue;
+    }
+    td[section] = {
+      ...fallbackAffordances,
+      ...(affordanceMap(td[section]) || {}),
+    };
+  }
+  return td;
+}
+
 function normalizeConcreteForms(
   document: ThingDescription,
   thingId: string,
@@ -131,7 +155,10 @@ export async function concreteCatalogTd(
   fallback: ThingDescription,
   thingId: string,
 ): Promise<ThingDescription> {
-  return normalizeConcreteForms(await concreteTd(exposedThing, fallback), thingId);
+  return normalizeConcreteForms(
+    withFallbackAffordances(await concreteTd(exposedThing, fallback), fallback),
+    thingId,
+  );
 }
 
 /** Removes abstract forms before passing a TD to node-wot produce. */

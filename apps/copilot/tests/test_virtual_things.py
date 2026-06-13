@@ -215,6 +215,93 @@ class VirtualThingBuilderTestCase(unittest.TestCase):
         self.assertEqual(len(bindings), 1)
         self.assertIn("return 2", bindings[0]["handler_code"])
 
+    def test_add_affordance_accumulates_distinct_properties_actions_and_events(self):
+        builder, _ = self._builder()
+        thing_id = builder.create(title="Many Affordances")["thing_id"]
+
+        additions = [
+            (
+                "property",
+                "temperature",
+                "def handle(input, state, context):\n    return 21",
+                property_definition({"type": "number"}),
+                None,
+            ),
+            (
+                "property",
+                "humidity",
+                "def handle(input, state, context):\n    return 42",
+                property_definition({"type": "number"}),
+                None,
+            ),
+            (
+                "action",
+                "refresh",
+                "def handle(input, state, context):\n    return {'ok': True}",
+                action_definition(None, {"type": "object"}),
+                None,
+            ),
+            (
+                "action",
+                "reset",
+                "def handle(input, state, context):\n    return {'reset': True}",
+                action_definition({"type": "object"}, {"type": "object"}),
+                None,
+            ),
+            (
+                "event",
+                "tick",
+                (
+                    "def handle(input, state, context):\n"
+                    "    return {'emit': True, 'payload': {'tick': True}, 'state': state}"
+                ),
+                event_definition({"type": "object"}),
+                event_trigger(10, None, None),
+            ),
+            (
+                "event",
+                "alarm",
+                (
+                    "def handle(input, state, context):\n"
+                    "    return {'emit': True, 'payload': {'alarm': True}, 'state': state}"
+                ),
+                event_definition({"type": "object"}),
+                event_trigger(None, None, None),
+            ),
+        ]
+
+        result = None
+        for affordance_type, name, handler_code, td_definition, trigger in additions:
+            result = builder.add_affordance(
+                thing_id=thing_id,
+                affordance_type=affordance_type,
+                affordance_name=name,
+                handler_code=handler_code,
+                td_definition=td_definition,
+                trigger=trigger,
+            )
+            self.assertTrue(result["ok"], result)
+
+        assert result is not None
+        td = result["virtual_thing"]["td"]
+        self.assertEqual(set(td["properties"]), {"temperature", "humidity"})
+        self.assertEqual(set(td["actions"]), {"refresh", "reset"})
+        self.assertEqual(set(td["events"]), {"tick", "alarm"})
+        self.assertEqual(
+            {
+                (binding["affordance_type"], binding["affordance_name"])
+                for binding in result["virtual_thing"]["bindings"]
+            },
+            {
+                ("property", "temperature"),
+                ("property", "humidity"),
+                ("action", "refresh"),
+                ("action", "reset"),
+                ("event", "tick"),
+                ("event", "alarm"),
+            },
+        )
+
     def test_add_affordance_rejects_javascript_handler(self):
         builder, _ = self._builder()
         thing_id = builder.create(title="Broken JS")["thing_id"]
