@@ -131,6 +131,55 @@ class VirtualThingBuilderTestCase(unittest.TestCase):
         self.assertTrue(again.get("existing"))
         self.assertEqual(len(again["virtual_thing"]["bindings"]), 1)
 
+    def test_concurrent_add_affordance_keeps_all(self):
+        # Regression: parallel add_virtual_* tool calls each construct their own builder
+        # and run in separate threads (asyncio.to_thread). add_affordance is a
+        # read-modify-write, so without per-Thing serialization concurrent adds clobber
+        # each other and affordances silently disappear before activation.
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+
+        class _SlowStore(_FakeDefinitionStore):
+            def define_thing(self, request):
+                time.sleep(0.02)  # widen the read-modify-write window for the race
+                return super().define_thing(request)
+
+        store = _SlowStore()
+        validator = VirtualThingValidator()
+        thing_id = "virtual:things:multi-abc12345"
+        VirtualThingBuilder(store=store, validator=validator).create(
+            title="Multi", thing_id=thing_id
+        )
+
+        specs = [("property", f"p{i}") for i in range(3)] + [
+            ("action", f"a{i}") for i in range(3)
+        ]
+
+        def add(spec):
+            affordance_type, name = spec
+            td_definition = (
+                property_definition({"type": "number"})
+                if affordance_type == "property"
+                else action_definition(None, {"type": "number"})
+            )
+            return VirtualThingBuilder(store=store, validator=validator).add_affordance(
+                thing_id=thing_id,
+                affordance_type=affordance_type,
+                affordance_name=name,
+                handler_code="def handle(input, state, context):\n    return 1",
+                td_definition=td_definition,
+            )
+
+        with ThreadPoolExecutor(max_workers=len(specs)) as pool:
+            results = list(pool.map(add, specs))
+        for result in results:
+            self.assertTrue(result["ok"], result)
+
+        final = store.get_definition(thing_id, include_disabled=True)
+        self.assertEqual(set(final.td.get("properties", {})), {"p0", "p1", "p2"})
+        self.assertEqual(set(final.td.get("actions", {})), {"a0", "a1", "a2"})
+        self.assertEqual(len(final.bindings), len(specs))
+
     def test_add_property_builds_td_and_binding(self):
         builder, _ = self._builder()
         thing_id = builder.create(title="Comfort Score")["thing_id"]

@@ -10,6 +10,7 @@ expensive smoke test runs once, at ``activate``.
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any
 
 from pydantic import ValidationError
@@ -24,6 +25,21 @@ from copilot.virtual_things.store import VirtualThingStore
 from copilot.virtual_things.validator import VirtualThingValidator
 
 _SECTION = {"property": "properties", "action": "actions", "event": "events"}
+
+# add_affordance is a read-modify-write and the LLM fires add_virtual_* calls in parallel
+# (each on its own thread via asyncio.to_thread). Without a per-Thing lock, concurrent
+# adds read the same base state and the last writer drops the others' affordances.
+_BUILD_LOCKS: dict[str, threading.Lock] = {}
+_BUILD_LOCKS_GUARD = threading.Lock()
+
+
+def _build_lock(thing_id: str) -> threading.Lock:
+    with _BUILD_LOCKS_GUARD:
+        lock = _BUILD_LOCKS.get(thing_id)
+        if lock is None:
+            lock = threading.Lock()
+            _BUILD_LOCKS[thing_id] = lock
+        return lock
 
 
 class VirtualThingBuilder:
@@ -74,44 +90,50 @@ class VirtualThingBuilder:
         td_definition: dict[str, Any],
         trigger: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        current = self._load(thing_id)
-        if current is None:
-            return {"error": "virtual thing not found"}
+        # Serialize concurrent adds to the same Thing so the load+merge+store below is
+        # atomic; otherwise parallel add_virtual_* calls clobber each other's affordances.
+        with _build_lock(thing_id):
+            current = self._load(thing_id)
+            if current is None:
+                return {"error": "virtual thing not found"}
 
-        td = dict(current.td)
-        section = _SECTION[affordance_type]
-        affordances = dict(td.get(section) or {})
-        affordances[affordance_name] = td_definition
-        td[section] = affordances
+            td = dict(current.td)
+            section = _SECTION[affordance_type]
+            affordances = dict(td.get(section) or {})
+            affordances[affordance_name] = td_definition
+            td[section] = affordances
 
-        binding: dict[str, Any] = {
-            "affordance_type": affordance_type,
-            "affordance_name": affordance_name,
-            "kind": "emitted" if affordance_type == "event" else "computed",
-            "handler_code": handler_code,
-        }
-        if trigger is not None:
-            binding["trigger"] = trigger
-        bindings = _replace_binding(current, affordance_type, affordance_name, binding)
+            binding: dict[str, Any] = {
+                "affordance_type": affordance_type,
+                "affordance_name": affordance_name,
+                "kind": "emitted" if affordance_type == "event" else "computed",
+                "handler_code": handler_code,
+            }
+            if trigger is not None:
+                binding["trigger"] = trigger
+            bindings = _replace_binding(current, affordance_type, affordance_name, binding)
 
-        try:
-            request = DefineVirtualThingRequest(
-                id=thing_id,
-                title=current.title,
-                description=current.description,
-                td=td,
-                bindings=bindings,
-                status=current.status,
-                owner_thread_id=current.owner_thread_id,
-            )
-        except (ValidationError, ValueError) as exc:
-            return {"error": str(exc)}
+            try:
+                request = DefineVirtualThingRequest(
+                    id=thing_id,
+                    title=current.title,
+                    description=current.description,
+                    td=td,
+                    bindings=bindings,
+                    status=current.status,
+                    owner_thread_id=current.owner_thread_id,
+                )
+            except (ValidationError, ValueError) as exc:
+                return {"error": str(exc)}
 
-        report = self._validator.validate_static(request)
-        if not report["ok"]:
-            return {"error": "virtual thing static validation failed", "validation_report": report}
+            report = self._validator.validate_static(request)
+            if not report["ok"]:
+                return {
+                    "error": "virtual thing static validation failed",
+                    "validation_report": report,
+                }
 
-        return _ok(self._store.define_thing(request), validation_report=report)
+            return _ok(self._store.define_thing(request), validation_report=report)
 
     async def activate(self, thing_id: str) -> dict[str, Any]:
         current = self._load(thing_id)
