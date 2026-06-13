@@ -8,11 +8,14 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from copilot.catalog.validation import validate_document
 from copilot.virtual_things.capabilities import infer_capabilities
+from copilot.virtual_things.derivation import annotate_computed_derivations
 from copilot.virtual_things.ids import make_virtual_thing_id
 
 AffordanceType = Literal["property", "action", "event"]
 BindingKind = Literal["record", "computed", "emitted"]
 VirtualThingStatus = Literal["active", "disabled"]
+
+_WOT_TD_11_CONTEXT_URL = "https://www.w3.org/2022/wot/td/v1.1"
 
 
 class VirtualThingCapability(BaseModel):
@@ -169,6 +172,8 @@ class DefineVirtualThingRequest(BaseModel):
         td = {**self.td, "id": thing_id, "title": self.title}
         if self.description:
             td["description"] = self.description
+        td.setdefault("@context", _WOT_TD_11_CONTEXT_URL)
+        td = annotate_computed_derivations(td, self.bindings)
         self.id = thing_id
         self.td = validate_virtual_thing_td(td)
         _validate_binding_coverage(self.td, self.bindings)
@@ -243,7 +248,7 @@ def validate_virtual_thing_td(td: Any) -> dict[str, Any]:
 
 def _with_abstract_forms(td: dict[str, Any]) -> dict[str, Any]:
     normalized = json_safe(td)
-    normalized.setdefault("@context", "https://www.w3.org/2022/wot/td/v1.1")
+    normalized.setdefault("@context", _WOT_TD_11_CONTEXT_URL)
     normalized.setdefault("securityDefinitions", {"nosec_sc": {"scheme": "nosec"}})
     normalized.setdefault("security", "nosec_sc")
     for section, op in (

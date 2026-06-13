@@ -40,6 +40,7 @@ DOMAIN_PREFIXES: dict[str, str] = {
     "schema": "http://schema.org/",
     "geo": "http://www.w3.org/2003/01/geo/wgs84_pos#",
     "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "prov": "http://www.w3.org/ns/prov#",
 }
 
 CLASSES_QUERY = (
