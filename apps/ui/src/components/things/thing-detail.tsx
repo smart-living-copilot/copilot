@@ -368,6 +368,10 @@ export function ThingDetail({
     onDeleteCredential: handleDeleteCredential,
     onOpenCredential: handleOpenCredential,
     isVirtual,
+    openHref:
+      variant === 'drawer'
+        ? `/things/${encodeURIComponent(thingId)}`
+        : undefined,
     bindings: isVirtual ? bindingMap : undefined,
     onRun: isVirtual ? handleRun : undefined,
     onOpenBinding:

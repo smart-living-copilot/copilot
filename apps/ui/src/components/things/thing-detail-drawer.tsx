@@ -16,12 +16,9 @@ export function ThingDetailDrawer({
   onDeleted: (thingId: string) => void;
   onOpenChange: (open: boolean) => void;
 }) {
-  const href = thingId ? `/things/${encodeURIComponent(thingId)}` : undefined;
-
   return (
     <DetailDrawerShell
       description={thingId ?? 'No thing selected'}
-      fullPageHref={href}
       onOpenChange={onOpenChange}
       open={open}
       title="Thing Details"

@@ -19,13 +19,14 @@ export function JobDetailsDrawer({
   return (
     <DetailDrawerShell
       description={jobId ?? 'No job selected'}
-      fullPageHref={href}
       onOpenChange={onOpenChange}
       open={open}
       title="Job Details"
       width="min(100vw, 72rem)"
     >
-      {jobId ? <JobDetailsPage jobId={jobId} onDeleted={onDeleted} /> : null}
+      {jobId ? (
+        <JobDetailsPage jobId={jobId} onDeleted={onDeleted} openHref={href} />
+      ) : null}
     </DetailDrawerShell>
   );
 }

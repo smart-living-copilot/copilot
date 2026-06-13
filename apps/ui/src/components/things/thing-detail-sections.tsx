@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { type ReactNode } from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import { ExternalLink, Pencil, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,7 +21,6 @@ import {
   type SecurityDefinition,
   type StoredCredential,
   type ThingIndexStatus,
-  formatDateTime,
 } from './thing-detail-model';
 import { ThingSemanticSection } from './thing-detail-summary';
 import {
@@ -36,36 +34,6 @@ import { VirtualThingStatusToggle } from './virtual-thing-status-toggle';
 
 const DETAIL_TABS_TRIGGER_CLASSNAME =
   'flex-none rounded-none border-b-2 border-transparent px-4 py-2.5 font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-active:border-primary data-active:bg-transparent data-active:text-foreground data-active:shadow-none';
-
-function FieldCard({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: ReactNode;
-  mono?: boolean;
-}) {
-  return (
-    <Card
-      size="sm"
-      className="rounded-md border-border/70 shadow-sm shadow-black/5 xl:min-w-0 xl:flex-1 xl:basis-0"
-    >
-      <CardContent>
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div
-          className={
-            mono
-              ? 'mt-1 break-all font-mono text-xs leading-5 text-foreground'
-              : 'mt-1 truncate text-sm font-medium text-foreground'
-          }
-        >
-          {value}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 export interface ThingDetailLayoutProps {
   thing: ThingRecord;
@@ -85,6 +53,8 @@ export interface ThingDetailLayoutProps {
   onDeleteCredential: (securityName: string) => Promise<void> | void;
   onOpenCredential: (definition: SecurityDefinition) => void;
   isVirtual?: boolean;
+  /** When set (drawer context), shows an "Open" button linking to the page. */
+  openHref?: string;
   bindings?: Map<string, VirtualThingBinding>;
   onRun?: (
     affordanceType: VirtualThingBinding['affordance_type'],
@@ -114,6 +84,7 @@ export function ThingDetailPageLayout({
   onDeleteCredential,
   onOpenCredential,
   isVirtual = false,
+  openHref,
   bindings,
   onRun,
   onOpenBinding,
@@ -153,6 +124,14 @@ export function ThingDetailPageLayout({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {openHref ? (
+            <Button asChild variant="outline">
+              <Link href={openHref}>
+                <ExternalLink className="h-4 w-4" />
+                Open
+              </Link>
+            </Button>
+          ) : null}
           {isVirtual ? <VirtualThingStatusToggle thingId={thing.id} /> : null}
           {!isVirtual ? (
             <Button asChild variant="outline">
@@ -187,23 +166,6 @@ export function ThingDetailPageLayout({
       </section>
 
       <section className="space-y-4">
-        <section className="grid gap-2 sm:grid-cols-2 xl:flex xl:flex-nowrap">
-          <FieldCard
-            label="Index status"
-            value={<ThingIndexStatusBadge status={indexStatus} />}
-          />
-          <FieldCard label="Security" value={securityStr} />
-          <FieldCard
-            label="Indexed at"
-            value={formatDateTime(indexStatus?.indexed_at)}
-          />
-          <FieldCard
-            label="Summary model"
-            value={indexStatus?.summary_model || 'Not indexed'}
-          />
-          <FieldCard label="Thing ID" value={thing.id} mono />
-        </section>
-
         <Card className="rounded-md border-border/70 shadow-sm shadow-black/5">
           <CardHeader className="border-b border-border/70">
             <CardTitle className="text-base">Description</CardTitle>

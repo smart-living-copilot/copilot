@@ -18,12 +18,18 @@ import { formatJsonValue, formatJobRunOutcome } from '@/lib/job-run-output';
 interface JobDetailsPageProps {
   jobId: string;
   onDeleted?: (jobId: string) => void;
+  /** When set (drawer context), shows an "Open" button linking to the page. */
+  openHref?: string;
 }
 
 const JOB_TABS_TRIGGER_CLASSNAME =
   'flex-none rounded-none border-b-2 border-transparent px-4 py-2.5 font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-active:border-primary data-active:bg-transparent data-active:text-foreground data-active:shadow-none';
 
-export function JobDetailsPage({ jobId, onDeleted }: JobDetailsPageProps) {
+export function JobDetailsPage({
+  jobId,
+  onDeleted,
+  openHref,
+}: JobDetailsPageProps) {
   const {
     job,
     runs,
@@ -61,6 +67,7 @@ export function JobDetailsPage({ jobId, onDeleted }: JobDetailsPageProps) {
       <JobDetailsHeader
         jobId={jobId}
         job={job}
+        openHref={openHref}
         status={status}
         isLoading={isLoading}
         isRunning={isRunning}

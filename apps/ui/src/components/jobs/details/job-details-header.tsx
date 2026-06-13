@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Ban,
+  ExternalLink,
   Pause,
   Pencil,
   Play,
@@ -29,6 +30,8 @@ import { withReturnTo } from '@/lib/return-to';
 interface JobDetailsHeaderProps {
   jobId: string;
   job: JobRecord | null;
+  /** When set (drawer context), shows an "Open" button linking to the page. */
+  openHref?: string;
   status: JobDisplayStatus | null;
   isLoading: boolean;
   isRunning: boolean;
@@ -44,6 +47,7 @@ interface JobDetailsHeaderProps {
 export function JobDetailsHeader({
   jobId,
   job,
+  openHref,
   status,
   isLoading,
   isRunning,
@@ -86,6 +90,14 @@ export function JobDetailsHeader({
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        {openHref ? (
+          <Button variant="outline" asChild>
+            <Link href={openHref}>
+              <ExternalLink className="h-4 w-4" />
+              Open
+            </Link>
+          </Button>
+        ) : null}
         <Button variant="outline" onClick={onRefresh} disabled={disabled}>
           <RefreshCw
             className={isLoading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'}
