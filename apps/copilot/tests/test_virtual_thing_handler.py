@@ -17,15 +17,19 @@ def _fake_wot(**overrides):
     return SimpleNamespace(**base)
 
 
+def _result_from_stdout(stdout: str) -> dict:
+    for line in reversed(stdout.splitlines()):
+        if line.startswith(RESULT_PREFIX):
+            return json.loads(line.removeprefix(RESULT_PREFIX))
+    raise AssertionError("handler produced no result line")
+
+
 def _run(code: str, wot) -> dict:
     namespace = {"wot": wot}
     stdout = io.StringIO()
     with contextlib.redirect_stdout(stdout):
         exec(code, namespace)
-    for line in reversed(stdout.getvalue().splitlines()):
-        if line.startswith(RESULT_PREFIX):
-            return json.loads(line.removeprefix(RESULT_PREFIX))
-    raise AssertionError("handler produced no result line")
+    return _result_from_stdout(stdout.getvalue())
 
 
 def _context(capabilities):
@@ -35,6 +39,8 @@ def _context(capabilities):
         affordance_name="disaggregate",
         capabilities=capabilities,
         config={},
+        shared_state={},
+        shared_state_version=1,
     )
 
 
@@ -57,7 +63,7 @@ class VirtualThingGuardedWotTestCase(unittest.TestCase):
 
         result = _run(code, _fake_wot(invoke_action=lambda *a, **k: {"fridge": 0.4}))
 
-        self.assertEqual(result, {"fridge": 0.4})
+        self.assertEqual(result["value"], {"fridge": 0.4})
 
     def test_declared_capability_call_succeeds_after_reused_namespace(self) -> None:
         code = handler_wrapper(
@@ -80,11 +86,25 @@ class VirtualThingGuardedWotTestCase(unittest.TestCase):
         with contextlib.redirect_stdout(second_stdout):
             exec(code, namespace)
 
-        self.assertIn(f"{RESULT_PREFIX}{json.dumps({'fridge': 0.4})}", first_stdout.getvalue())
-        self.assertIn(
-            f"{RESULT_PREFIX}{json.dumps({'fridge': 0.4})}",
-            second_stdout.getvalue(),
+        self.assertEqual(_result_from_stdout(first_stdout.getvalue())["value"], {"fridge": 0.4})
+        self.assertEqual(_result_from_stdout(second_stdout.getvalue())["value"], {"fridge": 0.4})
+
+    def test_shared_state_is_exposed_and_returned(self) -> None:
+        code = handler_wrapper(
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    context['shared_state']['mode'] = input['mode']\n"
+                "    return {'ok': True}"
+            ),
+            input_value={"mode": "eco"},
+            state={},
+            context=_context([]),
         )
+
+        result = _run(code, _fake_wot())
+
+        self.assertEqual(result["value"], {"ok": True})
+        self.assertEqual(result["shared_state"], {"mode": "eco"})
 
     def test_undeclared_capability_is_blocked(self) -> None:
         code = handler_wrapper(

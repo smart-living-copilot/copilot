@@ -12,6 +12,7 @@ from copilot.virtual_things.schemas import (
     DefineVirtualThingRequest,
     VirtualThingDefinition,
 )
+from copilot.virtual_things.store import VirtualThingStateConflict
 
 THING_ID = "virtual:things:comfort-sensor"
 
@@ -20,6 +21,7 @@ def _definition(
     *,
     status: str = "active",
     version: int = 1,
+    shared_state: dict[str, Any] | None = None,
 ) -> VirtualThingDefinition:
     return VirtualThingDefinition(
         id=THING_ID,
@@ -32,6 +34,7 @@ def _definition(
         },
         version=version,
         status=status,  # type: ignore[arg-type]
+        shared_state=dict(shared_state or {}),
         bindings=[
             {
                 "affordance_type": "property",
@@ -69,15 +72,18 @@ class _FakeVirtualThingStore:
         return definition
 
     def define_thing(self, request: DefineVirtualThingRequest) -> VirtualThingDefinition:
-        version = self.definitions.get(request.id or "", _definition()).version + 1
+        previous = self.definitions.get(request.id or "", _definition())
         definition = VirtualThingDefinition(
             id=request.id or THING_ID,
             title=request.title,
             description=request.description,
             owner_thread_id=request.owner_thread_id,
             td=request.td,
-            version=version,
+            version=previous.version + 1,
             status=request.status,
+            shared_state=(
+                request.shared_state if request.shared_state is not None else previous.shared_state
+            ),
             bindings=request.bindings,
         )
         self.definitions[definition.id] = definition
@@ -88,12 +94,15 @@ class _FakeVirtualThingStore:
 
 
 class _FakeValidator:
+    requests: list[DefineVirtualThingRequest] = []
+
     async def validate(
         self,
-        _request: DefineVirtualThingRequest,
+        request: DefineVirtualThingRequest,
         *,
         run_smoke: bool,
     ) -> dict[str, Any]:
+        self.requests.append(request)
         return {"ok": True, "smoke_tested": run_smoke, "issues": []}
 
 
@@ -110,6 +119,7 @@ def _client_for_user(user: User, monkeypatch) -> TestClient:
         _FakeValidator,
     )
     _FakeVirtualThingStore.definitions = {THING_ID: _definition()}
+    _FakeValidator.requests = []
     return TestClient(app)
 
 
@@ -176,3 +186,40 @@ def test_virtual_things_routes_reject_api_key_user_missing_scope(monkeypatch):
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Missing required scopes: things:read"
+
+
+def test_virtual_things_route_uses_existing_shared_state_for_validation(monkeypatch):
+    user = User(
+        user_id="admin-key",
+        scopes=["things:write"],
+        auth_type="api_key",
+    )
+
+    with _client_for_user(user, monkeypatch) as client:
+        _FakeVirtualThingStore.definitions = {
+            THING_ID: _definition(status="disabled", shared_state={"power": False})
+        }
+        payload = _define_payload()
+        payload["status"] = "active"
+        payload["bindings"][0]["affordance_name"] = "power"
+        payload["bindings"][0]["handler_code"] = (
+            "def handle(input, state, context):\n    return context['shared_state']['power']"
+        )
+        payload["td"]["properties"] = {"power": {"type": "boolean"}}
+
+        response = client.put(
+            f"/api/virtual-things/definitions/{THING_ID}",
+            json=payload,
+        )
+
+    assert response.status_code == 200
+    assert _FakeValidator.requests[-1].shared_state == {"power": False}
+
+
+def test_virtual_thing_state_conflict_maps_to_409():
+    from copilot.virtual_things.routes import virtual_thing_http_error
+
+    error = virtual_thing_http_error(VirtualThingStateConflict("state changed"))
+
+    assert error.status_code == 409
+    assert error.detail == "state changed"

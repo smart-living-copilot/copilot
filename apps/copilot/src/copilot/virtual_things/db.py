@@ -22,6 +22,8 @@ class VirtualThing(Base):
     abstract_td: Mapped[Any] = mapped_column(JSONB, nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
+    shared_state: Mapped[Any] = mapped_column(JSONB, nullable=False, default=dict)
+    shared_state_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

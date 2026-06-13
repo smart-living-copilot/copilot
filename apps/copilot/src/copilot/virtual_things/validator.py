@@ -83,8 +83,9 @@ class VirtualThingValidator:
                     _runtime_binding(request, binding),
                     input_value=scenario.input_value,
                     state=scenario.state,
+                    shared_state=request.shared_state,
                 )
-                _validate_contract(request, binding, result)
+                _validate_contract(request, binding, result.value)
             except Exception as exc:
                 issues.append(
                     ValidationIssue(
@@ -96,7 +97,7 @@ class VirtualThingValidator:
                 )
                 continue
 
-            next_state = _result_state(result)
+            next_state = _result_state(result.value)
             if next_state is _MISSING:
                 continue
 
@@ -105,8 +106,9 @@ class VirtualThingValidator:
                     _runtime_binding(request, binding),
                     input_value=scenario.input_value,
                     state=next_state,
+                    shared_state=result.shared_state,
                 )
-                _validate_contract(request, binding, next_result)
+                _validate_contract(request, binding, next_result.value)
             except Exception as exc:
                 issues.append(
                     ValidationIssue(

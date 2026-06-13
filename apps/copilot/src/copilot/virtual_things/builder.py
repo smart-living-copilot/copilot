@@ -61,6 +61,7 @@ class VirtualThingBuilder:
         description: str = "",
         thing_id: str | None = None,
         owner_thread_id: str | None = None,
+        shared_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         resolved = thing_id or make_virtual_thing_id(title)
         existing = self._load(resolved)
@@ -75,6 +76,7 @@ class VirtualThingBuilder:
                 bindings=[],
                 status="disabled",
                 owner_thread_id=owner_thread_id,
+                shared_state=shared_state,
             )
         except (ValidationError, ValueError) as exc:
             return {"error": str(exc)}
@@ -151,6 +153,7 @@ class VirtualThingBuilder:
                 bindings=[_binding_dict(binding) for binding in current.bindings],
                 status="active",
                 owner_thread_id=current.owner_thread_id,
+                shared_state=current.shared_state,
             )
         except (ValidationError, ValueError) as exc:
             return {"error": str(exc)}

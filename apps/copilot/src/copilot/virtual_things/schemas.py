@@ -124,6 +124,7 @@ class DefineVirtualThingRequest(BaseModel):
     bindings: list[VirtualThingBindingSpec]
     status: VirtualThingStatus = "active"
     owner_thread_id: str | None = Field(default=None, max_length=120)
+    shared_state: dict[str, Any] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -164,6 +165,8 @@ class VirtualThingDefinition(BaseModel):
     td: dict[str, Any]
     version: int
     status: VirtualThingStatus
+    shared_state: dict[str, Any] = Field(default_factory=dict)
+    shared_state_version: int = 1
     bindings: list[VirtualThingBindingSpec]
 
 

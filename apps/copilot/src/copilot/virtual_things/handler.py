@@ -10,6 +10,8 @@ from copilot.clients.code_executor import CodeExecutorClient
 from copilot.virtual_things.schemas import json_safe
 
 RESULT_PREFIX = "__VIRTUAL_THING_RESULT__"
+HANDLER_RESULT_VERSION = 1
+_HANDLER_RESULT_VERSION_KEY = "__virtual_thing_result_version"
 
 
 class HandlerBinding(Protocol):
@@ -28,12 +30,21 @@ class VirtualThingHandlerError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class HandlerRunResult:
+    value: Any
+    state: Any
+    shared_state: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class HandlerContext:
     thing_id: str
     affordance_type: str
     affordance_name: str
     capabilities: list[dict[str, Any]]
     config: dict[str, Any]
+    shared_state: dict[str, Any]
+    shared_state_version: int
 
 
 class VirtualThingHandlerRunner:
@@ -48,7 +59,9 @@ class VirtualThingHandlerRunner:
         *,
         input_value: Any,
         state: Any,
-    ) -> Any:
+        shared_state: dict[str, Any] | None = None,
+        shared_state_version: int = 1,
+    ) -> HandlerRunResult:
         if not binding.handler_code:
             raise ValueError("binding has no handler_code")
         context = HandlerContext(
@@ -57,11 +70,14 @@ class VirtualThingHandlerRunner:
             affordance_name=binding.affordance_name,
             capabilities=list(binding.capabilities or []),
             config=dict(binding.config or {}),
+            shared_state=dict(shared_state or {}),
+            shared_state_version=shared_state_version,
         )
+        initial_state = {} if state is None else state
         code = handler_wrapper(
             handler_code=binding.handler_code,
             input_value=input_value,
-            state={} if state is None else state,
+            state=initial_state,
             context=context,
         )
         try:
@@ -80,7 +96,12 @@ class VirtualThingHandlerRunner:
         stdout = str(response.get("stdout", ""))
         for line in reversed(stdout.splitlines()):
             if line.startswith(RESULT_PREFIX):
-                return json_safe(json.loads(line.removeprefix(RESULT_PREFIX)))
+                payload = json.loads(line.removeprefix(RESULT_PREFIX))
+                return _parse_handler_result(
+                    payload,
+                    state=initial_state,
+                    shared_state=context.shared_state,
+                )
         raise VirtualThingHandlerError(stdout.strip() or "computed handler did not return a result")
 
 
@@ -100,6 +121,8 @@ def handler_wrapper(
             "affordance_name": context.affordance_name,
             "capabilities": context.capabilities,
             "config": context.config,
+            "shared_state": context.shared_state,
+            "shared_state_version": context.shared_state_version,
         },
     }
     payload_json = json.dumps(payload, ensure_ascii=True)
@@ -162,5 +185,45 @@ if "handle" not in globals() or not callable(handle):
     raise RuntimeError("Virtual Thing handler_code must define handle(input, state, context)")
 
 __vt_result = handle(__vt_input, __vt_state, __vt_context)
-print({result_prefix_json} + __vt_json.dumps(__vt_result, ensure_ascii=True, default=str))
+__vt_envelope = {{
+    {_HANDLER_RESULT_VERSION_KEY!r}: {HANDLER_RESULT_VERSION},
+    "value": __vt_result,
+    "state": __vt_state,
+    "shared_state": __vt_context.get("shared_state") or {{}},
+}}
+print({result_prefix_json} + __vt_json.dumps(__vt_envelope, ensure_ascii=True, default=str))
 """
+
+
+def _parse_handler_result(
+    payload: Any,
+    *,
+    state: Any,
+    shared_state: dict[str, Any],
+) -> HandlerRunResult:
+    safe_payload = json_safe(payload)
+    if (
+        isinstance(safe_payload, dict)
+        and safe_payload.get(_HANDLER_RESULT_VERSION_KEY) == HANDLER_RESULT_VERSION
+    ):
+        return HandlerRunResult(
+            value=safe_payload.get("value"),
+            state=safe_payload.get("state"),
+            shared_state=_normalize_shared_state(safe_payload.get("shared_state")),
+        )
+    return HandlerRunResult(
+        value=safe_payload,
+        state=json_safe(state),
+        shared_state=_normalize_shared_state(shared_state),
+    )
+
+
+def _normalize_shared_state(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise VirtualThingHandlerError("context.shared_state must be a JSON object")
+    safe_value = json_safe(value)
+    if not isinstance(safe_value, dict):
+        raise VirtualThingHandlerError("context.shared_state must be a JSON object")
+    return safe_value

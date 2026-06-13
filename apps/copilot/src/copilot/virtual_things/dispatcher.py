@@ -6,7 +6,12 @@ from copilot.clients.code_executor import CodeExecutorClient
 from copilot.core.settings import Settings
 from copilot.jobs.records import VirtualRecordStore
 from copilot.virtual_things.cache import get_cached_value, set_cached_value
-from copilot.virtual_things.handler import RESULT_PREFIX, VirtualThingHandlerRunner
+from copilot.virtual_things.handler import (
+    HandlerRunResult,
+    RESULT_PREFIX,
+    VirtualThingHandlerRunner,
+)
+from copilot.virtual_things.schemas import json_safe
 from copilot.virtual_things.store import VirtualThingStore
 
 _RESULT_PREFIX = RESULT_PREFIX
@@ -30,7 +35,7 @@ class VirtualThingDispatcher:
         self._handler_runner = VirtualThingHandlerRunner(self._code_executor)
 
     async def read_property(self, thing_id: str, property_name: str) -> Any:
-        binding = self._store.get_binding(
+        binding = self._store.get_runtime_binding(
             thing_id=thing_id,
             affordance_type="property",
             affordance_name=property_name,
@@ -40,22 +45,24 @@ class VirtualThingDispatcher:
         if binding.kind != "computed":
             raise KeyError(property_name)
 
-        cache_key = f"{thing_id}:property:{property_name}"
+        cache_key = f"{thing_id}:property:{property_name}:shared:{binding.shared_state_version}"
         cached = get_cached_value(cache_key)
         if cached.found:
             return cached.value
 
-        value = await self._handler_runner.run_handler(
+        result = await self._handler_runner.run_handler(
             binding,
             input_value=None,
             state=binding.state,
+            shared_state=binding.shared_state,
+            shared_state_version=binding.shared_state_version,
         )
         if binding.cache_ttl_seconds > 0:
-            set_cached_value(cache_key, value, binding.cache_ttl_seconds)
-        return value
+            set_cached_value(cache_key, result.value, binding.cache_ttl_seconds)
+        return result.value
 
     async def invoke_action(self, thing_id: str, action_name: str, input_data: Any) -> Any:
-        binding = self._store.get_binding(
+        binding = self._store.get_runtime_binding(
             thing_id=thing_id,
             affordance_type="action",
             affordance_name=action_name,
@@ -64,11 +71,20 @@ class VirtualThingDispatcher:
             return self._record_store.invoke_action(thing_id, action_name, input_data)
         if binding.kind != "computed":
             raise KeyError(action_name)
-        return await self._handler_runner.run_handler(
+        result = await self._handler_runner.run_handler(
             binding,
             input_value=input_data,
             state=binding.state,
+            shared_state=binding.shared_state,
+            shared_state_version=binding.shared_state_version,
         )
+        if _shared_state_changed(binding.shared_state, result):
+            self._store.update_shared_state(
+                thing_id=thing_id,
+                expected_version=binding.shared_state_version,
+                shared_state=result.shared_state,
+            )
+        return result.value
 
     async def evaluate_event(
         self,
@@ -114,7 +130,7 @@ class VirtualThingDispatcher:
         *,
         dry_run: bool,
     ) -> dict[str, Any]:
-        binding = self._store.get_binding(
+        binding = self._store.get_runtime_binding(
             thing_id=thing_id,
             affordance_type="event",
             affordance_name=event_name,
@@ -125,16 +141,32 @@ class VirtualThingDispatcher:
             binding,
             input_value=trigger_input,
             state=binding.state,
+            shared_state=binding.shared_state,
+            shared_state_version=binding.shared_state_version,
         )
-        _validate_event_result(event_name, result)
+        _validate_event_result(event_name, result.value)
         if not dry_run:
-            self._store.update_binding_state(binding_id=binding.id, state=result.get("state"))
-        emitted = result["emit"]
+            shared_state_changed = _shared_state_changed(binding.shared_state, result)
+            if shared_state_changed:
+                self._store.update_binding_and_shared_state(
+                    binding_id=binding.id,
+                    state=result.value.get("state"),
+                    thing_id=thing_id,
+                    expected_shared_state_version=binding.shared_state_version,
+                    shared_state=result.shared_state,
+                    update_shared_state=True,
+                )
+            else:
+                self._store.update_binding_state(
+                    binding_id=binding.id,
+                    state=result.value.get("state"),
+                )
+        emitted = result.value["emit"]
         return {
             "thing_id": thing_id,
             "event_name": event_name,
             "emitted": emitted,
-            "payload": result.get("payload") if emitted else None,
+            "payload": result.value.get("payload") if emitted else None,
         }
 
 
@@ -152,3 +184,10 @@ def _validate_event_result(event_name: str, result: Any) -> None:
         raise ValueError(f"event {event_name!r} result.state is required")
     if result["emit"] and "payload" not in result:
         raise ValueError(f"event {event_name!r} result.payload is required when emit=true")
+
+
+def _shared_state_changed(
+    original: dict[str, Any],
+    result: HandlerRunResult,
+) -> bool:
+    return json_safe(original or {}) != json_safe(result.shared_state or {})

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from copilot.catalog.events.outbox import enqueue_thing_event
@@ -19,6 +20,28 @@ from copilot.virtual_things.schemas import (
     VirtualThingDefinition,
     json_safe,
 )
+
+
+class VirtualThingStateConflict(RuntimeError):
+    """Raised when shared state changed between handler read and write."""
+
+
+@dataclass(frozen=True)
+class VirtualThingRuntimeBinding:
+    id: str
+    thing_id: str
+    affordance_type: str
+    affordance_name: str
+    kind: str
+    handler_code: str | None
+    config: dict[str, Any]
+    capabilities: list[dict[str, Any]]
+    trigger: Any | None
+    state: Any
+    timeout_seconds: int
+    cache_ttl_seconds: int
+    shared_state: dict[str, Any]
+    shared_state_version: int
 
 
 class VirtualThingStore:
@@ -42,6 +65,8 @@ class VirtualThingStore:
                     abstract_td=request.td,
                     version=version,
                     status=request.status,
+                    shared_state=json_safe(request.shared_state or {}),
+                    shared_state_version=1,
                     created_at=now,
                     updated_at=now,
                 )
@@ -53,6 +78,11 @@ class VirtualThingStore:
                 existing.abstract_td = request.td
                 existing.version = version
                 existing.status = request.status
+                if request.shared_state is not None:
+                    next_shared_state = json_safe(request.shared_state)
+                    if next_shared_state != (existing.shared_state or {}):
+                        existing.shared_state = next_shared_state
+                        existing.shared_state_version += 1
                 existing.updated_at = now
 
             self._replace_bindings(session, thing_id, request.bindings, now=now)
@@ -208,6 +238,28 @@ class VirtualThingStore:
             session.expunge(binding)
             return binding
 
+    def get_runtime_binding(
+        self,
+        *,
+        thing_id: str,
+        affordance_type: str,
+        affordance_name: str,
+    ) -> VirtualThingRuntimeBinding:
+        with self._session_factory() as session:
+            thing = session.get(VirtualThing, thing_id)
+            if thing is None or thing.status != "active":
+                raise KeyError(thing_id)
+            binding = session.scalar(
+                select(VirtualThingBinding).where(
+                    VirtualThingBinding.thing_id == thing_id,
+                    VirtualThingBinding.affordance_type == affordance_type,
+                    VirtualThingBinding.affordance_name == affordance_name,
+                )
+            )
+            if binding is None:
+                raise KeyError(affordance_name)
+            return _runtime_binding_from_rows(thing, binding)
+
     def update_binding_state(
         self,
         *,
@@ -221,6 +273,86 @@ class VirtualThingStore:
             binding.state = json_safe(state)
             binding.updated_at = utc_now()
             session.commit()
+
+    def update_shared_state(
+        self,
+        *,
+        thing_id: str,
+        expected_version: int,
+        shared_state: dict[str, Any],
+    ) -> int:
+        with self._session_factory() as session:
+            return self._update_shared_state(
+                session,
+                thing_id=thing_id,
+                expected_version=expected_version,
+                shared_state=shared_state,
+                now=utc_now(),
+            )
+
+    def update_binding_and_shared_state(
+        self,
+        *,
+        binding_id: str,
+        state: Any,
+        thing_id: str,
+        expected_shared_state_version: int,
+        shared_state: dict[str, Any],
+        update_shared_state: bool,
+    ) -> int | None:
+        with self._session_factory() as session:
+            binding = session.get(VirtualThingBinding, binding_id)
+            if binding is None:
+                raise KeyError(binding_id)
+            now = utc_now()
+            binding.state = json_safe(state)
+            binding.updated_at = now
+            next_version = None
+            if update_shared_state:
+                next_version = self._update_shared_state(
+                    session,
+                    thing_id=thing_id,
+                    expected_version=expected_shared_state_version,
+                    shared_state=shared_state,
+                    now=now,
+                    commit=False,
+                )
+            session.commit()
+            return next_version
+
+    def _update_shared_state(
+        self,
+        session: Session,
+        *,
+        thing_id: str,
+        expected_version: int,
+        shared_state: dict[str, Any],
+        now: datetime,
+        commit: bool = True,
+    ) -> int:
+        statement = (
+            update(VirtualThing)
+            .where(
+                VirtualThing.id == thing_id,
+                VirtualThing.shared_state_version == expected_version,
+            )
+            .values(
+                shared_state=json_safe(shared_state),
+                shared_state_version=VirtualThing.shared_state_version + 1,
+                updated_at=now,
+            )
+            .returning(VirtualThing.shared_state_version)
+        )
+        next_version = session.scalar(statement)
+        if next_version is None:
+            if session.get(VirtualThing, thing_id) is None:
+                raise KeyError(thing_id)
+            raise VirtualThingStateConflict(
+                f"shared state for {thing_id!r} changed; retry the interaction"
+            )
+        if commit:
+            session.commit()
+        return int(next_version)
 
     def enqueue_event_emission(
         self,
@@ -301,8 +433,32 @@ class VirtualThingStore:
             td=dict(row.abstract_td or {}),
             version=row.version,
             status=row.status,
+            shared_state=dict(row.shared_state or {}),
+            shared_state_version=row.shared_state_version or 1,
             bindings=[_binding_spec_from_row(binding) for binding in binding_rows],
         )
+
+
+def _runtime_binding_from_rows(
+    thing: VirtualThing,
+    binding: VirtualThingBinding,
+) -> VirtualThingRuntimeBinding:
+    return VirtualThingRuntimeBinding(
+        id=binding.id,
+        thing_id=binding.thing_id,
+        affordance_type=binding.affordance_type,
+        affordance_name=binding.affordance_name,
+        kind=binding.kind,
+        handler_code=binding.handler_code,
+        config=dict(binding.config or {}),
+        capabilities=list(binding.capabilities or []),
+        trigger=binding.trigger,
+        state=binding.state,
+        timeout_seconds=binding.timeout_seconds,
+        cache_ttl_seconds=binding.cache_ttl_seconds,
+        shared_state=dict(thing.shared_state or {}),
+        shared_state_version=thing.shared_state_version or 1,
+    )
 
 
 def _binding_spec_from_row(row: VirtualThingBinding) -> VirtualThingBindingSpec:

@@ -25,6 +25,7 @@ async def create_virtual_thing(
     config: RunnableConfig,
     description: str = "",
     thing_id: str | None = None,
+    shared_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Start a standalone virtual Thing. Returns its thing_id.
 
@@ -32,7 +33,10 @@ async def create_virtual_thing(
     add_virtual_property, add_virtual_action, and add_virtual_event to add its
     affordances one at a time, then call activate_virtual_thing. Calling this
     again with the same thing_id returns the existing Thing unchanged so you can
-    keep adding affordances. To start over, delete_virtual_thing first.
+    keep adding affordances. shared_state optionally seeds Thing-wide state
+    available to every handler as context["shared_state"]; seed keys that
+    handlers read directly with context["shared_state"]["key"]. To start over,
+    delete_virtual_thing first.
     """
     builder = VirtualThingBuilder()
     return await asyncio.to_thread(
@@ -41,6 +45,7 @@ async def create_virtual_thing(
         description=description,
         thing_id=thing_id,
         owner_thread_id=_thread_id_from_config(config),
+        shared_state=shared_state,
     )
 
 
@@ -54,9 +59,11 @@ async def add_virtual_property(
     """Add or replace a computed property on a virtual Thing.
 
     handler_code is Python defining `def handle(input, state, context)` that
-    returns the computed value. Read real Things inside handle with the injected
-    `wot` client (wot.read_property / wot.invoke_action / wot.write_property);
-    capability grants are inferred from literal thing_id/name strings.
+    returns the computed value. `state` is local to this property; use
+    context["shared_state"] to read Thing-wide state. Read real Things inside
+    handle with the injected `wot` client (wot.read_property / wot.invoke_action
+    / wot.write_property); capability grants are inferred from literal
+    thing_id/name strings.
     value_schema is an optional JSON Schema for the value and may be omitted.
     """
     builder = VirtualThingBuilder()
@@ -81,8 +88,10 @@ async def add_virtual_action(
     """Add or replace a computed action on a virtual Thing.
 
     handler_code is Python defining `def handle(input, state, context)` that
-    returns the result. `input` is the action input. input_schema and
-    output_schema are optional JSON Schemas and may be omitted.
+    returns the result. `input` is the action input. Mutate
+    context["shared_state"] when the action should update Thing-wide state that
+    properties or events can read later. input_schema and output_schema are
+    optional JSON Schemas and may be omitted.
     """
     builder = VirtualThingBuilder()
     return await asyncio.to_thread(
@@ -109,7 +118,9 @@ async def add_virtual_event(
 
     handler_code is Python defining `def handle(input, state, context)` that
     returns {"emit": bool, "payload": value, "state": next_state}. Use `state`
-    for threshold or edge detection; initialize it with `state = state or {}`.
+    for this event's threshold or edge detection; initialize it with
+    `state = state or {}`. Mutate context["shared_state"] when the event should
+    update Thing-wide state for other affordances.
 
     The trigger is set from these arguments:
     - interval_seconds=N evaluates the handler every N seconds.

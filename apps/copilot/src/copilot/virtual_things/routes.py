@@ -13,7 +13,7 @@ from copilot.jobs.records.ids import is_virtual_record_thing_id
 from copilot.virtual_things.dispatcher import VirtualThingDispatcher
 from copilot.virtual_things.handler import VirtualThingHandlerError
 from copilot.virtual_things.schemas import DefineVirtualThingRequest
-from copilot.virtual_things.store import VirtualThingStore
+from copilot.virtual_things.store import VirtualThingStateConflict, VirtualThingStore
 from copilot.virtual_things.validator import VirtualThingValidator
 
 router = APIRouter(tags=["virtual-things"])
@@ -146,6 +146,13 @@ async def define_virtual_thing_definition(
         request_data = payload.model_dump(mode="json")
         request_data["id"] = decoded_thing_id
         request_data["td"] = {**payload.td, "id": decoded_thing_id}
+        store = VirtualThingStore()
+        if request_data.get("shared_state") is None:
+            try:
+                existing = store.get_definition(decoded_thing_id, include_disabled=True)
+                request_data["shared_state"] = existing.shared_state
+            except KeyError:
+                pass
         request = DefineVirtualThingRequest.model_validate(request_data)
         validation_report = await VirtualThingValidator().validate(
             request,
@@ -159,7 +166,7 @@ async def define_virtual_thing_definition(
                     "validation_report": validation_report,
                 },
             )
-        definition = await asyncio.to_thread(VirtualThingStore().define_thing, request)
+        definition = await asyncio.to_thread(store.define_thing, request)
         return definition.model_dump(mode="json", by_alias=True)
     except Exception as exc:
         if isinstance(exc, HTTPException):
@@ -185,6 +192,8 @@ def delete_virtual_thing_definition(
 def virtual_thing_http_error(error: Exception) -> HTTPException:
     if isinstance(error, KeyError):
         return HTTPException(status_code=404, detail=str(error))
+    if isinstance(error, VirtualThingStateConflict):
+        return HTTPException(status_code=409, detail=str(error))
     if isinstance(error, ValueError):
         return HTTPException(status_code=400, detail=str(error))
     if isinstance(error, TimeoutError):

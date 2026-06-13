@@ -2,6 +2,7 @@ import contextlib
 import io
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from copilot.virtual_things.builder import (
     VirtualThingBuilder,
@@ -17,6 +18,7 @@ from copilot.virtual_things.schemas import (
     VirtualThingBindingSpec,
     VirtualThingDefinition,
 )
+from copilot.virtual_things.store import VirtualThingStateConflict
 from copilot.virtual_things.validator import VirtualThingValidator
 
 
@@ -35,16 +37,89 @@ class _FakeStore:
     def __init__(self, binding):
         self.binding = binding
         self.updated_state = None
+        self.updated_shared_state = None
         self.enqueued_emission = None
 
     def get_binding(self, **_kwargs):
         return self.binding
 
+    def get_runtime_binding(self, **_kwargs):
+        if not hasattr(self.binding, "shared_state"):
+            self.binding.shared_state = {}
+        if not hasattr(self.binding, "shared_state_version"):
+            self.binding.shared_state_version = 1
+        return self.binding
+
     def update_binding_state(self, *, binding_id, state):
         self.updated_state = (binding_id, state)
 
+    def update_shared_state(self, *, thing_id, expected_version, shared_state):
+        self.updated_shared_state = (thing_id, expected_version, shared_state)
+        return expected_version + 1
+
+    def update_binding_and_shared_state(
+        self,
+        *,
+        binding_id,
+        state,
+        thing_id,
+        expected_shared_state_version,
+        shared_state,
+        update_shared_state,
+    ):
+        self.updated_state = (binding_id, state)
+        if update_shared_state:
+            self.updated_shared_state = (
+                thing_id,
+                expected_shared_state_version,
+                shared_state,
+            )
+            return expected_shared_state_version + 1
+        return None
+
     def enqueue_event_emission(self, *, thing_id, event_name, payload):
         self.enqueued_emission = (thing_id, event_name, payload)
+
+
+class _SharedStateStore:
+    def __init__(self, bindings, shared_state=None):
+        self.bindings = bindings
+        self.shared_state = dict(shared_state or {})
+        self.shared_state_version = 1
+        self.reject_shared_updates = False
+
+    def get_runtime_binding(self, *, affordance_type, affordance_name, **_kwargs):
+        binding = self.bindings[(affordance_type, affordance_name)]
+        binding.shared_state = dict(self.shared_state)
+        binding.shared_state_version = self.shared_state_version
+        return binding
+
+    def update_shared_state(self, *, thing_id, expected_version, shared_state):
+        if self.reject_shared_updates or expected_version != self.shared_state_version:
+            raise VirtualThingStateConflict(f"shared state for {thing_id!r} changed")
+        self.shared_state = dict(shared_state)
+        self.shared_state_version += 1
+        return self.shared_state_version
+
+    def update_binding_and_shared_state(
+        self,
+        *,
+        binding_id,
+        state,
+        thing_id,
+        expected_shared_state_version,
+        shared_state,
+        update_shared_state,
+    ):
+        binding = next(item for item in self.bindings.values() if item.id == binding_id)
+        binding.state = state
+        if not update_shared_state:
+            return None
+        return self.update_shared_state(
+            thing_id=thing_id,
+            expected_version=expected_shared_state_version,
+            shared_state=shared_state,
+        )
 
 
 class _FakeExecutor:
@@ -97,6 +172,16 @@ class _FakeDefinitionStore:
             td=request.td,
             version=(previous.version + 1) if previous else 1,
             status=request.status,
+            shared_state=(
+                request.shared_state
+                if request.shared_state is not None
+                else (previous.shared_state if previous else {})
+            ),
+            shared_state_version=(
+                (previous.shared_state_version + 1)
+                if previous and request.shared_state is not None
+                else (previous.shared_state_version if previous else 1)
+            ),
             bindings=request.bindings,
         )
         self.things[request.id] = definition
@@ -116,6 +201,15 @@ class VirtualThingBuilderTestCase(unittest.TestCase):
         self.assertEqual(result["virtual_thing"]["bindings"], [])
         self.assertEqual(store.requests[0].status, "disabled")
 
+    def test_create_can_seed_shared_state(self):
+        builder, store = self._builder()
+
+        result = builder.create(title="Controller", shared_state={"mode": "eco"})
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["virtual_thing"]["shared_state"], {"mode": "eco"})
+        self.assertEqual(store.requests[0].shared_state, {"mode": "eco"})
+
     def test_create_is_idempotent_and_keeps_existing_affordances(self):
         builder, _ = self._builder()
         thing_id = "virtual:things:comfort-abc12345"
@@ -130,6 +224,26 @@ class VirtualThingBuilderTestCase(unittest.TestCase):
         again = builder.create(title="Comfort", thing_id=thing_id)
         self.assertTrue(again.get("existing"))
         self.assertEqual(len(again["virtual_thing"]["bindings"]), 1)
+
+    def test_add_affordance_preserves_shared_state(self):
+        builder, store = self._builder()
+        thing_id = builder.create(
+            title="Controller",
+            shared_state={"mode": "eco"},
+        )["thing_id"]
+
+        result = builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="property",
+            affordance_name="mode",
+            handler_code="def handle(input, state, context):\n    return 'eco'",
+            td_definition=property_definition({"type": "string"}),
+        )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(
+            store.get_definition(thing_id, include_disabled=True).shared_state, {"mode": "eco"}
+        )
 
     def test_concurrent_add_affordance_keeps_all(self):
         # Regression: parallel add_virtual_* tool calls each construct their own builder
@@ -151,9 +265,7 @@ class VirtualThingBuilderTestCase(unittest.TestCase):
             title="Multi", thing_id=thing_id
         )
 
-        specs = [("property", f"p{i}") for i in range(3)] + [
-            ("action", f"a{i}") for i in range(3)
-        ]
+        specs = [("property", f"p{i}") for i in range(3)] + [("action", f"a{i}") for i in range(3)]
 
         def add(spec):
             affordance_type, name = spec
@@ -631,6 +743,100 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(executor.calls, 1)
         self.assertEqual(executor.kwargs[0]["timeout_seconds"], 7)
 
+    async def test_action_shared_state_is_visible_to_cached_property(self):
+        property_binding = SimpleNamespace(
+            id="property-binding",
+            thing_id="virtual:things:controller",
+            affordance_type="property",
+            affordance_name="temperature",
+            kind="computed",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    return context['shared_state'].get('mode', 'unset')"
+            ),
+            capabilities=[],
+            config={},
+            state={"local": "property"},
+            timeout_seconds=30,
+            cache_ttl_seconds=30,
+        )
+        action_binding = SimpleNamespace(
+            id="action-binding",
+            thing_id="virtual:things:controller",
+            affordance_type="action",
+            affordance_name="refresh",
+            kind="computed",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    context['shared_state']['mode'] = input['mode']\n"
+                "    return {'ok': True}"
+            ),
+            capabilities=[],
+            config={},
+            state={"local": "action"},
+            timeout_seconds=30,
+            cache_ttl_seconds=0,
+        )
+        store = _SharedStateStore(
+            {
+                ("property", "temperature"): property_binding,
+                ("action", "refresh"): action_binding,
+            },
+            shared_state={"mode": "away"},
+        )
+        dispatcher = VirtualThingDispatcher(
+            store=store,
+            record_store=SimpleNamespace(),
+            code_executor=_LocalExecutor(),
+        )
+
+        self.assertEqual(
+            await dispatcher.read_property("virtual:things:controller", "temperature"),
+            "away",
+        )
+        self.assertEqual(
+            await dispatcher.invoke_action(
+                "virtual:things:controller",
+                "refresh",
+                {"mode": "eco"},
+            ),
+            {"ok": True},
+        )
+        self.assertEqual(store.shared_state, {"mode": "eco"})
+        self.assertEqual(
+            await dispatcher.read_property("virtual:things:controller", "temperature"),
+            "eco",
+        )
+
+    async def test_action_shared_state_conflict_is_not_retried(self):
+        binding = SimpleNamespace(
+            id="action-binding",
+            thing_id="virtual:things:controller",
+            affordance_type="action",
+            affordance_name="refresh",
+            kind="computed",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    context['shared_state']['mode'] = 'eco'\n"
+                "    return {'ok': True}"
+            ),
+            capabilities=[],
+            config={},
+            state={},
+            timeout_seconds=30,
+            cache_ttl_seconds=0,
+        )
+        store = _SharedStateStore({("action", "refresh"): binding})
+        store.reject_shared_updates = True
+        dispatcher = VirtualThingDispatcher(
+            store=store,
+            record_store=SimpleNamespace(),
+            code_executor=_LocalExecutor(),
+        )
+
+        with self.assertRaises(VirtualThingStateConflict):
+            await dispatcher.invoke_action("virtual:things:controller", "refresh", {})
+
     async def test_event_evaluate_persists_state_and_suppresses_null_emit(self):
         binding = SimpleNamespace(
             id="event-binding",
@@ -695,6 +901,45 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(store.updated_state, ("event-binding", {"counter": 1}))
 
+    async def test_event_evaluate_persists_shared_state_with_binding_state(self):
+        binding = SimpleNamespace(
+            id="event-binding",
+            thing_id="virtual:things:counter",
+            affordance_type="event",
+            affordance_name="tick",
+            kind="emitted",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    count = context['shared_state'].get('count', 0) + 1\n"
+                "    context['shared_state']['count'] = count\n"
+                "    return {'emit': True, 'payload': {'count': count}, "
+                "'state': {'seen': count}}"
+            ),
+            capabilities=[],
+            config={},
+            state=None,
+            timeout_seconds=30,
+            cache_ttl_seconds=0,
+            shared_state={"count": 0},
+            shared_state_version=1,
+        )
+        store = _FakeStore(binding)
+        dispatcher = VirtualThingDispatcher(
+            store=store,
+            record_store=SimpleNamespace(),
+            code_executor=_LocalExecutor(),
+        )
+
+        self.assertEqual(
+            await dispatcher.evaluate_event("virtual:things:counter", "tick", {}),
+            {"count": 1},
+        )
+        self.assertEqual(store.updated_state, ("event-binding", {"seen": 1}))
+        self.assertEqual(
+            store.updated_shared_state,
+            ("virtual:things:counter", 1, {"count": 1}),
+        )
+
     async def test_event_evaluate_dry_run_does_not_persist_state(self):
         binding = SimpleNamespace(
             id="event-binding",
@@ -704,6 +949,7 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
             kind="emitted",
             handler_code=(
                 "def handle(input, state, context):\n"
+                "    context['shared_state']['counter'] = 1\n"
                 "    return {'emit': True, 'payload': {'counter': 1}, "
                 "'state': {'counter': 1}}"
             ),
@@ -712,6 +958,8 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
             state=None,
             timeout_seconds=30,
             cache_ttl_seconds=0,
+            shared_state={},
+            shared_state_version=1,
         )
         store = _FakeStore(binding)
         dispatcher = VirtualThingDispatcher(
@@ -725,6 +973,7 @@ class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
             {"counter": 1},
         )
         self.assertIsNone(store.updated_state)
+        self.assertIsNone(store.updated_shared_state)
 
     async def test_event_evaluate_rejects_none_result_with_hint(self):
         binding = SimpleNamespace(
@@ -951,6 +1200,51 @@ class VirtualThingValidatorTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(report["ok"])
         self.assertIn("schema validation", report["issues"][0]["message"])
+
+    async def test_activate_smoke_uses_seeded_shared_state_for_direct_indexing(self):
+        thing_id = "urn:smart-living-copilot:virtual-things:tv"
+        store = _FakeDefinitionStore()
+        store.things[thing_id] = VirtualThingDefinition(
+            id=thing_id,
+            title="TV",
+            description="",
+            owner_thread_id=None,
+            td={
+                "@context": "https://www.w3.org/2022/wot/td/v1.1",
+                "id": thing_id,
+                "title": "TV",
+                "securityDefinitions": {"nosec_sc": {"scheme": "nosec"}},
+                "security": "nosec_sc",
+                "properties": {"power": {"type": "boolean"}},
+            },
+            version=1,
+            status="disabled",
+            shared_state={"power": False},
+            bindings=[
+                VirtualThingBindingSpec(
+                    affordance_type="property",
+                    affordance_name="power",
+                    kind="computed",
+                    handler_code=(
+                        "def handle(input, state, context):\n"
+                        "    return context['shared_state']['power']"
+                    ),
+                )
+            ],
+        )
+        builder = VirtualThingBuilder(
+            store=store,
+            validator=VirtualThingValidator(code_executor=_LocalExecutor()),
+        )
+
+        with patch(
+            "copilot.virtual_things.builder.get_enrichment_scheduler",
+            return_value=SimpleNamespace(schedule=lambda *_args, **_kwargs: None),
+        ):
+            result = await builder.activate(thing_id)
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["virtual_thing"]["shared_state"], {"power": False})
 
     async def test_activate_does_not_persist_when_smoke_validation_fails(self):
         class RejectingValidator:

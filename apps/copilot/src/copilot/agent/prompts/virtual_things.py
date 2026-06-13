@@ -12,8 +12,9 @@ You build a Virtual Thing incrementally, one affordance per tool call. Never
 submit a whole Thing Description by hand and never invent forms or urn:virtual
 URLs; virtual-servient owns concrete forms after activation.
 
-1. create_virtual_thing(title, description) -> returns thing_id. The Thing
-   starts disabled and empty.
+1. create_virtual_thing(title, description, shared_state?) -> returns thing_id.
+   The Thing starts disabled and empty. Omit shared_state unless the user needs
+   an initial Thing-wide state seed.
 2. Add each affordance with its own call, passing the thing_id:
    - add_virtual_property(thing_id, name, handler_code, value_schema?)
    - add_virtual_action(thing_id, name, handler_code, input_schema?, output_schema?)
@@ -33,13 +34,20 @@ Every property/action/event handler is Python defining exactly:
     def handle(input, state, context)
 - Computed property/action: return the computed value directly.
 - Emitted event: return {"emit": bool, "payload": value, "state": next_state}.
-  emit=false suppresses the event; state is persisted across evaluations, so use
-  it for threshold crossing and edge detection. Start with `state = state or {}`
-  and assign every returned value before conditionals so the handler never
-  returns None or references an uninitialized variable.
+  emit=false suppresses the event; state is persisted across evaluations for
+  that event binding, so use it for threshold crossing and edge detection. Start
+  with `state = state or {}` and assign every returned value before conditionals
+  so the handler never returns None or references an uninitialized variable.
 
-`input` is the affordance input (or event trigger), `state` is the persisted
-dict, `context` carries thing_id and config.
+`input` is the affordance input (or event trigger). `state` is local to the
+current binding. `context` carries thing_id, config, and
+`context["shared_state"]`, a Thing-wide dict shared by every handler on the same
+Virtual Thing. Mutate `context["shared_state"]` when an action or event should
+update state that a property reads later.
+
+If a handler directly indexes `context["shared_state"]["key"]`, seed that key in
+the initial create_virtual_thing shared_state. Use `.get("key", default)` only
+when the key is genuinely optional.
 
 ## Reaching real Things
 Inside handle, the injected `wot` client is the only way to reach real Things,

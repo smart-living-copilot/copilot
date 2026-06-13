@@ -15,6 +15,7 @@ class VirtualThingPromptTestCase(unittest.TestCase):
         self.assertIn("Never use things_upsert", VIRTUAL_THINGS_PROMPT)
         self.assertIn("def handle(input, state, context)", VIRTUAL_THINGS_PROMPT)
         self.assertIn("state = state or {}", VIRTUAL_THINGS_PROMPT)
+        self.assertIn('context["shared_state"]', VIRTUAL_THINGS_PROMPT)
 
     def test_authoring_prompt_directs_reuse_of_prior_analysis(self) -> None:
         self.assertIn("Reusing Prior Analysis", VIRTUAL_THINGS_PROMPT)
