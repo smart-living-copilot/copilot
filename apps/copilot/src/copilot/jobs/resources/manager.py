@@ -26,8 +26,25 @@ from copilot.jobs.schemas import (
 )
 from copilot.jobs.stores import JobStore, utc_now
 from copilot.jobs.subscriptions import subscription_id_from_response
+from copilot.virtual_things.enrichment import get_enrichment_scheduler
 
 logger = logging.getLogger(__name__)
+
+
+def _schedule_record_thing_enrichment(result: object) -> None:
+    """Best-effort semantic enrichment of a freshly minted record-store Thing.
+
+    Mirrors the virtual-Thing activation path: enrichment runs after the Thing is
+    registered, is race-safe via the version compare-and-set in the scheduler, and is a
+    no-op when there is no event loop or the registration result is incomplete.
+    """
+    if not isinstance(result, dict):
+        return
+    thing_id = result.get("thing_id")
+    td = result.get("td")
+    version = result.get("version")
+    if isinstance(thing_id, str) and thing_id and isinstance(td, dict) and isinstance(version, int):
+        get_enrichment_scheduler().schedule(thing_id, td, base_version=version)
 
 
 @dataclass(frozen=True)
@@ -367,7 +384,7 @@ class JobResourceManager:
         virtual_thing = job.output.virtual_thing
         title = virtual_thing.title if virtual_thing is not None else None
         description = virtual_thing.description if virtual_thing is not None else None
-        await asyncio.to_thread(
+        result = await asyncio.to_thread(
             self._record_store.create_or_update_thing,
             thing_id=job.output.virtual_thing_id or "",
             source_job_id=job.id,
@@ -376,6 +393,7 @@ class JobResourceManager:
             title=title or job.name,
             description=description or f"Structured records collected by the {job.name} job.",
         )
+        _schedule_record_thing_enrichment(result)
         await mark_resource_health(
             self._repo,
             job.id,

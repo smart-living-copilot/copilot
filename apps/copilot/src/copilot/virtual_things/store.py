@@ -60,6 +60,28 @@ class VirtualThingStore:
             session.commit()
             return self.get_definition(thing_id, include_disabled=True)
 
+    def apply_enrichment(
+        self, thing_id: str, enriched_td: dict[str, Any], *, base_version: int
+    ) -> bool:
+        """Write a semantically enriched TD back, only if still at ``base_version``.
+
+        Bindings are untouched (enrichment only annotates the TD). A version mismatch
+        means the definition changed while enrichment ran — e.g. the Thing was
+        re-activated with another affordance — so the stale result is dropped and the
+        newer activation's own enrichment wins. Returns whether the write was applied.
+        """
+        with self._session_factory() as session:
+            existing = session.get(VirtualThing, thing_id)
+            if existing is None or existing.version != base_version:
+                return False
+            version = existing.version + 1
+            existing.abstract_td = json_safe(enriched_td)
+            existing.version = version
+            existing.updated_at = utc_now()
+            enqueue_thing_event(session, _definition_event("update", thing_id, version))
+            session.commit()
+            return True
+
     def register_record_thing(
         self,
         *,

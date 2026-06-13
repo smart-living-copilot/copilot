@@ -72,7 +72,7 @@ class VirtualRecordStore:
             session.commit()
         from copilot.virtual_things import VirtualThingStore
 
-        VirtualThingStore().register_record_thing(
+        definition = VirtualThingStore().register_record_thing(
             thing_id=thing_id,
             title=title,
             description=description,
@@ -80,7 +80,7 @@ class VirtualRecordStore:
             schema_version=schema_version,
             record_schema=schema,
         )
-        return {"thing_id": thing_id, "td": td}
+        return {"thing_id": thing_id, "td": definition.td, "version": definition.version}
 
     def delete_thing(self, thing_id: str) -> None:
         with self._session_factory() as session:

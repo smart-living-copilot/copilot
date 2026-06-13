@@ -14,6 +14,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from copilot.virtual_things.enrichment import get_enrichment_scheduler
 from copilot.virtual_things.ids import make_virtual_thing_id
 from copilot.virtual_things.schemas import (
     DefineVirtualThingRequest,
@@ -137,6 +138,11 @@ class VirtualThingBuilder:
             return {"error": "virtual thing validation failed", "validation_report": report}
 
         definition = await asyncio.to_thread(self._store.define_thing, request)
+        # Best-effort semantic enrichment runs after activation so it never blocks or
+        # fails it; re-activating supersedes any in-flight enrichment of an older version.
+        get_enrichment_scheduler().schedule(
+            definition.id, definition.td, base_version=definition.version
+        )
         return _ok(definition, validation_report=report)
 
     def _load(self, thing_id: str) -> VirtualThingDefinition | None:
