@@ -123,6 +123,8 @@ export function ThingsList() {
 
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
   const hasSearch = deferredSearch.trim().length > 0;
+  const firstVisible = data.length ? (page - 1) * PER_PAGE + 1 : 0;
+  const lastVisible = data.length ? (page - 1) * PER_PAGE + data.length : 0;
 
   const handleDeleted = useCallback((thingId: string) => {
     requestedIndexStatusIds.current.delete(thingId);
@@ -273,7 +275,7 @@ export function ThingsList() {
 
               <div className="flex flex-col gap-3 rounded-md border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-muted-foreground">
-                  Showing {data.length} of {total} things
+                  Showing {firstVisible}-{lastVisible} of {total} things
                 </p>
                 <div className="flex gap-2">
                   <Button

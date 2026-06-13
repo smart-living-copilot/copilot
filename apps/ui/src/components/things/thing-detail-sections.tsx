@@ -111,7 +111,6 @@ export function ThingDetailPageLayout({
           <div className="flex flex-wrap items-center gap-2">
             <ThingIndexStatusBadge status={indexStatus} />
             {isVirtual ? <Badge variant="secondary">Virtual</Badge> : null}
-            <Badge variant="outline">Security {securityStr}</Badge>
             <Badge variant="outline">
               {properties.length} propert{properties.length === 1 ? 'y' : 'ies'}
             </Badge>
