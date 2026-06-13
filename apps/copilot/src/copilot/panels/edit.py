@@ -28,8 +28,8 @@ Panel JavaScript must treat window.wot.readProperty/writeProperty/invokeAction
 results as decoded device values directly. Do not access transport wrapper
 fields like result, payload, completed_result, or payload.data unless those
 fields are explicitly part of the inspected device value schema.
-Binary values come back as `{ kind: "binary", contentType, bodyBase64,
-sizeBytes }`; use window.wot.binaryToBlob, binaryToObjectUrl, or binaryToBytes
+Binary values come back as `{{ kind: "binary", contentType, bodyBase64,
+sizeBytes }}`; use window.wot.binaryToBlob, binaryToObjectUrl, or binaryToBytes
 instead of reading transport envelopes.
 
 Requested change:
@@ -83,12 +83,21 @@ def _updated_panel_from_tool_message(
     artifacts = _tool_message_artifacts(message.content)
     if not artifacts:
         return None
-    capabilities = artifacts[0].get("capabilities")
+    first_artifact = artifacts[0]
+    if not isinstance(first_artifact, dict):
+        return None
+    capabilities = first_artifact.get("capabilities")
     return html, capabilities if isinstance(capabilities, list) else []
 
 
 def _tool_message_artifacts(content: Any) -> list[Any]:
-    parsed = json.loads(content) if isinstance(content, str) else content
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            return []
+    else:
+        parsed = content
     artifacts = parsed.get("artifacts") if isinstance(parsed, dict) else None
     return artifacts if isinstance(artifacts, list) else []
 
