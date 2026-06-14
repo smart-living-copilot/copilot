@@ -25,6 +25,8 @@ type EmbedChatPrefillRequest = EmbedChatPrefill & {
   id: number;
 };
 
+const PREFILL_DEDUPE_WINDOW_MS = 1000;
+
 function isDeckPrefillMessage(
   data: unknown,
 ): data is { prompt: unknown; submit?: unknown; type: 'deck:prefill' } {
@@ -54,15 +56,17 @@ function getDeckPrefill(data: unknown): EmbedChatPrefill | null {
 
 function EmbedPrefillInput({
   agentReady,
+  inputAppliedPrefillIdsRef,
   prefillRequest,
+  submittedPrefillIdsRef,
   ...props
 }: CopilotChatInputProps & {
   agentReady: boolean;
+  inputAppliedPrefillIdsRef: { current: Set<number> };
   prefillRequest: EmbedChatPrefillRequest | null;
+  submittedPrefillIdsRef: { current: Set<number> };
 }) {
-  const inputAppliedPrefillIdsRef = useRef<Set<number>>(new Set());
-  const submittedPrefillIdsRef = useRef<Set<number>>(new Set());
-  const { onChange, onSubmitMessage } = props;
+  const { isRunning, onChange, onSubmitMessage } = props;
 
   useEffect(() => {
     if (!prefillRequest) {
@@ -80,9 +84,19 @@ function EmbedPrefillInput({
       !submittedPrefillIdsRef.current.has(prefillRequest.id)
     ) {
       submittedPrefillIdsRef.current.add(prefillRequest.id);
-      onSubmitMessage?.(prefillRequest.prompt);
+      if (!isRunning) {
+        onSubmitMessage?.(prefillRequest.prompt);
+      }
     }
-  }, [agentReady, onChange, onSubmitMessage, prefillRequest]);
+  }, [
+    agentReady,
+    inputAppliedPrefillIdsRef,
+    isRunning,
+    onChange,
+    onSubmitMessage,
+    prefillRequest,
+    submittedPrefillIdsRef,
+  ]);
 
   return <CopilotChatInput {...props} />;
 }
@@ -117,7 +131,13 @@ export function EmbedChatExperience({
   const agentReady = useAgentReady('copilot');
   const cleanupRequestedRef = useRef(false);
   const initialPrefillAppliedRef = useRef(false);
+  const inputAppliedPrefillIdsRef = useRef<Set<number>>(new Set());
+  const lastQueuedPrefillRef = useRef<{
+    key: string;
+    queuedAt: number;
+  } | null>(null);
   const nextPrefillIdRef = useRef(0);
+  const submittedPrefillIdsRef = useRef<Set<number>>(new Set());
   const [prefillRequest, setPrefillRequest] =
     useState<EmbedChatPrefillRequest | null>(null);
   const examplePrompts = useDefaultExamplePrompts();
@@ -141,6 +161,16 @@ export function EmbedChatExperience({
       return;
     }
 
+    const key = `${prefill.submit ? 'submit' : 'prefill'}:${prompt}`;
+    const now = Date.now();
+    if (
+      lastQueuedPrefillRef.current?.key === key &&
+      now - lastQueuedPrefillRef.current.queuedAt < PREFILL_DEDUPE_WINDOW_MS
+    ) {
+      return;
+    }
+
+    lastQueuedPrefillRef.current = { key, queuedAt: now };
     nextPrefillIdRef.current += 1;
     setPrefillRequest({
       id: nextPrefillIdRef.current,
@@ -172,7 +202,9 @@ export function EmbedChatExperience({
         <EmbedPrefillInput
           {...props}
           agentReady={agentReady}
+          inputAppliedPrefillIdsRef={inputAppliedPrefillIdsRef}
           prefillRequest={prefillRequest}
+          submittedPrefillIdsRef={submittedPrefillIdsRef}
         />
       );
     }
