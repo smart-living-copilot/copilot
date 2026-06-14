@@ -9,7 +9,10 @@ import { ChatIndexPage } from '@/components/copilot/chat-route/chat-index-page';
 import { EmbedChatExperience } from '@/components/copilot/chat-route/embed-chat-experience';
 import { FullChatExperience } from '@/components/copilot/chat-route/full-chat-experience';
 import { chatToolCallRenderers } from './chat-tool-call-renderer';
-import { createEmbedEphemeralChatId } from '@/lib/embed-chat';
+import {
+  createEmbedEphemeralChatId,
+  type EmbedChatPrefill,
+} from '@/lib/embed-chat';
 
 export { ChatIndexPage };
 
@@ -20,14 +23,18 @@ function toQuerySuffix(queryString: string): string {
 }
 
 export function ChatRoutePage({
+  allowedPrefillOrigins = [],
   chatId,
   mode,
   embedQueryString = '',
+  initialEmbedPrefill = null,
   showEmbedExamplePrompts = true,
 }: {
+  allowedPrefillOrigins?: string[];
   chatId: string;
   mode: ChatRouteMode;
   embedQueryString?: string;
+  initialEmbedPrefill?: EmbedChatPrefill | null;
   showEmbedExamplePrompts?: boolean;
 }) {
   const enableInspector =
@@ -59,7 +66,9 @@ export function ChatRoutePage({
     >
       {mode === 'embed' ? (
         <EmbedChatExperience
+          allowedPrefillOrigins={allowedPrefillOrigins}
           chatId={chatId}
+          initialPrefill={initialEmbedPrefill}
           showExamplePrompts={showEmbedExamplePrompts}
         />
       ) : (
@@ -70,19 +79,25 @@ export function ChatRoutePage({
 }
 
 export function EmbedChatPage({
+  allowedPrefillOrigins = [],
   embedQueryString = '',
+  initialPrefill = null,
   showEmbedExamplePrompts = true,
 }: {
+  allowedPrefillOrigins?: string[];
   embedQueryString?: string;
+  initialPrefill?: EmbedChatPrefill | null;
   showEmbedExamplePrompts?: boolean;
 }) {
   const [chatId] = useState(() => createEmbedEphemeralChatId());
 
   return (
     <ChatRoutePage
+      allowedPrefillOrigins={allowedPrefillOrigins}
       chatId={chatId}
       mode="embed"
       embedQueryString={embedQueryString}
+      initialEmbedPrefill={initialPrefill}
       showEmbedExamplePrompts={showEmbedExamplePrompts}
     />
   );

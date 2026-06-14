@@ -81,7 +81,9 @@ function affordanceFromDoc(
   const affordance = (collection as Record<string, unknown>)[
     target.affordanceName
   ];
-  return affordance && typeof affordance === 'object' && !Array.isArray(affordance)
+  return affordance &&
+    typeof affordance === 'object' &&
+    !Array.isArray(affordance)
     ? (affordance as Record<string, unknown>)
     : null;
 }

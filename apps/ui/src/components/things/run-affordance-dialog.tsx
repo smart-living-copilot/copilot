@@ -109,11 +109,7 @@ async function runTarget(
       return readVirtualProperty(target.thingId, target.affordanceName);
     }
     if (target.affordanceType === 'action') {
-      return invokeVirtualAction(
-        target.thingId,
-        target.affordanceName,
-        input,
-      );
+      return invokeVirtualAction(target.thingId, target.affordanceName, input);
     }
     if (eventMode === 'emit') {
       return emitVirtualEvent(target.thingId, target.affordanceName, input);
@@ -360,9 +356,7 @@ export function RunAffordanceDialog({
                       schema={uriVariablesSchema}
                       validator={validator}
                       formData={uriVariablesData}
-                      onChange={(event) =>
-                        setUriVariablesData(event.formData)
-                      }
+                      onChange={(event) => setUriVariablesData(event.formData)}
                       uiSchema={HIDE_SUBMIT_UI_SCHEMA}
                     />
                   </div>

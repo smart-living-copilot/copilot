@@ -1,3 +1,9 @@
+import {
+  type EmbedChatPrefill,
+  isEmbedAutosubmitValue,
+  normalizeEmbedPrefillPrompt,
+} from './embed-chat';
+
 export type AppPageSearchParams = Record<string, string | string[] | undefined>;
 
 function getFirstValue(value: string | string[] | undefined): string | null {
@@ -44,4 +50,20 @@ export function areEmbedExamplesEnabledFromSearchParams(
   }
 
   return !['0', 'false', 'no', 'off'].includes(examplesFlag.toLowerCase());
+}
+
+export function getEmbedInitialPrefillFromSearchParams(
+  searchParams: AppPageSearchParams,
+): EmbedChatPrefill | null {
+  const prompt = normalizeEmbedPrefillPrompt(
+    getFirstValue(searchParams.prompt),
+  );
+  if (!prompt) {
+    return null;
+  }
+
+  return {
+    prompt,
+    submit: isEmbedAutosubmitValue(getFirstValue(searchParams.autosubmit)),
+  };
 }

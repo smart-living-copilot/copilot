@@ -60,6 +60,38 @@ APP_VERSION="$(git describe --tags --always --dirty)" docker compose up -d --bui
 
 Most UI settings are backend URLs and shared internal credentials. See [`src/lib/backend-env.ts`](./src/lib/backend-env.ts), [`src/lib/app-version.ts`](./src/lib/app-version.ts), and the root [`.env.example`](../../.env.example).
 
+### Embedded Chat
+
+The embedded chat is available at `/embed/chat`. It creates an ephemeral chat session and cleans up best-effort when the page unloads.
+
+The route supports initial prompt parameters:
+
+```text
+/embed/chat?prompt=Show%20the%20living%20room%20lights
+/embed/chat?prompt=Show%20the%20living%20room%20lights&autosubmit=1
+```
+
+The route also accepts runtime prefill messages from its parent frame:
+
+```ts
+iframe.contentWindow?.postMessage(
+  {
+    type: 'deck:prefill',
+    prompt: 'Show the living room lights',
+    submit: true,
+  },
+  'https://ui.example',
+);
+```
+
+Configure trusted parent origins with the runtime environment variable:
+
+```bash
+EMBED_CHAT_ALLOWED_ORIGINS=https://deck.example,http://localhost:8080
+```
+
+Only exact `http` and `https` origins are accepted. Wildcards, opaque `null` origins, invalid URLs, and non-HTTP protocols are ignored. The embed page is rendered dynamically, so this value is read at UI server runtime rather than at image build time.
+
 ## Important Files
 
 - [`src/app`](./src/app): Next.js routes and server-side route handlers.
