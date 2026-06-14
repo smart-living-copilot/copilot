@@ -3,6 +3,7 @@ import type { NextConfig } from 'next';
 const pollIntervalMs = Number(process.env.NEXT_POLL_INTERVAL_MS ?? 0);
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   turbopack: {
     root: process.cwd(),
   },

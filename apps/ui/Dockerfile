@@ -1,21 +1,35 @@
-FROM node:25-slim AS dev
-
-ARG APP_VERSION=""
+FROM node:25-slim AS base
 
 WORKDIR /app
 
+ENV NEXT_TELEMETRY_DISABLED=1
+
+FROM base AS dev
+
+ARG APP_VERSION=""
+
 COPY package.json package-lock.json ./
-RUN npm ci
 
 COPY . .
 
-ENV NEXT_TELEMETRY_DISABLED=1
 ENV APP_VERSION=$APP_VERSION
 ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
 
 CMD ["sh", "./scripts/dev-entrypoint.sh"]
 
-FROM dev AS build
+FROM base AS deps
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+FROM deps AS build
+
+ARG APP_VERSION=""
+
+COPY . .
+
+ENV APP_VERSION=$APP_VERSION
+ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
 
 RUN npm run build
 
@@ -25,17 +39,16 @@ ARG APP_VERSION=""
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-
-COPY --from=build /app/.next ./.next
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
-COPY --from=build /app/next.config.ts ./next.config.ts
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV APP_VERSION=$APP_VERSION
 ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["npm", "run", "start"]
+CMD ["node", "server.js"]
