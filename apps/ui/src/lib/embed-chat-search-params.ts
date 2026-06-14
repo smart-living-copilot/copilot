@@ -1,6 +1,7 @@
 import {
   type EmbedChatPrefill,
   isEmbedAutosubmitValue,
+  isEmbedDisabledValue,
   normalizeEmbedPrefillPrompt,
 } from './embed-chat';
 
@@ -45,11 +46,14 @@ export function areEmbedExamplesEnabledFromSearchParams(
   searchParams: AppPageSearchParams,
 ): boolean {
   const examplesFlag = getFirstValue(searchParams.examples);
-  if (examplesFlag === null) {
-    return true;
-  }
+  return !isEmbedDisabledValue(examplesFlag);
+}
 
-  return !['0', 'false', 'no', 'off'].includes(examplesFlag.toLowerCase());
+export function areEmbedJobEventsEnabledFromSearchParams(
+  searchParams: AppPageSearchParams,
+): boolean {
+  const jobEventsFlag = getFirstValue(searchParams.jobEvents);
+  return !isEmbedDisabledValue(jobEventsFlag);
 }
 
 export function getEmbedInitialPrefillFromSearchParams(

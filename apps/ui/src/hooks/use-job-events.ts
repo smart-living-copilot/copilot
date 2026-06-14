@@ -10,6 +10,10 @@ type JobRunEvent = {
   job?: JobRecord;
 };
 
+interface UseJobEventsOptions {
+  enabled?: boolean;
+}
+
 /**
  * Subscribe to the job run event stream (`/api/jobs/events`) and invoke
  * `onJob` with the updated job record for every event. Uses the browser
@@ -18,11 +22,18 @@ type JobRunEvent = {
  * The handler is held in a ref so the subscription is established once and is
  * not torn down when the caller passes a new closure on each render.
  */
-export function useJobEvents(onJob: JobEventHandler): void {
+export function useJobEvents(
+  onJob: JobEventHandler,
+  { enabled = true }: UseJobEventsOptions = {},
+): void {
   const handlerRef = useRef(onJob);
   handlerRef.current = onJob;
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     let active = true;
     let cleanup: (() => void) | null = null;
 
@@ -131,5 +142,5 @@ export function useJobEvents(onJob: JobEventHandler): void {
       active = false;
       cleanup?.();
     };
-  }, []);
+  }, [enabled]);
 }

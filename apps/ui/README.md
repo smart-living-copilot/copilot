@@ -71,6 +71,15 @@ The route supports initial prompt parameters:
 /embed/chat?prompt=Show%20the%20living%20room%20lights&autosubmit=1
 ```
 
+Add `jobEvents=0` to suppress the global job notification event stream
+(`/api/jobs/events`) for embedded chat pages:
+
+```text
+/embed/chat?jobEvents=0
+```
+
+The disabled values are `0`, `false`, `no`, and `off`.
+
 The route also accepts runtime prefill messages from its parent frame:
 
 ```ts

@@ -30,7 +30,7 @@ function summarizeResult(job: JobRecord): string {
   return 'Execution finished.';
 }
 
-export function JobTriggerToasts() {
+export function JobTriggerToasts({ enabled = true }: { enabled?: boolean }) {
   const { openJobDetail } = useJobDetail();
   const { addNotification } = useJobNotifications();
   const seenRunsRef = useRef<Set<string>>(new Set());
@@ -104,7 +104,7 @@ export function JobTriggerToasts() {
     [addNotification, openJobDetail],
   );
 
-  useJobEvents(handleJob);
+  useJobEvents(handleJob, { enabled });
 
   return null;
 }

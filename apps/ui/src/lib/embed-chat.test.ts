@@ -6,11 +6,16 @@ import {
   EMBED_PREFILL_MAX_PROMPT_LENGTH,
   createEmbedEphemeralChatId,
   isEmbedAutosubmitValue,
+  isEmbedDisabledValue,
   isEmbedEphemeralChatId,
   normalizeEmbedPrefillPrompt,
 } from './embed-chat';
 import { parseEmbedChatAllowedOrigins } from './embed-chat-runtime-config';
-import { getEmbedInitialPrefillFromSearchParams } from './embed-chat-search-params';
+import {
+  areEmbedExamplesEnabledFromSearchParams,
+  areEmbedJobEventsEnabledFromSearchParams,
+  getEmbedInitialPrefillFromSearchParams,
+} from './embed-chat-search-params';
 
 test('createEmbedEphemeralChatId prefixes embed chat ids', () => {
   const chatId = createEmbedEphemeralChatId();
@@ -44,6 +49,15 @@ test('isEmbedAutosubmitValue recognizes explicit truthy values', () => {
   assert.equal(isEmbedAutosubmitValue(null), false);
 });
 
+test('isEmbedDisabledValue recognizes explicit disabled values', () => {
+  assert.equal(isEmbedDisabledValue('0'), true);
+  assert.equal(isEmbedDisabledValue('false'), true);
+  assert.equal(isEmbedDisabledValue('no'), true);
+  assert.equal(isEmbedDisabledValue('off'), true);
+  assert.equal(isEmbedDisabledValue('1'), false);
+  assert.equal(isEmbedDisabledValue(null), false);
+});
+
 test('getEmbedInitialPrefillFromSearchParams parses prompt and autosubmit', () => {
   assert.deepEqual(
     getEmbedInitialPrefillFromSearchParams({
@@ -61,6 +75,19 @@ test('getEmbedInitialPrefillFromSearchParams ignores missing prompts', () => {
   assert.equal(
     getEmbedInitialPrefillFromSearchParams({ autosubmit: '1' }),
     null,
+  );
+});
+
+test('embed search params can disable examples and job events', () => {
+  assert.equal(areEmbedExamplesEnabledFromSearchParams({}), true);
+  assert.equal(
+    areEmbedExamplesEnabledFromSearchParams({ examples: '0' }),
+    false,
+  );
+  assert.equal(areEmbedJobEventsEnabledFromSearchParams({}), true);
+  assert.equal(
+    areEmbedJobEventsEnabledFromSearchParams({ jobEvents: 'off' }),
+    false,
   );
 });
 

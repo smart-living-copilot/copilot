@@ -33,3 +33,9 @@ export function isEmbedAutosubmitValue(value: string | null): boolean {
     value !== null && ['1', 'true', 'yes', 'on'].includes(value.toLowerCase())
   );
 }
+
+export function isEmbedDisabledValue(value: string | null): boolean {
+  return (
+    value !== null && ['0', 'false', 'no', 'off'].includes(value.toLowerCase())
+  );
+}
