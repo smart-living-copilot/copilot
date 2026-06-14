@@ -2,8 +2,16 @@ import {
   CopilotChat,
   CopilotChatInput,
   type CopilotChatInputProps,
+  useCopilotKit,
 } from '@copilotkit/react-core/v2';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
 
 import { useDefaultExamplePrompts } from '@/components/copilot/chat-route/default-example-prompts';
 import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
@@ -45,31 +53,54 @@ function getDeckPrefill(data: unknown): EmbedChatPrefill | null {
 }
 
 function EmbedPrefillInput({
+  agentReady,
   prefillRequest,
   ...props
 }: CopilotChatInputProps & {
+  agentReady: boolean;
   prefillRequest: EmbedChatPrefillRequest | null;
 }) {
-  const appliedPrefillIdsRef = useRef<Set<number>>(new Set());
+  const inputAppliedPrefillIdsRef = useRef<Set<number>>(new Set());
+  const submittedPrefillIdsRef = useRef<Set<number>>(new Set());
   const { onChange, onSubmitMessage } = props;
 
   useEffect(() => {
-    if (
-      !prefillRequest ||
-      appliedPrefillIdsRef.current.has(prefillRequest.id)
-    ) {
+    if (!prefillRequest) {
       return;
     }
 
-    appliedPrefillIdsRef.current.add(prefillRequest.id);
-    onChange?.(prefillRequest.prompt);
+    if (!inputAppliedPrefillIdsRef.current.has(prefillRequest.id)) {
+      inputAppliedPrefillIdsRef.current.add(prefillRequest.id);
+      onChange?.(prefillRequest.prompt);
+    }
 
-    if (prefillRequest.submit) {
+    if (
+      prefillRequest.submit &&
+      agentReady &&
+      !submittedPrefillIdsRef.current.has(prefillRequest.id)
+    ) {
+      submittedPrefillIdsRef.current.add(prefillRequest.id);
       onSubmitMessage?.(prefillRequest.prompt);
     }
-  }, [onChange, onSubmitMessage, prefillRequest]);
+  }, [agentReady, onChange, onSubmitMessage, prefillRequest]);
 
   return <CopilotChatInput {...props} />;
+}
+
+function useAgentReady(agentId: string): boolean {
+  const { copilotkit } = useCopilotKit();
+  const [, forceUpdate] = useReducer((value: number) => value + 1, 0);
+
+  useEffect(() => {
+    const subscription = copilotkit.subscribe({
+      onAgentsChanged: forceUpdate,
+      onRuntimeConnectionStatusChanged: forceUpdate,
+    });
+
+    return () => subscription.unsubscribe();
+  }, [copilotkit]);
+
+  return Boolean(copilotkit.getAgent(agentId));
 }
 
 export function EmbedChatExperience({
@@ -83,6 +114,7 @@ export function EmbedChatExperience({
   initialPrefill: EmbedChatPrefill | null;
   showExamplePrompts: boolean;
 }) {
+  const agentReady = useAgentReady('copilot');
   const cleanupRequestedRef = useRef(false);
   const initialPrefillAppliedRef = useRef(false);
   const nextPrefillIdRef = useRef(0);
@@ -136,7 +168,13 @@ export function EmbedChatExperience({
   );
   const chatInput = useMemo(() => {
     function EmbedInput(props: CopilotChatInputProps) {
-      return <EmbedPrefillInput {...props} prefillRequest={prefillRequest} />;
+      return (
+        <EmbedPrefillInput
+          {...props}
+          agentReady={agentReady}
+          prefillRequest={prefillRequest}
+        />
+      );
     }
 
     return Object.assign(EmbedInput, {
@@ -150,7 +188,7 @@ export function EmbedChatExperience({
       TextArea: CopilotChatInput.TextArea,
       ToolbarButton: CopilotChatInput.ToolbarButton,
     });
-  }, [prefillRequest]);
+  }, [agentReady, prefillRequest]);
 
   useEffect(() => {
     if (!initialPrefill || initialPrefillAppliedRef.current) {
