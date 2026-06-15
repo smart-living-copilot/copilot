@@ -83,7 +83,7 @@ test('handles string chunks from the runtime', async () => {
   assert.doesNotMatch(output, /RAW/);
 });
 
-test('batches TOOL_CALL_ARGS into a single event at TOOL_CALL_END', async () => {
+test('batches TOOL_CALL_ARGS into a single complete event at TOOL_CALL_END', async () => {
   const input =
     sse({
       type: 'TOOL_CALL_START',
@@ -97,15 +97,33 @@ test('batches TOOL_CALL_ARGS into a single event at TOOL_CALL_END', async () => 
 
   const output = await readStream(filterCopilotEventStream(makeSource(input)));
 
-  // Should have exactly one TOOL_CALL_ARGS with the full accumulated delta
   const argsMatches = output.match(/"type":"TOOL_CALL_ARGS"/g);
   assert.equal(argsMatches?.length, 1);
-  // The delta is a JSON string inside JSON, so quotes are escaped
   assert.match(output, /\{\\"code\\":\\"x\\"\}/);
-
-  // START and END should pass through
   assert.match(output, /"type":"TOOL_CALL_START"/);
   assert.match(output, /"type":"TOOL_CALL_END"/);
+});
+
+test('forwards complete TOOL_CALL_RESULT content but strips rawEvent', async () => {
+  const input =
+    sse({
+      type: 'TOOL_CALL_START',
+      toolCallId: 'tc1',
+      toolCallName: 'run_code',
+    }) +
+    sse({
+      type: 'TOOL_CALL_RESULT',
+      messageId: 'tool-1',
+      toolCallId: 'tc1',
+      content: '{"stdout":"complete output"}',
+      rawEvent: { hidden: 'raw payload' },
+    });
+
+  const output = await readStream(filterCopilotEventStream(makeSource(input)));
+
+  assert.match(output, /"type":"TOOL_CALL_RESULT"/);
+  assert.match(output, /complete output/);
+  assert.doesNotMatch(output, /raw payload/);
 });
 
 test('throttles TEXT_MESSAGE_CONTENT deltas into batches', async () => {

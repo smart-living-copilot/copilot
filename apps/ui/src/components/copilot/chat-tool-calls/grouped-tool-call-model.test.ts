@@ -8,6 +8,7 @@ import {
 } from '@ag-ui/core';
 
 import {
+  buildToolCallProps,
   getGroupedToolCalls,
   isFirstToolOnlyMessageInGroup,
 } from './grouped-tool-call-model';
@@ -85,4 +86,24 @@ test('groups consecutive tool-only assistant messages into one run', () => {
     getGroupedToolCalls({ message: first, messages }).map((call) => call.id),
     ['call-1', 'call-2', 'call-3'],
   );
+});
+
+test('keeps complete tool args and results in renderer props', () => {
+  const call = toolCall('call-1');
+  call.function.arguments = '{"query":"temperature"}';
+
+  const props = buildToolCallProps({
+    executingToolCallIds: new Set(),
+    toolCall: call,
+    toolMessage: {
+      id: 'tool-1',
+      content: '{"result":"22 C"}',
+      role: 'tool',
+      toolCallId: call.id,
+    },
+  });
+
+  assert.deepEqual(props.args, { query: 'temperature' });
+  assert.equal(props.result, '{"result":"22 C"}');
+  assert.equal(props.status, 'complete');
 });

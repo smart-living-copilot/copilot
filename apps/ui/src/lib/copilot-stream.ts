@@ -10,8 +10,12 @@ function decodeChunk(value: string | ArrayBuffer | ArrayBufferView): string {
 
 interface ParsedSseEvent {
   type?: string;
+  content?: string;
+  messageId?: string;
   toolCallId?: string;
+  toolCallName?: string;
   delta?: string;
+  messages?: unknown;
   [key: string]: unknown;
 }
 
@@ -41,6 +45,11 @@ function makeSseBlock(event: ParsedSseEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
+function stripRawEvent(event: ParsedSseEvent): ParsedSseEvent {
+  const { rawEvent: _rawEvent, ...rest } = event;
+  return rest;
+}
+
 /** Minimum interval (ms) between flushing buffered text deltas. */
 const TEXT_THROTTLE_MS = 80;
 
@@ -48,7 +57,9 @@ export function filterCopilotEventStream(
   stream: ReadableStream<string | Uint8Array>,
 ): ReadableStream<Uint8Array> {
   let buffer = '';
-  // Buffer accumulated tool call args per toolCallId
+  // Buffer accumulated tool call args per toolCallId. We emit the complete
+  // argument payload once, so tool details are inspectable without streaming
+  // partial JSON fragments into the UI.
   const toolCallArgs = new Map<string, string>();
   // Throttle TEXT_MESSAGE_CONTENT deltas
   let pendingTextDelta = '';
@@ -67,7 +78,7 @@ export function filterCopilotEventStream(
         controller.enqueue(
           encoder.encode(
             makeSseBlock({
-              ...pendingTextEvent,
+              ...stripRawEvent(pendingTextEvent),
               delta: pendingTextDelta,
             }),
           ),
@@ -109,14 +120,18 @@ export function filterCopilotEventStream(
           flushTextDelta();
         }
 
-        // Buffer TOOL_CALL_ARGS — don't emit them individually
+        // Buffer TOOL_CALL_ARGS — don't emit partial argument fragments.
         if (parsed.type === 'TOOL_CALL_ARGS' && parsed.toolCallId) {
           const existing = toolCallArgs.get(parsed.toolCallId) ?? '';
           toolCallArgs.set(parsed.toolCallId, existing + (parsed.delta ?? ''));
           return;
         }
 
-        // On TOOL_CALL_END, flush the buffered args as a single event first
+        if (parsed.type === 'TOOL_CALL_CHUNK') {
+          return;
+        }
+
+        // On TOOL_CALL_END, flush the buffered args as a single complete event.
         if (parsed.type === 'TOOL_CALL_END' && parsed.toolCallId) {
           const accumulated = toolCallArgs.get(parsed.toolCallId);
           if (accumulated) {
@@ -133,7 +148,7 @@ export function filterCopilotEventStream(
           }
         }
 
-        controller.enqueue(encoder.encode(block));
+        controller.enqueue(encoder.encode(makeSseBlock(stripRawEvent(parsed))));
       };
 
       const pump = async (): Promise<void> => {
