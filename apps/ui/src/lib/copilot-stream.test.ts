@@ -126,6 +126,33 @@ test('forwards complete TOOL_CALL_RESULT content but strips rawEvent', async () 
   assert.doesNotMatch(output, /raw payload/);
 });
 
+test('preserves TOOL_CALL_CHUNK when it is the sole tool call carrier', async () => {
+  const input =
+    sse({
+      type: 'TOOL_CALL_CHUNK',
+      toolCallId: 'tc1',
+      toolCallName: 'things_search',
+      parentMessageId: 'assistant-1',
+      delta: '{"query"',
+      rawEvent: { hidden: 'raw chunk' },
+    }) +
+    sse({
+      type: 'TOOL_CALL_CHUNK',
+      toolCallId: 'tc1',
+      delta: ':"temperature"}',
+    });
+
+  const output = await readStream(filterCopilotEventStream(makeSource(input)));
+
+  const chunkMatches = output.match(/"type":"TOOL_CALL_CHUNK"/g);
+  assert.equal(chunkMatches?.length, 2);
+  assert.match(output, /things_search/);
+  assert.match(output, /assistant-1/);
+  assert.match(output, /\{\\"query\\"/);
+  assert.match(output, /:\\"temperature\\"\}/);
+  assert.doesNotMatch(output, /raw chunk/);
+});
+
 test('throttles TEXT_MESSAGE_CONTENT deltas into batches', async () => {
   const input =
     sse({ type: 'TEXT_MESSAGE_START', messageId: 'm1', role: 'assistant' }) +

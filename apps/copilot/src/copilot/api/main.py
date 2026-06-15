@@ -41,6 +41,7 @@ from copilot.threads.routes import create_threads_router
 from copilot.virtual_things.routes import router as virtual_things_router
 
 logger = logging.getLogger(__name__)
+LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 EMBED_EPHEMERAL_THREAD_PREFIX = "embed-ephemeral-"
 
 # Module-level references kept alive for the process lifetime.
@@ -66,6 +67,13 @@ def _checkpoint_database_url(
         return settings.agent_state_database_url
 
     return registry_database_url
+
+
+def configure_logging(log_level: str) -> None:
+    """Configure process logging even when uvicorn installed handlers first."""
+    logging.basicConfig(level=log_level, format=LOG_FORMAT, force=True)
+    for logger_name in ("copilot", "uvicorn", "uvicorn.error", "uvicorn.access"):
+        logging.getLogger(logger_name).setLevel(log_level)
 
 
 @asynccontextmanager
@@ -208,7 +216,7 @@ async def lifespan(app: FastAPI):
 
     settings = AgentSettings()
     _settings = settings
-    logging.basicConfig(level=settings.log_level)
+    configure_logging(settings.log_level)
     await asyncio.to_thread(init_db)
 
     registry_settings = get_registry_settings()

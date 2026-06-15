@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -109,6 +109,32 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 fake_job_service.stop.assert_awaited_once()
 
         asyncio.run(exercise())
+
+    def test_configure_logging_forces_uvicorn_logging_setup(self) -> None:
+        loggers: dict[str | None, Mock] = {}
+
+        def fake_get_logger(name: str | None = None) -> Mock:
+            logger = Mock()
+            loggers[name] = logger
+            return logger
+
+        with (
+            patch.object(copilot_app.logging, "basicConfig") as basic_config,
+            patch.object(
+                copilot_app.logging,
+                "getLogger",
+                side_effect=fake_get_logger,
+            ),
+        ):
+            copilot_app.configure_logging("DEBUG")
+
+        basic_config.assert_called_once_with(
+            level="DEBUG",
+            format=copilot_app.LOG_FORMAT,
+            force=True,
+        )
+        for logger_name in ("copilot", "uvicorn", "uvicorn.error", "uvicorn.access"):
+            loggers[logger_name].setLevel.assert_called_once_with("DEBUG")
 
     def test_livekit_token_endpoint_reports_disabled_when_unconfigured(self) -> None:
         self._set_settings(Settings(internal_api_key="test-internal-key"))

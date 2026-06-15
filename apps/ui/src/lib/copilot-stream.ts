@@ -127,7 +127,12 @@ export function filterCopilotEventStream(
           return;
         }
 
+        // AG-UI clients can use TOOL_CALL_CHUNK as the only representation of a
+        // tool call, so preserve it while stripping raw provider metadata.
         if (parsed.type === 'TOOL_CALL_CHUNK') {
+          controller.enqueue(
+            encoder.encode(makeSseBlock(stripRawEvent(parsed))),
+          );
           return;
         }
 
