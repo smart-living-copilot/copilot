@@ -15,7 +15,7 @@ def make_llm(settings: Settings) -> ChatOpenAI:
         "model": settings.openai_model,
         "api_key": settings.openai_api_key,
         "base_url": settings.openai_base_url or None,
-        "disable_streaming": "tool_calling",
+        "disable_streaming": settings.openai_disable_streaming,
         "timeout": 120,
         "max_retries": 2,
     }

@@ -1,8 +1,11 @@
 import os
 import socket
+from typing import Literal
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DisableStreamingMode = bool | Literal["tool_calling"]
 
 
 def _normalize_database_url(value: str) -> str:
@@ -26,6 +29,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
     openai_temperature: float | None = Field(default=None, ge=0, le=2)
+    openai_disable_streaming: DisableStreamingMode = "tool_calling"
     openai_base_url: str = Field(
         default="",
         validation_alias=AliasChoices("OPENAI_BASE_URL", "OPENAI_API_BASE_URL"),
@@ -156,6 +160,19 @@ class Settings(BaseSettings):
     def _empty_temperature_uses_provider_default(cls, value: object) -> object:
         if value == "":
             return None
+        return value
+
+    @field_validator("openai_disable_streaming", mode="before")
+    @classmethod
+    def _normalize_disable_streaming(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized == "tool_calling":
+                return normalized
+            if normalized == "true":
+                return True
+            if normalized == "false":
+                return False
         return value
 
     @model_validator(mode="after")
