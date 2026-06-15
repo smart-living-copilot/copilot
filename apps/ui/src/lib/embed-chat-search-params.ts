@@ -4,6 +4,7 @@ import {
   isEmbedDisabledValue,
   normalizeEmbedPrefillPrompt,
 } from './embed-chat';
+import type { Theme } from '@/components/theme-provider';
 
 export type AppPageSearchParams = Record<string, string | string[] | undefined>;
 
@@ -54,6 +55,15 @@ export function areEmbedJobEventsEnabledFromSearchParams(
 ): boolean {
   const jobEventsFlag = getFirstValue(searchParams.jobEvents);
   return !isEmbedDisabledValue(jobEventsFlag);
+}
+
+export function getEmbedThemeFromSearchParams(
+  searchParams: AppPageSearchParams,
+): Theme | null {
+  const theme = getFirstValue(searchParams.theme)?.trim().toLowerCase();
+  return theme === 'light' || theme === 'dark' || theme === 'system'
+    ? theme
+    : null;
 }
 
 export function getEmbedInitialPrefillFromSearchParams(

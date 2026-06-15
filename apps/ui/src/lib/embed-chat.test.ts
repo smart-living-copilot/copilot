@@ -15,6 +15,7 @@ import {
   areEmbedExamplesEnabledFromSearchParams,
   areEmbedJobEventsEnabledFromSearchParams,
   getEmbedInitialPrefillFromSearchParams,
+  getEmbedThemeFromSearchParams,
 } from './embed-chat-search-params';
 
 test('createEmbedEphemeralChatId prefixes embed chat ids', () => {
@@ -89,6 +90,22 @@ test('embed search params can disable examples and job events', () => {
     areEmbedJobEventsEnabledFromSearchParams({ jobEvents: 'off' }),
     false,
   );
+});
+
+test('getEmbedThemeFromSearchParams accepts supported theme values', () => {
+  assert.equal(getEmbedThemeFromSearchParams({ theme: 'light' }), 'light');
+  assert.equal(getEmbedThemeFromSearchParams({ theme: 'DARK' }), 'dark');
+  assert.equal(getEmbedThemeFromSearchParams({ theme: ' system ' }), 'system');
+  assert.equal(
+    getEmbedThemeFromSearchParams({ theme: ['dark', 'light'] }),
+    'dark',
+  );
+});
+
+test('getEmbedThemeFromSearchParams ignores unsupported theme values', () => {
+  assert.equal(getEmbedThemeFromSearchParams({}), null);
+  assert.equal(getEmbedThemeFromSearchParams({ theme: 'auto' }), null);
+  assert.equal(getEmbedThemeFromSearchParams({ theme: '' }), null);
 });
 
 test('parseEmbedChatAllowedOrigins normalizes exact http origins', () => {

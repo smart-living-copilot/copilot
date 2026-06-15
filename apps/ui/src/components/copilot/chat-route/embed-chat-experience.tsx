@@ -20,6 +20,7 @@ import {
   type EmbedChatPrefill,
   normalizeEmbedPrefillPrompt,
 } from '@/lib/embed-chat';
+import { useTheme, type Theme } from '@/components/theme-provider';
 
 type EmbedChatPrefillRequest = EmbedChatPrefill & {
   id: number;
@@ -117,14 +118,27 @@ function useAgentReady(agentId: string): boolean {
   return Boolean(copilotkit.getAgent(agentId));
 }
 
+function EmbedThemeOverride({ theme }: { theme: Theme | null }) {
+  const { setForcedTheme } = useTheme();
+
+  useEffect(() => {
+    setForcedTheme(theme);
+    return () => setForcedTheme(null);
+  }, [setForcedTheme, theme]);
+
+  return null;
+}
+
 export function EmbedChatExperience({
   allowedPrefillOrigins,
   chatId,
+  embedTheme,
   initialPrefill,
   showExamplePrompts,
 }: {
   allowedPrefillOrigins: string[];
   chatId: string;
+  embedTheme: Theme | null;
   initialPrefill: EmbedChatPrefill | null;
   showExamplePrompts: boolean;
 }) {
@@ -279,6 +293,7 @@ export function EmbedChatExperience({
 
   return (
     <main className="embed-chat-shell flex h-dvh flex-col px-3 py-3 md:px-6 md:py-6">
+      <EmbedThemeOverride theme={embedTheme} />
       <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col">
         <CopilotChat
           agentId="copilot"

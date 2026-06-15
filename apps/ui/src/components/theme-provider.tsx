@@ -10,12 +10,13 @@ import {
   type ReactNode,
 } from 'react';
 
-type Theme = 'light' | 'dark' | 'system';
+export type Theme = 'light' | 'dark' | 'system';
 type ResolvedTheme = 'light' | 'dark';
 
 interface ThemeContextValue {
   theme: Theme;
   resolvedTheme: ResolvedTheme;
+  setForcedTheme: (theme: Theme | null) => void;
   setTheme: (theme: Theme) => void;
 }
 
@@ -64,10 +65,13 @@ export function ThemeProvider({
   const [theme, setThemeState] = useState<Theme>(() =>
     storedTheme(defaultTheme),
   );
+  const [forcedTheme, setForcedThemeState] = useState<Theme | null>(null);
   const [systemResolvedTheme, setSystemResolvedTheme] = useState<ResolvedTheme>(
     () => systemTheme(),
   );
-  const resolvedTheme = theme === 'system' ? systemResolvedTheme : theme;
+  const effectiveTheme = forcedTheme ?? theme;
+  const resolvedTheme =
+    effectiveTheme === 'system' ? systemResolvedTheme : effectiveTheme;
 
   useEffect(() => {
     applyTheme(resolvedTheme);
@@ -99,13 +103,18 @@ export function ThemeProvider({
     setThemeState(nextTheme);
   }, []);
 
+  const setForcedTheme = useCallback((nextTheme: Theme | null) => {
+    setForcedThemeState(nextTheme);
+  }, []);
+
   const value = useMemo(
     () => ({
-      theme,
+      theme: effectiveTheme,
       resolvedTheme,
+      setForcedTheme,
       setTheme,
     }),
-    [resolvedTheme, setTheme, theme],
+    [effectiveTheme, resolvedTheme, setForcedTheme, setTheme],
   );
 
   return (

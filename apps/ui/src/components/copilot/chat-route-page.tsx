@@ -13,6 +13,7 @@ import {
   createEmbedEphemeralChatId,
   type EmbedChatPrefill,
 } from '@/lib/embed-chat';
+import type { Theme } from '@/components/theme-provider';
 
 export { ChatIndexPage };
 
@@ -27,6 +28,7 @@ export function ChatRoutePage({
   chatId,
   mode,
   embedQueryString = '',
+  embedTheme = null,
   initialEmbedPrefill = null,
   showEmbedExamplePrompts = true,
 }: {
@@ -34,6 +36,7 @@ export function ChatRoutePage({
   chatId: string;
   mode: ChatRouteMode;
   embedQueryString?: string;
+  embedTheme?: Theme | null;
   initialEmbedPrefill?: EmbedChatPrefill | null;
   showEmbedExamplePrompts?: boolean;
 }) {
@@ -68,6 +71,7 @@ export function ChatRoutePage({
         <EmbedChatExperience
           allowedPrefillOrigins={allowedPrefillOrigins}
           chatId={chatId}
+          embedTheme={embedTheme}
           initialPrefill={initialEmbedPrefill}
           showExamplePrompts={showEmbedExamplePrompts}
         />
@@ -81,11 +85,13 @@ export function ChatRoutePage({
 export function EmbedChatPage({
   allowedPrefillOrigins = [],
   embedQueryString = '',
+  embedTheme = null,
   initialPrefill = null,
   showEmbedExamplePrompts = true,
 }: {
   allowedPrefillOrigins?: string[];
   embedQueryString?: string;
+  embedTheme?: Theme | null;
   initialPrefill?: EmbedChatPrefill | null;
   showEmbedExamplePrompts?: boolean;
 }) {
@@ -97,6 +103,7 @@ export function EmbedChatPage({
       chatId={chatId}
       mode="embed"
       embedQueryString={embedQueryString}
+      embedTheme={embedTheme}
       initialEmbedPrefill={initialPrefill}
       showEmbedExamplePrompts={showEmbedExamplePrompts}
     />

@@ -2,6 +2,7 @@ import { EmbedChatPage as EmbedChatExperiencePage } from '@/components/copilot/c
 import {
   areEmbedExamplesEnabledFromSearchParams,
   getEmbedInitialPrefillFromSearchParams,
+  getEmbedThemeFromSearchParams,
   type AppPageSearchParams,
   toSearchParamsString,
 } from '@/lib/embed-chat-search-params';
@@ -23,6 +24,7 @@ export default async function EmbedChatThreadPage({
       initialPrefill={getEmbedInitialPrefillFromSearchParams(
         resolvedSearchParams,
       )}
+      embedTheme={getEmbedThemeFromSearchParams(resolvedSearchParams)}
       showEmbedExamplePrompts={areEmbedExamplesEnabledFromSearchParams(
         resolvedSearchParams,
       )}
