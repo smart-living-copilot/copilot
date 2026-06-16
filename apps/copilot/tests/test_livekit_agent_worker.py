@@ -5,7 +5,9 @@ import pickle
 from copilot.agent.device_interactions import DEVICE_INTERACTION_SUMMARY_TYPE
 from copilot.agent.voice import assistant_text_from_graph_result
 from copilot.core.settings import Settings
+from copilot.media import SNAPSHOT_EVENT_TYPE, SNAPSHOT_TOPIC
 from copilot.workers import livekit
+from copilot.workers.livekit import worker as livekit_worker
 from copilot.workers.livekit import speech as livekit_speech
 from copilot.workers.livekit.graph import VoiceSafeGraphStream
 from langchain_core.messages import AIMessage, AIMessageChunk
@@ -15,6 +17,28 @@ def test_livekit_session_handler_is_spawn_pickleable() -> None:
     assert pickle.loads(pickle.dumps(livekit.smart_living_copilot)) is (
         livekit.smart_living_copilot
     )
+
+
+def test_livekit_camera_snapshot_publisher_sends_reliable_data_packet() -> None:
+    class FakeLocalParticipant:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def publish_data(self, payload, **kwargs):
+            self.calls.append((payload, kwargs))
+
+    local_participant = FakeLocalParticipant()
+    room = type("FakeRoom", (), {"local_participant": local_participant})()
+
+    asyncio.run(livekit_worker._publish_camera_snapshot(room, "2026-06-16T09:00:00+00:00"))
+
+    assert len(local_participant.calls) == 1
+    payload, kwargs = local_participant.calls[0]
+    assert kwargs == {"reliable": True, "topic": SNAPSHOT_TOPIC}
+    assert json.loads(payload) == {
+        "type": SNAPSHOT_EVENT_TYPE,
+        "capturedAt": "2026-06-16T09:00:00+00:00",
+    }
 
 
 def test_livekit_stt_kwargs_use_transcriptions_endpoint_without_llm_key() -> None:

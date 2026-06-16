@@ -4,16 +4,19 @@ import { useAttachMediaStream } from '@/components/copilot/live-mode/use-attach-
 import { useLiveModeAudioCues } from '@/components/copilot/live-mode/use-live-mode-audio-cues';
 
 export function LiveModeAudioElements({
+  cameraSnapshotCueSeq,
   isConnected,
   remoteStream,
   showAssistantPending,
 }: {
+  cameraSnapshotCueSeq: number;
   isConnected: boolean;
   remoteStream: MediaStream | null;
   showAssistantPending: boolean;
 }) {
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const { readyAudioRef, waitingAudioRef } = useLiveModeAudioCues({
+    cameraSnapshotCueSeq,
     isConnected,
     showAssistantPending,
   });

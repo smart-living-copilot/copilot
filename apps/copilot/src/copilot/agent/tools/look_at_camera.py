@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, SecretStr
 
 from copilot.agent.tools._config import thread_id_from_config as _thread_id_from_config
 from copilot.core.settings import Settings
-from copilot.media import media_sessions
+from copilot.media import media_sessions, snapshot_notifiers
 
 logger = logging.getLogger(__name__)
 
@@ -145,13 +145,13 @@ async def look_at_camera(
     jpeg_bytes, captured_at = snapshot
 
     llm = _make_vision_llm().with_structured_output(CameraObservation)
+    messages = [
+        SystemMessage(content=_VISION_SYSTEM_PROMPT),
+        _frame_to_message(jpeg_bytes, user_hint),
+    ]
+    await snapshot_notifiers.notify_snapshot_sent(thread_id, captured_at)
     try:
-        raw = await llm.ainvoke(
-            [
-                SystemMessage(content=_VISION_SYSTEM_PROMPT),
-                _frame_to_message(jpeg_bytes, user_hint),
-            ]
-        )
+        raw = await llm.ainvoke(messages)
     except Exception as exc:
         logger.exception("Vision model call failed")
         return {"error": f"Vision model call failed: {exc}"}

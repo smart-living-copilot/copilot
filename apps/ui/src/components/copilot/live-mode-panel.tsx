@@ -108,6 +108,7 @@ export function LiveModePanel({
   return (
     <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <LiveModeAudioElements
+        cameraSnapshotCueSeq={session.cameraSnapshotCueSeq}
         isConnected={isConnected}
         remoteStream={session.remoteStream}
         showAssistantPending={showAssistantPending}

@@ -14,9 +14,51 @@ import {
   type MediaIngressState,
 } from '@/hooks/media-ingress/types';
 
+export const CAMERA_SNAPSHOT_TOPIC = 'copilot.camera.snapshot';
+const CAMERA_SNAPSHOT_EVENT_TYPE = 'camera_snapshot_sent';
+
 type MutableRef<T> = {
   current: T;
 };
+
+export function handleCameraSnapshotDataEvent({
+  payload,
+  participantInfo,
+  topic,
+  onCameraSnapshotSent,
+}: {
+  payload: Uint8Array;
+  participantInfo: LiveKitParticipantInfo | null | undefined;
+  topic: string | undefined;
+  onCameraSnapshotSent: () => void;
+}) {
+  if (topic !== CAMERA_SNAPSHOT_TOPIC) {
+    return false;
+  }
+  if (!participantInfo || !liveKitParticipantLooksLikeAgent(participantInfo)) {
+    return false;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(payload));
+  } catch {
+    return false;
+  }
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    !('type' in parsed) ||
+    parsed.type !== CAMERA_SNAPSHOT_EVENT_TYPE ||
+    !('capturedAt' in parsed) ||
+    typeof parsed.capturedAt !== 'string'
+  ) {
+    return false;
+  }
+
+  onCameraSnapshotSent();
+  return true;
+}
 
 interface StartLiveKitConnectionOptions {
   chatId: string;
@@ -30,6 +72,7 @@ interface StartLiveKitConnectionOptions {
   setLocalStream: (stream: MediaStream | null) => void;
   setRemoteStream: (stream: MediaStream | null) => void;
   setState: (state: MediaIngressState) => void;
+  onCameraSnapshotSent: () => void;
   startedAt: number;
   streamRef: MutableRef<MediaStream | null>;
 }
@@ -46,6 +89,7 @@ export async function startLiveKitConnection({
   setLocalStream,
   setRemoteStream,
   setState,
+  onCameraSnapshotSent,
   startedAt,
   streamRef,
 }: StartLiveKitConnectionOptions) {
@@ -119,6 +163,15 @@ export async function startLiveKitConnection({
     }
     nextRemoteStream.removeTrack(track.mediaStreamTrack);
     updateRemoteStream();
+  });
+
+  room.on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
+    handleCameraSnapshotDataEvent({
+      payload,
+      participantInfo: participant as LiveKitParticipantInfo | null | undefined,
+      topic,
+      onCameraSnapshotSent,
+    });
   });
 
   room.registerTextStreamHandler(

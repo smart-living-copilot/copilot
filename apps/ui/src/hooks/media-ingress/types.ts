@@ -12,6 +12,7 @@ export interface MediaIngressSession {
   error: string | null;
   latestAssistantText: string | null;
   latestUserTranscript: string | null;
+  cameraSnapshotCueSeq: number;
   isAssistantResponsePending: boolean;
   isMicrophoneMuted: boolean;
   isCameraEnabled: boolean;

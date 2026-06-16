@@ -19,6 +19,7 @@ from copilot.core.database import init_db, psycopg_conninfo
 from copilot.core.settings import Settings
 from copilot.jobs.active import set_active_job_service
 from copilot.jobs.service import JobService
+from copilot.media import SNAPSHOT_EVENT_TYPE, SNAPSHOT_TOPIC, snapshot_notifiers
 from copilot.search import ThingSearchService, set_active_search_service
 from copilot.threads import touch_thread
 from copilot.workers.livekit.capture import livekit_camera_capture
@@ -171,6 +172,34 @@ async def _wait_for_shutdown(ctx: Any) -> None:
     await shutdown_event.wait()
 
 
+async def _publish_camera_snapshot(room: Any, captured_at: str | None) -> None:
+    local_participant = getattr(room, "local_participant", None)
+    publish_data = getattr(local_participant, "publish_data", None)
+    if publish_data is None:
+        logger.debug("LiveKit room has no local participant data publisher")
+        return
+
+    payload = json.dumps(
+        {
+            "type": SNAPSHOT_EVENT_TYPE,
+            "capturedAt": captured_at,
+        }
+    )
+    await publish_data(payload, reliable=True, topic=SNAPSHOT_TOPIC)
+
+
+@asynccontextmanager
+async def livekit_snapshot_notifications(room: Any, thread_id: str):
+    unregister = snapshot_notifiers.register(
+        thread_id,
+        lambda captured_at: _publish_camera_snapshot(room, captured_at),
+    )
+    try:
+        yield
+    finally:
+        unregister()
+
+
 async def _run_livekit_session(ctx: Any, settings: Settings) -> None:
     from livekit.agents import AgentSession, room_io
     from livekit.plugins import langchain, silero
@@ -186,6 +215,7 @@ async def _run_livekit_session(ctx: Any, settings: Settings) -> None:
             registry_database_url=registry_settings.DATABASE_URL,
         ) as saver,
         livekit_camera_capture(ctx, thread_id),
+        livekit_snapshot_notifications(ctx.room, thread_id),
     ):
         graph = compile_graph(settings, saver)
         session = AgentSession(

@@ -3,7 +3,10 @@ import asyncio
 from types import SimpleNamespace
 
 from copilot.core.settings import Settings
-from copilot.media import MediaSessionRegistry
+from copilot.media import (
+    MediaSessionRegistry,
+    SnapshotNotifierRegistry,
+)
 from copilot.media.livekit import (
     create_livekit_connection_details,
     dispatch_livekit_agent,
@@ -45,6 +48,18 @@ class MediaSessionRegistryTestCase(unittest.TestCase):
         registry.store_video_frame_jpeg("livekit-a", jpeg_bytes=b"fresh-frame")
         registry.close("livekit-a")
         self.assertIsNone(registry.latest_video_frame_for_thread("thread-a"))
+
+    def test_snapshot_notifier_invokes_and_unregisters_thread_callbacks(self) -> None:
+        registry = SnapshotNotifierRegistry()
+        events: list[str | None] = []
+
+        unregister = registry.register("thread-a", lambda captured_at: events.append(captured_at))
+
+        asyncio.run(registry.notify_snapshot_sent("thread-a", "frame-a"))
+        unregister()
+        asyncio.run(registry.notify_snapshot_sent("thread-a", "frame-b"))
+
+        self.assertEqual(events, ["frame-a"])
 
     def test_livekit_room_names_are_safe_for_thread_ids(self) -> None:
         settings = Settings(livekit_room_prefix="my copilot")

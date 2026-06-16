@@ -24,6 +24,7 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
   const [latestUserTranscript, setLatestUserTranscript] = useState<
     string | null
   >(null);
+  const [cameraSnapshotCueSeq, setCameraSnapshotCueSeq] = useState(0);
   const [isAssistantResponsePending, setAssistantResponsePending] =
     useState(false);
   const [isMicrophoneMuted, setMicrophoneMutedState] = useState(false);
@@ -62,6 +63,7 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     setRemoteStream(null);
     setLatestAssistantText(null);
     setLatestUserTranscript(null);
+    setCameraSnapshotCueSeq(0);
     setAssistantResponsePending(false);
     setMicrophoneMutedState(false);
     setCameraEnabledState(true);
@@ -95,6 +97,7 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     setError(null);
     setLatestAssistantText(null);
     setLatestUserTranscript(null);
+    setCameraSnapshotCueSeq(0);
     setAssistantResponsePending(false);
     setMicrophoneMutedState(false);
     setCameraEnabledState(true);
@@ -120,6 +123,9 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
         setLocalStream,
         setRemoteStream,
         setState,
+        onCameraSnapshotSent: () => {
+          setCameraSnapshotCueSeq((value) => value + 1);
+        },
         startedAt,
         streamRef,
       });
@@ -148,6 +154,7 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
       error,
       latestAssistantText,
       latestUserTranscript,
+      cameraSnapshotCueSeq,
       isAssistantResponsePending,
       isMicrophoneMuted,
       isCameraEnabled,
@@ -158,6 +165,7 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     }),
     [
       error,
+      cameraSnapshotCueSeq,
       isCameraEnabled,
       isAssistantResponsePending,
       isMicrophoneMuted,
