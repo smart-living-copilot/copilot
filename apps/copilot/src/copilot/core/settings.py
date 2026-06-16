@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     max_context_tokens: int = 120000
     parallel_tool_calls: bool = False
     agent_state_database_url: str = ""
+    # Seconds of silence on the AG-UI SSE stream before we emit a keepalive
+    # comment. Long tool calls (e.g. a slow plot in the code executor) produce
+    # no events; without a heartbeat the consuming undici client aborts the
+    # stream with UND_ERR_BODY_TIMEOUT before the final answer. <=0 disables it.
+    sse_heartbeat_seconds: float = 15.0
 
     # Registry and security
     internal_api_key: str = ""

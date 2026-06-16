@@ -5,9 +5,11 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from ag_ui_langgraph import add_langgraph_fastapi_endpoint  # type: ignore[import-untyped]
+from ag_ui.core.types import RunAgentInput
+from ag_ui.encoder import EventEncoder
 from copilotkit import LangGraphAGUIAgent
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 
 try:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -281,8 +283,65 @@ async def lifespan(app: FastAPI):
         await shutdown_backend_runtime(app)
 
 
+async def _sse_with_heartbeat(events, encoder, timeout):
+    """Encode AG-UI events as SSE, emitting keepalive comments during silence.
+
+    A slow tool call (e.g. a long matplotlib render in the code executor)
+    produces no events for a stretch; without a heartbeat the consuming undici
+    client aborts the response body with ``UND_ERR_BODY_TIMEOUT`` before the
+    final answer arrives. ``timeout=None`` disables the heartbeat.
+    """
+    ait = events.__aiter__()
+    pending: asyncio.Task | None = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(ait.__anext__())
+            try:
+                event = await asyncio.wait_for(asyncio.shield(pending), timeout)
+            except asyncio.TimeoutError:
+                # Stream went quiet; keep the socket warm and keep waiting.
+                yield ": keepalive\n\n"
+                continue
+            except StopAsyncIteration:
+                pending = None
+                break
+            pending = None
+            yield encoder.encode(event)
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+        aclose = getattr(ait, "aclose", None)
+        if aclose is not None:
+            try:
+                await aclose()
+            except Exception:  # pragma: no cover - best-effort cleanup
+                pass
+
+
+def _register_agui_endpoint(app: FastAPI, path: str = "/ag-ui") -> None:
+    """Register the AG-UI SSE endpoint with a keepalive heartbeat.
+
+    Mirrors ``ag_ui_langgraph.add_langgraph_fastapi_endpoint`` but wraps the
+    event stream in :func:`_sse_with_heartbeat` so long, silent tool calls do
+    not trip the consumer's body-inactivity timeout.
+    """
+
+    @app.post(path)
+    async def langgraph_agent_endpoint(input_data: RunAgentInput, request: Request):
+        encoder = EventEncoder(accept=request.headers.get("accept"))
+        # Fresh proxy per request, matching the upstream helper's clone().
+        request_agent = _AGUIAgentProxy()
+        interval = _settings.sse_heartbeat_seconds if _settings else 15.0
+        timeout = interval if interval and interval > 0 else None
+        return StreamingResponse(
+            _sse_with_heartbeat(request_agent.run(input_data), encoder, timeout),
+            media_type=encoder.get_content_type(),
+        )
+
+
 app = FastAPI(title="Smart Living Copilot", lifespan=lifespan)
-add_langgraph_fastapi_endpoint(app=app, agent=_AGUIAgentProxy(), path="/ag-ui")
+_register_agui_endpoint(app, path="/ag-ui")
 app.include_router(registry_health_router)
 app.include_router(me_router)
 app.include_router(search_router)
