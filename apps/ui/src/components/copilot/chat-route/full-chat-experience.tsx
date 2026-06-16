@@ -1,4 +1,8 @@
-import { CopilotChat } from '@copilotkit/react-core/v2';
+import {
+  CopilotChat,
+  CopilotChatInput,
+  type CopilotChatInputProps,
+} from '@copilotkit/react-core/v2';
 import type { Message } from '@copilotkit/shared';
 import { MessageSquarePlus } from 'lucide-react';
 import {
@@ -13,6 +17,7 @@ import {
 import { AppSidebar } from '@/components/chat-sidebar';
 import { ChatAgentSync } from '@/components/copilot/chat-route/chat-agent-sync';
 import { getLatestTurnArtifacts } from '@/components/copilot/chat-route/chat-message-utils';
+import { PromptTextArea } from '@/components/copilot/chat-route/prompt-text-area';
 import { LiveModePanel } from '@/components/copilot/live-mode-panel';
 import { MediaIngressControl } from '@/components/copilot/media-ingress-control';
 import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
@@ -52,31 +57,46 @@ export function FullChatExperience({
     ),
     [historyLoaded],
   );
-  const chatInput = useMemo(
-    () => ({
-      children: ({
-        textArea,
-        sendButton,
-        disclaimer,
-      }: {
-        textArea: ReactElement;
-        sendButton: ReactElement;
-        disclaimer: ReactElement;
-      }) => (
-        <div className="mx-auto w-full max-w-3xl px-4 pb-4">
-          <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
-            <div className="min-h-16">{textArea}</div>
-            <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
-              <MediaIngressControl session={mediaSession} />
-              {sendButton}
+  const chatInput = useMemo(() => {
+    function FullInput(props: CopilotChatInputProps) {
+      return (
+        <CopilotChatInput {...props} textArea={PromptTextArea}>
+          {({
+            textArea,
+            sendButton,
+            disclaimer,
+          }: {
+            textArea: ReactElement;
+            sendButton: ReactElement;
+            disclaimer: ReactElement;
+          }) => (
+            <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+              <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
+                <div className="min-h-16">{textArea}</div>
+                <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
+                  <MediaIngressControl session={mediaSession} />
+                  {sendButton}
+                </div>
+              </div>
+              {disclaimer}
             </div>
-          </div>
-          {disclaimer}
-        </div>
-      ),
-    }),
-    [mediaSession],
-  );
+          )}
+        </CopilotChatInput>
+      );
+    }
+
+    return Object.assign(FullInput, {
+      AddMenuButton: CopilotChatInput.AddMenuButton,
+      AudioRecorder: CopilotChatInput.AudioRecorder,
+      CancelTranscribeButton: CopilotChatInput.CancelTranscribeButton,
+      Disclaimer: CopilotChatInput.Disclaimer,
+      FinishTranscribeButton: CopilotChatInput.FinishTranscribeButton,
+      SendButton: CopilotChatInput.SendButton,
+      StartTranscribeButton: CopilotChatInput.StartTranscribeButton,
+      TextArea: CopilotChatInput.TextArea,
+      ToolbarButton: CopilotChatInput.ToolbarButton,
+    });
+  }, [mediaSession]);
   const showLiveMode = mediaSession.state !== 'idle';
   const liveArtifacts = useMemo(
     () => getLatestTurnArtifacts(liveMessages),

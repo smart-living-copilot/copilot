@@ -17,6 +17,7 @@ import {
 import { LiveModePanel } from '@/components/copilot/live-mode-panel';
 import { MediaIngressControl } from '@/components/copilot/media-ingress-control';
 import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
+import { PromptTextArea } from '@/components/copilot/chat-route/prompt-text-area';
 import { WelcomeScreen } from '@/components/copilot/welcome-screen';
 import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
 import {
@@ -102,7 +103,7 @@ function EmbedPrefillInput({
     submittedPrefillIdsRef,
   ]);
 
-  return <CopilotChatInput {...props} />;
+  return <CopilotChatInput {...props} textArea={PromptTextArea} />;
 }
 
 function useAgentReady(agentId: string): boolean {
