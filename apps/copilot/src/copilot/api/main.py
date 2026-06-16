@@ -5,6 +5,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
+from ag_ui.core.events import RunErrorEvent
 from ag_ui.core.types import RunAgentInput
 from ag_ui.encoder import EventEncoder
 from copilotkit import LangGraphAGUIAgent
@@ -74,7 +75,20 @@ def _checkpoint_database_url(
 def configure_logging(log_level: str) -> None:
     """Configure process logging even when uvicorn installed handlers first."""
     logging.basicConfig(level=log_level, format=LOG_FORMAT, force=True)
-    for logger_name in ("copilot", "uvicorn", "uvicorn.error", "uvicorn.access"):
+    for logger_name in (
+        "copilot",
+        "uvicorn",
+        "uvicorn.error",
+        "uvicorn.access",
+        # Surface the LLM/provider call path so upstream errors (e.g. a
+        # context-length 4xx from OpenRouter) are visible at DEBUG instead of
+        # vanishing into an abrupt stream close.
+        "httpx",
+        "openai",
+        "langgraph",
+        "langchain",
+        "ag_ui_langgraph",
+    ):
         logging.getLogger(logger_name).setLevel(log_level)
 
 
@@ -290,9 +304,22 @@ async def _sse_with_heartbeat(events, encoder, timeout):
     produces no events for a stretch; without a heartbeat the consuming undici
     client aborts the response body with ``UND_ERR_BODY_TIMEOUT`` before the
     final answer arrives. ``timeout=None`` disables the heartbeat.
+
+    The stream's termination cause is logged with the bytes/events sent so an
+    abrupt close can be told apart (normal end vs. cancellation vs. a raised
+    exception). On a genuine exception we emit a terminal ``RUN_ERROR`` event so
+    the client gets a clean error instead of a dropped socket.
     """
     ait = events.__aiter__()
     pending: asyncio.Task | None = None
+    sent_events = 0
+    sent_bytes = 0
+
+    def _emit(chunk: str) -> str:
+        nonlocal sent_bytes
+        sent_bytes += len(chunk.encode("utf-8"))
+        return chunk
+
     try:
         while True:
             if pending is None:
@@ -301,13 +328,42 @@ async def _sse_with_heartbeat(events, encoder, timeout):
                 event = await asyncio.wait_for(asyncio.shield(pending), timeout)
             except asyncio.TimeoutError:
                 # Stream went quiet; keep the socket warm and keep waiting.
-                yield ": keepalive\n\n"
+                yield _emit(": keepalive\n\n")
                 continue
             except StopAsyncIteration:
                 pending = None
+                logger.info(
+                    "AG-UI stream completed: %d events, %d bytes",
+                    sent_events,
+                    sent_bytes,
+                )
                 break
             pending = None
-            yield encoder.encode(event)
+            sent_events += 1
+            yield _emit(encoder.encode(event))
+    except (asyncio.CancelledError, GeneratorExit):
+        # Client disconnected or the task was cancelled; uvicorn closes the
+        # socket silently. Log it so this is distinguishable from a crash.
+        logger.warning(
+            "AG-UI stream cancelled/closed after %d events, %d bytes",
+            sent_events,
+            sent_bytes,
+        )
+        raise
+    except Exception as exc:
+        logger.exception(
+            "AG-UI stream raised after %d events, %d bytes: %s",
+            sent_events,
+            sent_bytes,
+            exc,
+        )
+        # Convert the abrupt abort into a clean terminal error for the client.
+        try:
+            yield _emit(
+                encoder.encode(RunErrorEvent(message=f"{type(exc).__name__}: {exc}"))
+            )
+        except Exception:  # pragma: no cover - stream already gone
+            pass
     finally:
         if pending is not None and not pending.done():
             pending.cancel()
