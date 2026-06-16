@@ -11,11 +11,14 @@ import {
   useReducer,
   useRef,
   useState,
+  type ReactElement,
 } from 'react';
 
-import { useDefaultExamplePrompts } from '@/components/copilot/chat-route/default-example-prompts';
+import { LiveModePanel } from '@/components/copilot/live-mode-panel';
+import { MediaIngressControl } from '@/components/copilot/media-ingress-control';
 import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
 import { WelcomeScreen } from '@/components/copilot/welcome-screen';
+import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
 import {
   type EmbedChatPrefill,
   normalizeEmbedPrefillPrompt,
@@ -134,13 +137,11 @@ export function EmbedChatExperience({
   chatId,
   embedTheme,
   initialPrefill,
-  showExamplePrompts,
 }: {
   allowedPrefillOrigins: string[];
   chatId: string;
   embedTheme: Theme | null;
   initialPrefill: EmbedChatPrefill | null;
-  showExamplePrompts: boolean;
 }) {
   const agentReady = useAgentReady('copilot');
   const cleanupRequestedRef = useRef(false);
@@ -154,7 +155,7 @@ export function EmbedChatExperience({
   const submittedPrefillIdsRef = useRef<Set<number>>(new Set());
   const [prefillRequest, setPrefillRequest] =
     useState<EmbedChatPrefillRequest | null>(null);
-  const examplePrompts = useDefaultExamplePrompts();
+  const mediaSession = useMediaIngressSession(chatId);
   const allowedPrefillOriginSet = useMemo(
     () => new Set(allowedPrefillOrigins),
     [allowedPrefillOrigins],
@@ -202,13 +203,9 @@ export function EmbedChatExperience({
   );
   const renderWelcomeScreen = useCallback(
     (props: Record<string, unknown>) => (
-      <WelcomeScreen
-        {...props}
-        examplePrompts={showExamplePrompts ? examplePrompts : []}
-        historyLoaded
-      />
+      <WelcomeScreen {...props} historyLoaded />
     ),
-    [examplePrompts, showExamplePrompts],
+    [],
   );
   const chatInput = useMemo(() => {
     function EmbedInput(props: CopilotChatInputProps) {
@@ -219,7 +216,28 @@ export function EmbedChatExperience({
           inputAppliedPrefillIdsRef={inputAppliedPrefillIdsRef}
           prefillRequest={prefillRequest}
           submittedPrefillIdsRef={submittedPrefillIdsRef}
-        />
+        >
+          {({
+            textArea,
+            sendButton,
+            disclaimer,
+          }: {
+            textArea: ReactElement;
+            sendButton: ReactElement;
+            disclaimer: ReactElement;
+          }) => (
+            <div className="mx-auto w-full px-3 pb-3">
+              <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
+                <div className="min-h-16">{textArea}</div>
+                <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
+                  <MediaIngressControl session={mediaSession} />
+                  {sendButton}
+                </div>
+              </div>
+              {disclaimer}
+            </div>
+          )}
+        </EmbedPrefillInput>
       );
     }
 
@@ -234,7 +252,8 @@ export function EmbedChatExperience({
       TextArea: CopilotChatInput.TextArea,
       ToolbarButton: CopilotChatInput.ToolbarButton,
     });
-  }, [agentReady, prefillRequest]);
+  }, [agentReady, mediaSession, prefillRequest]);
+  const showLiveMode = mediaSession.state !== 'idle';
 
   useEffect(() => {
     if (!initialPrefill || initialPrefillAppliedRef.current) {
@@ -264,6 +283,7 @@ export function EmbedChatExperience({
     };
 
     window.addEventListener('message', onMessage);
+
     return () => window.removeEventListener('message', onMessage);
   }, [isAllowedPrefillOrigin, queuePrefill]);
 
@@ -295,15 +315,21 @@ export function EmbedChatExperience({
     <main className="embed-chat-shell flex h-dvh flex-col px-3 py-3 md:px-6 md:py-6">
       <EmbedThemeOverride theme={embedTheme} />
       <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col">
-        <CopilotChat
-          agentId="copilot"
-          threadId={chatId}
-          className="smart-living-copilot-chat embed-chat-frame flex-1"
-          input={chatInput}
-          labels={chatLabels}
-          messageView={MessageViewWithWotSummary}
-          welcomeScreen={renderWelcomeScreen}
-        />
+        {showLiveMode ? (
+          <div className="smart-living-copilot-chat embed-chat-frame flex min-h-0 flex-1 flex-col">
+            <LiveModePanel session={mediaSession} />
+          </div>
+        ) : (
+          <CopilotChat
+            agentId="copilot"
+            threadId={chatId}
+            className="smart-living-copilot-chat embed-chat-frame flex-1"
+            input={chatInput}
+            labels={chatLabels}
+            messageView={MessageViewWithWotSummary}
+            welcomeScreen={renderWelcomeScreen}
+          />
+        )}
       </div>
     </main>
   );

@@ -1,6 +1,5 @@
 import { EmbedChatPage as EmbedChatExperiencePage } from '@/components/copilot/chat-route-page';
 import {
-  areEmbedExamplesEnabledFromSearchParams,
   getEmbedInitialPrefillFromSearchParams,
   getEmbedThemeFromSearchParams,
   type AppPageSearchParams,
@@ -25,9 +24,6 @@ export default async function EmbedChatIndexPage({
         resolvedSearchParams,
       )}
       embedTheme={getEmbedThemeFromSearchParams(resolvedSearchParams)}
-      showEmbedExamplePrompts={areEmbedExamplesEnabledFromSearchParams(
-        resolvedSearchParams,
-      )}
     />
   );
 }

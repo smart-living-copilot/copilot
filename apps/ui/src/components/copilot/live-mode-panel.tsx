@@ -111,7 +111,6 @@ export function LiveModePanel({
         cameraSnapshotCueSeq={session.cameraSnapshotCueSeq}
         isConnected={isConnected}
         remoteStream={session.remoteStream}
-        showAssistantPending={showAssistantPending}
       />
 
       {inViewer ? (

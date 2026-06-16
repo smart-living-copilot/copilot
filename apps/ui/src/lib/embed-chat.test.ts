@@ -12,10 +12,10 @@ import {
 } from './embed-chat';
 import { parseEmbedChatAllowedOrigins } from './embed-chat-runtime-config';
 import {
-  areEmbedExamplesEnabledFromSearchParams,
   areEmbedJobEventsEnabledFromSearchParams,
   getEmbedInitialPrefillFromSearchParams,
   getEmbedThemeFromSearchParams,
+  toSearchParamsString,
 } from './embed-chat-search-params';
 
 test('createEmbedEphemeralChatId prefixes embed chat ids', () => {
@@ -41,15 +41,6 @@ test('normalizeEmbedPrefillPrompt trims and caps prompt text', () => {
   );
 });
 
-test('isEmbedAutosubmitValue recognizes explicit truthy values', () => {
-  assert.equal(isEmbedAutosubmitValue('1'), true);
-  assert.equal(isEmbedAutosubmitValue('true'), true);
-  assert.equal(isEmbedAutosubmitValue('yes'), true);
-  assert.equal(isEmbedAutosubmitValue('on'), true);
-  assert.equal(isEmbedAutosubmitValue('0'), false);
-  assert.equal(isEmbedAutosubmitValue(null), false);
-});
-
 test('isEmbedDisabledValue recognizes explicit disabled values', () => {
   assert.equal(isEmbedDisabledValue('0'), true);
   assert.equal(isEmbedDisabledValue('false'), true);
@@ -57,6 +48,15 @@ test('isEmbedDisabledValue recognizes explicit disabled values', () => {
   assert.equal(isEmbedDisabledValue('off'), true);
   assert.equal(isEmbedDisabledValue('1'), false);
   assert.equal(isEmbedDisabledValue(null), false);
+});
+
+test('isEmbedAutosubmitValue recognizes explicit truthy values', () => {
+  assert.equal(isEmbedAutosubmitValue('1'), true);
+  assert.equal(isEmbedAutosubmitValue('true'), true);
+  assert.equal(isEmbedAutosubmitValue('yes'), true);
+  assert.equal(isEmbedAutosubmitValue('on'), true);
+  assert.equal(isEmbedAutosubmitValue('0'), false);
+  assert.equal(isEmbedAutosubmitValue(null), false);
 });
 
 test('getEmbedInitialPrefillFromSearchParams parses prompt and autosubmit', () => {
@@ -79,12 +79,20 @@ test('getEmbedInitialPrefillFromSearchParams ignores missing prompts', () => {
   );
 });
 
-test('embed search params can disable examples and job events', () => {
-  assert.equal(areEmbedExamplesEnabledFromSearchParams({}), true);
+test('embed search params omit removed example flag only', () => {
   assert.equal(
-    areEmbedExamplesEnabledFromSearchParams({ examples: '0' }),
-    false,
+    toSearchParamsString({
+      autosubmit: '1',
+      examples: '0',
+      jobEvents: '0',
+      prompt: 'Show the lights',
+      theme: 'dark',
+    }),
+    'autosubmit=1&jobEvents=0&prompt=Show+the+lights&theme=dark',
   );
+});
+
+test('embed search params can disable job events', () => {
   assert.equal(areEmbedJobEventsEnabledFromSearchParams({}), true);
   assert.equal(
     areEmbedJobEventsEnabledFromSearchParams({ jobEvents: 'off' }),

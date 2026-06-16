@@ -1,7 +1,5 @@
 import { useEffect, useRef } from 'react';
 
-const WAITING_AUDIO_REPEAT_DELAY_MS = 1200;
-
 function playClick(
   context: AudioContext,
   startAt: number,
@@ -27,14 +25,11 @@ function playClick(
 export function useLiveModeAudioCues({
   cameraSnapshotCueSeq,
   isConnected,
-  showAssistantPending,
 }: {
   cameraSnapshotCueSeq: number;
   isConnected: boolean;
-  showAssistantPending: boolean;
 }) {
   const readyAudioRef = useRef<HTMLAudioElement | null>(null);
-  const waitingAudioRef = useRef<HTMLAudioElement | null>(null);
   const snapshotAudioContextRef = useRef<AudioContext | null>(null);
   const lastSnapshotCueSeqRef = useRef(cameraSnapshotCueSeq);
   const wasConnectedRef = useRef(false);
@@ -98,53 +93,6 @@ export function useLiveModeAudioCues({
     playSnapshotCue();
   }, [cameraSnapshotCueSeq]);
 
-  useEffect(() => {
-    const audio = waitingAudioRef.current;
-    if (!audio) {
-      return;
-    }
-
-    if (!showAssistantPending) {
-      audio.pause();
-      audio.currentTime = 0;
-      return;
-    }
-
-    let repeatTimer: number | null = null;
-    let stopped = false;
-    const playWaitingAudio = () => {
-      if (stopped) {
-        return;
-      }
-      audio.currentTime = 0;
-      void audio.play().catch(() => {
-        // Browser autoplay policies can still block this despite the start click.
-      });
-    };
-    const scheduleRepeat = () => {
-      if (stopped) {
-        return;
-      }
-      repeatTimer = window.setTimeout(
-        playWaitingAudio,
-        WAITING_AUDIO_REPEAT_DELAY_MS,
-      );
-    };
-
-    audio.addEventListener('ended', scheduleRepeat);
-    playWaitingAudio();
-
-    return () => {
-      stopped = true;
-      if (repeatTimer !== null) {
-        window.clearTimeout(repeatTimer);
-      }
-      audio.removeEventListener('ended', scheduleRepeat);
-      audio.pause();
-      audio.currentTime = 0;
-    };
-  }, [showAssistantPending]);
-
   useEffect(
     () => () => {
       const context = snapshotAudioContextRef.current;
@@ -160,6 +108,5 @@ export function useLiveModeAudioCues({
 
   return {
     readyAudioRef,
-    waitingAudioRef,
   };
 }

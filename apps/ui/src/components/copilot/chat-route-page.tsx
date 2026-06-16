@@ -30,7 +30,6 @@ export function ChatRoutePage({
   embedQueryString = '',
   embedTheme = null,
   initialEmbedPrefill = null,
-  showEmbedExamplePrompts = true,
 }: {
   allowedPrefillOrigins?: string[];
   chatId: string;
@@ -38,7 +37,6 @@ export function ChatRoutePage({
   embedQueryString?: string;
   embedTheme?: Theme | null;
   initialEmbedPrefill?: EmbedChatPrefill | null;
-  showEmbedExamplePrompts?: boolean;
 }) {
   const enableInspector =
     process.env.NEXT_PUBLIC_ENABLE_COPILOT_INSPECTOR === 'true';
@@ -73,7 +71,6 @@ export function ChatRoutePage({
           chatId={chatId}
           embedTheme={embedTheme}
           initialPrefill={initialEmbedPrefill}
-          showExamplePrompts={showEmbedExamplePrompts}
         />
       ) : (
         <FullChatExperience chatId={chatId} handleNewChat={handleNewChat} />
@@ -87,13 +84,11 @@ export function EmbedChatPage({
   embedQueryString = '',
   embedTheme = null,
   initialPrefill = null,
-  showEmbedExamplePrompts = true,
 }: {
   allowedPrefillOrigins?: string[];
   embedQueryString?: string;
   embedTheme?: Theme | null;
   initialPrefill?: EmbedChatPrefill | null;
-  showEmbedExamplePrompts?: boolean;
 }) {
   const [chatId] = useState(() => createEmbedEphemeralChatId());
 
@@ -105,7 +100,6 @@ export function EmbedChatPage({
       embedQueryString={embedQueryString}
       embedTheme={embedTheme}
       initialEmbedPrefill={initialPrefill}
-      showEmbedExamplePrompts={showEmbedExamplePrompts}
     />
   );
 }

@@ -198,8 +198,8 @@ export async function startLiveKitConnection({
             'lk.transcription_final'
           ] === 'true'
         ) {
-          // Clear the previous answer so the pending indicator (thinking dots +
-          // waiting sound) shows again for this new turn, not just the first one.
+          // Clear the previous answer so the pending indicator shows again for
+          // this new turn, not just the first one.
           setLatestAssistantText(null);
           setAssistantResponsePending(true);
         }

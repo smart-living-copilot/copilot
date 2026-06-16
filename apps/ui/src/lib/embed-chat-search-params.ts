@@ -7,6 +7,7 @@ import {
 import type { Theme } from '@/components/theme-provider';
 
 export type AppPageSearchParams = Record<string, string | string[] | undefined>;
+const OMITTED_EMBED_ROUTE_PARAMS = new Set(['examples']);
 
 function getFirstValue(value: string | string[] | undefined): string | null {
   if (typeof value === 'string') {
@@ -26,6 +27,10 @@ export function toSearchParamsString(
   const normalized = new URLSearchParams();
 
   for (const [key, value] of Object.entries(searchParams)) {
+    if (OMITTED_EMBED_ROUTE_PARAMS.has(key)) {
+      continue;
+    }
+
     if (typeof value === 'string') {
       normalized.set(key, value);
       continue;
@@ -41,13 +46,6 @@ export function toSearchParamsString(
   }
 
   return normalized.toString();
-}
-
-export function areEmbedExamplesEnabledFromSearchParams(
-  searchParams: AppPageSearchParams,
-): boolean {
-  const examplesFlag = getFirstValue(searchParams.examples);
-  return !isEmbedDisabledValue(examplesFlag);
 }
 
 export function areEmbedJobEventsEnabledFromSearchParams(

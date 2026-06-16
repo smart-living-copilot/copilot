@@ -13,7 +13,6 @@ import {
 import { AppSidebar } from '@/components/chat-sidebar';
 import { ChatAgentSync } from '@/components/copilot/chat-route/chat-agent-sync';
 import { getLatestTurnArtifacts } from '@/components/copilot/chat-route/chat-message-utils';
-import { useDefaultExamplePrompts } from '@/components/copilot/chat-route/default-example-prompts';
 import { LiveModePanel } from '@/components/copilot/live-mode-panel';
 import { MediaIngressControl } from '@/components/copilot/media-ingress-control';
 import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
@@ -43,20 +42,15 @@ export function FullChatExperience({
   const historyLoaded = loadedChatId === chatId;
 
   const breadcrumbs = useMemo(() => [{ label: 'Chat', href: '/chat' }], []);
-  const examplePrompts = useDefaultExamplePrompts();
   const chatLabels = useMemo(
     () => ({ chatInputPlaceholder: 'Ask me anything...' }),
     [],
   );
   const renderWelcomeScreen = useCallback(
     (props: Record<string, unknown>) => (
-      <WelcomeScreen
-        {...props}
-        examplePrompts={examplePrompts}
-        historyLoaded={historyLoaded}
-      />
+      <WelcomeScreen {...props} historyLoaded={historyLoaded} />
     ),
-    [examplePrompts, historyLoaded],
+    [historyLoaded],
   );
   const chatInput = useMemo(
     () => ({

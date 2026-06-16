@@ -7,18 +7,15 @@ export function LiveModeAudioElements({
   cameraSnapshotCueSeq,
   isConnected,
   remoteStream,
-  showAssistantPending,
 }: {
   cameraSnapshotCueSeq: number;
   isConnected: boolean;
   remoteStream: MediaStream | null;
-  showAssistantPending: boolean;
 }) {
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const { readyAudioRef, waitingAudioRef } = useLiveModeAudioCues({
+  const { readyAudioRef } = useLiveModeAudioCues({
     cameraSnapshotCueSeq,
     isConnected,
-    showAssistantPending,
   });
   useAttachMediaStream(remoteAudioRef, remoteStream);
 
@@ -26,7 +23,6 @@ export function LiveModeAudioElements({
     <>
       <audio ref={remoteAudioRef} autoPlay />
       <audio ref={readyAudioRef} preload="auto" src="/audio/open_004.ogg" />
-      <audio ref={waitingAudioRef} preload="auto" src="/audio/switch_007.ogg" />
     </>
   );
 }
