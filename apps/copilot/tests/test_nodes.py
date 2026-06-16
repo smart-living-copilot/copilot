@@ -1,3 +1,4 @@
+import inspect
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -245,6 +246,18 @@ class StripWotCallsTestCase(unittest.TestCase):
 
 
 class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
+    def test_llm_node_config_annotation_allows_langgraph_injection(self) -> None:
+        node = _make_llm_node(
+            _FakeLLM(),
+            tools=[_tool("look_at_camera")],
+            system_text="system",
+            max_tokens=4000,
+        )
+
+        signature = inspect.signature(node)
+
+        self.assertEqual(signature.parameters["config"].annotation, "Optional[RunnableConfig]")
+
     async def test_llm_node_filters_camera_tool_when_camera_is_inactive(self) -> None:
         llm = _FakeLLM()
         node = _make_llm_node(

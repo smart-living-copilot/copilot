@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
-from typing import Any, Literal, cast
+from typing import Any, Literal, Optional, cast
 
 from copilotkit import CopilotKitState
 from langchain_core.messages import (
@@ -282,7 +282,7 @@ def _make_node_prompt(system_text: str, max_tokens: int):
     return prompt
 
 
-def _active_tools_for_config(tools: list[Any], config: RunnableConfig | None) -> list[Any]:
+def _active_tools_for_config(tools: list[Any], config: Optional[RunnableConfig]) -> list[Any]:
     if not tools:
         return []
 
@@ -331,7 +331,7 @@ def _make_llm_node(
     # ``"RunnableConfig"`` or ``"Optional[RunnableConfig]"``. Writing it as
     # ``RunnableConfig | None`` silently disables injection, so ``config`` (and
     # the ``thread_id`` that look_at_camera needs) arrives as ``None``.
-    async def node(state: CopilotState, config: RunnableConfig | None = None):
+    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
         active_tools = _active_tools_for_config(tools, config)
         runnable = (
             llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
@@ -384,7 +384,7 @@ def make_analysis_node(
     parallel_tool_calls: bool = True,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
-    async def node(state: CopilotState, config: RunnableConfig | None = None):
+    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(content=ANALYSIS_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
@@ -408,7 +408,7 @@ def make_jobs_node(
     parallel_tool_calls: bool = True,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
-    async def node(state: CopilotState, config: RunnableConfig | None = None):
+    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(content=JOBS_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
@@ -432,7 +432,7 @@ def make_virtual_things_node(
     parallel_tool_calls: bool = True,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
-    async def node(state: CopilotState, config: RunnableConfig | None = None):
+    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(
             content=VIRTUAL_THINGS_PROMPT
             + _prior_analysis_block(state["messages"])
@@ -460,7 +460,7 @@ def make_background_job_node(
     parallel_tool_calls: bool = True,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
-    async def node(state: CopilotState, config: RunnableConfig | None = None):
+    async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(content=BACKGROUND_JOB_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         active_tools = _active_tools_for_config(tools, config)
