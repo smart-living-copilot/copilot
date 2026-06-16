@@ -46,7 +46,8 @@ function makeSseBlock(event: ParsedSseEvent): string {
 }
 
 function stripRawEvent(event: ParsedSseEvent): ParsedSseEvent {
-  const { rawEvent: _rawEvent, ...rest } = event;
+  const rest = { ...event };
+  delete rest.rawEvent;
   return rest;
 }
 
