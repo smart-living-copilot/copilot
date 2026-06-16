@@ -10,9 +10,8 @@ import {
   normalizeBody,
 } from '../services/payloads.js';
 import { createRuntimeError, formatError, isDataSchemaError } from '../services/errors.js';
-import { getAffordanceDefinition, resolveFormIndex } from '../services/form-selection.js';
+import { getAffordanceDefinition, getFormHttpMethod, resolveFormIndex } from '../services/form-selection.js';
 import { getRuntimeHealth } from '../services/runtime-health.js';
-
 
 /**
  * Checks if a value is a plain object.
@@ -104,12 +103,7 @@ function buildInteractionResponse(value: unknown, contentType?: string): { respo
   );
 }
 
-function interactionError(
-  operation: string,
-  thingId: string,
-  affordanceName: string,
-  error: unknown,
-): never {
+function interactionError(operation: string, thingId: string, affordanceName: string, error: unknown): never {
   if (isDataSchemaError(error) || formatError(error) === 'Invalid value according to DataSchema') {
     throw createRuntimeError(
       'invalid_argument',
@@ -185,7 +179,6 @@ export function missingInvokeActionInputMessage(
   );
 }
 
-
 /**
  * Fetches a Thing Description and consumes it via the node-wot servient.
  */
@@ -257,9 +250,9 @@ export async function handleReadProperty(request: any): Promise<any> {
   })();
 
   const options = buildInteractionOptions(request, resolvedFormIndex);
-  const result = await thing.readProperty(propertyName, options).catch((error: unknown) =>
-    interactionError('ReadProperty', thingId, propertyName, error),
-  );
+  const result = await thing
+    .readProperty(propertyName, options)
+    .catch((error: unknown) => interactionError('ReadProperty', thingId, propertyName, error));
 
   const payload = await encodeInteractionOutputPayload(result, {
     onInvalidSchema: () => {
@@ -267,10 +260,7 @@ export async function handleReadProperty(request: any): Promise<any> {
     },
   });
 
-  return buildEncodedInteractionResponse(
-    { body: payload.body, contentType: payload.contentType },
-    payload.contentType,
-  );
+  return buildEncodedInteractionResponse({ body: payload.body, contentType: payload.contentType }, payload.contentType);
 }
 
 /**
@@ -303,9 +293,9 @@ export async function handleWriteProperty(request: any): Promise<any> {
   })();
 
   const options = buildInteractionOptions(request, resolvedFormIndex);
-  await thing.writeProperty(propertyName, input, options).catch((error: unknown) =>
-    interactionError('WriteProperty', thingId, propertyName, error),
-  );
+  await thing
+    .writeProperty(propertyName, input, options)
+    .catch((error: unknown) => interactionError('WriteProperty', thingId, propertyName, error));
 
   return buildInteractionResponse(undefined);
 }
@@ -341,7 +331,18 @@ export async function handleInvokeAction(request: any): Promise<any> {
   if (missingInputMessage) {
     throw createRuntimeError('invalid_argument', missingInputMessage);
   }
-  const input = resolveInvokeActionInput(actionDef, decodedInput);
+  const resolvedInput = resolveInvokeActionInput(actionDef, decodedInput);
+
+  // GET/HEAD requests must not carry a body (RFC 9110). For HTTP forms bound to
+  // these methods, an action's input travels via uriVariables (kept in
+  // options), so we drop the body here — otherwise node-wot tries to send it
+  // and the request fails. Non-GET/HEAD and non-HTTP forms are unaffected.
+  const httpMethod = getFormHttpMethod(document, actionName, 'invokeaction', resolvedFormIndex);
+  const bodilessMethod = httpMethod === 'GET' || httpMethod === 'HEAD';
+  if (bodilessMethod && resolvedInput !== undefined) {
+    log.debug(`Dropping body for ${httpMethod} action '${thingId}/${actionName}'; input flows via uriVariables`);
+  }
+  const input = bodilessMethod ? undefined : resolvedInput;
 
   if (isPlainObject(actionDef) && actionDef.synchronous === false) {
     throw createRuntimeError(
@@ -389,7 +390,9 @@ export async function handleInvokeAction(request: any): Promise<any> {
         cacheKey,
         { contentType: payload.contentType, payload: payload.body.toString('base64'), statusCode: 200 },
         payload.body.length,
-      ).catch((error) => log.warn(`Cache write failed for invokeAction '${thingId}/${actionName}': ${formatError(error)}`));
+      ).catch((error) =>
+        log.warn(`Cache write failed for invokeAction '${thingId}/${actionName}': ${formatError(error)}`),
+      );
     }
 
     return { completedResult: interactionResponse.response };

@@ -179,6 +179,30 @@ function formSupportsOperation(form: JsonRecord, operation: AffordanceOperation)
 }
 
 /**
+ * Returns the uppercased HTTP method (htv:methodName) of the form that will be
+ * used for an interaction, or undefined for non-HTTP forms / no declared method.
+ *
+ * When no explicit form index is resolved, node-wot selects the first form that
+ * supports the operation, so we mirror that choice here.
+ */
+export function getFormHttpMethod(
+  document: ThingDescription,
+  affordanceName: string,
+  operation: AffordanceOperation,
+  formIndex: number | undefined,
+): string | undefined {
+  const forms = getAffordanceForms(document, affordanceName, operation);
+  const form =
+    formIndex !== undefined ? forms[formIndex] : forms.find((candidate) => formSupportsOperation(candidate, operation));
+  if (!isPlainObject(form)) {
+    return undefined;
+  }
+
+  const method = cleanString(form['htv:methodName']);
+  return method ? method.toUpperCase() : undefined;
+}
+
+/**
  * Checks if a form matches the criteria in a normalized form selector.
  */
 function formMatchesSelector(
