@@ -274,10 +274,15 @@ async def lifespan(app: FastAPI):
                 settings.recursion_limit,
             )
 
+            # LangGraphAGUIAgent runs the graph via astream_events with the
+            # config passed here, which overrides the graph's bound config — so
+            # recursion_limit must be forwarded explicitly or it falls back to
+            # langgraph's default of 25 (surfaces as GraphRecursionError).
             _agent = LangGraphAGUIAgent(
                 name="copilot",
                 description="Smart Living Copilot",
                 graph=graph,
+                config={"recursion_limit": settings.recursion_limit},
             )
 
             app.state.settings = settings
