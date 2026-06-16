@@ -57,7 +57,33 @@ and each call returns synchronously:
     wot.write_property(thing_id, property_name, value)
 Pass the exact thing_id and affordance names you discovered with things_search /
 things_get as literal strings, so the required capability grants are inferred
-automatically.
+automatically. To read several sources, collect them in a literal list and loop
+over it — the grants are still inferred:
+
+    SENSORS = [("urn:living-room:thermostat", "currentTemperature"),
+               ("urn:bedroom:thermostat", "currentTemperature")]
+    for tid, prop in SENSORS:
+        readings.append(wot.read_property(tid, prop))
+
+Never derive a thing_id from context, input, or any other runtime value: such a
+call has no inferable grant and is blocked at runtime. If you genuinely need a
+dynamic target, the binding must declare the capability explicitly. Also never
+wrap wot calls in a bare ``except`` that swallows the error — a blocked call
+would then look like missing data instead of failing loudly.
+
+### Probe the real value shape first
+Before writing a handler that consumes a source affordance, observe the value it
+actually returns. A TD's declared schema is frequently just ``{"type":
+"object"}`` and hides the real structure, so never write traversal logic from the
+TD or from assumption. For each source property the handler will read, call
+wot_read_property(thing_id, name) once (and wot_invoke_action for actions) and
+base the handler on what you get back:
+- Use the exact key paths you observe. Nested readings often sit under an extra
+  device-group key (e.g. state["DATA 10"]["heating_control"]["room_temperature"]).
+- Check value types — numbers are sometimes JSON strings ("15.6") and need
+  float(...).
+- Expect some readings to come back empty ({}) or partial; skip those rather
+  than letting one missing key blank the whole result.
 
 ### Worked example
 A computed property that flags when forecast load exceeds metered capacity:
@@ -80,7 +106,9 @@ it to def handle(input, state, context) that reads live values through
 wot.read_property instead of loading historical series.
 
 ## Procedure
-1. Inspect source Things only when the handler depends on real devices or events.
+1. When the handler depends on real devices or events, probe each source
+   affordance with wot_read_property / wot_invoke_action first (see "Probe the
+   real value shape first") and write the traversal against the value you observe.
 2. create_virtual_thing, then add each affordance, repairing any errors a call
    reports before moving on.
 3. activate_virtual_thing and repair any smoke-test issues.

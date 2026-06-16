@@ -1,17 +1,82 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type Room } from 'livekit-client';
+import { Track, type Room } from 'livekit-client';
 
 import { requestLiveKitToken } from '@/hooks/media-ingress/livekit-api';
 import { startLiveKitConnection } from '@/hooks/media-ingress/livekit-connection';
-import { logMediaConnectionStep } from '@/hooks/media-ingress/livekit-utils';
 import {
+  cloneMediaStream,
+  logMediaConnectionStep,
+} from '@/hooks/media-ingress/livekit-utils';
+import {
+  type CameraFacingMode,
   type MediaIngressSession,
   type MediaIngressState,
 } from '@/hooks/media-ingress/types';
 
 export type { MediaIngressSession, MediaIngressState };
+
+const LIVE_VIDEO_CONSTRAINTS = {
+  width: { ideal: 640 },
+  height: { ideal: 360 },
+  frameRate: { ideal: 15, max: 30 },
+} satisfies MediaTrackConstraints;
+
+function getNextCameraFacingMode(
+  facingMode: CameraFacingMode,
+): CameraFacingMode {
+  return facingMode === 'user' ? 'environment' : 'user';
+}
+
+function getTrackFacingMode(
+  track: MediaStreamTrack | null | undefined,
+  fallback: CameraFacingMode,
+): CameraFacingMode {
+  const facingMode = track?.getSettings().facingMode;
+  return facingMode === 'environment' || facingMode === 'user'
+    ? facingMode
+    : fallback;
+}
+
+function getVideoSwitchConstraints(
+  facingMode: CameraFacingMode,
+  preference: 'exact' | 'ideal',
+): MediaTrackConstraints {
+  return {
+    ...LIVE_VIDEO_CONSTRAINTS,
+    facingMode:
+      preference === 'exact' ? { exact: facingMode } : { ideal: facingMode },
+  };
+}
+
+async function captureCameraTrack(
+  facingMode: CameraFacingMode,
+): Promise<MediaStreamTrack> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Media capture is not available in this browser');
+  }
+
+  const capture = async (preference: 'exact' | 'ideal') => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: getVideoSwitchConstraints(facingMode, preference),
+    });
+    const track = stream.getVideoTracks()[0];
+    if (!track) {
+      stream.getTracks().forEach((streamTrack) => streamTrack.stop());
+      throw new Error('No camera track was captured');
+    }
+    return track;
+  };
+
+  try {
+    return await capture('exact');
+  } catch (error) {
+    console.debug('Could not capture exact camera facing mode', error);
+    return capture('ideal');
+  }
+}
 
 export function useMediaIngressSession(chatId: string): MediaIngressSession {
   const [state, setState] = useState<MediaIngressState>('idle');
@@ -27,11 +92,50 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
   const [cameraSnapshotCueSeq, setCameraSnapshotCueSeq] = useState(0);
   const [isAssistantResponsePending, setAssistantResponsePending] =
     useState(false);
+  const [cameraFacingMode, setCameraFacingModeState] =
+    useState<CameraFacingMode>('user');
+  const [canSwitchCamera, setCanSwitchCamera] = useState(false);
   const [isMicrophoneMuted, setMicrophoneMutedState] = useState(false);
   const [isCameraEnabled, setCameraEnabledState] = useState(true);
+  const [isSwitchingCamera, setSwitchingCameraState] = useState(false);
+  const cameraFacingModeRef = useRef<CameraFacingMode>('user');
+  const isCameraEnabledRef = useRef(true);
+  const isSwitchingCameraRef = useRef(false);
   const liveKitRoomRef = useRef<Room | null>(null);
   const liveKitRemoteStreamRef = useRef<MediaStream | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  const setCameraFacingMode = useCallback((facingMode: CameraFacingMode) => {
+    cameraFacingModeRef.current = facingMode;
+    setCameraFacingModeState(facingMode);
+  }, []);
+
+  const refreshCameraAvailability = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      setCanSwitchCamera(false);
+      return false;
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter(
+        (device) => device.kind === 'videoinput',
+      );
+      const distinctIds = new Set(
+        videoInputs
+          .map((device) => device.deviceId || device.label)
+          .filter(Boolean),
+      );
+      const cameraCount = distinctIds.size || videoInputs.length;
+      const nextCanSwitchCamera = cameraCount > 1;
+      setCanSwitchCamera(nextCanSwitchCamera);
+      return nextCanSwitchCamera;
+    } catch (availabilityError) {
+      console.debug('Could not enumerate camera devices', availabilityError);
+      setCanSwitchCamera(false);
+      return false;
+    }
+  }, []);
 
   const setMicrophoneMuted = useCallback((muted: boolean) => {
     setMicrophoneMutedState(muted);
@@ -41,11 +145,93 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
   }, []);
 
   const setCameraEnabled = useCallback((enabled: boolean) => {
+    isCameraEnabledRef.current = enabled;
     setCameraEnabledState(enabled);
     streamRef.current?.getVideoTracks().forEach((track) => {
       track.enabled = enabled;
     });
   }, []);
+
+  const switchCamera = useCallback(async () => {
+    if (isSwitchingCameraRef.current || state !== 'connected') {
+      return;
+    }
+
+    const room = liveKitRoomRef.current;
+    const currentStream = streamRef.current;
+    if (!room || !currentStream) {
+      return;
+    }
+
+    const hasMultipleCameras =
+      canSwitchCamera || (await refreshCameraAvailability());
+    if (!hasMultipleCameras) {
+      return;
+    }
+
+    const nextFacingMode = getNextCameraFacingMode(cameraFacingModeRef.current);
+    let nextVideoTrack: MediaStreamTrack | null = null;
+    isSwitchingCameraRef.current = true;
+    setSwitchingCameraState(true);
+
+    try {
+      const publication = room.localParticipant.getTrackPublication(
+        Track.Source.Camera,
+      );
+      try {
+        nextVideoTrack = await captureCameraTrack(nextFacingMode);
+        nextVideoTrack.enabled = isCameraEnabledRef.current;
+
+        if (publication?.videoTrack) {
+          await publication.videoTrack.replaceTrack(nextVideoTrack, {
+            stopProcessor: true,
+            userProvidedTrack: true,
+          });
+        } else {
+          await room.localParticipant.publishTrack(nextVideoTrack, {
+            source: Track.Source.Camera,
+          });
+        }
+      } catch (replaceError) {
+        nextVideoTrack?.stop();
+        nextVideoTrack = null;
+        if (!publication?.videoTrack) {
+          throw replaceError;
+        }
+
+        console.debug(
+          'Could not replace camera directly; restarting camera track',
+          replaceError,
+        );
+        await publication.videoTrack.restartTrack({
+          facingMode: nextFacingMode,
+        });
+        nextVideoTrack = publication.videoTrack.mediaStreamTrack;
+      }
+      nextVideoTrack.enabled = isCameraEnabledRef.current;
+
+      const nextStream = streamRef.current ?? new MediaStream();
+      const oldVideoTracks = nextStream.getVideoTracks();
+      oldVideoTracks.forEach((track) => nextStream.removeTrack(track));
+      nextStream.addTrack(nextVideoTrack);
+      streamRef.current = nextStream;
+      setLocalStream(cloneMediaStream(nextStream));
+      oldVideoTracks.forEach((track) => {
+        if (track.id !== nextVideoTrack?.id) {
+          track.stop();
+        }
+      });
+
+      setCameraFacingMode(getTrackFacingMode(nextVideoTrack, nextFacingMode));
+      void refreshCameraAvailability();
+    } catch (switchError) {
+      nextVideoTrack?.stop();
+      console.debug('Could not switch camera', switchError);
+    } finally {
+      isSwitchingCameraRef.current = false;
+      setSwitchingCameraState(false);
+    }
+  }, [canSwitchCamera, refreshCameraAvailability, setCameraFacingMode, state]);
 
   const cleanupMedia = useCallback(() => {
     const liveKitRoom = liveKitRoomRef.current;
@@ -65,9 +251,14 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     setLatestUserTranscript(null);
     setCameraSnapshotCueSeq(0);
     setAssistantResponsePending(false);
+    setCameraFacingMode('user');
+    setCanSwitchCamera(false);
     setMicrophoneMutedState(false);
+    isCameraEnabledRef.current = true;
     setCameraEnabledState(true);
-  }, []);
+    isSwitchingCameraRef.current = false;
+    setSwitchingCameraState(false);
+  }, [setCameraFacingMode]);
 
   const stop = useCallback(() => {
     cleanupMedia();
@@ -99,8 +290,13 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     setLatestUserTranscript(null);
     setCameraSnapshotCueSeq(0);
     setAssistantResponsePending(false);
+    setCameraFacingMode('user');
+    setCanSwitchCamera(false);
     setMicrophoneMutedState(false);
+    isCameraEnabledRef.current = true;
     setCameraEnabledState(true);
+    isSwitchingCameraRef.current = false;
+    setSwitchingCameraState(false);
     const startedAt = performance.now();
     logMediaConnectionStep(startedAt, 'start');
 
@@ -129,6 +325,9 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
         startedAt,
         streamRef,
       });
+      const videoTrack = streamRef.current?.getVideoTracks()[0];
+      setCameraFacingMode(getTrackFacingMode(videoTrack, 'user'));
+      void refreshCameraAvailability();
     } catch (startError) {
       logMediaConnectionStep(startedAt, 'failed', {
         error:
@@ -142,7 +341,21 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
           : 'Could not start media stream',
       );
     }
-  }, [chatId, fail, state]);
+  }, [chatId, fail, refreshCameraAvailability, setCameraFacingMode, state]);
+
+  useEffect(() => {
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices?.addEventListener) {
+      return;
+    }
+
+    const handleDeviceChange = () => {
+      void refreshCameraAvailability();
+    };
+    mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    return () =>
+      mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+  }, [refreshCameraAvailability]);
 
   useEffect(() => () => cleanupMedia(), [cleanupMedia]);
 
@@ -156,19 +369,26 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
       latestUserTranscript,
       cameraSnapshotCueSeq,
       isAssistantResponsePending,
+      cameraFacingMode,
+      canSwitchCamera,
       isMicrophoneMuted,
       isCameraEnabled,
+      isSwitchingCamera,
       setMicrophoneMuted,
       setCameraEnabled,
+      switchCamera,
       start,
       stop,
     }),
     [
+      cameraFacingMode,
+      canSwitchCamera,
       error,
       cameraSnapshotCueSeq,
       isCameraEnabled,
       isAssistantResponsePending,
       isMicrophoneMuted,
+      isSwitchingCamera,
       latestAssistantText,
       latestUserTranscript,
       localStream,
@@ -178,6 +398,7 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
       start,
       state,
       stop,
+      switchCamera,
     ],
   );
 }

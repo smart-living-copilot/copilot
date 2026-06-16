@@ -5,6 +5,8 @@ export type MediaIngressState =
   | 'connected'
   | 'error';
 
+export type CameraFacingMode = 'environment' | 'user';
+
 export interface MediaIngressSession {
   state: MediaIngressState;
   localStream: MediaStream | null;
@@ -14,10 +16,14 @@ export interface MediaIngressSession {
   latestUserTranscript: string | null;
   cameraSnapshotCueSeq: number;
   isAssistantResponsePending: boolean;
+  cameraFacingMode: CameraFacingMode;
+  canSwitchCamera: boolean;
   isMicrophoneMuted: boolean;
   isCameraEnabled: boolean;
+  isSwitchingCamera: boolean;
   setMicrophoneMuted: (muted: boolean) => void;
   setCameraEnabled: (enabled: boolean) => void;
+  switchCamera: () => Promise<void>;
   start: () => Promise<void>;
   stop: () => void;
 }

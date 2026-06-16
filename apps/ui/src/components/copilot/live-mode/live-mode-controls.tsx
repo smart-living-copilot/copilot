@@ -1,4 +1,13 @@
-import { Mic, MicOff, RotateCcw, Video, VideoOff, X } from 'lucide-react';
+import {
+  LoaderCircle,
+  Mic,
+  MicOff,
+  RotateCcw,
+  SwitchCamera,
+  Video,
+  VideoOff,
+  X,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -23,6 +32,9 @@ export function LiveModeControls({
   mediaControlsDisabled: boolean;
   session: MediaIngressSession;
 }) {
+  const nextCameraLabel =
+    session.cameraFacingMode === 'user' ? 'back camera' : 'front camera';
+
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-6 z-20 flex justify-center px-4">
       <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-background/85 px-3 py-2 shadow-lg backdrop-blur">
@@ -85,6 +97,31 @@ export function LiveModeControls({
             <ShortcutKey>V</ShortcutKey>
           </TooltipContent>
         </Tooltip>
+
+        {session.canSwitchCamera ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                aria-label={`Switch to ${nextCameraLabel}`}
+                className="rounded-full"
+                disabled={mediaControlsDisabled || session.isSwitchingCamera}
+                onClick={() => void session.switchCamera()}
+                size="icon-lg"
+                type="button"
+                variant="outline"
+              >
+                {session.isSwitchingCamera ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <SwitchCamera className="size-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              Switch to {nextCameraLabel}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
 
         {session.state === 'error' ? (
           <Tooltip>

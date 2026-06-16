@@ -9,6 +9,7 @@ from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
 from copilot.clients.code_executor import CodeExecutorClient
 from copilot.core.settings import Settings
+from copilot.virtual_things.capabilities import find_unscopable_wot_calls, infer_capabilities
 from copilot.virtual_things.handler import VirtualThingHandlerRunner
 from copilot.virtual_things.schemas import DefineVirtualThingRequest, VirtualThingBindingSpec
 
@@ -245,7 +246,37 @@ def _handler_code_issues(binding: VirtualThingBindingSpec) -> list[ValidationIss
                 "handle signature must be exactly def handle(input, state, context)",
             )
         ]
-    return []
+    return _capability_coverage_issues(binding)
+
+
+def _capability_coverage_issues(binding: VirtualThingBindingSpec) -> list[ValidationIssue]:
+    """Flag wot calls the runtime guard will block for lack of a capability grant.
+
+    A ``wot`` call with a non-literal thing_id cannot have its grant inferred, so
+    unless the author declared a capability explicitly the guard rejects it at
+    runtime. Catching it here turns a silent ``PermissionError`` into an authoring
+    error the LLM can repair before activation.
+    """
+    unscopable = find_unscopable_wot_calls(binding.handler_code)
+    if not unscopable:
+        return []
+    inferred = {grant["thing_id"] for grant in infer_capabilities(binding.handler_code)}
+    explicit = {cap.thing_id for cap in (binding.capabilities or [])} - inferred
+    if explicit:
+        # The author declared grants beyond inference; trust them for the dynamic call.
+        return []
+    methods = ", ".join(f"wot.{method}" for method in unscopable)
+    return [
+        _binding_issue(
+            binding,
+            "static",
+            f"{methods} is called with a non-literal thing_id, so the required "
+            "capability grant cannot be inferred and the handler would be blocked "
+            "at runtime. Pass literal thing_id and affordance strings (inline the "
+            "values, e.g. iterate a literal list of (thing_id, name) tuples) or "
+            "declare the capabilities explicitly.",
+        )
+    ]
 
 
 def _binding_issue(

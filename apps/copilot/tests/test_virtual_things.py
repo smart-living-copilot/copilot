@@ -11,7 +11,7 @@ from copilot.virtual_things.builder import (
     event_trigger,
     property_definition,
 )
-from copilot.virtual_things.capabilities import infer_capabilities
+from copilot.virtual_things.capabilities import find_unscopable_wot_calls, infer_capabilities
 from copilot.virtual_things.dispatcher import _RESULT_PREFIX, VirtualThingDispatcher
 from copilot.virtual_things.schemas import (
     DefineVirtualThingRequest,
@@ -508,6 +508,69 @@ class VirtualThingBuilderTestCase(unittest.TestCase):
         thing_ids = {cap["thing_id"] for cap in capabilities}
         self.assertEqual(thing_ids, {"urn:dev:forecast", "urn:dev:meter"})
 
+    def test_add_affordance_infers_capabilities_from_literal_loop(self):
+        builder, _ = self._builder()
+        thing_id = builder.create(title="Average Temp")["thing_id"]
+        result = builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="property",
+            affordance_name="averageTemperature",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    SENSORS = [('urn:a', 'temperature'), ('urn:b', 'temperature')]\n"
+                "    temps = [wot.read_property(tid, prop) for tid, prop in SENSORS]\n"
+                "    return sum(temps) / len(temps)"
+            ),
+            td_definition=property_definition({"type": "number"}),
+        )
+        self.assertTrue(result["ok"], result)
+        capabilities = result["virtual_thing"]["bindings"][0]["capabilities"]
+        self.assertEqual({cap["thing_id"] for cap in capabilities}, {"urn:a", "urn:b"})
+
+    def test_add_affordance_rejects_unscopable_wot_call(self):
+        builder, _ = self._builder()
+        thing_id = builder.create(title="Dynamic Target")["thing_id"]
+        result = builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="property",
+            affordance_name="value",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    target = context['config']['thing_id']\n"
+                "    return wot.read_property(target, 'value')"
+            ),
+            td_definition=property_definition({"type": "number"}),
+        )
+        self.assertIn("error", result)
+        messages = [issue["message"] for issue in result["validation_report"]["issues"]]
+        self.assertTrue(any("non-literal thing_id" in message for message in messages), messages)
+
+    def test_add_affordance_allows_dynamic_call_with_explicit_capability(self):
+        builder, _ = self._builder()
+        thing_id = builder.create(title="Declared Dynamic")["thing_id"]
+        binding = VirtualThingBindingSpec(
+            affordance_type="property",
+            affordance_name="value",
+            kind="computed",
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    target = context['config']['thing_id']\n"
+                "    return wot.read_property(target, 'value')"
+            ),
+            capabilities=[
+                {"thing_id": "urn:dev:meter", "ops": ["readProperty"], "affordances": ["value"]}
+            ],
+        )
+        request = DefineVirtualThingRequest(
+            id=thing_id,
+            title="Declared Dynamic",
+            td={"title": "Declared Dynamic", "properties": {"value": {"type": "number"}}},
+            bindings=[binding],
+            status="disabled",
+        )
+        report = VirtualThingValidator().validate_static(request)
+        self.assertTrue(report["ok"], report)
+
     def test_add_affordance_on_missing_thing_errors(self):
         builder, _ = self._builder()
         result = builder.add_affordance(
@@ -710,6 +773,71 @@ class VirtualThingCapabilityInferenceTestCase(unittest.TestCase):
         self.assertEqual(set(grants), {"urn:dev:forecast", "urn:dev:meter"})
         self.assertEqual(grants["urn:dev:meter"].ops, ["readProperty"])
         self.assertEqual(grants["urn:dev:meter"].affordances, ["powerKw"])
+
+    def test_infers_grants_from_literal_sensor_loop(self):
+        handler = (
+            "def handle(input, state, context):\n"
+            "    SENSORS = [\n"
+            "        ('urn:living-room:thermostat', 'currentTemperature'),\n"
+            "        ('urn:bedroom:thermostat', 'state'),\n"
+            "    ]\n"
+            "    temps = []\n"
+            "    for tid, prop in SENSORS:\n"
+            "        temps.append(wot.read_property(tid, prop))\n"
+            "    return sum(temps) / len(temps)"
+        )
+
+        self.assertEqual(
+            infer_capabilities(handler),
+            [
+                {
+                    "thing_id": "urn:living-room:thermostat",
+                    "ops": ["readProperty"],
+                    "affordances": ["currentTemperature"],
+                },
+                {
+                    "thing_id": "urn:bedroom:thermostat",
+                    "ops": ["readProperty"],
+                    "affordances": ["state"],
+                },
+            ],
+        )
+        self.assertEqual(find_unscopable_wot_calls(handler), [])
+
+    def test_loop_over_literal_ids_with_literal_property(self):
+        handler = (
+            "def handle(input, state, context):\n"
+            "    IDS = ['urn:a', 'urn:b']\n"
+            "    for tid in IDS:\n"
+            "        wot.read_property(tid, 'temperature')\n"
+            "    return None"
+        )
+
+        self.assertEqual(
+            infer_capabilities(handler),
+            [
+                {"thing_id": "urn:a", "ops": ["readProperty"], "affordances": ["temperature"]},
+                {"thing_id": "urn:b", "ops": ["readProperty"], "affordances": ["temperature"]},
+            ],
+        )
+
+    def test_find_unscopable_flags_dynamic_thing_id(self):
+        handler = (
+            "def handle(input, state, context):\n"
+            "    target = context['config']['thing_id']\n"
+            "    return wot.read_property(target, 'value')"
+        )
+
+        self.assertEqual(infer_capabilities(handler), [])
+        self.assertEqual(find_unscopable_wot_calls(handler), ["read_property"])
+
+    def test_find_unscopable_clean_for_literal_calls(self):
+        handler = (
+            "def handle(input, state, context):\n"
+            "    return wot.read_property('urn:dev:meter', 'powerKw')"
+        )
+
+        self.assertEqual(find_unscopable_wot_calls(handler), [])
 
 
 class VirtualThingDispatcherTestCase(unittest.IsolatedAsyncioTestCase):
