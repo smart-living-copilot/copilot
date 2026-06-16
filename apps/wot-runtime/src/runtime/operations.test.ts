@@ -59,8 +59,5 @@ test('missingInvokeActionInputMessage ignores optional object input', () => {
     },
   };
 
-  assert.equal(
-    missingInvokeActionInputMessage(actionDef, 'virtual:things:energy', 'analyze', undefined),
-    null,
-  );
+  assert.equal(missingInvokeActionInputMessage(actionDef, 'virtual:things:energy', 'analyze', undefined), null);
 });

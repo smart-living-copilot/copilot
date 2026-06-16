@@ -364,9 +364,7 @@ async def _sse_with_heartbeat(events, encoder, timeout):
         )
         # Convert the abrupt abort into a clean terminal error for the client.
         try:
-            yield _emit(
-                encoder.encode(RunErrorEvent(message=f"{type(exc).__name__}: {exc}"))
-            )
+            yield _emit(encoder.encode(RunErrorEvent(message=f"{type(exc).__name__}: {exc}")))
         except Exception:  # pragma: no cover - stream already gone
             pass
     finally:

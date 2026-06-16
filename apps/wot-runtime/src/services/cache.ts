@@ -54,11 +54,7 @@ export async function getCached(key: string): Promise<CachedResponse | null> {
  * Stores a response in the cache with the configured TTL.
  * Silently skips if caching is disabled or the payload exceeds the max size.
  */
-export async function setCached(
-  key: string,
-  response: CachedResponse,
-  payloadSizeBytes: number,
-): Promise<void> {
+export async function setCached(key: string, response: CachedResponse, payloadSizeBytes: number): Promise<void> {
   if (!config.cacheEnabled) return;
   if (payloadSizeBytes > config.cacheMaxBytes) {
     log.debug(`Cache skip (too large): ${key} (${payloadSizeBytes} bytes)`);
