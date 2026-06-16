@@ -14,6 +14,7 @@ import {
   type ReactElement,
 } from 'react';
 
+import { blockSubmitWhileRunning } from '@/components/copilot/chat-route/block-submit-while-running';
 import { LiveModePanel } from '@/components/copilot/live-mode-panel';
 import { MediaIngressControl } from '@/components/copilot/media-ingress-control';
 import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
@@ -229,7 +230,12 @@ export function EmbedChatExperience({
           }) => (
             <div className="mx-auto w-full px-3 pb-3">
               <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
-                <div className="min-h-16">{textArea}</div>
+                <div
+                  className="min-h-16"
+                  onKeyDownCapture={blockSubmitWhileRunning(props.isRunning)}
+                >
+                  {textArea}
+                </div>
                 <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
                   <MediaIngressControl session={mediaSession} />
                   {sendButton}
