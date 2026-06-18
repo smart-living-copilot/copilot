@@ -5,10 +5,11 @@ import { handleEvent } from "./events.js";
 import {
   __clearActiveThingsForTest,
   __setActiveThingForTest,
+  bindingsShapeEqual,
   errorDetail,
 } from "./manager.js";
 import { canaryEventBindings } from "./triggers.js";
-import type { VirtualThingDefinition } from "./types.js";
+import type { VirtualThingBinding, VirtualThingDefinition } from "./types.js";
 
 test("canaryEventBindings dry-runs emitted events without requiring real emission", async () => {
   const calls: unknown[][] = [];
@@ -80,6 +81,37 @@ test("errorDetail includes axios response body", () => {
   });
 
   assert.match(errorDetail(error), /handler failed/);
+});
+
+test("bindingsShapeEqual ignores ordering but tracks affordances and triggers", () => {
+  const a: VirtualThingBinding[] = [
+    { affordance_type: "property", affordance_name: "temp", kind: "computed" },
+    {
+      affordance_type: "event",
+      affordance_name: "tick",
+      kind: "emitted",
+      trigger: { kind: "interval", interval_seconds: 10 },
+    },
+  ];
+  const reordered: VirtualThingBinding[] = [a[1], a[0]];
+  assert.equal(bindingsShapeEqual(a, reordered), true);
+
+  const triggerChanged: VirtualThingBinding[] = [
+    a[0],
+    {
+      affordance_type: "event",
+      affordance_name: "tick",
+      kind: "emitted",
+      trigger: { kind: "interval", interval_seconds: 30 },
+    },
+  ];
+  assert.equal(bindingsShapeEqual(a, triggerChanged), false);
+
+  const affordanceAdded: VirtualThingBinding[] = [
+    ...a,
+    { affordance_type: "action", affordance_name: "reset", kind: "computed" },
+  ];
+  assert.equal(bindingsShapeEqual(a, affordanceAdded), false);
 });
 
 test("handleEvent emits requested virtual Thing events on active things", async () => {

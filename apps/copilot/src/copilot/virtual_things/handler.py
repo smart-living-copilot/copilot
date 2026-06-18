@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
+import logging
+import secrets
+import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -9,9 +14,43 @@ import httpx
 from copilot.clients.code_executor import CodeExecutorClient
 from copilot.virtual_things.schemas import json_safe
 
+logger = logging.getLogger(__name__)
+
 RESULT_PREFIX = "__VIRTUAL_THING_RESULT__"
 HANDLER_RESULT_VERSION = 1
 _HANDLER_RESULT_VERSION_KEY = "__virtual_thing_result_version"
+# Bytes of randomness in the per-run result token. The token makes the result
+# marker unguessable, so handler stdout (even a handler that prints RESULT_PREFIX
+# itself) cannot forge or collide with the envelope line.
+_RESULT_TOKEN_BYTES = 16
+
+
+def result_marker(result_token: str) -> str:
+    """The exact line prefix that tags this run's result envelope on stdout."""
+    return f"{RESULT_PREFIX}{result_token}:"
+
+
+def decode_result_envelope(stdout: str, result_token: str) -> tuple[bool, Any]:
+    """Find and decode this run's result envelope on ``stdout``.
+
+    Returns ``(found, value)``. The handler wrapper prints ``<marker><base64(json)>``
+    on its own line; we scan bottom-up for the line carrying this run's marker and
+    base64-decode it, so arbitrary handler ``print`` output (multi-line, or even a
+    line that starts with ``RESULT_PREFIX``) cannot be mistaken for the result.
+    ``found`` distinguishes "no result line" from a result whose value is JSON
+    ``null``.
+    """
+    marker = result_marker(result_token)
+    for line in reversed(stdout.splitlines()):
+        if not line.startswith(marker):
+            continue
+        encoded = line[len(marker) :]
+        try:
+            decoded = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError):
+            continue
+        return True, json.loads(decoded.decode("utf-8"))
+    return False, None
 
 
 class HandlerBinding(Protocol):
@@ -74,12 +113,15 @@ class VirtualThingHandlerRunner:
             shared_state_version=shared_state_version,
         )
         initial_state = {} if state is None else state
+        result_token = secrets.token_hex(_RESULT_TOKEN_BYTES)
         code = handler_wrapper(
             handler_code=binding.handler_code,
             input_value=input_value,
             state=initial_state,
             context=context,
+            result_token=result_token,
         )
+        executor_started = time.perf_counter()
         try:
             response = await self._code_executor.execute(
                 session_id=f"virtual-thing:{binding.id}",
@@ -93,16 +135,23 @@ class VirtualThingHandlerRunner:
                 f"computed handler failed with status {exc.response.status_code}"
             ) from exc
 
+        logger.debug(
+            "virtual handler %s/%s executor_ms=%.1f",
+            binding.thing_id,
+            binding.affordance_name,
+            (time.perf_counter() - executor_started) * 1000,
+        )
         stdout = str(response.get("stdout", ""))
-        for line in reversed(stdout.splitlines()):
-            if line.startswith(RESULT_PREFIX):
-                payload = json.loads(line.removeprefix(RESULT_PREFIX))
-                return _parse_handler_result(
-                    payload,
-                    state=initial_state,
-                    shared_state=context.shared_state,
-                )
-        raise VirtualThingHandlerError(stdout.strip() or "computed handler did not return a result")
+        found, payload = decode_result_envelope(stdout, result_token)
+        if not found:
+            raise VirtualThingHandlerError(
+                stdout.strip() or "computed handler did not return a result"
+            )
+        return _parse_handler_result(
+            payload,
+            state=initial_state,
+            shared_state=context.shared_state,
+        )
 
 
 def handler_wrapper(
@@ -111,6 +160,7 @@ def handler_wrapper(
     input_value: Any,
     state: Any,
     context: HandlerContext,
+    result_token: str,
 ) -> str:
     payload = {
         "input": json_safe(input_value),
@@ -126,8 +176,9 @@ def handler_wrapper(
         },
     }
     payload_json = json.dumps(payload, ensure_ascii=True)
-    result_prefix_json = json.dumps(RESULT_PREFIX)
+    result_marker_json = json.dumps(result_marker(result_token))
     return f"""
+import base64 as __vt_b64
 import json as __vt_json
 import sys as __vt_sys
 import types as __vt_types
@@ -191,7 +242,10 @@ __vt_envelope = {{
     "state": __vt_state,
     "shared_state": __vt_context.get("shared_state") or {{}},
 }}
-print({result_prefix_json} + __vt_json.dumps(__vt_envelope, ensure_ascii=True, default=str))
+__vt_encoded = __vt_b64.b64encode(
+    __vt_json.dumps(__vt_envelope, ensure_ascii=True, default=str).encode("utf-8")
+).decode("ascii")
+print({result_marker_json} + __vt_encoded)
 """
 
 

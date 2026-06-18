@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 from copilot.clients.code_executor import CodeExecutorClient
@@ -13,6 +15,8 @@ from copilot.virtual_things.handler import (
 )
 from copilot.virtual_things.schemas import json_safe
 from copilot.virtual_things.store import VirtualThingStore
+
+logger = logging.getLogger(__name__)
 
 _RESULT_PREFIX = RESULT_PREFIX
 
@@ -48,14 +52,22 @@ class VirtualThingDispatcher:
         cache_key = f"{thing_id}:property:{property_name}:shared:{binding.shared_state_version}"
         cached = get_cached_value(cache_key)
         if cached.found:
+            logger.debug("virtual read %s/%s cache=hit", thing_id, property_name)
             return cached.value
 
+        started = time.perf_counter()
         result = await self._handler_runner.run_handler(
             binding,
             input_value=None,
             state=binding.state,
             shared_state=binding.shared_state,
             shared_state_version=binding.shared_state_version,
+        )
+        logger.debug(
+            "virtual read %s/%s cache=miss handler_ms=%.1f",
+            thing_id,
+            property_name,
+            (time.perf_counter() - started) * 1000,
         )
         if binding.cache_ttl_seconds > 0:
             set_cached_value(cache_key, result.value, binding.cache_ttl_seconds)

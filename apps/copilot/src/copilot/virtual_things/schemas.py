@@ -170,6 +170,62 @@ class VirtualThingDefinition(BaseModel):
     bindings: list[VirtualThingBindingSpec]
 
 
+class VirtualThingBindingView(BaseModel):
+    """The slice of a binding that virtual-servient needs to expose a Thing.
+
+    Deliberately omits ``handler_code``, ``capabilities``, ``config``, and
+    ``state``: the servient never runs handlers (it delegates every interaction
+    back to copilot's dispatcher), so shipping handler source or capability
+    grants to it would be needless exposure and wire weight.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    affordance_type: AffordanceType
+    affordance_name: str
+    kind: BindingKind
+    trigger: VirtualThingTrigger | None = None
+
+
+class VirtualThingServientView(BaseModel):
+    """Wire shape served to virtual-servient and the single source of truth for
+    the copilot <-> servient contract.
+
+    ``apps/virtual-servient/src/types.generated.ts`` is generated from this
+    model's JSON schema (see ``contract_export``); never hand-edit that file.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str
+    description: str
+    td: dict[str, Any]
+    version: int
+    status: VirtualThingStatus
+    bindings: list[VirtualThingBindingView]
+
+    @classmethod
+    def from_definition(cls, definition: VirtualThingDefinition) -> VirtualThingServientView:
+        return cls(
+            id=definition.id,
+            title=definition.title,
+            description=definition.description,
+            td=definition.td,
+            version=definition.version,
+            status=definition.status,
+            bindings=[
+                VirtualThingBindingView(
+                    affordance_type=binding.affordance_type,
+                    affordance_name=binding.affordance_name,
+                    kind=binding.kind,
+                    trigger=binding.trigger,
+                )
+                for binding in definition.bindings
+            ],
+        )
+
+
 def _normalize_affordance_alias(value: dict[str, Any]) -> None:
     if "affordance_name" not in value and "affordance" in value:
         value["affordance_name"] = value.pop("affordance")

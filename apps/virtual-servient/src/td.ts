@@ -161,6 +161,54 @@ export async function concreteCatalogTd(
   );
 }
 
+/**
+ * Builds an updated catalog TD for a metadata-only change. Descriptive fields
+ * (root metadata and per-affordance metadata) are taken from ``desired`` (the new
+ * definition TD), while the concrete forms and transport fields already in
+ * ``current`` are preserved, so semantic enrichment can be applied without
+ * re-producing the Thing. Any affordance left without a concrete form is
+ * backfilled the same way as a freshly produced Thing.
+ */
+export function catalogTdWithMetadata(
+  current: ThingDescription,
+  desired: ThingDescription,
+  thingId: string,
+): ThingDescription {
+  const result = JSON.parse(JSON.stringify(desired)) as ThingDescription;
+  for (const key of ["forms", "security", "securityDefinitions"]) {
+    if (current[key] !== undefined) {
+      result[key] = JSON.parse(JSON.stringify(current[key]));
+    }
+  }
+  for (const section of ["properties", "actions", "events"]) {
+    const desiredAffordances = affordanceMap(result[section]);
+    const currentAffordances = affordanceMap(current[section]);
+    if (!desiredAffordances) {
+      continue;
+    }
+    for (const [name, rawDefinition] of Object.entries(desiredAffordances)) {
+      if (
+        !rawDefinition ||
+        typeof rawDefinition !== "object" ||
+        Array.isArray(rawDefinition)
+      ) {
+        continue;
+      }
+      const concrete = currentAffordances?.[name];
+      const concreteForms =
+        concrete && typeof concrete === "object" && !Array.isArray(concrete)
+          ? (concrete as Record<string, unknown>).forms
+          : undefined;
+      if (concreteForms !== undefined) {
+        (rawDefinition as Record<string, unknown>).forms = JSON.parse(
+          JSON.stringify(concreteForms),
+        );
+      }
+    }
+  }
+  return normalizeConcreteForms(result, thingId);
+}
+
 /** Removes abstract forms before passing a TD to node-wot produce. */
 export function tdForProduce(document: ThingDescription): ThingDescription {
   const copy = JSON.parse(JSON.stringify(document)) as ThingDescription;

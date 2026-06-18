@@ -25,10 +25,13 @@ function unwrapValue(payload: unknown): unknown {
 
 /** Fetches active virtual Thing definitions from copilot. */
 export async function fetchDefinitions(): Promise<VirtualThingDefinition[]> {
-  const response = await axios.get(apiUrl("/api/virtual-things/definitions"), {
-    headers: headers(),
-    timeout: config.requestTimeoutMs,
-  });
+  const response = await axios.get(
+    apiUrl("/api/virtual-things/servient/definitions"),
+    {
+      headers: headers(),
+      timeout: config.requestTimeoutMs,
+    },
+  );
   const definitions = response.data?.definitions;
   return Array.isArray(definitions)
     ? (definitions as VirtualThingDefinition[])
@@ -41,7 +44,9 @@ export async function fetchDefinition(
 ): Promise<VirtualThingDefinition | null> {
   try {
     const response = await axios.get(
-      apiUrl(`/api/virtual-things/definitions/${encodeURIComponent(thingId)}`),
+      apiUrl(
+        `/api/virtual-things/servient/definitions/${encodeURIComponent(thingId)}`,
+      ),
       {
         headers: headers(),
         timeout: config.requestTimeoutMs,

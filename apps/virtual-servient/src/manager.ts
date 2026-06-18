@@ -9,44 +9,60 @@ import {
 } from "./clients/copilot.js";
 import log from "./logger.js";
 import { getWot } from "./servient.js";
-import { concreteCatalogTd, tdForProduce } from "./td.js";
+import { catalogTdWithMetadata, concreteCatalogTd, tdForProduce } from "./td.js";
 import { canaryEventBindings, startEventTriggers } from "./triggers.js";
-import type { VirtualThingDefinition } from "./types.js";
+import type { ThingDescription, VirtualThingBinding, VirtualThingDefinition } from "./types.js";
+import {
+  decodeInteractionValue,
+  errorDetail,
+  type EventSubscription,
+  type ExposedThing,
+} from "./wot.js";
 
 type ActiveThing = {
-  thing: any;
+  thing: ExposedThing;
   timers: NodeJS.Timeout[];
-  subscriptions: any[];
+  subscriptions: EventSubscription[];
   version: number;
+  definition: VirtualThingDefinition;
+  catalogTd: ThingDescription;
 };
 
 const activeThings = new Map<string, ActiveThing>();
 
-async function decodeInteractionValue(value: unknown): Promise<unknown> {
-  if (
-    value &&
-    typeof value === "object" &&
-    typeof (value as any).value === "function"
-  ) {
-    return (value as any).value();
-  }
-  return value;
+export { errorDetail };
+
+/** A stable key for a binding's exposed shape (ignores handler internals). */
+function bindingShapeKey(binding: VirtualThingBinding): string {
+  return JSON.stringify([
+    binding.affordance_type,
+    binding.affordance_name,
+    binding.kind,
+    binding.trigger ?? null,
+  ]);
 }
 
-/** Formats an error with any structured HTTP response body. */
-export function errorDetail(error: unknown): string {
-  const response = (error as any)?.response;
-  if (response?.data !== undefined) {
-    const data =
-      typeof response.data === "string"
-        ? response.data
-        : JSON.stringify(response.data);
-    return `${error} response=${data}`;
+/**
+ * Whether two binding sets expose the same affordances and triggers. When this
+ * holds, a definition change is metadata-only (e.g. semantic enrichment) and the
+ * produced Thing, its timers, and its subscriptions can be kept as-is.
+ */
+export function bindingsShapeEqual(
+  a: VirtualThingBinding[],
+  b: VirtualThingBinding[],
+): boolean {
+  if (a.length !== b.length) {
+    return false;
   }
-  return String(error);
+  const left = a.map(bindingShapeKey).sort();
+  const right = b.map(bindingShapeKey).sort();
+  return left.every((key, index) => key === right[index]);
 }
 
-async function stopActiveThing(thingId: string): Promise<void> {
+async function stopActiveThing(
+  thingId: string,
+  { keepCatalog = false }: { keepCatalog?: boolean } = {},
+): Promise<void> {
   const active = activeThings.get(thingId);
   if (active) {
     activeThings.delete(thingId);
@@ -55,15 +71,21 @@ async function stopActiveThing(thingId: string): Promise<void> {
     }
     await Promise.all(
       active.subscriptions.map((subscription) =>
-        subscription?.stop?.().catch(() => undefined),
+        Promise.resolve(subscription?.stop?.()).catch(() => undefined),
       ),
     );
     await Promise.resolve(active.thing?.destroy?.()).catch(() => undefined);
     await Promise.resolve(active.thing?.unexpose?.()).catch(() => undefined);
   }
-  // Always remove the catalog TD, even when this instance is not tracking the
-  // produced Thing (e.g. after a restart). Otherwise a deleted definition
-  // leaves an orphan TD in the catalog that keeps reappearing.
+  // Removing the catalog TD is skipped when the caller is about to re-produce the
+  // Thing (keepCatalog): leaving the old TD in place until the new one is
+  // upserted avoids a window where consumers see no Thing at all.
+  if (keepCatalog) {
+    return;
+  }
+  // Otherwise always remove the catalog TD, even when this instance is not
+  // tracking the produced Thing (e.g. after a restart). A deleted definition
+  // would otherwise leave an orphan TD in the catalog that keeps reappearing.
   await deleteCatalogThing(thingId).catch((error) =>
     log.warn(`Failed to delete catalog TD for ${thingId}: ${error}`),
   );
@@ -88,7 +110,44 @@ export async function reconcileDefinition(
   if (current?.version === definition.version) {
     return;
   }
-  await stopActiveThing(definition.id);
+  if (
+    current &&
+    bindingsShapeEqual(current.definition.bindings, definition.bindings)
+  ) {
+    await applyMetadataOnlyChange(current, definition);
+    return;
+  }
+  await reproduceThing(definition);
+}
+
+/**
+ * Applies a metadata-only definition change in place: the affordances and
+ * triggers are unchanged, so the produced Thing, timers, and subscriptions stay
+ * live and only the catalog TD is re-registered with the new metadata.
+ */
+async function applyMetadataOnlyChange(
+  active: ActiveThing,
+  definition: VirtualThingDefinition,
+): Promise<void> {
+  const catalogTd = catalogTdWithMetadata(
+    active.catalogTd,
+    { ...definition.td, id: definition.id, title: definition.title },
+    definition.id,
+  );
+  await upsertCatalogThing(catalogTd);
+  active.version = definition.version;
+  active.definition = definition;
+  active.catalogTd = catalogTd;
+  log.info(
+    `Updated virtual Thing ${definition.id} metadata to v${definition.version}`,
+  );
+}
+
+/** Stops any current produced Thing and re-produces it from the definition. */
+async function reproduceThing(
+  definition: VirtualThingDefinition,
+): Promise<void> {
+  await stopActiveThing(definition.id, { keepCatalog: true });
 
   const wot = await getWot();
   const td = tdForProduce({
@@ -132,19 +191,20 @@ export async function reconcileDefinition(
   }
 
   await exposedThing.expose();
+  const catalogTd = await concreteCatalogTd(exposedThing, td, definition.id);
   const active: ActiveThing = {
     thing: exposedThing,
     timers: [],
     subscriptions: [],
     version: definition.version,
+    definition,
+    catalogTd,
   };
   activeThings.set(definition.id, active);
 
   await startEventTriggers(definition, active);
 
-  await upsertCatalogThing(
-    await concreteCatalogTd(exposedThing, td, definition.id),
-  );
+  await upsertCatalogThing(catalogTd);
   log.info(`Produced virtual Thing ${definition.id} v${definition.version}`);
 }
 
@@ -236,12 +296,27 @@ export function activeCount(): number {
 }
 
 /** Inserts an active Thing test double for unit tests. */
-export function __setActiveThingForTest(thingId: string, thing: any): void {
+export function __setActiveThingForTest(
+  thingId: string,
+  thing: any,
+  overrides: Partial<ActiveThing> = {},
+): void {
   activeThings.set(thingId, {
     thing,
     timers: [],
     subscriptions: [],
     version: 0,
+    definition: {
+      id: thingId,
+      title: "",
+      description: "",
+      td: {},
+      version: 0,
+      status: "active",
+      bindings: [],
+    },
+    catalogTd: {},
+    ...overrides,
   });
 }
 

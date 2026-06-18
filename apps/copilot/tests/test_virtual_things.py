@@ -1,5 +1,7 @@
+import base64
 import contextlib
 import io
+import re
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -122,6 +124,9 @@ class _SharedStateStore:
         )
 
 
+_MARKER_RE = re.compile(rf"{re.escape(_RESULT_PREFIX)}[0-9a-f]+:")
+
+
 class _FakeExecutor:
     def __init__(self, results):
         self.results = list(results)
@@ -132,7 +137,13 @@ class _FakeExecutor:
         self.calls += 1
         self.kwargs.append(kwargs)
         result = self.results.pop(0)
-        return {"stdout": f"{_RESULT_PREFIX}{result}"}
+        # Mimic a real executor: echo the run's token-tagged, base64-encoded
+        # result marker that the handler wrapper would have printed. The marker
+        # (including the per-run token) is embedded in the generated ``code``.
+        match = _MARKER_RE.search(kwargs.get("code", ""))
+        marker = match.group(0) if match else _RESULT_PREFIX
+        encoded = base64.b64encode(result.encode("utf-8")).decode("ascii")
+        return {"stdout": f"{marker}{encoded}"}
 
 
 class _LocalExecutor:

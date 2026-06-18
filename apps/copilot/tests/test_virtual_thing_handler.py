@@ -1,10 +1,16 @@
 import contextlib
 import io
-import json
 import unittest
 from types import SimpleNamespace
 
-from copilot.virtual_things.handler import RESULT_PREFIX, HandlerContext, handler_wrapper
+from copilot.virtual_things.handler import (
+    RESULT_PREFIX,
+    HandlerContext,
+    decode_result_envelope,
+    handler_wrapper,
+)
+
+_TOKEN = "0123456789abcdef0123456789abcdef"
 
 
 def _fake_wot(**overrides):
@@ -18,10 +24,10 @@ def _fake_wot(**overrides):
 
 
 def _result_from_stdout(stdout: str) -> dict:
-    for line in reversed(stdout.splitlines()):
-        if line.startswith(RESULT_PREFIX):
-            return json.loads(line.removeprefix(RESULT_PREFIX))
-    raise AssertionError("handler produced no result line")
+    found, envelope = decode_result_envelope(stdout, _TOKEN)
+    if not found:
+        raise AssertionError("handler produced no result line")
+    return envelope
 
 
 def _run(code: str, wot) -> dict:
@@ -59,6 +65,7 @@ class VirtualThingGuardedWotTestCase(unittest.TestCase):
             context=_context(
                 [{"thing_id": "urn:nilm", "ops": ["invokeAction"], "affordances": ["disaggregate"]}]
             ),
+            result_token=_TOKEN,
         )
 
         result = _run(code, _fake_wot(invoke_action=lambda *a, **k: {"fridge": 0.4}))
@@ -76,6 +83,7 @@ class VirtualThingGuardedWotTestCase(unittest.TestCase):
             context=_context(
                 [{"thing_id": "urn:nilm", "ops": ["invokeAction"], "affordances": ["disaggregate"]}]
             ),
+            result_token=_TOKEN,
         )
         namespace = {"wot": _fake_wot(invoke_action=lambda *a, **k: {"fridge": 0.4})}
 
@@ -99,6 +107,7 @@ class VirtualThingGuardedWotTestCase(unittest.TestCase):
             input_value={"mode": "eco"},
             state={},
             context=_context([]),
+            result_token=_TOKEN,
         )
 
         result = _run(code, _fake_wot())
@@ -117,10 +126,67 @@ class VirtualThingGuardedWotTestCase(unittest.TestCase):
             context=_context(
                 [{"thing_id": "urn:nilm", "ops": ["invokeAction"], "affordances": ["disaggregate"]}]
             ),
+            result_token=_TOKEN,
         )
 
         with self.assertRaises(PermissionError):
             _run(code, _fake_wot())
+
+
+class VirtualThingResultChannelTestCase(unittest.TestCase):
+    def test_handler_print_cannot_forge_result(self) -> None:
+        """A handler that prints the bare RESULT_PREFIX (and other noise) must not
+        be mistaken for the real, token-tagged envelope."""
+        code = handler_wrapper(
+            handler_code=(
+                "def handle(input, state, context):\n"
+                f"    print({RESULT_PREFIX!r} + 'not the real result')\n"
+                "    print('plain log line')\n"
+                "    return {'real': True}"
+            ),
+            input_value=None,
+            state={},
+            context=_context([]),
+            result_token=_TOKEN,
+        )
+
+        result = _run(code, _fake_wot())
+
+        self.assertEqual(result["value"], {"real": True})
+
+    def test_multiline_stdout_before_result_is_ignored(self) -> None:
+        code = handler_wrapper(
+            handler_code=(
+                "def handle(input, state, context):\n"
+                "    print('line one\\nline two\\nline three')\n"
+                "    return {'n': 3}"
+            ),
+            input_value=None,
+            state={},
+            context=_context([]),
+            result_token=_TOKEN,
+        )
+
+        result = _run(code, _fake_wot())
+
+        self.assertEqual(result["value"], {"n": 3})
+
+    def test_wrong_token_is_not_decoded(self) -> None:
+        code = handler_wrapper(
+            handler_code="def handle(input, state, context):\n    return 1",
+            input_value=None,
+            state={},
+            context=_context([]),
+            result_token="deadbeef",
+        )
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            exec(code, {"wot": _fake_wot()})
+
+        # The real run used a different token, so this run's marker must not match.
+        found, _ = decode_result_envelope(stdout.getvalue(), _TOKEN)
+        self.assertFalse(found)
 
 
 if __name__ == "__main__":

@@ -2,11 +2,16 @@ import { evaluateVirtualEvent, fetchCatalogThing } from "./clients/copilot.js";
 import log from "./logger.js";
 import { getWot } from "./servient.js";
 import type { VirtualThingBinding, VirtualThingDefinition } from "./types.js";
+import {
+  decodeInteractionValue,
+  errorDetail,
+  type EventSubscription,
+} from "./wot.js";
 
 export type TriggerActiveThing = {
   thing: { emitEvent: (eventName: string, payload: unknown) => void };
   timers: NodeJS.Timeout[];
-  subscriptions: { stop?: () => Promise<void> }[];
+  subscriptions: EventSubscription[];
 };
 
 function eventInput(binding: VirtualThingBinding): Record<string, unknown> {
@@ -29,29 +34,6 @@ function eventInput(binding: VirtualThingBinding): Record<string, unknown> {
     trigger: "interval",
     fired_at: new Date().toISOString(),
   };
-}
-
-async function decodeInteractionValue(value: unknown): Promise<unknown> {
-  if (
-    value &&
-    typeof value === "object" &&
-    typeof (value as { value?: unknown }).value === "function"
-  ) {
-    return (value as { value: () => unknown }).value();
-  }
-  return value;
-}
-
-function errorDetail(error: unknown): string {
-  const response = (error as { response?: { data?: unknown } })?.response;
-  if (response?.data !== undefined) {
-    const data =
-      typeof response.data === "string"
-        ? response.data
-        : JSON.stringify(response.data);
-    return `${error} response=${data}`;
-  }
-  return String(error);
 }
 
 async function startIntervalTrigger(

@@ -174,6 +174,35 @@ def test_virtual_things_routes_accept_api_key_user_with_thing_scopes(monkeypatch
         assert delete_response.json() == {"ok": True, "thing_id": THING_ID}
 
 
+def test_servient_definition_view_omits_handler_internals(monkeypatch):
+    user = User(
+        user_id="virtual-servient",
+        scopes=["things:read"],
+        auth_type="api_key",
+    )
+
+    with _client_for_user(user, monkeypatch) as client:
+        list_response = client.get("/api/virtual-things/servient/definitions")
+        assert list_response.status_code == 200
+        listed_binding = list_response.json()["definitions"][0]["bindings"][0]
+        assert set(listed_binding) == {
+            "affordance_type",
+            "affordance_name",
+            "kind",
+            "trigger",
+        }
+
+        get_response = client.get(f"/api/virtual-things/servient/definitions/{THING_ID}")
+        assert get_response.status_code == 200
+        servient_binding = get_response.json()["bindings"][0]
+        for leaked in ("handler_code", "capabilities", "config", "state"):
+            assert leaked not in servient_binding
+
+        # The full endpoint (used by the UI) still carries handler internals.
+        full_response = client.get(f"/api/virtual-things/definitions/{THING_ID}")
+        assert "handler_code" in full_response.json()["bindings"][0]
+
+
 def test_virtual_things_routes_reject_api_key_user_missing_scope(monkeypatch):
     user = User(
         user_id="writer-key",
