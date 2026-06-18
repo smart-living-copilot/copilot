@@ -19,6 +19,18 @@ from copilot.virtual_things.dispatcher import VirtualThingDispatcher
 from copilot.virtual_things.store import VirtualThingStore
 
 
+def get_virtual_thing_builder() -> VirtualThingBuilder:
+    return VirtualThingBuilder()
+
+
+def get_virtual_thing_store() -> VirtualThingStore:
+    return VirtualThingStore()
+
+
+def get_virtual_thing_dispatcher() -> VirtualThingDispatcher:
+    return VirtualThingDispatcher()
+
+
 @tool
 async def create_virtual_thing(
     title: str,
@@ -38,7 +50,7 @@ async def create_virtual_thing(
     handlers read directly with context["shared_state"]["key"]. To start over,
     delete_virtual_thing first.
     """
-    builder = VirtualThingBuilder()
+    builder = get_virtual_thing_builder()
     return await asyncio.to_thread(
         builder.create,
         title=title,
@@ -66,7 +78,7 @@ async def add_virtual_property(
     thing_id/name strings.
     value_schema is an optional JSON Schema for the value and may be omitted.
     """
-    builder = VirtualThingBuilder()
+    builder = get_virtual_thing_builder()
     return await asyncio.to_thread(
         builder.add_affordance,
         thing_id=thing_id,
@@ -93,7 +105,7 @@ async def add_virtual_action(
     properties or events can read later. input_schema and output_schema are
     optional JSON Schemas and may be omitted.
     """
-    builder = VirtualThingBuilder()
+    builder = get_virtual_thing_builder()
     return await asyncio.to_thread(
         builder.add_affordance,
         thing_id=thing_id,
@@ -128,7 +140,7 @@ async def add_virtual_event(
     - omit all three to make the event explicit (fire via emit_virtual_thing_event).
     data_schema is an optional JSON Schema for the payload and may be omitted.
     """
-    builder = VirtualThingBuilder()
+    builder = get_virtual_thing_builder()
     return await asyncio.to_thread(
         builder.add_affordance,
         thing_id=thing_id,
@@ -149,14 +161,14 @@ async def activate_virtual_thing(thing_id: str) -> dict[str, Any]:
     TD asynchronously. If a smoke test fails, fix the affordance with the
     matching add_virtual_* tool and call this again.
     """
-    return await VirtualThingBuilder().activate(thing_id)
+    return await get_virtual_thing_builder().activate(thing_id)
 
 
 @tool
 async def delete_virtual_thing(thing_id: str) -> dict[str, Any]:
     """Delete a standalone virtual Thing definition by id."""
     try:
-        await asyncio.to_thread(VirtualThingStore().delete_thing, thing_id)
+        await asyncio.to_thread(get_virtual_thing_store().delete_thing, thing_id)
     except KeyError:
         return {"error": "virtual thing not found"}
     except Exception as exc:
@@ -172,7 +184,7 @@ async def emit_virtual_thing_event(
 ) -> dict[str, Any]:
     """Evaluate and emit a standalone virtual Thing event with an explicit trigger."""
     try:
-        return await VirtualThingDispatcher().emit_event(
+        return await get_virtual_thing_dispatcher().emit_event(
             thing_id,
             event_name,
             {

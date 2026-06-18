@@ -121,11 +121,15 @@ async def _default_enrich(td: dict[str, Any]) -> dict[str, Any] | None:
 
 
 async def _default_apply(thing_id: str, enriched: dict[str, Any], base_version: int) -> bool:
+    return await asyncio.to_thread(
+        _default_store().apply_enrichment, thing_id, enriched, base_version=base_version
+    )
+
+
+def _default_store() -> Any:
     from copilot.virtual_things.store import VirtualThingStore
 
-    return await asyncio.to_thread(
-        VirtualThingStore().apply_enrichment, thing_id, enriched, base_version=base_version
-    )
+    return VirtualThingStore()
 
 
 _scheduler: VirtualThingEnrichmentScheduler | None = None

@@ -16,13 +16,20 @@ from copilot.jobs.records.schema import (
     validate_record_schema,
 )
 from copilot.jobs.stores import _json_safe, iso, utc_now
+from copilot.virtual_things.store import VirtualThingStore
 
 
 class VirtualRecordStore:
     """Stores virtual Things and submitted records for structured-record jobs."""
 
-    def __init__(self, session_factory: sessionmaker[Session] | None = None) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session] | None = None,
+        *,
+        virtual_thing_store: VirtualThingStore | None = None,
+    ) -> None:
         self._session_factory = session_factory or get_session_factory()
+        self._virtual_thing_store = virtual_thing_store or VirtualThingStore()
 
     def thing_exists(self, thing_id: str) -> bool:
         with self._session_factory() as session:
@@ -63,9 +70,7 @@ class VirtualRecordStore:
                 row.updated_at = now
 
             session.commit()
-        from copilot.virtual_things import VirtualThingStore
-
-        definition = VirtualThingStore().register_record_thing(
+        definition = self._virtual_thing_store.register_record_thing(
             thing_id=thing_id,
             title=title,
             description=description,
@@ -82,9 +87,7 @@ class VirtualRecordStore:
                 session.delete(row)
             session.commit()
         try:
-            from copilot.virtual_things import VirtualThingStore
-
-            VirtualThingStore().delete_thing(thing_id)
+            self._virtual_thing_store.delete_thing(thing_id)
         except KeyError:
             pass
 
