@@ -79,7 +79,9 @@ class DispatchNodeTestCase(unittest.TestCase):
         self.assertEqual(result.goto, "device_summary")
         self.assertEqual(result.update, {"next": None})
         output = "\n".join(logs.output)
-        self.assertIn("Agent handoff target unknown requested=bogus resolved=device_summary", output)
+        self.assertIn(
+            "Agent handoff target unknown requested=bogus resolved=device_summary", output
+        )
 
 
 class RouteToToolTestCase(unittest.TestCase):

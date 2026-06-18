@@ -91,6 +91,7 @@ class VirtualThingBuilder:
         handler_code: str,
         td_definition: dict[str, Any],
         trigger: dict[str, Any] | None = None,
+        cache_ttl_seconds: int | None = None,
     ) -> dict[str, Any]:
         # Serialize concurrent adds to the same Thing so the load+merge+store below is
         # atomic; otherwise parallel add_virtual_* calls clobber each other's affordances.
@@ -113,6 +114,8 @@ class VirtualThingBuilder:
             }
             if trigger is not None:
                 binding["trigger"] = trigger
+            if cache_ttl_seconds is not None:
+                binding["cache_ttl_seconds"] = cache_ttl_seconds
             bindings = _replace_binding(current, affordance_type, affordance_name, binding)
 
             try:

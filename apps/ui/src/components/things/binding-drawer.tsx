@@ -17,6 +17,7 @@ import { CodeEditor } from '@/components/code-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   Sheet,
   SheetContent,
@@ -55,6 +56,16 @@ function parseJsonField<T>(label: string, value: string): T {
 
 function requestFingerprint(request: DefineVirtualThingRequest) {
   return JSON.stringify(request);
+}
+
+function parseCacheTtl(value: string): number {
+  const seconds = Number(value);
+  if (!Number.isInteger(seconds) || seconds < 0 || seconds > 3600) {
+    throw new Error(
+      'cache TTL: enter a whole number of seconds between 0 and 3600',
+    );
+  }
+  return seconds;
 }
 
 function ValidationPanel({
@@ -126,6 +137,7 @@ export function BindingDrawer({
   const [handlerCode, setHandlerCode] = useState<string | null>(null);
   const [capabilitiesText, setCapabilitiesText] = useState('[]');
   const [triggerText, setTriggerText] = useState('null');
+  const [cacheTtlText, setCacheTtlText] = useState('30');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationReport, setValidationReport] =
     useState<VirtualValidationReport | null>(null);
@@ -140,6 +152,10 @@ export function BindingDrawer({
 
   const isRecord = original?.kind === 'record';
   const isEvent = original?.affordance_type === 'event';
+  // Only computed property reads are cached by the dispatcher, so the TTL is
+  // only editable there.
+  const isCacheEditable =
+    original?.kind === 'computed' && original.affordance_type === 'property';
 
   // Reset the draft whenever the targeted binding changes.
   useEffect(() => {
@@ -147,6 +163,7 @@ export function BindingDrawer({
     setHandlerCode(original.handler_code);
     setCapabilitiesText(JSON.stringify(original.capabilities ?? [], null, 2));
     setTriggerText(JSON.stringify(original.trigger ?? null, null, 2));
+    setCacheTtlText(String(original.cache_ttl_seconds ?? 30));
     setValidationReport(null);
   }, [original]);
 
@@ -169,6 +186,9 @@ export function BindingDrawer({
           'trigger',
           triggerText,
         ),
+        ...(isCacheEditable
+          ? { cache_ttl_seconds: parseCacheTtl(cacheTtlText) }
+          : {}),
       };
       const bindings = definition.bindings.map((b) =>
         bindingKey(b) === activeKey ? edited : b,
@@ -185,9 +205,11 @@ export function BindingDrawer({
     definition,
     original,
     isRecord,
+    isCacheEditable,
     handlerCode,
     capabilitiesText,
     triggerText,
+    cacheTtlText,
     activeKey,
   ]);
 
@@ -243,6 +265,7 @@ export function BindingDrawer({
     setHandlerCode(original.handler_code);
     setCapabilitiesText(JSON.stringify(original.capabilities ?? [], null, 2));
     setTriggerText(JSON.stringify(original.trigger ?? null, null, 2));
+    setCacheTtlText(String(original.cache_ttl_seconds ?? 30));
     setValidationReport(null);
   }
 
@@ -294,9 +317,25 @@ export function BindingDrawer({
                 <Badge variant="outline">
                   timeout {original.timeout_seconds ?? 30}s
                 </Badge>
-                <Badge variant="outline">
-                  cache {original.cache_ttl_seconds ?? 30}s
-                </Badge>
+                {isCacheEditable ? (
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    cache
+                    <Input
+                      type="number"
+                      min={0}
+                      max={3600}
+                      value={cacheTtlText}
+                      onChange={(event) => setCacheTtlText(event.target.value)}
+                      className="h-6 w-16 px-1.5 text-xs"
+                      title="Seconds to cache each read. Use 0 to recompute on every read, e.g. for random or time-based values."
+                    />
+                    s
+                  </label>
+                ) : (
+                  <Badge variant="outline">
+                    cache {original.cache_ttl_seconds ?? 30}s
+                  </Badge>
+                )}
               </div>
             </SheetHeader>
 

@@ -256,6 +256,38 @@ class VirtualThingBuilderTestCase(unittest.TestCase):
             store.get_definition(thing_id, include_disabled=True).shared_state, {"mode": "eco"}
         )
 
+    def test_add_affordance_sets_cache_ttl_seconds(self):
+        builder, store = self._builder()
+        thing_id = builder.create(title="Sampler")["thing_id"]
+
+        result = builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="property",
+            affordance_name="dice",
+            handler_code="def handle(input, state, context):\n    return 4",
+            td_definition=property_definition({"type": "number"}),
+            cache_ttl_seconds=0,
+        )
+
+        self.assertTrue(result["ok"], result)
+        binding = store.get_definition(thing_id, include_disabled=True).bindings[0]
+        self.assertEqual(binding.cache_ttl_seconds, 0)
+
+    def test_add_affordance_defaults_cache_ttl_seconds(self):
+        builder, store = self._builder()
+        thing_id = builder.create(title="Sampler")["thing_id"]
+
+        builder.add_affordance(
+            thing_id=thing_id,
+            affordance_type="property",
+            affordance_name="score",
+            handler_code="def handle(input, state, context):\n    return 72",
+            td_definition=property_definition({"type": "number"}),
+        )
+
+        binding = store.get_definition(thing_id, include_disabled=True).bindings[0]
+        self.assertEqual(binding.cache_ttl_seconds, 30)
+
     def test_concurrent_add_affordance_keeps_all(self):
         # Regression: parallel add_virtual_* tool calls each construct their own builder
         # and run in separate threads (asyncio.to_thread). add_affordance is a

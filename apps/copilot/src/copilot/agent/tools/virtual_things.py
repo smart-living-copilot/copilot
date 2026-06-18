@@ -67,6 +67,7 @@ async def add_virtual_property(
     name: str,
     handler_code: str,
     value_schema: dict[str, Any] | None = None,
+    cache_ttl_seconds: int = 30,
 ) -> dict[str, Any]:
     """Add or replace a computed property on a virtual Thing.
 
@@ -77,6 +78,11 @@ async def add_virtual_property(
     / wot.write_property); capability grants are inferred from literal
     thing_id/name strings.
     value_schema is an optional JSON Schema for the value and may be omitted.
+    cache_ttl_seconds caches each read for that many seconds (default 30) to
+    avoid re-running the handler and re-hitting real Things on every read. Set it
+    to 0 for properties that must recompute every read, e.g. ones returning
+    random values or the current time; otherwise the first value is served
+    unchanged until the TTL expires.
     """
     builder = get_virtual_thing_builder()
     return await asyncio.to_thread(
@@ -86,6 +92,7 @@ async def add_virtual_property(
         affordance_name=name,
         handler_code=handler_code,
         td_definition=property_definition(value_schema),
+        cache_ttl_seconds=cache_ttl_seconds,
     )
 
 

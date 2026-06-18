@@ -299,8 +299,7 @@ def _log_branch_entry(
 ) -> None:
     names = _tool_names(active_tools)
     logger.debug(
-        "Agent branch entered branch=%s thread_id=%s tool_count=%d tools=%s "
-        "parallel_tool_calls=%s",
+        "Agent branch entered branch=%s thread_id=%s tool_count=%d tools=%s parallel_tool_calls=%s",
         branch,
         _thread_id_from_config(config),
         len(names),

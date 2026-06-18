@@ -16,12 +16,16 @@ URLs; virtual-servient owns concrete forms after activation.
    The Thing starts disabled and empty. Omit shared_state unless the user needs
    an initial Thing-wide state seed.
 2. Add each affordance with its own call, passing the thing_id:
-   - add_virtual_property(thing_id, name, handler_code, value_schema?)
+   - add_virtual_property(thing_id, name, handler_code, value_schema?,
+     cache_ttl_seconds?)
    - add_virtual_action(thing_id, name, handler_code, input_schema?, output_schema?)
    - add_virtual_event(thing_id, name, handler_code, interval_seconds? |
      source_thing_id+source_event_name?, data_schema?)
    Re-adding the same name replaces that affordance. Schemas are optional; omit
-   them unless the user needs a specific contract.
+   them unless the user needs a specific contract. Property reads are cached for
+   cache_ttl_seconds (default 30); pass cache_ttl_seconds=0 for a property that
+   must recompute every read, such as one returning a random value or the current
+   time, otherwise the first value is served unchanged until the TTL expires.
 3. activate_virtual_thing(thing_id) runs a smoke test and makes the Thing active.
    If it reports issues, fix the named affordance with the matching add_* tool
    and call activate again.
