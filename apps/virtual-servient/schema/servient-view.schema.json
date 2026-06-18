@@ -9,12 +9,20 @@
           "type": "string"
         },
         "affordance_type": {
-          "enum": ["property", "action", "event"],
+          "enum": [
+            "property",
+            "action",
+            "event"
+          ],
           "title": "Affordance Type",
           "type": "string"
         },
         "kind": {
-          "enum": ["record", "computed", "emitted"],
+          "enum": [
+            "record",
+            "computed",
+            "emitted"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -30,7 +38,11 @@
           "default": null
         }
       },
-      "required": ["affordance_type", "affordance_name", "kind"],
+      "required": [
+        "affordance_type",
+        "affordance_name",
+        "kind"
+      ],
       "title": "VirtualThingBindingView",
       "type": "object"
     },
@@ -63,7 +75,11 @@
           "title": "Interval Seconds"
         },
         "kind": {
-          "enum": ["interval", "source_event", "explicit"],
+          "enum": [
+            "interval",
+            "source_event",
+            "explicit"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -90,7 +106,9 @@
           "title": "Thing Id"
         }
       },
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "title": "VirtualThingTrigger",
       "type": "object"
     }
@@ -114,7 +132,10 @@
       "type": "string"
     },
     "status": {
-      "enum": ["active", "disabled"],
+      "enum": [
+        "active",
+        "disabled"
+      ],
       "title": "Status",
       "type": "string"
     },

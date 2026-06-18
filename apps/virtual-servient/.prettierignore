@@ -1,0 +1,5 @@
+dist/
+node_modules/
+package-lock.json
+schema/servient-view.schema.json
+src/types.generated.ts
