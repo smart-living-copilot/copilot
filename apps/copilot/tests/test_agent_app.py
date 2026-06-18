@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import unittest
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock, patch
@@ -7,6 +8,11 @@ from fastapi.testclient import TestClient
 
 import copilot.api.main as copilot_app
 from copilot.core.settings import Settings
+
+
+def _enable_log_capture(logger_name: str) -> None:
+    logging.disable(logging.NOTSET)
+    logging.getLogger(logger_name).disabled = False
 
 
 @asynccontextmanager
@@ -264,6 +270,8 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         )
 
     def test_ag_ui_proxy_runs_active_thread(self) -> None:
+        _enable_log_capture("copilot.core.agui_runtime")
+
         class FakeAgent:
             async def run(self, _input_data):
                 yield {"event": "done"}
@@ -272,11 +280,39 @@ class AgentAppRoutesTestCase(unittest.TestCase):
 
         async def collect_events():
             proxy = copilot_app.agui_runtime.create_agent_proxy()
-            return [event async for event in proxy.run({"threadId": "thread-a"})]
+            return [event async for event in proxy.run({"threadId": "thread-a", "runId": "run-a"})]
 
-        events = asyncio.run(collect_events())
+        with self.assertLogs("copilot.core.agui_runtime", level="INFO") as logs:
+            events = asyncio.run(collect_events())
 
         self.assertEqual(events, [{"event": "done"}])
+        output = "\n".join(logs.output)
+        self.assertIn("AG-UI run started thread_id=thread-a run_id=run-a", output)
+        self.assertIn("uses_thread_lock=True", output)
+        self.assertIn("AG-UI run finished thread_id=thread-a run_id=run-a", output)
+
+    def test_ag_ui_proxy_logs_agent_failure(self) -> None:
+        _enable_log_capture("copilot.core.agui_runtime")
+
+        class FakeAgent:
+            async def run(self, _input_data):
+                if False:
+                    yield {"event": "unused"}
+                raise RuntimeError("agent boom")
+
+        copilot_app.agui_runtime.configure(agent=FakeAgent())
+
+        async def collect_events():
+            proxy = copilot_app.agui_runtime.create_agent_proxy()
+            return [event async for event in proxy.run({"threadId": "thread-a", "runId": "run-a"})]
+
+        with self.assertLogs("copilot.core.agui_runtime", level="ERROR") as logs:
+            with self.assertRaises(RuntimeError):
+                asyncio.run(collect_events())
+
+        output = "\n".join(logs.output)
+        self.assertIn("AG-UI run failed thread_id=thread-a run_id=run-a", output)
+        self.assertIn("RuntimeError: agent boom", output)
 
     def test_ag_ui_proxy_cleans_up_embed_ephemeral_checkpoints(self) -> None:
         class FakeAgent:

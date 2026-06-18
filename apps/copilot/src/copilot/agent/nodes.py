@@ -280,18 +280,51 @@ def _active_tools_for_config(tools: list[Any], config: Optional[RunnableConfig])
     ]
 
 
+def _thread_id_from_config(config: Optional[RunnableConfig]) -> str | None:
+    configurable = config.get("configurable", {}) if config else {}
+    thread_id = configurable.get("thread_id") or configurable.get("threadId")
+    return thread_id if isinstance(thread_id, str) and thread_id else None
+
+
+def _tool_names(tools: list[Any]) -> list[str]:
+    return sorted(str(name) for tool in tools if (name := getattr(tool, "name", None)))
+
+
+def _log_branch_entry(
+    branch: str,
+    *,
+    config: Optional[RunnableConfig],
+    active_tools: list[Any],
+    parallel_tool_calls: bool,
+) -> None:
+    names = _tool_names(active_tools)
+    logger.debug(
+        "Agent branch entered branch=%s thread_id=%s tool_count=%d tools=%s "
+        "parallel_tool_calls=%s",
+        branch,
+        _thread_id_from_config(config),
+        len(names),
+        names,
+        parallel_tool_calls,
+    )
+
+
 def make_router_node(llm: ChatOpenAI, max_tokens: int):
     """Classify the current request into a single graph branch."""
     structured_llm = llm.with_structured_output(IntentClassification)
     system_message = SystemMessage(content=ROUTER_PROMPT)
 
-    async def router(state: CopilotState):
+    async def router(state: CopilotState, config: Optional[RunnableConfig] = None):
         tail = _make_router_messages(state["messages"], max_tokens)
         result = cast(
             IntentClassification,
             await structured_llm.ainvoke([system_message, *tail]),
         )
-        logger.info("Router classified intent as: %s", result.intent)
+        logger.info(
+            "Router classified intent thread_id=%s intent=%s",
+            _thread_id_from_config(config),
+            result.intent,
+        )
         return {"intent": result.intent}
 
     return router
@@ -304,6 +337,7 @@ def _make_llm_node(
     system_text: str,
     max_tokens: int,
     parallel_tool_calls: bool = True,
+    branch_name: str = "llm",
 ):
     prompt = _make_node_prompt(system_text, max_tokens)
 
@@ -315,6 +349,12 @@ def _make_llm_node(
     # the ``thread_id`` that look_at_camera needs) arrives as ``None``.
     async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
         active_tools = _active_tools_for_config(tools, config)
+        _log_branch_entry(
+            branch_name,
+            config=config,
+            active_tools=active_tools,
+            parallel_tool_calls=parallel_tool_calls,
+        )
         runnable = (
             llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
             if active_tools
@@ -339,6 +379,7 @@ def make_respond_node(
         system_text=RESPOND_PROMPT,
         max_tokens=max_tokens,
         parallel_tool_calls=parallel_tool_calls,
+        branch_name="respond",
     )
 
 
@@ -356,6 +397,7 @@ def make_control_node(
         system_text=CONTROL_PROMPT + handoff_note,
         max_tokens=max_tokens,
         parallel_tool_calls=parallel_tool_calls,
+        branch_name="control",
     )
 
 
@@ -375,6 +417,12 @@ def make_analysis_node(
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)
+        _log_branch_entry(
+            "analysis",
+            config=config,
+            active_tools=active_tools,
+            parallel_tool_calls=parallel_tool_calls,
+        )
         runnable = (
             llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
             if active_tools
@@ -400,6 +448,12 @@ def make_jobs_node(
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)
+        _log_branch_entry(
+            "jobs",
+            config=config,
+            active_tools=active_tools,
+            parallel_tool_calls=parallel_tool_calls,
+        )
         runnable = (
             llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
             if active_tools
@@ -430,6 +484,12 @@ def make_virtual_things_node(
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)
+        _log_branch_entry(
+            "virtual_things",
+            config=config,
+            active_tools=active_tools,
+            parallel_tool_calls=parallel_tool_calls,
+        )
         runnable = (
             llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
             if active_tools
@@ -453,6 +513,12 @@ def make_background_job_node(
         system_message = SystemMessage(content=BACKGROUND_JOB_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         active_tools = _active_tools_for_config(tools, config)
+        _log_branch_entry(
+            "background_job",
+            config=config,
+            active_tools=active_tools,
+            parallel_tool_calls=parallel_tool_calls,
+        )
         runnable = (
             llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
             if active_tools
@@ -485,7 +551,19 @@ def make_dispatch_node(targets: dict[str, str], *, finish_node: str):
         requested = state.get("next")
         goto = targets.get(requested, finish_node) if requested else finish_node
         if requested and goto == finish_node:
-            logger.warning("Ignoring unknown handoff target: %r", requested)
+            logger.warning(
+                "Agent handoff target unknown requested=%s resolved=%s",
+                requested,
+                finish_node,
+            )
+        elif requested:
+            logger.info(
+                "Agent handoff dispatch requested=%s resolved=%s",
+                requested,
+                goto,
+            )
+        else:
+            logger.info("Agent handoff dispatch fallthrough resolved=%s", goto)
         return Command(goto=goto, update={"next": None})
 
     return dispatch

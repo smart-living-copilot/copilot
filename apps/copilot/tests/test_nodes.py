@@ -1,4 +1,5 @@
 import inspect
+import logging
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,11 +14,17 @@ from copilot.agent.nodes import (
     _prior_analysis_block,
     _sanitize_message_sequence,
     _strip_wot_calls,
+    make_router_node,
 )
 
 
 def _tool(name: str) -> SimpleNamespace:
     return SimpleNamespace(name=name)
+
+
+def _enable_log_capture(logger_name: str) -> None:
+    logging.disable(logging.NOTSET)
+    logging.getLogger(logger_name).disabled = False
 
 
 class _FakeBoundLLM:
@@ -43,6 +50,16 @@ class _FakeLLM:
     async def ainvoke(self, messages):
         self.invocations.append(("plain", messages))
         return AIMessage(content="ok")
+
+
+class _FakeStructuredLLM:
+    async def ainvoke(self, _messages):
+        return IntentClassification(intent="analysis")
+
+
+class _FakeRouterLLM:
+    def with_structured_output(self, _schema):
+        return _FakeStructuredLLM()
 
 
 class NodeMessageSanitizationTestCase(unittest.TestCase):
@@ -276,6 +293,32 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(llm.bound_tools, [["get_current_time"]])
         self.assertEqual(llm.invocations[0][0], "bound")
 
+    async def test_llm_node_logs_branch_metadata_without_message_content(self) -> None:
+        _enable_log_capture("copilot.agent.nodes")
+
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[_tool("get_current_time")],
+            system_text="system",
+            max_tokens=4000,
+            branch_name="respond",
+        )
+
+        with self.assertLogs("copilot.agent.nodes", level="DEBUG") as logs:
+            await node(
+                {"messages": [HumanMessage(content="secret user text")]},
+                {"configurable": {"thread_id": "thread-1"}},
+            )
+
+        output = "\n".join(logs.output)
+        self.assertIn("Agent branch entered branch=respond", output)
+        self.assertIn("thread_id=thread-1", output)
+        self.assertIn("tool_count=1", output)
+        self.assertIn("get_current_time", output)
+        self.assertIn("parallel_tool_calls=True", output)
+        self.assertNotIn("secret user text", output)
+
     async def test_llm_node_keeps_camera_tool_when_camera_is_active(self) -> None:
         llm = _FakeLLM()
         node = _make_llm_node(
@@ -311,6 +354,26 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(llm.bound_tools, [])
         self.assertEqual(llm.invocations[0][0], "plain")
+
+
+class RouterObservabilityTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_router_logs_intent_and_thread_without_message_content(self) -> None:
+        _enable_log_capture("copilot.agent.nodes")
+
+        router = make_router_node(_FakeRouterLLM(), max_tokens=4000)
+
+        with self.assertLogs("copilot.agent.nodes", level="INFO") as logs:
+            result = await router(
+                {"messages": [HumanMessage(content="secret router text")]},
+                {"configurable": {"thread_id": "thread-router"}},
+            )
+
+        output = "\n".join(logs.output)
+        self.assertEqual(result, {"intent": "analysis"})
+        self.assertIn("Router classified intent", output)
+        self.assertIn("thread_id=thread-router", output)
+        self.assertIn("intent=analysis", output)
+        self.assertNotIn("secret router text", output)
 
 
 class PriorAnalysisBlockTestCase(unittest.TestCase):

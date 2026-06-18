@@ -6,6 +6,7 @@ flag-off graph is structurally identical to the single-branch graph.
 """
 
 import unittest
+import logging
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
@@ -16,6 +17,11 @@ from copilot.agent.nodes import IntentClassification, make_dispatch_node
 from copilot.agent.tools.route_to import make_route_to_tool
 
 _ACTION_LLM_NODES = {"control_llm", "analysis_llm", "jobs_llm", "virtual_things_llm"}
+
+
+def _enable_log_capture(logger_name: str) -> None:
+    logging.disable(logging.NOTSET)
+    logging.getLogger(logger_name).disabled = False
 
 
 @tool("get_current_time")
@@ -42,20 +48,38 @@ class DispatchNodeTestCase(unittest.TestCase):
         )
 
     def test_routes_to_requested_branch_and_clears_field(self) -> None:
-        result = self.dispatch({"next": "analysis"})
+        _enable_log_capture("copilot.agent.nodes")
+
+        with self.assertLogs("copilot.agent.nodes", level="INFO") as logs:
+            result = self.dispatch({"next": "analysis"})
+
         self.assertIsInstance(result, Command)
         self.assertEqual(result.goto, "analysis_llm")
         self.assertEqual(result.update, {"next": None})
+        output = "\n".join(logs.output)
+        self.assertIn("Agent handoff dispatch requested=analysis resolved=analysis_llm", output)
 
     def test_finishes_when_no_next_requested(self) -> None:
-        result = self.dispatch({})
+        _enable_log_capture("copilot.agent.nodes")
+
+        with self.assertLogs("copilot.agent.nodes", level="INFO") as logs:
+            result = self.dispatch({})
+
         self.assertEqual(result.goto, "device_summary")
         self.assertEqual(result.update, {"next": None})
+        output = "\n".join(logs.output)
+        self.assertIn("Agent handoff dispatch fallthrough resolved=device_summary", output)
 
     def test_finishes_on_unknown_target(self) -> None:
-        result = self.dispatch({"next": "bogus"})
+        _enable_log_capture("copilot.agent.nodes")
+
+        with self.assertLogs("copilot.agent.nodes", level="WARNING") as logs:
+            result = self.dispatch({"next": "bogus"})
+
         self.assertEqual(result.goto, "device_summary")
         self.assertEqual(result.update, {"next": None})
+        output = "\n".join(logs.output)
+        self.assertIn("Agent handoff target unknown requested=bogus resolved=device_summary", output)
 
 
 class RouteToToolTestCase(unittest.TestCase):

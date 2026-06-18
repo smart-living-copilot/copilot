@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from ag_ui.core.events import RunErrorEvent
@@ -77,21 +78,53 @@ class AguiRuntime:
             raise RuntimeError("AG-UI agent is not ready")
 
         thread_id = _request_thread_id(input_data)
-        if thread_id:
-            lock = await self._thread_run_lock(thread_id)
-            async with lock:
-                try:
+        run_id = _request_run_id(input_data)
+        heartbeat_timeout = _heartbeat_timeout(self.settings)
+        uses_thread_lock = bool(thread_id)
+        started = time.perf_counter()
+        completed = False
+        logger.info(
+            "AG-UI run started thread_id=%s run_id=%s uses_thread_lock=%s heartbeat_timeout=%s",
+            thread_id,
+            run_id,
+            uses_thread_lock,
+            heartbeat_timeout,
+        )
+        try:
+            if thread_id:
+                lock = await self._thread_run_lock(thread_id)
+                async with lock:
                     async for event in self.agent.run(input_data):
                         yield event
-                finally:
-                    await self.finalize_thread_run(thread_id)
-            return
-
-        try:
-            async for event in self.agent.run(input_data):
-                yield event
+            else:
+                async for event in self.agent.run(input_data):
+                    yield event
+            completed = True
+        except (asyncio.CancelledError, GeneratorExit):
+            logger.warning(
+                "AG-UI run cancelled/closed thread_id=%s run_id=%s elapsed_ms=%.1f",
+                thread_id,
+                run_id,
+                _elapsed_ms(started),
+            )
+            raise
+        except Exception:
+            logger.exception(
+                "AG-UI run failed thread_id=%s run_id=%s elapsed_ms=%.1f",
+                thread_id,
+                run_id,
+                _elapsed_ms(started),
+            )
+            raise
         finally:
             await self.finalize_thread_run(thread_id)
+        if completed:
+            logger.info(
+                "AG-UI run finished thread_id=%s run_id=%s elapsed_ms=%.1f",
+                thread_id,
+                run_id,
+                _elapsed_ms(started),
+            )
 
     async def finalize_thread_run(self, thread_id: str | None) -> None:
         if _is_embed_ephemeral_thread(thread_id):
@@ -270,8 +303,7 @@ class AguiRuntime:
         async def langgraph_agent_endpoint(input_data: RunAgentInput, request: Request):
             encoder = EventEncoder(accept=request.headers.get("accept"))
             request_agent = self.create_agent_proxy()
-            interval = self.settings.sse_heartbeat_seconds if self.settings else 15.0
-            timeout = interval if interval and interval > 0 else None
+            timeout = _heartbeat_timeout(self.settings)
             return StreamingResponse(
                 self.sse_with_heartbeat(request_agent.run(input_data), encoder, timeout),
                 media_type=encoder.get_content_type(),
@@ -283,26 +315,34 @@ def _is_embed_ephemeral_thread(thread_id: str | None) -> bool:
 
 
 def _request_thread_id(input_data: Any) -> str | None:
-    if isinstance(input_data, dict):
-        return _thread_id_from_mapping(input_data)
+    return _request_string(input_data, ("threadId", "thread_id"))
 
-    direct_value = _thread_id_from_attrs(input_data)
+
+def _request_run_id(input_data: Any) -> str | None:
+    return _request_string(input_data, ("runId", "run_id"))
+
+
+def _request_string(input_data: Any, keys: tuple[str, ...]) -> str | None:
+    if isinstance(input_data, dict):
+        return _string_from_mapping(input_data, keys)
+
+    direct_value = _string_from_attrs(input_data, keys)
     if direct_value:
         return direct_value
     configurable = getattr(input_data, "configurable", None)
-    return _thread_id_from_mapping(configurable) if isinstance(configurable, dict) else None
+    return _string_from_mapping(configurable, keys) if isinstance(configurable, dict) else None
 
 
-def _thread_id_from_mapping(value: dict[str, Any]) -> str | None:
-    direct_value = _first_string_value(value, ("threadId", "thread_id"))
+def _string_from_mapping(value: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    direct_value = _first_string_value(value, keys)
     if direct_value:
         return direct_value
     configurable = value.get("configurable")
-    return _first_string_value(configurable, ("threadId", "thread_id"))
+    return _first_string_value(configurable, keys)
 
 
-def _thread_id_from_attrs(value: Any) -> str | None:
-    for attr in ("threadId", "thread_id"):
+def _string_from_attrs(value: Any, keys: tuple[str, ...]) -> str | None:
+    for attr in keys:
         raw_value = getattr(value, attr, None)
         if isinstance(raw_value, str) and raw_value:
             return raw_value
@@ -317,6 +357,15 @@ def _first_string_value(value: Any, keys: tuple[str, ...]) -> str | None:
         if isinstance(raw_value, str) and raw_value:
             return raw_value
     return None
+
+
+def _heartbeat_timeout(settings: Any | None) -> float | None:
+    interval = settings.sse_heartbeat_seconds if settings else 15.0
+    return interval if interval and interval > 0 else None
+
+
+def _elapsed_ms(started: float) -> float:
+    return (time.perf_counter() - started) * 1000
 
 
 def _log_background_task_exception(
