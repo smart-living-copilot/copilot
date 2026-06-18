@@ -78,7 +78,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
 
         fake_saver = object()
         fake_graph = FakeGraph()
-        fake_settings = Settings()
+        fake_settings = Settings(agent_handoff_enabled=True)
         fake_job_service = AsyncMock()
 
         async def exercise() -> None:
@@ -101,6 +101,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 async with copilot_app.lifespan(copilot_app.app):
                     self.assertIs(copilot_app.app.state.graph, fake_graph)
                     self.assertIs(build_graph.call_args.kwargs["checkpointer"], fake_saver)
+                    self.assertTrue(build_graph.call_args.kwargs["handoff_enabled"])
                     fake_job_service.start.assert_awaited_once()
                 fake_job_service.stop.assert_awaited_once()
 

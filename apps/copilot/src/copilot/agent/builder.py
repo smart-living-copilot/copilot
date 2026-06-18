@@ -35,6 +35,51 @@ def _after_tool_node(next_node: str):
     return route
 
 
+def _add_action_branch(
+    graph: StateGraph,
+    *,
+    llm_node: str,
+    tools_node: str,
+    llm_factory,
+    llm: ChatOpenAI,
+    tools: list[Any],
+    max_tokens: int,
+    action_branch_end: str,
+    parallel_tool_calls: bool,
+    handoff_note: str,
+) -> None:
+    graph.add_node(
+        llm_node,
+        llm_factory(
+            llm,
+            tools,
+            max_tokens,
+            parallel_tool_calls=parallel_tool_calls,
+            handoff_note=handoff_note,
+        ),
+    )
+    graph.add_node(
+        tools_node,
+        ToolNode(tools, handle_tool_errors=_tool_error_message),
+    )
+    graph.add_conditional_edges(
+        llm_node,
+        tools_condition,
+        {
+            "tools": tools_node,
+            END: action_branch_end,
+        },
+    )
+    graph.add_conditional_edges(
+        tools_node,
+        _after_tool_node(llm_node),
+        {
+            llm_node: llm_node,
+            END: END,
+        },
+    )
+
+
 def build_graph(
     llm: ChatOpenAI,
     registry_tools: list[Any],
@@ -117,64 +162,8 @@ def build_graph(
         ),
     )
     graph.add_node(
-        "jobs_llm",
-        make_jobs_node(
-            llm,
-            jobs_tools,
-            max_tokens,
-            parallel_tool_calls=parallel_tool_calls,
-            handoff_note=handoff_note,
-        ),
-    )
-    graph.add_node(
-        "jobs_tools",
-        ToolNode(jobs_tools, handle_tool_errors=_tool_error_message),
-    )
-    graph.add_node(
-        "virtual_things_llm",
-        make_virtual_things_node(
-            llm,
-            virtual_things_tools,
-            max_tokens,
-            parallel_tool_calls=parallel_tool_calls,
-            handoff_note=handoff_note,
-        ),
-    )
-    graph.add_node(
-        "virtual_things_tools",
-        ToolNode(virtual_things_tools, handle_tool_errors=_tool_error_message),
-    )
-    graph.add_node(
         "respond_tools",
         ToolNode(respond_tools, handle_tool_errors=_tool_error_message),
-    )
-    graph.add_node(
-        "control_llm",
-        make_control_node(
-            llm,
-            control_tools,
-            max_tokens,
-            parallel_tool_calls=parallel_tool_calls,
-            handoff_note=handoff_note,
-        ),
-    )
-    graph.add_node(
-        "control_tools",
-        ToolNode(control_tools, handle_tool_errors=_tool_error_message),
-    )
-    graph.add_node(
-        "analysis_llm",
-        make_analysis_node(
-            llm,
-            analysis_tools,
-            max_tokens,
-            parallel_tool_calls=parallel_tool_calls,
-            handoff_note=handoff_note,
-        ),
-    )
-    graph.add_node(
-        "analysis_tools",
-        ToolNode(analysis_tools, handle_tool_errors=_tool_error_message),
     )
     graph.add_node("device_summary", make_device_interaction_summary_node())
 
@@ -198,6 +187,46 @@ def build_graph(
         )
 
     graph.add_edge(START, "router")
+
+    for branch in (
+        (
+            "jobs_llm",
+            "jobs_tools",
+            make_jobs_node,
+            jobs_tools,
+        ),
+        (
+            "virtual_things_llm",
+            "virtual_things_tools",
+            make_virtual_things_node,
+            virtual_things_tools,
+        ),
+        (
+            "control_llm",
+            "control_tools",
+            make_control_node,
+            control_tools,
+        ),
+        (
+            "analysis_llm",
+            "analysis_tools",
+            make_analysis_node,
+            analysis_tools,
+        ),
+    ):
+        llm_node, tools_node, llm_factory, tools = branch
+        _add_action_branch(
+            graph,
+            llm_node=llm_node,
+            tools_node=tools_node,
+            llm_factory=llm_factory,
+            llm=llm,
+            tools=tools,
+            max_tokens=max_tokens,
+            action_branch_end=action_branch_end,
+            parallel_tool_calls=parallel_tool_calls,
+            handoff_note=handoff_note,
+        )
 
     graph.add_conditional_edges(
         "router",
@@ -228,72 +257,6 @@ def build_graph(
         },
     )
 
-    graph.add_conditional_edges(
-        "control_llm",
-        tools_condition,
-        {
-            "tools": "control_tools",
-            END: action_branch_end,
-        },
-    )
-    graph.add_conditional_edges(
-        "control_tools",
-        _after_tool_node("control_llm"),
-        {
-            "control_llm": "control_llm",
-            END: END,
-        },
-    )
-
-    graph.add_conditional_edges(
-        "analysis_llm",
-        tools_condition,
-        {
-            "tools": "analysis_tools",
-            END: action_branch_end,
-        },
-    )
-    graph.add_conditional_edges(
-        "analysis_tools",
-        _after_tool_node("analysis_llm"),
-        {
-            "analysis_llm": "analysis_llm",
-            END: END,
-        },
-    )
-
-    graph.add_conditional_edges(
-        "jobs_llm",
-        tools_condition,
-        {
-            "tools": "jobs_tools",
-            END: action_branch_end,
-        },
-    )
-    graph.add_conditional_edges(
-        "jobs_tools",
-        _after_tool_node("jobs_llm"),
-        {
-            "jobs_llm": "jobs_llm",
-            END: END,
-        },
-    )
-    graph.add_conditional_edges(
-        "virtual_things_llm",
-        tools_condition,
-        {
-            "tools": "virtual_things_tools",
-            END: action_branch_end,
-        },
-    )
-    graph.add_conditional_edges(
-        "virtual_things_tools",
-        _after_tool_node("virtual_things_llm"),
-        {
-            "virtual_things_llm": "virtual_things_llm",
-            END: END,
-        },
-    )
     graph.add_edge("device_summary", END)
 
     return graph.compile(checkpointer=checkpointer)

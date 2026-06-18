@@ -56,7 +56,7 @@ npm run gen:types      # exports the schema from copilot, then regenerates the T
 npm run check:contract # regenerates and fails (git diff) if anything is stale
 ```
 
-`gen:types` runs copilot's `python -m copilot.virtual_things.contract_export`, so it requires copilot's Python venv on `PATH` (e.g. `PATH="../copilot/.venv/bin:$PATH" npm run gen:types`). Wire `check:contract` into CI to catch drift. Do not hand-edit `src/types.generated.ts`.
+`gen:types` runs copilot's contract exporter with `${PYTHON:-python3}`. Use `PYTHON=../../.venv/bin/python npm run gen:types` from this directory when you want the repo venv explicitly. `check:contract` runs in CI to catch drift. Do not hand-edit `src/types.generated.ts`.
 
 ## Environment
 
