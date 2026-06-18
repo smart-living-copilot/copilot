@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { missingInvokeActionInputMessage, resolveInvokeActionInput } from './operations.js';
+import { isCacheableSafeAction, missingInvokeActionInputMessage, resolveInvokeActionInput } from './operations.js';
 
 test('resolveInvokeActionInput defaults missing optional object input to empty object', () => {
   const actionDef = {
@@ -60,4 +60,11 @@ test('missingInvokeActionInputMessage ignores optional object input', () => {
   };
 
   assert.equal(missingInvokeActionInputMessage(actionDef, 'virtual:things:energy', 'analyze', undefined), null);
+});
+
+test('isCacheableSafeAction only accepts explicit safe actions', () => {
+  assert.equal(isCacheableSafeAction({ safe: true }), true);
+  assert.equal(isCacheableSafeAction({ safe: false }), false);
+  assert.equal(isCacheableSafeAction({}), false);
+  assert.equal(isCacheableSafeAction(null), false);
 });

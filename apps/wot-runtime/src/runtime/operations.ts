@@ -179,6 +179,10 @@ export function missingInvokeActionInputMessage(
   );
 }
 
+export function isCacheableSafeAction(actionDef: unknown): boolean {
+  return isPlainObject(actionDef) && actionDef.safe === true;
+}
+
 /**
  * Fetches a Thing Description and consumes it via the node-wot servient.
  */
@@ -351,7 +355,7 @@ export async function handleInvokeAction(request: any): Promise<any> {
     );
   }
 
-  const isCacheable = isPlainObject(actionDef) && actionDef.safe === true;
+  const isCacheable = isCacheableSafeAction(actionDef);
   const uriVariables = decodeUriVariables(request.uriVariables);
   const cacheKey = isCacheable ? buildCacheKey(thingId, 'invoke_action', actionName, uriVariables, input) : '';
 
