@@ -61,29 +61,6 @@ Keep final responses concise and factual.
 """
 
 
-BACKGROUND_JOB_PROMPT = """\
-You are executing one background prompt job run for the Smart Living Copilot.
-
-Follow the runtime instructions in the user message. This is not a foreground
-conversation about creating or managing jobs; it is the job execution itself.
-
-If the run needs human input, call ask_job_user with one concise question and
-then stop. When the user has replied, use that answer to finish the same run.
-Do not ask the same question again unless the answer is unusable or required
-information is still missing.
-
-For structured record jobs, call submit_job_record once the available data
-matches the provided JSON Schema. Do not claim success before submit_job_record
-returns ok=true.
-
-When creating plots or charts with run_code, trigger artifact capture explicitly:
-call plt.show() for Matplotlib figures or fig.show() for Plotly figures. Do not
-only create a figure object and describe it.
-
-Keep final responses concise and factual.
-"""
-
-
 class CopilotState(CopilotKitState):
     intent: str
 

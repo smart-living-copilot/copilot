@@ -19,12 +19,25 @@ from copilot.virtual_things.validator import VirtualThingValidator
 router = APIRouter(tags=["virtual-things"])
 
 
+def get_virtual_thing_store() -> VirtualThingStore:
+    return VirtualThingStore()
+
+
+def get_virtual_thing_dispatcher() -> VirtualThingDispatcher:
+    return VirtualThingDispatcher()
+
+
+def get_virtual_thing_validator() -> VirtualThingValidator:
+    return VirtualThingValidator()
+
+
 @router.get("/api/virtual-things/definitions")
 def list_virtual_thing_definitions(
     include_disabled: bool = False,
+    store: VirtualThingStore = Depends(get_virtual_thing_store),
     _user: User = Depends(require_scopes(["things:read"])),
 ) -> dict[str, Any]:
-    definitions = VirtualThingStore().list_definitions(include_disabled=include_disabled)
+    definitions = store.list_definitions(include_disabled=include_disabled)
     return {
         "definitions": [
             definition.model_dump(mode="json", by_alias=True) for definition in definitions
@@ -36,11 +49,12 @@ def list_virtual_thing_definitions(
 def get_virtual_thing_definition(
     thing_id: str,
     include_disabled: bool = False,
+    store: VirtualThingStore = Depends(get_virtual_thing_store),
     _user: User = Depends(require_scopes(["things:read"])),
 ) -> dict[str, Any]:
     try:
         decoded_thing_id = decode_thing_id(thing_id)
-        definition = VirtualThingStore().get_definition(
+        definition = store.get_definition(
             decoded_thing_id,
             include_disabled=include_disabled,
         )
@@ -53,6 +67,7 @@ def get_virtual_thing_definition(
 async def read_virtual_thing_property(
     thing_id: str,
     property_name: str,
+    dispatcher: VirtualThingDispatcher = Depends(get_virtual_thing_dispatcher),
     _user: User = Depends(require_scopes(["things:read"])),
 ) -> dict[str, Any]:
     try:
@@ -60,7 +75,7 @@ async def read_virtual_thing_property(
         return {
             "thing_id": decoded_thing_id,
             "property_name": property_name,
-            "value": await VirtualThingDispatcher().read_property(
+            "value": await dispatcher.read_property(
                 decoded_thing_id,
                 property_name,
             ),
@@ -74,6 +89,7 @@ async def invoke_virtual_thing_action(
     thing_id: str,
     action_name: str,
     payload: dict[str, Any] = Body(default_factory=dict),
+    dispatcher: VirtualThingDispatcher = Depends(get_virtual_thing_dispatcher),
     _user: User = Depends(require_scopes(["things:write"])),
 ) -> dict[str, Any]:
     try:
@@ -81,7 +97,7 @@ async def invoke_virtual_thing_action(
         return {
             "thing_id": decoded_thing_id,
             "action_name": action_name,
-            "value": await VirtualThingDispatcher().invoke_action(
+            "value": await dispatcher.invoke_action(
                 decoded_thing_id,
                 action_name,
                 payload.get("input"),
@@ -96,11 +112,12 @@ async def evaluate_virtual_thing_event(
     thing_id: str,
     event_name: str,
     payload: dict[str, Any] = Body(default_factory=dict),
+    dispatcher: VirtualThingDispatcher = Depends(get_virtual_thing_dispatcher),
     _user: User = Depends(require_scopes(["things:write"])),
 ) -> Any:
     try:
         decoded_thing_id = decode_thing_id(thing_id)
-        return await VirtualThingDispatcher().evaluate_event(
+        return await dispatcher.evaluate_event(
             decoded_thing_id,
             event_name,
             payload.get("input"),
@@ -115,11 +132,12 @@ async def emit_virtual_thing_event(
     thing_id: str,
     event_name: str,
     payload: dict[str, Any] = Body(default_factory=dict),
+    dispatcher: VirtualThingDispatcher = Depends(get_virtual_thing_dispatcher),
     _user: User = Depends(require_scopes(["things:write"])),
 ) -> dict[str, Any]:
     try:
         decoded_thing_id = decode_thing_id(thing_id)
-        result = await VirtualThingDispatcher().emit_event(
+        result = await dispatcher.emit_event(
             decoded_thing_id,
             event_name,
             {
@@ -137,6 +155,8 @@ async def emit_virtual_thing_event(
 async def define_virtual_thing_definition(
     thing_id: str,
     payload: DefineVirtualThingRequest,
+    store: VirtualThingStore = Depends(get_virtual_thing_store),
+    validator: VirtualThingValidator = Depends(get_virtual_thing_validator),
     _user: User = Depends(require_scopes(["things:write"])),
 ) -> dict[str, Any]:
     try:
@@ -146,7 +166,6 @@ async def define_virtual_thing_definition(
         request_data = payload.model_dump(mode="json")
         request_data["id"] = decoded_thing_id
         request_data["td"] = {**payload.td, "id": decoded_thing_id}
-        store = VirtualThingStore()
         if request_data.get("shared_state") is None:
             try:
                 existing = store.get_definition(decoded_thing_id, include_disabled=True)
@@ -154,7 +173,7 @@ async def define_virtual_thing_definition(
             except KeyError:
                 pass
         request = DefineVirtualThingRequest.model_validate(request_data)
-        validation_report = await VirtualThingValidator().validate(
+        validation_report = await validator.validate(
             request,
             run_smoke=request.status == "active",
         )
@@ -177,13 +196,14 @@ async def define_virtual_thing_definition(
 @router.delete("/api/virtual-things/definitions/{thing_id:path}")
 def delete_virtual_thing_definition(
     thing_id: str,
+    store: VirtualThingStore = Depends(get_virtual_thing_store),
     _user: User = Depends(require_scopes(["things:delete"])),
 ) -> dict[str, Any]:
     try:
         decoded_thing_id = decode_thing_id(thing_id)
         if is_virtual_record_thing_id(decoded_thing_id):
             raise ValueError("virtual record Things are deleted with their owning job")
-        VirtualThingStore().delete_thing(decoded_thing_id)
+        store.delete_thing(decoded_thing_id)
         return {"ok": True, "thing_id": decoded_thing_id}
     except Exception as exc:
         raise virtual_thing_http_error(exc) from exc

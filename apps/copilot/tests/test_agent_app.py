@@ -25,29 +25,25 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         copilot_app.app.router.lifespan_context = cls._original_lifespan_context
 
     def setUp(self) -> None:
-        self._original_settings = copilot_app._settings
-        self._original_agent = copilot_app._agent
-        self._original_graph = copilot_app._graph
-        self._original_checkpointer = copilot_app._checkpointer
-        self._original_job_service = copilot_app._job_service
-        self._original_thread_run_locks = copilot_app._thread_run_locks
+        self._original_settings = copilot_app.agui_runtime.settings
+        self._original_agent = copilot_app.agui_runtime.agent
+        self._original_checkpointer = copilot_app.agui_runtime.checkpointer
+        self._original_thread_run_locks = copilot_app.agui_runtime._thread_run_locks
         self._original_app_state = dict(copilot_app.app.state._state)
-        copilot_app._thread_run_locks = {}
+        copilot_app.agui_runtime._thread_run_locks = {}
         self.client = TestClient(copilot_app.app)
 
     def tearDown(self) -> None:
         self.client.close()
-        copilot_app._settings = self._original_settings
-        copilot_app._agent = self._original_agent
-        copilot_app._graph = self._original_graph
-        copilot_app._checkpointer = self._original_checkpointer
-        copilot_app._job_service = self._original_job_service
-        copilot_app._thread_run_locks = self._original_thread_run_locks
+        copilot_app.agui_runtime.settings = self._original_settings
+        copilot_app.agui_runtime.agent = self._original_agent
+        copilot_app.agui_runtime.checkpointer = self._original_checkpointer
+        copilot_app.agui_runtime._thread_run_locks = self._original_thread_run_locks
         copilot_app.app.state._state.clear()
         copilot_app.app.state._state.update(self._original_app_state)
 
     def _set_settings(self, settings: Settings) -> None:
-        copilot_app._settings = settings
+        copilot_app.agui_runtime.configure(settings=settings)
         copilot_app.app.state.settings = settings
 
     def test_ag_ui_health_route_reports_agent_name(self) -> None:
@@ -103,7 +99,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 patch.object(copilot_app, "set_active_job_service"),
             ):
                 async with copilot_app.lifespan(copilot_app.app):
-                    self.assertIs(copilot_app._graph, fake_graph)
+                    self.assertIs(copilot_app.app.state.graph, fake_graph)
                     self.assertIs(build_graph.call_args.kwargs["checkpointer"], fake_saver)
                     fake_job_service.start.assert_awaited_once()
                 fake_job_service.stop.assert_awaited_once()
@@ -271,10 +267,10 @@ class AgentAppRoutesTestCase(unittest.TestCase):
             async def run(self, _input_data):
                 yield {"event": "done"}
 
-        copilot_app._agent = FakeAgent()
+        copilot_app.agui_runtime.configure(agent=FakeAgent())
 
         async def collect_events():
-            proxy = copilot_app._AGUIAgentProxy()
+            proxy = copilot_app.agui_runtime.create_agent_proxy()
             return [event async for event in proxy.run({"threadId": "thread-a"})]
 
         events = asyncio.run(collect_events())
@@ -294,11 +290,13 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 self.deleted_threads.append(thread_id)
 
         fake_checkpointer = FakeCheckpointer()
-        copilot_app._agent = FakeAgent()
-        copilot_app._checkpointer = fake_checkpointer
+        copilot_app.agui_runtime.configure(
+            agent=FakeAgent(),
+            checkpointer=fake_checkpointer,
+        )
 
         async def collect_events():
-            proxy = copilot_app._AGUIAgentProxy()
+            proxy = copilot_app.agui_runtime.create_agent_proxy()
             return [event async for event in proxy.run({"threadId": "embed-ephemeral-thread-a"})]
 
         events = asyncio.run(collect_events())
@@ -321,7 +319,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         async def exercise() -> None:
             probe = OperationProbe()
             task = asyncio.create_task(
-                copilot_app._run_persistence_operation(
+                copilot_app.agui_runtime.run_persistence_operation(
                     probe.run(),
                     error_message="probe failed",
                 )
@@ -346,7 +344,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 self.deleted_threads.append(thread_id)
 
         self._set_settings(Settings(internal_api_key="test-internal-key"))
-        copilot_app._checkpointer = FakeCheckpointer()
+        copilot_app.agui_runtime.configure(checkpointer=FakeCheckpointer())
 
         with patch("copilot.threads.routes.delete_thread_metadata", return_value=True):
             response = self.client.delete(
@@ -355,7 +353,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(copilot_app._checkpointer.deleted_threads, ["thread-a"])
+        self.assertEqual(copilot_app.agui_runtime.checkpointer.deleted_threads, ["thread-a"])
 
 
 if __name__ == "__main__":
