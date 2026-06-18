@@ -1,10 +1,7 @@
 /** The slice of a node-wot ExposedThing the servient actually drives. */
 export interface ExposedThing {
   emitEvent(eventName: string, payload: unknown): void;
-  setPropertyReadHandler(
-    name: string,
-    handler: () => Promise<unknown>,
-  ): void;
+  setPropertyReadHandler(name: string, handler: () => Promise<unknown>): void;
   setActionHandler(
     name: string,
     handler: (input: unknown) => Promise<unknown>,

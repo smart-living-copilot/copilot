@@ -9,9 +9,17 @@ import {
 } from "./clients/copilot.js";
 import log from "./logger.js";
 import { getWot } from "./servient.js";
-import { catalogTdWithMetadata, concreteCatalogTd, tdForProduce } from "./td.js";
+import {
+  catalogTdWithMetadata,
+  concreteCatalogTd,
+  tdForProduce,
+} from "./td.js";
 import { canaryEventBindings, startEventTriggers } from "./triggers.js";
-import type { ThingDescription, VirtualThingBinding, VirtualThingDefinition } from "./types.js";
+import type {
+  ThingDescription,
+  VirtualThingBinding,
+  VirtualThingDefinition,
+} from "./types.js";
 import {
   decodeInteractionValue,
   errorDetail,

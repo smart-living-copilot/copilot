@@ -77,7 +77,11 @@ test("catalogTdWithMetadata applies new metadata but preserves concrete forms", 
     },
   };
 
-  const result = catalogTdWithMetadata(current, desired, "virtual:things:sensor");
+  const result = catalogTdWithMetadata(
+    current,
+    desired,
+    "virtual:things:sensor",
+  );
 
   assert.equal(result.description, "Enriched description");
   assert.equal(result["@type"], "saref:TemperatureSensor");

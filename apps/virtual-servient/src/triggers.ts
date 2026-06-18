@@ -111,9 +111,14 @@ export async function canaryEventBindings(
     if (binding.affordance_type !== "event" || binding.kind !== "emitted") {
       continue;
     }
-    await evaluate(definition.id, binding.affordance_name, eventInput(binding), {
-      dryRun: true,
-    });
+    await evaluate(
+      definition.id,
+      binding.affordance_name,
+      eventInput(binding),
+      {
+        dryRun: true,
+      },
+    );
   }
 }
 
