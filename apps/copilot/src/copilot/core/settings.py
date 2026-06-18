@@ -1,5 +1,6 @@
 import os
 import socket
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
@@ -16,6 +17,150 @@ def _normalize_database_url(value: str) -> str:
 
 def _optional(value: str) -> str | None:
     return value or None
+
+
+def _fallback_value(value: str, fallback: str) -> str:
+    return value or fallback
+
+
+@dataclass(frozen=True, slots=True)
+class LlmSettings:
+    openai_api_key: str
+    openai_model: str
+    openai_temperature: float | None
+    openai_disable_streaming: DisableStreamingMode
+    openai_base_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingSettings:
+    api_base_url: str
+    api_key: str
+    model: str
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRuntimeSettings:
+    max_iterations: int
+    recursion_limit: int
+    max_context_tokens: int
+    parallel_tool_calls: bool
+    state_database_url: str
+    sse_heartbeat_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class RegistrySettings:
+    internal_api_key: str
+    init_admin_token: str
+    database_url: str
+    public_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class MediaSettings:
+    livekit_url: str
+    livekit_public_url: str
+    livekit_api_key: str
+    livekit_api_secret: str
+    livekit_agent_name: str
+    livekit_room_prefix: str
+    livekit_token_ttl_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class SpeechSettings:
+    transcriptions_url: str
+    model: str
+    api_key: str
+    language: str
+
+
+@dataclass(frozen=True, slots=True)
+class VisionSettings:
+    enabled: bool
+    api_base_url: str
+    api_key: str
+    model: str
+    timeout_seconds: int
+    max_image_dimension: int
+    jpeg_quality: int
+
+
+@dataclass(frozen=True, slots=True)
+class TtsSettings:
+    speech_url: str
+    model: str
+    voice: str
+    api_key: str
+    response_format: str
+    speed: float
+
+
+@dataclass(frozen=True, slots=True)
+class CodeExecutorSettings:
+    url: str
+    timeout_seconds: int
+    retry_attempts: int
+    retry_backoff_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class IndexingSettings:
+    search_vector_dimensions: int
+    thing_events_stream: str
+    thing_event_outbox_batch_size: int
+    thing_event_outbox_poll_interval_seconds: float
+    search_indexer_events_group: str
+    search_indexer_events_consumer: str
+    search_indexer_poll_block_ms: int
+    search_indexer_batch_size: int
+    search_indexer_claim_idle_ms: int
+    search_indexer_retry_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class RdfSettings:
+    service_url: str
+    store_path: str
+    thing_events_stream: str
+    events_group: str
+    events_consumer: str
+    events_batch_size: int
+    events_poll_block_ms: int
+    events_claim_idle_ms: int
+    events_retry_seconds: float
+    query_timeout_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class JobsSettings:
+    task_timeout_seconds: int
+    run_stale_after_seconds: int
+    default_timezone: str
+    redis_url: str
+    events_group: str
+    events_consumer: str
+    stream_batch_size: int
+    stream_poll_block_ms: int
+    stream_claim_idle_ms: int
+    run_events_stream: str
+
+
+@dataclass(frozen=True, slots=True)
+class WotRuntimeSettings:
+    url: str
+    registry_token: str
+    api_token: str
+    stream: str
+    timeout_seconds: int
+    subscription_timeout_seconds: int
+    virtual_servient_registry_token: str
+
+
+@dataclass(frozen=True, slots=True)
+class LoggingSettings:
+    level: str
 
 
 class Settings(BaseSettings):
@@ -182,10 +327,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _apply_fallback_settings(self) -> "Settings":
-        if not self.openai_embedding_api_base_url:
-            self.openai_embedding_api_base_url = self.openai_base_url
-        if not self.openai_embedding_api_key:
-            self.openai_embedding_api_key = self.openai_api_key
+        self.openai_embedding_api_base_url = _fallback_value(
+            self.openai_embedding_api_base_url,
+            self.openai_base_url,
+        )
+        self.openai_embedding_api_key = _fallback_value(
+            self.openai_embedding_api_key,
+            self.openai_api_key,
+        )
         return self
 
     def validate_runtime_security_settings(self) -> None:
@@ -201,6 +350,160 @@ class Settings(BaseSettings):
                 "WoT runtime integration requires shared auth token(s). "
                 f"Missing required setting(s): {missing_values}."
             )
+
+    @property
+    def llm(self) -> LlmSettings:
+        return LlmSettings(
+            openai_api_key=self.openai_api_key,
+            openai_model=self.openai_model,
+            openai_temperature=self.openai_temperature,
+            openai_disable_streaming=self.openai_disable_streaming,
+            openai_base_url=self.openai_base_url,
+        )
+
+    @property
+    def embeddings(self) -> EmbeddingSettings:
+        return EmbeddingSettings(
+            api_base_url=self.openai_embedding_api_base_url,
+            api_key=self.openai_embedding_api_key,
+            model=self.openai_embedding_model,
+        )
+
+    @property
+    def agent(self) -> AgentRuntimeSettings:
+        return AgentRuntimeSettings(
+            max_iterations=self.max_iterations,
+            recursion_limit=self.recursion_limit,
+            max_context_tokens=self.max_context_tokens,
+            parallel_tool_calls=self.parallel_tool_calls,
+            state_database_url=self.agent_state_database_url,
+            sse_heartbeat_seconds=self.sse_heartbeat_seconds,
+        )
+
+    @property
+    def registry(self) -> RegistrySettings:
+        return RegistrySettings(
+            internal_api_key=self.internal_api_key,
+            init_admin_token=self.init_admin_token,
+            database_url=self.registry_database_url,
+            public_url=self.registry_public_url,
+        )
+
+    @property
+    def media(self) -> MediaSettings:
+        return MediaSettings(
+            livekit_url=self.livekit_url,
+            livekit_public_url=self.livekit_public_url,
+            livekit_api_key=self.livekit_api_key,
+            livekit_api_secret=self.livekit_api_secret,
+            livekit_agent_name=self.livekit_agent_name,
+            livekit_room_prefix=self.livekit_room_prefix,
+            livekit_token_ttl_seconds=self.livekit_token_ttl_seconds,
+        )
+
+    @property
+    def speech(self) -> SpeechSettings:
+        return SpeechSettings(
+            transcriptions_url=self.stt_transcriptions_url,
+            model=self.stt_model,
+            api_key=self.stt_api_key,
+            language=self.stt_language,
+        )
+
+    @property
+    def vision(self) -> VisionSettings:
+        return VisionSettings(
+            enabled=self.vision_enabled,
+            api_base_url=self.vision_api_base_url,
+            api_key=self.vision_api_key,
+            model=self.vision_model,
+            timeout_seconds=self.vision_timeout_seconds,
+            max_image_dimension=self.vision_max_image_dimension,
+            jpeg_quality=self.vision_jpeg_quality,
+        )
+
+    @property
+    def tts(self) -> TtsSettings:
+        return TtsSettings(
+            speech_url=self.tts_speech_url,
+            model=self.tts_model,
+            voice=self.tts_voice,
+            api_key=self.tts_api_key,
+            response_format=self.tts_response_format,
+            speed=self.tts_speed,
+        )
+
+    @property
+    def code_executor(self) -> CodeExecutorSettings:
+        return CodeExecutorSettings(
+            url=self.code_executor_url,
+            timeout_seconds=self.code_executor_timeout_seconds,
+            retry_attempts=self.code_executor_retry_attempts,
+            retry_backoff_seconds=self.code_executor_retry_backoff_seconds,
+        )
+
+    @property
+    def indexing(self) -> IndexingSettings:
+        return IndexingSettings(
+            search_vector_dimensions=self.search_vector_dimensions,
+            thing_events_stream=self.thing_events_stream,
+            thing_event_outbox_batch_size=self.thing_event_outbox_batch_size,
+            thing_event_outbox_poll_interval_seconds=self.thing_event_outbox_poll_interval_seconds,
+            search_indexer_events_group=self.search_indexer_events_group,
+            search_indexer_events_consumer=self.search_indexer_events_consumer,
+            search_indexer_poll_block_ms=self.search_indexer_poll_block_ms,
+            search_indexer_batch_size=self.search_indexer_batch_size,
+            search_indexer_claim_idle_ms=self.search_indexer_claim_idle_ms,
+            search_indexer_retry_seconds=self.search_indexer_retry_seconds,
+        )
+
+    @property
+    def rdf(self) -> RdfSettings:
+        return RdfSettings(
+            service_url=self.rdf_service_url,
+            store_path=self.rdf_store_path,
+            thing_events_stream=self.thing_events_stream,
+            events_group=self.rdf_events_group,
+            events_consumer=self.rdf_events_consumer,
+            events_batch_size=self.rdf_events_batch_size,
+            events_poll_block_ms=self.rdf_events_poll_block_ms,
+            events_claim_idle_ms=self.rdf_events_claim_idle_ms,
+            events_retry_seconds=self.rdf_events_retry_seconds,
+            query_timeout_seconds=self.rdf_query_timeout_seconds,
+        )
+
+    @property
+    def jobs(self) -> JobsSettings:
+        return JobsSettings(
+            task_timeout_seconds=self.job_task_timeout_seconds,
+            run_stale_after_seconds=self.job_run_stale_after_seconds,
+            default_timezone=self.jobs_default_timezone,
+            redis_url=self.redis_url,
+            events_group=self.jobs_events_group,
+            events_consumer=self.jobs_events_consumer,
+            stream_batch_size=self.jobs_stream_batch_size,
+            stream_poll_block_ms=self.jobs_stream_poll_block_ms,
+            stream_claim_idle_ms=self.jobs_stream_claim_idle_ms,
+            run_events_stream=self.jobs_run_events_stream,
+        )
+
+    @property
+    def wot_runtime(self) -> WotRuntimeSettings:
+        return WotRuntimeSettings(
+            url=self.wot_runtime_url,
+            registry_token=self.wot_runtime_registry_token,
+            api_token=self.wot_runtime_api_token,
+            stream=self.wot_runtime_stream,
+            timeout_seconds=self.wot_runtime_timeout_seconds,
+            subscription_timeout_seconds=self.wot_runtime_subscription_timeout_seconds,
+            virtual_servient_registry_token=(
+                self.virtual_servient_registry_token or self.wot_runtime_registry_token
+            ),
+        )
+
+    @property
+    def logging(self) -> LoggingSettings:
+        return LoggingSettings(level=self.log_level)
 
     @property
     def DATABASE_URL(self) -> str:

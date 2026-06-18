@@ -63,6 +63,15 @@ def test_settings_accepts_tool_calling_disable_streaming_mode_from_env(monkeypat
     assert settings.openai_disable_streaming == "tool_calling"
 
 
+def test_settings_treats_empty_temperature_as_provider_default(monkeypatch):
+    monkeypatch.setenv("OPENAI_TEMPERATURE", "")
+
+    settings = Settings(_env_file=None, openai_api_key="test-key", openai_model="gpt-test")
+
+    assert settings.openai_temperature is None
+    assert settings.llm.openai_temperature is None
+
+
 def test_make_llm_passes_configured_temperature():
     settings = Settings(
         openai_api_key="test-key",

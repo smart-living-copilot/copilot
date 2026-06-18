@@ -272,10 +272,7 @@ def _bind_target(target: ast.expr, value: Any, env: dict[str, Any]) -> bool:
     if isinstance(target, (ast.Tuple, ast.List)):
         if not isinstance(value, (list, tuple)) or len(value) != len(target.elts):
             return False
-        return all(
-            _bind_target(element, item, env)
-            for element, item in zip(target.elts, value)
-        )
+        return all(_bind_target(element, item, env) for element, item in zip(target.elts, value))
     return False
 
 

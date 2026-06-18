@@ -52,4 +52,5 @@ class SnapshotNotifierRegistry:
             except Exception:
                 logger.debug("Camera snapshot notification callback failed", exc_info=True)
 
+
 snapshot_notifiers = SnapshotNotifierRegistry()
