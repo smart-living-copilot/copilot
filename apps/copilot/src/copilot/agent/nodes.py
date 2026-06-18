@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, NotRequired, Optional, cast
 
 from copilotkit import CopilotKitState
 from langchain_core.messages import (
@@ -19,6 +19,7 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from copilot.agent.device_interactions import (
@@ -63,6 +64,10 @@ Keep final responses concise and factual.
 
 class CopilotState(CopilotKitState):
     intent: str
+    # Set by the route_to handoff tool to request continuation in another
+    # branch; consumed and cleared by the dispatch node. Absent/None means the
+    # turn ends normally. Only used when agent_handoff_enabled is set.
+    next: NotRequired[Optional[str]]
 
 
 class IntentClassification(BaseModel):
@@ -343,11 +348,12 @@ def make_control_node(
     max_tokens: int,
     *,
     parallel_tool_calls: bool = True,
+    handoff_note: str = "",
 ):
     return _make_llm_node(
         llm,
         tools=tools,
-        system_text=CONTROL_PROMPT,
+        system_text=CONTROL_PROMPT + handoff_note,
         max_tokens=max_tokens,
         parallel_tool_calls=parallel_tool_calls,
     )
@@ -359,10 +365,13 @@ def make_analysis_node(
     max_tokens: int,
     *,
     parallel_tool_calls: bool = True,
+    handoff_note: str = "",
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
-        system_message = SystemMessage(content=ANALYSIS_PROMPT + _current_time_block())
+        system_message = SystemMessage(
+            content=ANALYSIS_PROMPT + handoff_note + _current_time_block()
+        )
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)
@@ -383,10 +392,11 @@ def make_jobs_node(
     max_tokens: int,
     *,
     parallel_tool_calls: bool = True,
+    handoff_note: str = "",
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
-        system_message = SystemMessage(content=JOBS_PROMPT + _current_time_block())
+        system_message = SystemMessage(content=JOBS_PROMPT + handoff_note + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)
@@ -407,11 +417,13 @@ def make_virtual_things_node(
     max_tokens: int,
     *,
     parallel_tool_calls: bool = True,
+    handoff_note: str = "",
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: CopilotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(
             content=VIRTUAL_THINGS_PROMPT
+            + handoff_note
             + _prior_analysis_block(state["messages"])
             + _current_time_block()
         )
@@ -457,3 +469,23 @@ def respond_should_continue(state: CopilotState) -> str:
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         return "tools"
     return END
+
+
+def make_dispatch_node(targets: dict[str, str], *, finish_node: str):
+    """Route a finished action branch into its requested successor branch.
+
+    Reads ``state["next"]`` (set by the route_to handoff tool), clears it, and
+    jumps to the mapped target node. When ``next`` is unset/unknown it falls
+    through to ``finish_node`` — making the handoff path identical to the
+    single-branch flow whenever no handoff was requested. Clearing and jumping
+    happen atomically via ``Command`` so a stale field can never re-trigger.
+    """
+
+    def dispatch(state: CopilotState) -> Command:
+        requested = state.get("next")
+        goto = targets.get(requested, finish_node) if requested else finish_node
+        if requested and goto == finish_node:
+            logger.warning("Ignoring unknown handoff target: %r", requested)
+        return Command(goto=goto, update={"next": None})
+
+    return dispatch

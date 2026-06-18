@@ -12,13 +12,16 @@ from copilot.agent.nodes import (
     make_analysis_node,
     make_background_job_node,
     make_control_node,
+    make_dispatch_node,
     make_jobs_node,
     make_respond_node,
     make_router_node,
     make_virtual_things_node,
     respond_should_continue,
 )
+from copilot.agent.prompts import HANDOFF_PROMPT
 from copilot.agent.tool_groups import group_local_tools, partition_registry_tools
+from copilot.agent.tools.route_to import make_route_to_tool
 
 
 def _tool_error_message(error: Exception) -> str:
@@ -40,6 +43,7 @@ def build_graph(
     checkpointer=None,
     parallel_tool_calls: bool = True,
     vision_enabled: bool = False,
+    handoff_enabled: bool = False,
 ):
     """Build and compile the copilot agent StateGraph."""
     registry_tool_groups = partition_registry_tools(registry_tools)
@@ -87,6 +91,19 @@ def build_graph(
         + local_tool_groups.virtual_thing_tools
     )
 
+    # When handoff is enabled, give the action branches the route_to tool so they
+    # can continue the turn in another branch, and a system-prompt note telling
+    # them how. Off by default: the tool lists, prompts, and edges below stay
+    # exactly as the single-branch graph.
+    handoff_note = ""
+    if handoff_enabled:
+        route_to = make_route_to_tool()
+        control_tools = control_tools + [route_to]
+        analysis_tools = analysis_tools + [route_to]
+        jobs_tools = jobs_tools + [route_to]
+        virtual_things_tools = virtual_things_tools + [route_to]
+        handoff_note = HANDOFF_PROMPT
+
     graph = StateGraph(CopilotState)
 
     graph.add_node("router", make_router_node(llm, max_tokens))
@@ -106,6 +123,7 @@ def build_graph(
             jobs_tools,
             max_tokens,
             parallel_tool_calls=parallel_tool_calls,
+            handoff_note=handoff_note,
         ),
     )
     graph.add_node(
@@ -119,6 +137,7 @@ def build_graph(
             virtual_things_tools,
             max_tokens,
             parallel_tool_calls=parallel_tool_calls,
+            handoff_note=handoff_note,
         ),
     )
     graph.add_node(
@@ -136,6 +155,7 @@ def build_graph(
             control_tools,
             max_tokens,
             parallel_tool_calls=parallel_tool_calls,
+            handoff_note=handoff_note,
         ),
     )
     graph.add_node(
@@ -149,6 +169,7 @@ def build_graph(
             analysis_tools,
             max_tokens,
             parallel_tool_calls=parallel_tool_calls,
+            handoff_note=handoff_note,
         ),
     )
     graph.add_node(
@@ -156,6 +177,25 @@ def build_graph(
         ToolNode(analysis_tools, handle_tool_errors=_tool_error_message),
     )
     graph.add_node("device_summary", make_device_interaction_summary_node())
+
+    # Action branches end at "dispatch" (which either continues into another
+    # branch or falls through to device_summary) when handoff is enabled,
+    # otherwise straight at "device_summary" as in the single-branch graph.
+    action_branch_end = "device_summary"
+    if handoff_enabled:
+        action_branch_end = "dispatch"
+        graph.add_node(
+            "dispatch",
+            make_dispatch_node(
+                {
+                    "control": "control_llm",
+                    "analysis": "analysis_llm",
+                    "jobs": "jobs_llm",
+                    "virtual_things": "virtual_things_llm",
+                },
+                finish_node="device_summary",
+            ),
+        )
 
     graph.add_edge(START, "router")
 
@@ -193,7 +233,7 @@ def build_graph(
         tools_condition,
         {
             "tools": "control_tools",
-            END: "device_summary",
+            END: action_branch_end,
         },
     )
     graph.add_conditional_edges(
@@ -210,7 +250,7 @@ def build_graph(
         tools_condition,
         {
             "tools": "analysis_tools",
-            END: "device_summary",
+            END: action_branch_end,
         },
     )
     graph.add_conditional_edges(
@@ -227,7 +267,7 @@ def build_graph(
         tools_condition,
         {
             "tools": "jobs_tools",
-            END: "device_summary",
+            END: action_branch_end,
         },
     )
     graph.add_conditional_edges(
@@ -243,7 +283,7 @@ def build_graph(
         tools_condition,
         {
             "tools": "virtual_things_tools",
-            END: "device_summary",
+            END: action_branch_end,
         },
     )
     graph.add_conditional_edges(
