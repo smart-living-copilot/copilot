@@ -13,7 +13,25 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  check-stack-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js for version check
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check stack version
+        run: scripts/check-version.sh
+
   build-and-push-copilot:
+    needs: check-stack-version
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -60,6 +78,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=copilot
 
   build-and-push-ui:
+    needs: check-stack-version
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -118,6 +137,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=ui
 
   build-and-push-code-executor:
+    needs: check-stack-version
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -164,6 +184,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=code-executor
 
   build-and-push-wot-runtime:
+    needs: check-stack-version
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -211,6 +232,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=wot-runtime
 
   build-and-push-virtual-servient:
+    needs: check-stack-version
     runs-on: ubuntu-latest
     permissions:
       contents: read

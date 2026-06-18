@@ -53,10 +53,24 @@ Service-specific setup, test commands, and implementation notes live in the serv
 - [WoT Runtime README](./apps/wot-runtime/README.md)
 - [Virtual Servient README](./apps/virtual-servient/README.md)
 
+## Versioning
+
+The stack uses one shared version in [`VERSION`](./VERSION). Update every service
+manifest from that source of truth with:
+
+```bash
+scripts/set-version.sh 0.1.0
+scripts/check-version.sh
+```
+
+Release tags should be `v<version>` (for example `v0.1.0`). CI runs the version
+check before building images and rejects tag/version drift.
+
 ## Top-Level Files
 
 - [`docker-compose.yaml`](./docker-compose.yaml): root wrapper for the default stack.
 - [`docker-compose.override.yaml`](./docker-compose.override.yaml): root wrapper for local development overrides.
 - [`deploy/compose.yaml`](./deploy/compose.yaml): canonical multi-service stack definition.
 - [`.env.example`](./.env.example): documented environment template.
+- [`VERSION`](./VERSION): shared stack version used by all service manifests.
 - [`LICENSE`](./LICENSE): project license.
