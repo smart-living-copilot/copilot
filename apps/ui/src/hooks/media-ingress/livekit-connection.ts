@@ -14,7 +14,7 @@ import {
   type MediaIngressState,
 } from '@/hooks/media-ingress/types';
 
-export const CAMERA_SNAPSHOT_TOPIC = 'copilot.camera.snapshot';
+export const CAMERA_SNAPSHOT_TOPIC = 'wotbot.camera.snapshot';
 const CAMERA_SNAPSHOT_EVENT_TYPE = 'camera_snapshot_sent';
 
 type MutableRef<T> = {

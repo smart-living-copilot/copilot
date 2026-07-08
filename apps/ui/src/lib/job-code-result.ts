@@ -1,7 +1,7 @@
 import {
   normalizeRunCodeResult,
   type RunCodeResult,
-} from '@/components/copilot/chat-tool-call-model';
+} from '@/components/wotbot/chat-tool-call-model';
 
 /** True when a run produced visible output: stdout, an error, or artifacts. */
 export function hasCodeOutput(result: RunCodeResult): boolean {

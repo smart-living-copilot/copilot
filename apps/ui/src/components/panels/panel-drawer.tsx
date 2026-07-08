@@ -20,7 +20,7 @@ import {
 import { toast } from 'sonner';
 
 import { CodeEditor } from '@/components/code-editor';
-import { PanelFrame } from '@/components/copilot/chat-tool-calls/panel-frame';
+import { PanelFrame } from '@/components/wotbot/chat-tool-calls/panel-frame';
 import {
   type PanelRecord,
   type PanelVersion,

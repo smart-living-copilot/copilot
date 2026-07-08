@@ -1,29 +1,29 @@
 # Virtual Servient
 
-`virtual-servient` is the internal Node.js service that produces Smart Living Copilot Virtual Things as concrete Web of Things Things. It watches virtual Thing definitions stored by `copilot`, exposes them through node-wot, and registers the produced Thing Descriptions back into the catalog.
+`virtual-servient` is the internal Node.js service that produces WoTBot Virtual Things as concrete Web of Things Things. It watches virtual Thing definitions stored by `wotbot`, exposes them through node-wot, and registers the produced Thing Descriptions back into the catalog.
 
 ## What This Service Owns
 
 - Producing standalone and record-backed virtual Things through node-wot.
 - Concrete HTTP forms for virtual properties, actions, and events.
 - Event trigger loops for interval and source-event emitted bindings.
-- Explicit virtual event emission from copilot's Thing event stream.
+- Explicit virtual event emission from wotbot's Thing event stream.
 - Catalog registration and cleanup for produced virtual Thing TDs.
 
-It does not own virtual Thing definitions, handler code, or record persistence. `copilot` remains the source of truth for definitions, bindings, handler execution, job records, and catalog storage.
+It does not own virtual Thing definitions, handler code, or record persistence. `wotbot` remains the source of truth for definitions, bindings, handler execution, job records, and catalog storage.
 
 ## Runtime Shape
 
 ```text
-copilot VirtualThingStore
+wotbot VirtualThingStore
   -> Redis thing_events stream
   -> virtual-servient
      -> node-wot producer servient
-     -> concrete virtual Thing TDs in copilot catalog
+     -> concrete virtual Thing TDs in wotbot catalog
      -> wot-runtime consumes them like normal Things
 ```
 
-Property reads and action invocations call back into `copilot`'s virtual Thing dispatcher. Emitted events are evaluated by `copilot`; this service owns the live WoT event emission on the produced Thing.
+Property reads and action invocations call back into `wotbot`'s virtual Thing dispatcher. Emitted events are evaluated by `wotbot`; this service owns the live WoT event emission on the produced Thing.
 
 ## Development
 
@@ -47,22 +47,22 @@ Use `npm run build` for TypeScript compilation, `npm run test` for unit tests, a
 
 ### Generated contract types
 
-The copilot↔servient wire shape has a single source of truth: copilot's `VirtualThingServientView` Pydantic model. The committed `schema/servient-view.schema.json` and `src/types.generated.ts` are derived from it, so `npm run build` and the tests need no extra step.
+The wotbot↔servient wire shape has a single source of truth: wotbot's `VirtualThingServientView` Pydantic model. The committed `schema/servient-view.schema.json` and `src/types.generated.ts` are derived from it, so `npm run build` and the tests need no extra step.
 
 Regenerate them after changing the model:
 
 ```bash
-npm run gen:types      # exports the schema from copilot, then regenerates the TS
+npm run gen:types      # exports the schema from wotbot, then regenerates the TS
 npm run check:contract # regenerates and fails (git diff) if anything is stale
 ```
 
-`gen:types` runs copilot's contract exporter with `${PYTHON:-python3}`. Use `PYTHON=../../.venv/bin/python npm run gen:types` from this directory when you want the repo venv explicitly. `check:contract` runs in CI to catch drift. Do not hand-edit `src/types.generated.ts`.
+`gen:types` runs wotbot's contract exporter with `${PYTHON:-python3}`. Use `PYTHON=../../.venv/bin/python npm run gen:types` from this directory when you want the repo venv explicitly. `check:contract` runs in CI to catch drift. Do not hand-edit `src/types.generated.ts`.
 
 ## Environment
 
 The Docker image defaults to:
 
-- `REGISTRY_URL=http://copilot:8123`
+- `REGISTRY_URL=http://wotbot:8123`
 - `REDIS_URL=redis://valkey:6379`
 - `PORT=3013`
 - `WOT_PORT=3014`
@@ -83,11 +83,11 @@ Compose also sets `VIRTUAL_SERVIENT_REGISTRY_TOKEN` from the root environment. S
 - [`src/types.generated.ts`](./src/types.generated.ts): generated definition-view types (do not edit; see [Generated contract types](#generated-contract-types)).
 - [`src/events.ts`](./src/events.ts): Redis stream consumer for definition and emission events.
 - [`src/servient.ts`](./src/servient.ts): node-wot servient setup.
-- [`src/clients/copilot.ts`](./src/clients/copilot.ts): internal copilot API client.
+- [`src/clients/wotbot.ts`](./src/clients/wotbot.ts): internal wotbot API client.
 - [`src/redis.ts`](./src/redis.ts): shared Redis client.
 
 ## Contributor Notes
 
-- Keep definition persistence and handler execution in `copilot`; this service should stay focused on producing WoT Things.
+- Keep definition persistence and handler execution in `wotbot`; this service should stay focused on producing WoT Things.
 - Keep virtual record Things on the generic virtual Thing path, not a separate runtime shortcut.
 - Prefer adding event trigger behavior in `manager.ts` and reusing the existing `thing_events` stream for cross-process delivery.

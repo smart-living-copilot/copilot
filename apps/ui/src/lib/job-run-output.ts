@@ -1,7 +1,7 @@
 import {
   formatArtifactSummary,
   type RunCodeResult,
-} from '@/components/copilot/chat-tool-call-model';
+} from '@/components/wotbot/chat-tool-call-model';
 import { hasCodeOutput, normalizeJobCodeResult } from '@/lib/job-code-result';
 import { getSubmittedRecordResultSummary } from '@/lib/job-formatters';
 import { type JobRunRecord } from '@/lib/jobs-api';

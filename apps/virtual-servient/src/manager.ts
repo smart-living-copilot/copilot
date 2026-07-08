@@ -6,7 +6,7 @@ import {
   listVirtualCatalogThingIds,
   readVirtualProperty,
   upsertCatalogThing,
-} from "./clients/copilot.js";
+} from "./clients/wotbot.js";
 import log from "./logger.js";
 import { getWot } from "./servient.js";
 import {
@@ -237,7 +237,7 @@ export async function reconcileAll(): Promise<void> {
 
 /**
  * Removes catalog TDs whose virtual Thing definition no longer exists. Each
- * candidate is re-checked against copilot (404) before deletion so a malformed
+ * candidate is re-checked against wotbot (404) before deletion so a malformed
  * or partial definitions response can never wipe live Things.
  */
 async function sweepOrphanCatalogThings(

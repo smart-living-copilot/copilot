@@ -1,4 +1,4 @@
-import { EmbedChatPage as EmbedChatExperiencePage } from '@/components/copilot/chat-route-page';
+import { EmbedChatPage as EmbedChatExperiencePage } from '@/components/wotbot/chat-route-page';
 import {
   getEmbedInitialPrefillFromSearchParams,
   getEmbedThemeFromSearchParams,

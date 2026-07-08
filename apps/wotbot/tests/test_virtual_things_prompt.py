@@ -1,0 +1,30 @@
+import unittest
+
+from wotbot.agent.prompts import ROUTER_PROMPT, VIRTUAL_THINGS_PROMPT
+
+
+class VirtualThingPromptTestCase(unittest.TestCase):
+    def test_router_mentions_virtual_things_intent(self) -> None:
+        self.assertIn("virtual_things", ROUTER_PROMPT)
+        self.assertIn("computed/synthetic/virtual Things", ROUTER_PROMPT)
+
+    def test_authoring_prompt_uses_incremental_builder_and_forbids_upsert(self) -> None:
+        self.assertIn("create_virtual_thing", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("add_virtual_property", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("activate_virtual_thing", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("Never use things_upsert", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("def handle(input, state, context)", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("state = state or {}", VIRTUAL_THINGS_PROMPT)
+        self.assertIn('context["shared_state"]', VIRTUAL_THINGS_PROMPT)
+
+    def test_authoring_prompt_directs_reuse_of_prior_analysis(self) -> None:
+        self.assertIn("Reusing Prior Analysis", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("Prior Analysis Code", VIRTUAL_THINGS_PROMPT)
+
+    def test_authoring_prompt_mentions_async_virtual_servient_production(self) -> None:
+        self.assertIn("asynchronously", VIRTUAL_THINGS_PROMPT)
+        self.assertIn("redefine it", VIRTUAL_THINGS_PROMPT)
+
+
+if __name__ == "__main__":
+    unittest.main()

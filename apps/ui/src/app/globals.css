@@ -346,7 +346,7 @@ body {
   }
 }
 
-.smart-living-copilot-chat {
+.wotbot-chat {
   --copilot-kit-primary-color: var(--primary);
   --copilot-kit-contrast-color: var(--primary-foreground);
   --copilot-kit-background-color: color-mix(
@@ -398,49 +398,49 @@ body {
   isolation: isolate;
 }
 
-.dark .smart-living-copilot-chat {
+.dark .wotbot-chat {
   background: color-mix(in oklab, var(--background) 84%, var(--card));
   box-shadow:
     0 28px 64px oklch(0.05 0.01 240 / 0.45),
     inset 0 1px 0 oklch(1 0 0 / 0.08);
 }
 
-.smart-living-copilot-chat.copilotKitChat {
+.wotbot-chat.copilotKitChat {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
-.smart-living-copilot-chat .copilotKitHeader {
+.wotbot-chat .copilotKitHeader {
   border-bottom: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
   background: color-mix(in oklab, var(--card) 86%, white);
   color: var(--foreground);
   backdrop-filter: blur(18px);
 }
 
-.dark .smart-living-copilot-chat .copilotKitHeader {
+.dark .wotbot-chat .copilotKitHeader {
   background: color-mix(in oklab, var(--card) 90%, black 10%);
 }
 
-.smart-living-copilot-chat .copilotKitMessages {
+.wotbot-chat .copilotKitMessages {
   background: transparent;
 }
 
-.smart-living-copilot-chat .copilotKitMessagesContainer {
+.wotbot-chat .copilotKitMessagesContainer {
   gap: 0.4rem;
   padding: 1.25rem clamp(1rem, 2vw, 1.5rem);
 }
 
-.smart-living-copilot-chat .copilotKitMessagesFooter {
+.wotbot-chat .copilotKitMessagesFooter {
   width: 100%;
   padding: 0.75rem 0 0;
 }
 
-.smart-living-copilot-chat .copilotKitMessage {
+.wotbot-chat .copilotKitMessage {
   width: 100%;
   max-width: none;
   font-size: 0.95rem;
 }
 
-.smart-living-copilot-chat .copilotKitMessage.copilotKitUserMessage {
+.wotbot-chat .copilotKitMessage.copilotKitUserMessage {
   max-width: none;
   padding: 0;
   border-radius: 0;
@@ -448,32 +448,32 @@ body {
   background: transparent;
 }
 
-.smart-living-copilot-chat .copilotKitMessage.copilotKitAssistantMessage {
+.wotbot-chat .copilotKitMessage.copilotKitAssistantMessage {
   max-width: none;
   margin-bottom: 0.75rem;
   color: var(--foreground);
 }
 
-.smart-living-copilot-chat .copilotKitAssistantMessage p,
-.smart-living-copilot-chat .copilotKitAssistantMessage li {
+.wotbot-chat .copilotKitAssistantMessage p,
+.wotbot-chat .copilotKitAssistantMessage li {
   line-height: 1.75;
 }
 
-.smart-living-copilot-chat .copilotKitMessageControlButton {
+.wotbot-chat .copilotKitMessageControlButton {
   color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
 }
 
-.smart-living-copilot-chat .copilotKitMessageControlButton:hover {
+.wotbot-chat .copilotKitMessageControlButton:hover {
   color: var(--primary);
   background: color-mix(in oklab, var(--primary) 10%, transparent);
 }
 
-.smart-living-copilot-chat .copilotKitInputContainer {
+.wotbot-chat .copilotKitInputContainer {
   background: transparent;
   padding: 0 1rem 1rem;
 }
 
-.smart-living-copilot-chat .copilotKitInput {
+.wotbot-chat .copilotKitInput {
   width: 100%;
   min-height: 88px;
   border-radius: 1.35rem;
@@ -482,22 +482,22 @@ body {
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.45);
 }
 
-.smart-living-copilot-chat .copilotKitInput:focus-within {
+.wotbot-chat .copilotKitInput:focus-within {
   border-color: color-mix(in oklab, var(--primary) 44%, var(--border));
   box-shadow:
     0 0 0 4px color-mix(in oklab, var(--primary) 12%, transparent),
     inset 0 1px 0 oklch(1 0 0 / 0.5);
 }
 
-.smart-living-copilot-chat .copilotKitInput > textarea::placeholder {
+.wotbot-chat .copilotKitInput > textarea::placeholder {
   color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
 }
 
-.smart-living-copilot-chat .copilotKitInputControlButton:not([disabled]) {
+.wotbot-chat .copilotKitInputControlButton:not([disabled]) {
   color: var(--primary);
 }
 
-.smart-living-copilot-chat .copilotKitInputControlButton:not([disabled]):hover {
+.wotbot-chat .copilotKitInputControlButton:not([disabled]):hover {
   background: color-mix(in oklab, var(--primary) 10%, transparent);
   color: var(--primary);
 }

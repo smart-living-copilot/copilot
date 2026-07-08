@@ -26,7 +26,7 @@ COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
-ENV REGISTRY_URL=http://copilot:8123 \
+ENV REGISTRY_URL=http://wotbot:8123 \
     REDIS_URL=redis://valkey:6379 \
     THING_EVENTS_STREAM=thing_events \
     PORT=3013 \

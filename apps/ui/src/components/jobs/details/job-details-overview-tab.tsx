@@ -1,4 +1,4 @@
-import { type RunCodeResult } from '@/components/copilot/chat-tool-call-model';
+import { type RunCodeResult } from '@/components/wotbot/chat-tool-call-model';
 import { type ReactNode } from 'react';
 
 import {

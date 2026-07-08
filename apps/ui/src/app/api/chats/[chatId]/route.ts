@@ -1,13 +1,13 @@
-import { proxyCopilotJson } from '@/lib/copilot-backend';
+import { proxyWotbotJson } from '@/lib/wotbot-backend';
 import { cleanupChatResources } from '@/lib/chat-deletion';
-import { getCodeExecutorUrl, getCopilotUrl } from '@/lib/backend-env';
+import { getCodeExecutorUrl, getWotbotUrl } from '@/lib/backend-env';
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ chatId: string }> },
 ) {
   const { chatId } = await params;
-  return proxyCopilotJson(`/threads/${encodeURIComponent(chatId)}`);
+  return proxyWotbotJson(`/threads/${encodeURIComponent(chatId)}`);
 }
 
 export async function DELETE(
@@ -17,7 +17,7 @@ export async function DELETE(
   const { chatId } = await params;
   const failures = await cleanupChatResources({
     chatId,
-    copilotUrl: getCopilotUrl(),
+    wotbotUrl: getWotbotUrl(),
     executorUrl: getCodeExecutorUrl(),
     internalApiKey: process.env.INTERNAL_API_KEY,
   });
@@ -40,7 +40,7 @@ export async function PATCH(
   { params }: { params: Promise<{ chatId: string }> },
 ) {
   const { chatId } = await params;
-  return proxyCopilotJson(`/threads/${encodeURIComponent(chatId)}`, {
+  return proxyWotbotJson(`/threads/${encodeURIComponent(chatId)}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': req.headers.get('content-type') || 'application/json',

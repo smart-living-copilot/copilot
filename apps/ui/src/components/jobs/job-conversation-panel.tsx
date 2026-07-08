@@ -11,8 +11,8 @@ import Link from 'next/link';
 import { MessageSquareReply } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { chatToolCallRenderers } from '@/components/copilot/chat-tool-call-renderer';
-import { MessageViewWithWotSummary } from '@/components/copilot/wot-interaction-summary';
+import { chatToolCallRenderers } from '@/components/wotbot/chat-tool-call-renderer';
+import { MessageViewWithWotSummary } from '@/components/wotbot/wot-interaction-summary';
 import { JobEventTimeline } from '@/components/jobs/job-event-timeline';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -94,7 +94,7 @@ export function JobTranscript({
         renderToolCalls={chatToolCallRenderers}
       >
         <CopilotChatConfigurationProvider
-          agentId="copilot"
+          agentId="wotbot"
           threadId={threadId}
           labels={{
             chatInputPlaceholder: 'Transcript view',
@@ -102,7 +102,7 @@ export function JobTranscript({
         >
           <CopilotChatView
             autoScroll
-            className="smart-living-copilot-chat h-full"
+            className="wotbot-chat h-full"
             input={chatInput}
             messageView={MessageViewWithWotSummary}
             messages={messages}

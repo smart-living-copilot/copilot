@@ -14,7 +14,7 @@ test('parseWotInteractionList reads stringified run_code output', () => {
       wot_calls: [
         {
           type: 'write_property',
-          thing_id: 'urn:smart-living:thing:kitchen-thermometer',
+          thing_id: 'urn:wotbot:thing:kitchen-thermometer',
           name: 'targetTemperature',
           ok: true,
           uri_variables: { zone: 'north' },
@@ -28,7 +28,7 @@ test('parseWotInteractionList reads stringified run_code output', () => {
     {
       affordanceName: 'targetTemperature',
       ok: true,
-      thingId: 'urn:smart-living:thing:kitchen-thermometer',
+      thingId: 'urn:wotbot:thing:kitchen-thermometer',
       type: 'write_property',
       uriVariables: { zone: 'north' },
       value: 22,
@@ -44,7 +44,7 @@ test('parseDeviceInteractionSummaryContent reads graph summary marker content', 
         interactions: [
           {
             type: 'write_property',
-            thingId: 'urn:smart-living:thing:living-room-lamp',
+            thingId: 'urn:wotbot:thing:living-room-lamp',
             affordanceName: 'brightness',
             ok: true,
             uriVariables: { channel: 1 },
@@ -57,7 +57,7 @@ test('parseDeviceInteractionSummaryContent reads graph summary marker content', 
       {
         affordanceName: 'brightness',
         ok: true,
-        thingId: 'urn:smart-living:thing:living-room-lamp',
+        thingId: 'urn:wotbot:thing:living-room-lamp',
         type: 'write_property',
         uriVariables: { channel: 1 },
         value: 40,

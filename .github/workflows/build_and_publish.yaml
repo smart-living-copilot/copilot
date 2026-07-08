@@ -30,7 +30,7 @@ jobs:
       - name: Check stack version
         run: scripts/check-version.sh
 
-  build-and-push-copilot:
+  build-and-push-wotbot:
     needs: check-stack-version
     runs-on: ubuntu-latest
     permissions:
@@ -54,28 +54,28 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Extract metadata for copilot
+      - name: Extract metadata for wotbot
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/copilot
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/wotbot
           tags: |
             type=ref,event=branch
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/dev' }}
 
-      - name: Build and push copilot image
+      - name: Build and push wotbot image
         uses: docker/build-push-action@v6
         with:
-          context: ./apps/copilot
-          file: ./apps/copilot/Dockerfile
+          context: ./apps/wotbot
+          file: ./apps/wotbot/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=copilot
-          cache-to: type=gha,mode=max,scope=copilot
+          cache-from: type=gha,scope=wotbot
+          cache-to: type=gha,mode=max,scope=wotbot
 
   build-and-push-ui:
     needs: check-stack-version
@@ -247,8 +247,8 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install copilot contract exporter
-        run: python -m pip install -e ./apps/copilot
+      - name: Install wotbot contract exporter
+        run: python -m pip install -e ./apps/wotbot
 
       - name: Set up Node.js for contract check
         uses: actions/setup-node@v4

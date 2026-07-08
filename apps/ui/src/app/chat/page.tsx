@@ -1,4 +1,4 @@
-import { ChatIndexPage } from '@/components/copilot/chat-route-page';
+import { ChatIndexPage } from '@/components/wotbot/chat-route-page';
 
 export default function ChatPage() {
   return <ChatIndexPage />;

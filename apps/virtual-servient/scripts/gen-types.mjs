@@ -1,4 +1,4 @@
-// Generates src/types.generated.ts from the committed JSON Schema that copilot
+// Generates src/types.generated.ts from the committed JSON Schema that wotbot
 // exports for the servient-facing definition view. Run via `npm run gen:types`.
 import { writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -13,9 +13,9 @@ const outPath = resolve(here, "../src/types.generated.ts");
 const bannerComment = `/* eslint-disable */
 /**
  * AUTO-GENERATED — do not edit by hand.
- * Source of truth: apps/copilot/src/copilot/virtual_things/schemas.py
+ * Source of truth: apps/wotbot/src/wotbot/virtual_things/schemas.py
  *   (VirtualThingServientView). Regenerate with \`npm run gen:types\`,
- *   which requires copilot's Python venv to export the JSON Schema.
+ *   which requires wotbot's Python venv to export the JSON Schema.
  */`;
 
 const ts = await compileFromFile(schemaPath, {

@@ -1,18 +1,18 @@
-import { getCodeExecutorUrl, getCopilotUrl } from '@/lib/backend-env';
+import { getCodeExecutorUrl, getWotbotUrl } from '@/lib/backend-env';
 import {
   cleanupChatResourcesBatch,
   selectChatsForBatchDeletion,
   type ChatBatchDeleteRequest,
   type ChatDeletionCandidate,
 } from '@/lib/chat-deletion';
-import { fetchCopilot, proxyCopilotJson } from '@/lib/copilot-backend';
+import { fetchWotbot, proxyWotbotJson } from '@/lib/wotbot-backend';
 
 export async function GET() {
-  return proxyCopilotJson('/threads');
+  return proxyWotbotJson('/threads');
 }
 
 export async function POST() {
-  return proxyCopilotJson('/threads', { method: 'POST' });
+  return proxyWotbotJson('/threads', { method: 'POST' });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -62,7 +62,7 @@ export async function DELETE(req: Request) {
     return request;
   }
 
-  const chatsResponse = await fetchCopilot('/threads');
+  const chatsResponse = await fetchWotbot('/threads');
   if (!chatsResponse.ok) {
     return Response.json(
       { detail: 'Could not load chats for deletion' },
@@ -90,7 +90,7 @@ export async function DELETE(req: Request) {
     );
   const results = await cleanupChatResourcesBatch({
     chatIds,
-    copilotUrl: getCopilotUrl(),
+    wotbotUrl: getWotbotUrl(),
     executorUrl: getCodeExecutorUrl(),
     internalApiKey: process.env.INTERNAL_API_KEY,
   });

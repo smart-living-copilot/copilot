@@ -1,4 +1,4 @@
-import { ChatRoutePage } from '@/components/copilot/chat-route-page';
+import { ChatRoutePage } from '@/components/wotbot/chat-route-page';
 
 export default async function ChatPage({
   params,

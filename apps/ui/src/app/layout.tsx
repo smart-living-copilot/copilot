@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: 'WoTBot',
-  description: 'Your intelligent home assistant',
+  description: 'Your intelligent Web of Things assistant',
 };
 
 export default function RootLayout({

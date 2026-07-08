@@ -1,0 +1,155 @@
+# WoTBot
+
+`wotbot` is the Python agent service behind WoTBot. It builds the LangGraph assistant, owns the Thing registry and automation job backend, persists conversation and registry state, and provides worker roles used by the stack.
+
+## What This Service Owns
+
+- LangGraph agent assembly, routing, prompts, and tool binding.
+- Backend API composition for chat transport, threads, Things, virtual Things, credentials, API keys, jobs, panels, media, and speech.
+- Postgres persistence for LangGraph checkpoints, thread metadata, Thing registry data, virtual Thing definitions, credentials, API keys, search vectors, panels, and jobs.
+- Redis-backed job events, Thing event outbox delivery, and scheduling coordination through Taskiq.
+- LiveKit agent worker integration for local voice and camera-assisted sessions.
+- The worker entrypoints for job execution, scheduling, Thing indexing, and LiveKit.
+
+It is intended to run on an internal network behind `ui`.
+
+## Runtime Shape
+
+```text
+ui
+  -> wotbot FastAPI app
+     -> LangGraph agent
+     -> code-executor for run_code
+     -> wot-runtime for Thing operations
+     -> virtual-servient for produced virtual Thing TDs
+     -> rdf-service for SPARQL/RDF graph queries
+     -> Postgres / Valkey
+```
+
+The frontend `chatId`, CopilotKit `threadId`, LangGraph `thread_id`, and code-executor session id are intentionally the same value so chat continuity stays aligned across services.
+
+## Agent Architecture
+
+The graph is assembled in [`src/wotbot/agent/builder.py`](./src/wotbot/agent/builder.py). A router selects a branch, then the selected branch alternates between an LLM node and its allowed tools.
+
+```text
+START
+  -> router
+     -> respond -> respond_tools -> respond -> END
+     -> control_llm -> control_tools -> control_llm -> END
+     -> analysis_llm -> analysis_tools -> analysis_llm -> END
+     -> jobs_llm -> jobs_tools -> jobs_llm -> END
+     -> virtual_things_llm -> virtual_things_tools -> virtual_things_llm -> END
+```
+
+- `chat`: lightweight conversational responses.
+- `control`: device discovery and control.
+- `analysis`: device/data analysis plus Python execution.
+- `jobs`: automation job creation, inspection, debugging, manual runs, and deletion.
+- `virtual_things`: standalone computed properties/actions and emitted virtual events backed by `wotbot.virtual_things` and produced by `virtual-servient`.
+
+Prompts live in [`src/wotbot/agent/prompts`](./src/wotbot/agent/prompts). Tool grouping lives in [`src/wotbot/agent/tool_groups.py`](./src/wotbot/agent/tool_groups.py).
+
+## Jobs And Live Media
+
+Automation jobs use the same graph and persistence model as normal conversations, with hidden per-job checkpoint threads when a job needs user input. Structured-record jobs persist record rows in `wotbot.jobs.records` and register record-backed bindings through the generic virtual Thing path. The Docker stack runs separate `job-worker` and `job-scheduler` processes from the same image.
+
+Live voice uses a self-hosted LiveKit Server plus the `wotbot livekit-agent` worker. The worker handles realtime media, speech-to-text, text-to-speech, interruption handling, transcription forwarding, and the bridge back into the LangGraph assistant.
+
+## Persistence And Migrations
+
+The application schema is owned by Alembic migrations in [`src/wotbot/migrations`](./src/wotbot/migrations). They ship inside the `wotbot` package so `alembic upgrade head` resolves them in every install mode. App startup calls `alembic upgrade head`, so API, worker, LiveKit, and indexer processes share the same schema path.
+
+Migration versions intentionally skip `0002`; the dropped revision was superseded before release, and the remaining chain starts at `0001` then continues with `0003`.
+
+Run migrations manually from `apps/wotbot` when needed (the config lives in the package, so pass it with `-c`):
+
+```bash
+python -m alembic -c src/wotbot/alembic.ini upgrade head
+python -m alembic -c src/wotbot/alembic.ini current
+python -m alembic -c src/wotbot/alembic.ini check
+```
+
+LangGraph checkpoints use `AGENT_STATE_DATABASE_URL` when set, otherwise `REGISTRY_DATABASE_URL`. Keep `SEARCH_VECTOR_DIMENSIONS` stable for an existing database because the pgvector column is migrated with that dimension.
+
+## Development
+
+### With Docker Compose
+
+```bash
+docker compose up -d wotbot
+docker compose exec wotbot sh -lc "cd /app && python -m pytest tests"
+```
+
+The dev override builds the local image, bind-mounts source, migrations, and tests, and runs the API with reload.
+
+### Directly
+
+```bash
+cd apps/wotbot
+pip install -e ".[dev]"
+wotbot serve --reload
+```
+
+Other local process roles:
+
+```bash
+wotbot job-worker
+wotbot job-scheduler
+wotbot thing-indexer
+wotbot rdf-service
+wotbot livekit-agent start
+```
+
+Container-backed integration tests start disposable pgvector Postgres and Valkey services:
+
+```bash
+.venv/bin/python -m pip install -e "apps/wotbot[test]"
+.venv/bin/python -m pytest -c apps/wotbot/pyproject.toml \
+  apps/wotbot/tests/integration -m integration
+```
+
+## Environment
+
+The root [`.env.example`](../../.env.example) documents required and optional settings. Runtime settings are defined in [`src/wotbot/core/settings.py`](./src/wotbot/core/settings.py). [`src/wotbot/core/config.py`](./src/wotbot/core/config.py) keeps the legacy cached `get_settings()` import path.
+
+Common groups:
+
+- LLM, embedding, and vision model settings.
+- Shared internal API keys and registry tokens.
+- Postgres, pgvector, and LangGraph checkpoint configuration.
+- Redis, Taskiq jobs, WoT runtime, virtual-servient, RDF service, and event stream settings.
+- LiveKit, speech-to-text, and text-to-speech settings.
+- Code-executor URL, timeout, and retry settings.
+
+## Security Boundary
+
+`wotbot` assumes an internal-service deployment model. Public traffic should terminate at `ui`, with `wotbot`, `code-executor`, `wot-runtime`, `virtual-servient`, `rdf-service`, Postgres, and Valkey kept off the public internet.
+
+Shared internal credentials protect service-to-service calls when configured. Registry API keys are intended for registry management and search, not direct unrestricted device control.
+
+## Important Files
+
+- [`src/wotbot/api/main.py`](./src/wotbot/api/main.py): FastAPI app composition.
+- [`src/wotbot/cli.py`](./src/wotbot/cli.py): process role entrypoint.
+- [`src/wotbot/agent`](./src/wotbot/agent): graph builder, nodes, prompts, tools, and voice adapter.
+- [`src/wotbot/catalog`](./src/wotbot/catalog): Thing registry, credentials, validation, and event outbox.
+- [`src/wotbot/jobs`](./src/wotbot/jobs): job definitions, runs, scheduler integration, records, events, and stores.
+- [`src/wotbot/media`](./src/wotbot/media): LiveKit token, dispatch, and media helpers.
+- [`src/wotbot/panels`](./src/wotbot/panels): generated panel rendering, persistence, versions, and edit helpers.
+- [`src/wotbot/rdf`](./src/wotbot/rdf): RDF graph indexing and SPARQL query service.
+- [`src/wotbot/speech`](./src/wotbot/speech): text-to-speech and transcription proxy routes.
+- [`src/wotbot/threads`](./src/wotbot/threads): thread metadata, message loading, titles, and routes.
+- [`src/wotbot/search`](./src/wotbot/search): embedding and vector search for Things.
+- [`src/wotbot/thing_indexer`](./src/wotbot/thing_indexer): Thing indexing worker.
+- [`src/wotbot/virtual_things`](./src/wotbot/virtual_things): virtual Thing definitions, bindings, validation, dispatch, and record-backed registration.
+- [`src/wotbot/workers`](./src/wotbot/workers): process role implementations.
+- [`src/wotbot/migrations`](./src/wotbot/migrations): Alembic migrations.
+
+## Contributor Notes
+
+- Keep AG-UI transport concerns in the framework helper where possible.
+- Keep thread ids aligned across UI, LangGraph, and code execution.
+- Keep prompts concise and prefer clearer tool boundaries over longer instructions.
+- Treat schema changes as migration changes and verify with `alembic check`.
+- Keep direct device/runtime access behind internal services.

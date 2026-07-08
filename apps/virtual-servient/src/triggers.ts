@@ -1,4 +1,4 @@
-import { evaluateVirtualEvent, fetchCatalogThing } from "./clients/copilot.js";
+import { evaluateVirtualEvent, fetchCatalogThing } from "./clients/wotbot.js";
 import log from "./logger.js";
 import { getWot } from "./servient.js";
 import type { VirtualThingBinding, VirtualThingDefinition } from "./types.js";

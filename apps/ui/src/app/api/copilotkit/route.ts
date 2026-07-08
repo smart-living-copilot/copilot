@@ -5,15 +5,15 @@ import {
 } from '@copilotkit/runtime';
 import { LangGraphHttpAgent } from '@copilotkit/runtime/langgraph';
 
-import { filterCopilotEventStream } from '@/lib/copilot-stream';
-import { getCopilotUrl } from '@/lib/backend-env';
+import { filterWotbotEventStream } from '@/lib/wotbot-stream';
+import { getWotbotUrl } from '@/lib/backend-env';
 
-const copilotUrl = getCopilotUrl();
+const wotbotUrl = getWotbotUrl();
 
 const runtime = new CopilotRuntime({
   agents: {
-    copilot: new LangGraphHttpAgent({
-      url: `${copilotUrl}/ag-ui`,
+    wotbot: new LangGraphHttpAgent({
+      url: `${wotbotUrl}/ag-ui`,
     }),
   },
 });
@@ -32,7 +32,7 @@ async function handleFilteredRequest(request: Request): Promise<Response> {
     return response;
   }
 
-  return new Response(filterCopilotEventStream(response.body), {
+  return new Response(filterWotbotEventStream(response.body), {
     status: response.status,
     statusText: response.statusText,
     headers: response.headers,

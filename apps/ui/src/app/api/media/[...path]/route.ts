@@ -1,4 +1,4 @@
-import { fetchCopilot } from '@/lib/copilot-backend';
+import { fetchWotbot } from '@/lib/wotbot-backend';
 
 type RouteContext = {
   params: Promise<{ path: string[] }>;
@@ -14,7 +14,7 @@ async function proxyMediaRequest(req: Request, context: RouteContext) {
 
   let response: Response;
   try {
-    response = await fetchCopilot(targetPath, {
+    response = await fetchWotbot(targetPath, {
       method: req.method,
       headers: {
         'Content-Type': req.headers.get('content-type') || 'application/json',

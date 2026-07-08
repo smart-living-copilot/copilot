@@ -1,24 +1,24 @@
-const defaultCopilotUrl = 'http://copilot:8123';
+const defaultWotbotUrl = 'http://wotbot:8123';
 const defaultCodeExecutorUrl = 'http://code-executor:8888';
 
 function cleanBaseUrl(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-export function getCopilotUrl(): string {
+export function getWotbotUrl(): string {
   return cleanBaseUrl(
-    process.env.COPILOT_URL ||
+    process.env.WOTBOT_URL ||
       process.env.NEXT_PUBLIC_API_URL ||
-      defaultCopilotUrl,
+      defaultWotbotUrl,
   );
 }
 
 export function getJobRunnerUrl(): string {
-  return cleanBaseUrl(process.env.JOB_RUNNER_URL || getCopilotUrl());
+  return cleanBaseUrl(process.env.JOB_RUNNER_URL || getWotbotUrl());
 }
 
 export function getWotApiUrl(): string {
-  return cleanBaseUrl(process.env.WOT_API_URL || `${getCopilotUrl()}/api`);
+  return cleanBaseUrl(process.env.WOT_API_URL || `${getWotbotUrl()}/api`);
 }
 
 export function getCodeExecutorUrl(): string {

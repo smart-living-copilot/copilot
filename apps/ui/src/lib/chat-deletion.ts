@@ -76,13 +76,13 @@ export async function deleteRemoteResource(
 
 export async function cleanupChatResources({
   chatId,
-  copilotUrl,
+  wotbotUrl,
   executorUrl,
   fetchImpl,
   internalApiKey,
 }: {
   chatId: string;
-  copilotUrl?: string;
+  wotbotUrl?: string;
   executorUrl?: string;
   fetchImpl?: typeof fetch;
   internalApiKey?: string;
@@ -101,12 +101,12 @@ export async function cleanupChatResources({
     );
   }
 
-  if (copilotUrl) {
+  if (wotbotUrl) {
     cleanupResults.push(
       deleteRemoteResource(
-        `${copilotUrl}/threads/${encodeURIComponent(chatId)}`,
+        `${wotbotUrl}/threads/${encodeURIComponent(chatId)}`,
         headers,
-        'Copilot thread',
+        'WoTBot thread',
         fetchImpl,
       ),
     );
@@ -118,13 +118,13 @@ export async function cleanupChatResources({
 
 export async function cleanupChatResourcesBatch({
   chatIds,
-  copilotUrl,
+  wotbotUrl,
   executorUrl,
   fetchImpl,
   internalApiKey,
 }: {
   chatIds: string[];
-  copilotUrl?: string;
+  wotbotUrl?: string;
   executorUrl?: string;
   fetchImpl?: typeof fetch;
   internalApiKey?: string;
@@ -134,7 +134,7 @@ export async function cleanupChatResourcesBatch({
       chatId,
       failures: await cleanupChatResources({
         chatId,
-        copilotUrl,
+        wotbotUrl,
         executorUrl,
         fetchImpl,
         internalApiKey,

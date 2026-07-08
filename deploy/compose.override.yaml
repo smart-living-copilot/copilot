@@ -1,77 +1,77 @@
 services:
-  copilot:
+  wotbot:
     build:
-      context: ../apps/copilot
+      context: ../apps/wotbot
       dockerfile: Dockerfile
     volumes:
-      - ../apps/copilot/src:/app/src:cached
-      - ../apps/copilot/tests:/app/tests:cached
+      - ../apps/wotbot/src:/app/src:cached
+      - ../apps/wotbot/tests:/app/tests:cached
     environment:
       LOG_LEVEL: "DEBUG"
       PYTHONPATH: "/app/src"
-    command: ["copilot", "serve", "--reload"]
+    command: ["wotbot", "serve", "--reload"]
 
   job-worker:
     build:
-      context: ../apps/copilot
+      context: ../apps/wotbot
       dockerfile: Dockerfile
     volumes:
-      - ../apps/copilot/src:/app/src:cached
-      - ../apps/copilot/tests:/app/tests:cached
+      - ../apps/wotbot/src:/app/src:cached
+      - ../apps/wotbot/tests:/app/tests:cached
     environment:
       LOG_LEVEL: "DEBUG"
       PYTHONPATH: "/app/src"
-    command: ["copilot", "job-worker"]
+    command: ["wotbot", "job-worker"]
 
   livekit-agent:
     build:
-      context: ../apps/copilot
+      context: ../apps/wotbot
       dockerfile: Dockerfile
     volumes:
-      - ../apps/copilot/src:/app/src:cached
-      - ../apps/copilot/tests:/app/tests:cached
+      - ../apps/wotbot/src:/app/src:cached
+      - ../apps/wotbot/tests:/app/tests:cached
     environment:
       LOG_LEVEL: "DEBUG"
       PYTHONPATH: "/app/src"
-    command: ["copilot", "livekit-agent", "start"]
+    command: ["wotbot", "livekit-agent", "start"]
 
   job-scheduler:
     build:
-      context: ../apps/copilot
+      context: ../apps/wotbot
       dockerfile: Dockerfile
     volumes:
-      - ../apps/copilot/src:/app/src:cached
-      - ../apps/copilot/tests:/app/tests:cached
+      - ../apps/wotbot/src:/app/src:cached
+      - ../apps/wotbot/tests:/app/tests:cached
     environment:
       LOG_LEVEL: "DEBUG"
       PYTHONPATH: "/app/src"
-    command: ["copilot", "job-scheduler"]
+    command: ["wotbot", "job-scheduler"]
 
   thing-indexer:
     build:
-      context: ../apps/copilot
+      context: ../apps/wotbot
       dockerfile: Dockerfile
     volumes:
-      - ../apps/copilot/src:/app/src:cached
-      - ../apps/copilot/tests:/app/tests:cached
+      - ../apps/wotbot/src:/app/src:cached
+      - ../apps/wotbot/tests:/app/tests:cached
     environment:
       LOG_LEVEL: "DEBUG"
       PYTHONPATH: "/app/src"
-    command: ["copilot", "thing-indexer"]
+    command: ["wotbot", "thing-indexer"]
 
   rdf-service:
     build:
-      context: ../apps/copilot
+      context: ../apps/wotbot
       dockerfile: Dockerfile
     volumes:
-      - ../apps/copilot/src:/app/src:cached
-      - ../apps/copilot/tests:/app/tests:cached
+      - ../apps/wotbot/src:/app/src:cached
+      - ../apps/wotbot/tests:/app/tests:cached
       - rdf-data:/data/rdf
     environment:
       LOG_LEVEL: "DEBUG"
       PYTHONPATH: "/app/src"
       RDF_STORE_PATH: "/data/rdf"
-    command: ["copilot", "rdf-service", "--reload"]
+    command: ["wotbot", "rdf-service", "--reload"]
 
   ui:
     build:

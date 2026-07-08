@@ -1,5 +1,5 @@
 import { httpClient, httpJson } from '@/lib/http-client';
-import { type WotCapability } from '@/components/copilot/chat-tool-calls/web-interface-model';
+import { type WotCapability } from '@/components/wotbot/chat-tool-calls/web-interface-model';
 
 export interface PanelRecord {
   id: string;

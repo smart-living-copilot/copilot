@@ -16,7 +16,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   formatArtifactSummary,
   type RunCodeArtifact,
-} from '@/components/copilot/chat-tool-call-model';
+} from '@/components/wotbot/chat-tool-call-model';
 import { hasCodeOutput, normalizeJobCodeResult } from '@/lib/job-code-result';
 import {
   createClientReplyId,

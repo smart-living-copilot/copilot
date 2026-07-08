@@ -1,8 +1,8 @@
 import { type FormEvent, type ReactNode } from 'react';
 import { Send } from 'lucide-react';
 
-import { RunCodeArtifactCard } from '@/components/copilot/chat-tool-call-cards';
-import { type RunCodeResult } from '@/components/copilot/chat-tool-call-model';
+import { RunCodeArtifactCard } from '@/components/wotbot/chat-tool-call-cards';
+import { type RunCodeResult } from '@/components/wotbot/chat-tool-call-model';
 import { PulseDot } from '@/components/jobs/details/pulse-dot';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';

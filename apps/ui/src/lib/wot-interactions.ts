@@ -1,5 +1,5 @@
 export const DEVICE_INTERACTION_SUMMARY_TYPE =
-  'smart_living_device_interactions';
+  'wotbot_device_interactions';
 
 export type WotInteraction = {
   affordanceName: string;

@@ -8,7 +8,7 @@ import type {
 export type ThingDescription = Record<string, unknown>;
 
 /**
- * The copilot <-> servient contract types are generated from copilot's Pydantic
+ * The wotbot <-> servient contract types are generated from wotbot's Pydantic
  * models (see ``types.generated.ts`` / ``schema/servient-view.schema.json``).
  * These aliases keep the names the servient code already uses.
  */

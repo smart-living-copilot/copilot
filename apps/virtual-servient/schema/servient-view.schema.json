@@ -2,7 +2,7 @@
   "$defs": {
     "VirtualThingBindingView": {
       "additionalProperties": false,
-      "description": "The slice of a binding that virtual-servient needs to expose a Thing.\n\nDeliberately omits ``handler_code``, ``capabilities``, ``config``, and\n``state``: the servient never runs handlers (it delegates every interaction\nback to copilot's dispatcher), so shipping handler source or capability\ngrants to it would be needless exposure and wire weight.",
+      "description": "The slice of a binding that virtual-servient needs to expose a Thing.\n\nDeliberately omits ``handler_code``, ``capabilities``, ``config``, and\n``state``: the servient never runs handlers (it delegates every interaction\nback to wotbot's dispatcher), so shipping handler source or capability\ngrants to it would be needless exposure and wire weight.",
       "properties": {
         "affordance_name": {
           "title": "Affordance Name",
@@ -114,7 +114,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Wire shape served to virtual-servient and the single source of truth for\nthe copilot <-> servient contract.\n\n``apps/virtual-servient/src/types.generated.ts`` is generated from this\nmodel's JSON schema (see ``contract_export``); never hand-edit that file.",
+  "description": "Wire shape served to virtual-servient and the single source of truth for\nthe wotbot <-> servient contract.\n\n``apps/virtual-servient/src/types.generated.ts`` is generated from this\nmodel's JSON schema (see ``contract_export``); never hand-edit that file.",
   "properties": {
     "bindings": {
       "items": {

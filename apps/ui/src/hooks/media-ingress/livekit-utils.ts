@@ -27,7 +27,7 @@ export function liveKitParticipantLooksLikeAgent(
   return (
     kind.includes('agent') ||
     identity.startsWith('agent-') ||
-    identity.includes('copilot')
+    identity.includes('wotbot')
   );
 }
 

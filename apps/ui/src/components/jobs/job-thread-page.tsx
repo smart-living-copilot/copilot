@@ -18,7 +18,7 @@ import { JobEventTimeline } from '@/components/jobs/job-event-timeline';
 import { JobRunHistoryCard } from '@/components/jobs/job-run-history';
 import { JobThreadHeader } from '@/components/jobs/thread/job-thread-header';
 import { WaitingReplyCard } from '@/components/jobs/thread/waiting-reply-card';
-import { LiveModePanel } from '@/components/copilot/live-mode-panel';
+import { LiveModePanel } from '@/components/wotbot/live-mode-panel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';

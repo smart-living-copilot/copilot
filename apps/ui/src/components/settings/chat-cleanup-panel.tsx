@@ -201,7 +201,7 @@ export function ChatCleanupPanel() {
             <h3 className="text-lg font-medium">Chat data</h3>
           </div>
           <p className="text-sm text-muted-foreground">
-            Delete saved Copilot chat history and related execution sessions.
+            Delete saved WoTBot chat history and related execution sessions.
           </p>
         </div>
 
@@ -225,7 +225,7 @@ export function ChatCleanupPanel() {
                 </div>
                 <p className="text-sm text-muted-foreground">
                   Batch deletion permanently removes selected chats from the
-                  Copilot thread store and clears their code execution sessions.
+                  WoTBot thread store and clears their code execution sessions.
                 </p>
               </div>
 

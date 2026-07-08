@@ -17,7 +17,7 @@ fi
 printf "%s\n" "${VERSION_VALUE}" > "${ROOT_DIR}/VERSION"
 
 python_projects=(
-  "apps/copilot/pyproject.toml"
+  "apps/wotbot/pyproject.toml"
   "apps/code-executor/pyproject.toml"
 )
 

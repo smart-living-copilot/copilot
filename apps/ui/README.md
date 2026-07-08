@@ -1,6 +1,6 @@
 # UI
 
-`ui` is the Next.js frontend for Smart Living Copilot. It owns the browser experience and keeps backend services behind server-side proxy routes.
+`ui` is the Next.js frontend for WoTBot. It owns the browser experience and keeps backend services behind server-side proxy routes.
 
 ## What This App Owns
 
@@ -10,7 +10,7 @@
 - Thing registry views for listing, creating, uploading, inspecting, and credential management.
 - Automation job list, creation, detail, run history, conversation, and notification views.
 - Settings screens for API key management.
-- Server-side proxying to `copilot`, `code-executor`, and other internal service APIs.
+- Server-side proxying to `wotbot`, `code-executor`, and other internal service APIs.
 
 The UI does not persist the active conversation itself. CopilotKit, the `chatId` route parameter, and the backend LangGraph checkpointer share the same thread identity.
 
@@ -20,7 +20,7 @@ The UI does not persist the active conversation itself. CopilotKit, the `chatId`
 browser
   -> Next.js UI
   -> server-side proxy routes
-  -> copilot / code-executor
+  -> wotbot / code-executor
 ```
 
 The browser talks to the Next.js app. The Next.js app forwards internal requests to backend services using environment-configured service URLs and shared internal credentials.
@@ -104,7 +104,7 @@ Only exact `http` and `https` origins are accepted. Wildcards, opaque `null` ori
 ## Important Files
 
 - [`src/app`](./src/app): Next.js routes and server-side route handlers.
-- [`src/components/copilot`](./src/components/copilot): chat, live mode, tool-call cards, and artifact rendering.
+- [`src/components/wotbot`](./src/components/wotbot): chat, live mode, tool-call cards, and artifact rendering.
 - [`src/components/jobs`](./src/components/jobs): automation job list, form, detail, run, and conversation UI.
 - [`src/components/things`](./src/components/things): Thing registry screens and credential dialogs.
 - [`src/components/settings`](./src/components/settings): settings panels.

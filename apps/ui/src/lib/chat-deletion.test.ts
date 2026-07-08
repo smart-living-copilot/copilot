@@ -31,7 +31,7 @@ test('cleanupChatResources reports backend cleanup failures', async () => {
 
   const failures = await cleanupChatResources({
     chatId: 'chat-123',
-    copilotUrl: 'http://copilot.test',
+    wotbotUrl: 'http://wotbot.test',
     executorUrl: 'http://executor.test',
     internalApiKey: 'internal-secret',
     fetchImpl: async (url, init) => {
@@ -48,13 +48,13 @@ test('cleanupChatResources reports backend cleanup failures', async () => {
     },
   });
 
-  assert.deepEqual(failures, ['Copilot thread cleanup failed (500)']);
+  assert.deepEqual(failures, ['WoTBot thread cleanup failed (500)']);
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[0]?.headers, {
     Authorization: 'Bearer internal-secret',
   });
   assert.equal(calls[0]?.url, 'http://executor.test/sessions/chat-123');
-  assert.equal(calls[1]?.url, 'http://copilot.test/threads/chat-123');
+  assert.equal(calls[1]?.url, 'http://wotbot.test/threads/chat-123');
 });
 
 test('selectChatsForBatchDeletion selects all chats', () => {
@@ -115,7 +115,7 @@ test('cleanupChatResourcesBatch preserves per-chat cleanup failures', async () =
 
   const results = await cleanupChatResourcesBatch({
     chatIds: ['chat-1', 'chat-2'],
-    copilotUrl: 'http://copilot.test',
+    wotbotUrl: 'http://wotbot.test',
     fetchImpl: async (url) => {
       calls.push(String(url));
 
@@ -131,11 +131,11 @@ test('cleanupChatResourcesBatch preserves per-chat cleanup failures', async () =
     { chatId: 'chat-1', failures: [] },
     {
       chatId: 'chat-2',
-      failures: ['Copilot thread cleanup failed (500)'],
+      failures: ['WoTBot thread cleanup failed (500)'],
     },
   ]);
   assert.deepEqual(calls, [
-    'http://copilot.test/threads/chat-1',
-    'http://copilot.test/threads/chat-2',
+    'http://wotbot.test/threads/chat-1',
+    'http://wotbot.test/threads/chat-2',
   ]);
 });

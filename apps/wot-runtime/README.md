@@ -1,28 +1,28 @@
 # WoT Runtime
 
-`wot-runtime` is the internal Node.js service that executes Web of Things operations for Smart Living Copilot. It uses node-wot bindings to read properties, write properties, invoke actions, and manage subscriptions against Thing Descriptions stored by `copilot`.
+`wot-runtime` is the internal Node.js service that executes Web of Things operations for WoTBot. It uses node-wot bindings to read properties, write properties, invoke actions, and manage subscriptions against Thing Descriptions stored by `wotbot`.
 
 ## What This Service Owns
 
 - Runtime interaction with Things through node-wot.
-- Thing Description lookup through the copilot registry service.
+- Thing Description lookup through the wotbot registry service.
 - Credential retrieval through the internal service boundary.
 - Runtime event publication to Redis streams for automation jobs.
 - Subscription management and runtime health reporting.
 
-It does not own Thing registry persistence. `copilot` remains the source of truth for Things, credentials, search, jobs, and API keys. Virtual and record-backed Things arrive as normal catalog Thing Descriptions produced by `virtual-servient`; this service does not keep a separate virtual-record dispatch path.
+It does not own Thing registry persistence. `wotbot` remains the source of truth for Things, credentials, search, jobs, and API keys. Virtual and record-backed Things arrive as normal catalog Thing Descriptions produced by `virtual-servient`; this service does not keep a separate virtual-record dispatch path.
 
 ## Runtime Shape
 
 ```text
-copilot agent/jobs/code-executor
+wotbot agent/jobs/code-executor
   -> wot-runtime
      -> node-wot servient
      -> devices / Thing affordances
      -> Redis event stream
 ```
 
-The service is kept on the backend network in Docker Compose. `copilot` and `code-executor` call it through internal service URLs.
+The service is kept on the backend network in Docker Compose. `wotbot` and `code-executor` call it through internal service URLs.
 
 ## Development
 
@@ -48,7 +48,7 @@ Use `npm run build` for TypeScript compilation, `npm run lint` for ESLint, and `
 
 The Docker image defaults to:
 
-- `REGISTRY_URL=http://copilot:8123`
+- `REGISTRY_URL=http://wotbot:8123`
 - `REDIS_URL=redis://valkey:6379`
 - `WOT_RUNTIME_STREAM=wot_runtime_events`
 
@@ -64,12 +64,12 @@ Compose also sets `HOST`, `PORT`, and runtime tokens from the root environment. 
 - [`src/runtime/credentials.ts`](./src/runtime/credentials.ts): credential resolution.
 - [`src/services/form-selection.ts`](./src/services/form-selection.ts): TD form selection for runtime operations.
 - [`src/services/cache.ts`](./src/services/cache.ts): optional Thing Description cache.
-- [`src/services/thing-catalog-client.ts`](./src/services/thing-catalog-client.ts): copilot registry client.
+- [`src/services/thing-catalog-client.ts`](./src/services/thing-catalog-client.ts): wotbot registry client.
 - [`src/services/stream-publisher.ts`](./src/services/stream-publisher.ts): Redis stream publishing.
 - [`src/services/subscriptions.ts`](./src/services/subscriptions.ts): subscription lifecycle.
 
 ## Contributor Notes
 
-- Keep registry persistence in `copilot`; this service should stay focused on runtime operations.
+- Keep registry persistence in `wotbot`; this service should stay focused on runtime operations.
 - Keep credentials behind internal service calls and avoid exposing raw credential data in logs.
 - Prefer adding node-wot bindings through the runtime setup rather than scattering protocol setup across handlers.

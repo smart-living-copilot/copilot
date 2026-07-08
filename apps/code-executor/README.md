@@ -1,6 +1,6 @@
 # Code Executor
 
-`code-executor` is the internal Python execution service used by the copilot agent's `run_code` tool, analysis jobs, and virtual Thing handlers. It runs Python snippets in long-lived per-session worker processes, captures stdout and chart/image artifacts, and returns compact results to `copilot`.
+`code-executor` is the internal Python execution service used by the wotbot agent's `run_code` tool, analysis jobs, and virtual Thing handlers. It runs Python snippets in long-lived per-session worker processes, captures stdout and chart/image artifacts, and returns compact results to `wotbot`.
 
 ## What This Service Owns
 
@@ -16,11 +16,11 @@ The UI never executes Python directly, and browsers should not call this service
 ## Runtime Shape
 
 ```text
-copilot run_code / jobs / virtual Thing dispatcher
+wotbot run_code / jobs / virtual Thing dispatcher
   -> code-executor
      -> session worker process
      -> stdout / image / Plotly artifacts
-  -> copilot tool result / job result / handler result
+  -> wotbot tool result / job result / handler result
   -> UI artifact renderer when artifacts are present
 ```
 

@@ -1,0 +1,81 @@
+[project]
+name = "wotbot"
+version = "0.1.0"
+description = "A LangChain-powered Web of Things agent with device registry integration"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain>=0.3",
+    "langchain-openai>=1.1",
+    "langgraph>=0.4",
+    "langgraph-prebuilt<1.0.8",
+    "langgraph-checkpoint-postgres>=2.0",
+    "livekit-agents[langchain,openai,silero]~=1.5",
+    "copilotkit>=0.1.31",
+    "fastapi>=0.128,<1",
+    "uvicorn[standard]>=0.37,<1",
+    "pydantic-settings>=2.7",
+    "httpx>=0.27",
+    "redis>=7,<8",
+    "aiohttp>=3.10",
+    "numpy>=1.26",
+    "pillow>=10",
+    "jsonschema>=4.25.1,<5",
+    "langchain-core>=1.0,<2",
+    "openai>=2.29,<3",
+    "pgvector>=0.4,<1",
+    "pyoxigraph>=0.5,<1",
+    "psycopg[binary,pool]>=3.2,<4",
+    "sqlalchemy>=2,<3",
+    "alembic>=1.18,<2",
+    "taskiq>=0.12,<1",
+    "taskiq-redis>=1.2,<2",
+    "pycron>=3.2,<4",
+    "python-dotenv>=1.0",
+    "pyshacl>=0.31,<1",
+]
+
+[project.optional-dependencies]
+dev = ["ruff", "mypy", "pytest>=8,<10"]
+test = [
+    "pytest>=8,<10",
+    "httpx>=0.27,<1",
+    "anyio>=4,<5",
+    "pytest-docker>=3.2,<4",
+]
+
+[project.scripts]
+wotbot = "wotbot.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wotbot"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/wotbot/catalog/td-schema.json" = "wotbot/catalog/td-schema.json"
+"src/wotbot/catalog/enrichment/data/default.json" = "wotbot/catalog/enrichment/data/default.json"
+"src/wotbot/catalog/enrichment/data/vocab/saref-core.json" = "wotbot/catalog/enrichment/data/vocab/saref-core.json"
+"src/wotbot/catalog/enrichment/data/vocab/saref4ehaw.json" = "wotbot/catalog/enrichment/data/vocab/saref4ehaw.json"
+"src/wotbot/catalog/enrichment/data/vocab/saref4envi.json" = "wotbot/catalog/enrichment/data/vocab/saref4envi.json"
+"src/wotbot/catalog/enrichment/data/vocab/sosa.json" = "wotbot/catalog/enrichment/data/vocab/sosa.json"
+"src/wotbot/catalog/enrichment/data/vocab/qudt-schema.json" = "wotbot/catalog/enrichment/data/vocab/qudt-schema.json"
+"src/wotbot/catalog/enrichment/data/vocab/qudt-units.json" = "wotbot/catalog/enrichment/data/vocab/qudt-units.json"
+"src/wotbot/catalog/enrichment/data/shapes/td-enrichment.ttl" = "wotbot/catalog/enrichment/data/shapes/td-enrichment.ttl"
+"src/wotbot/panels/wot_bridge.js" = "wotbot/panels/wot_bridge.js"
+# Alembic config + the revision template are non-Python assets, so they must be
+# force-included for the runtime ``alembic upgrade head`` to find them in the
+# installed wheel. The ``env.py`` and ``versions/*.py`` ship as package code.
+"src/wotbot/alembic.ini" = "wotbot/alembic.ini"
+"src/wotbot/migrations/script.py.mako" = "wotbot/migrations/script.py.mako"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+markers = [
+    "integration: tests that start containerized service dependencies",
+]

@@ -11,7 +11,7 @@ import {
 import { Maximize2, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { PanelFrame } from '@/components/copilot/chat-tool-calls/panel-frame';
+import { PanelFrame } from '@/components/wotbot/chat-tool-calls/panel-frame';
 import { PanelDrawer } from '@/components/panels/panel-drawer';
 import { type PanelRecord, deletePanel, fetchPanels } from '@/lib/panels-api';
 import { Badge } from '@/components/ui/badge';

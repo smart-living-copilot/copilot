@@ -33,8 +33,8 @@ read_package_version() {
   node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(data.version || "");' "$1"
 }
 
-check_equal "apps/copilot/pyproject.toml" \
-  "$(read_pyproject_version "${ROOT_DIR}/apps/copilot/pyproject.toml")"
+check_equal "apps/wotbot/pyproject.toml" \
+  "$(read_pyproject_version "${ROOT_DIR}/apps/wotbot/pyproject.toml")"
 check_equal "apps/code-executor/pyproject.toml" \
   "$(read_pyproject_version "${ROOT_DIR}/apps/code-executor/pyproject.toml")"
 

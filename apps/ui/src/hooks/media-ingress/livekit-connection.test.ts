@@ -20,7 +20,7 @@ test('camera snapshot data event triggers the snapshot cue callback', () => {
       type: 'camera_snapshot_sent',
       capturedAt: '2026-06-16T09:00:00+00:00',
     }),
-    participantInfo: { identity: 'agent-smart-living-copilot' },
+    participantInfo: { identity: 'agent-wotbot' },
     topic: CAMERA_SNAPSHOT_TOPIC,
     onCameraSnapshotSent: () => {
       cueCount += 1;
@@ -39,8 +39,8 @@ test('camera snapshot data event ignores wrong topic', () => {
       type: 'camera_snapshot_sent',
       capturedAt: '2026-06-16T09:00:00+00:00',
     }),
-    participantInfo: { identity: 'agent-smart-living-copilot' },
-    topic: 'copilot.other',
+    participantInfo: { identity: 'agent-wotbot' },
+    topic: 'wotbot.other',
     onCameraSnapshotSent: () => {
       cueCount += 1;
     },
@@ -55,7 +55,7 @@ test('camera snapshot data event ignores malformed JSON', () => {
 
   const handled = handleCameraSnapshotDataEvent({
     payload: encoder.encode('{nope'),
-    participantInfo: { identity: 'agent-smart-living-copilot' },
+    participantInfo: { identity: 'agent-wotbot' },
     topic: CAMERA_SNAPSHOT_TOPIC,
     onCameraSnapshotSent: () => {
       cueCount += 1;
