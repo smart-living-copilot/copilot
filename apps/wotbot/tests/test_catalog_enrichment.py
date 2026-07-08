@@ -396,11 +396,7 @@ def test_overlay_ontologies_replace_packaged_and_resolve_from_override(tmp_path)
     config_file = tmp_path / "enrichment.json"
     config_file.write_text(
         json.dumps(
-            {
-                "ontologies": [
-                    {"prefix": "ex", "namespace": "http://example/", "terms": "ex.json"}
-                ]
-            }
+            {"ontologies": [{"prefix": "ex", "namespace": "http://example/", "terms": "ex.json"}]}
         ),
         encoding="utf-8",
     )

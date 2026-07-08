@@ -14,9 +14,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 
 
 def test_livekit_session_handler_is_spawn_pickleable() -> None:
-    assert pickle.loads(pickle.dumps(livekit.wotbot)) is (
-        livekit.wotbot
-    )
+    assert pickle.loads(pickle.dumps(livekit.wotbot)) is (livekit.wotbot)
 
 
 def test_livekit_camera_snapshot_publisher_sends_reliable_data_packet() -> None:

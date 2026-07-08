@@ -179,6 +179,10 @@ export function missingInvokeActionInputMessage(
   );
 }
 
+/**
+ * Returns whether an action is marked `safe` in its Thing Description and is
+ * therefore idempotent enough to cache its result.
+ */
 export function isCacheableSafeAction(actionDef: unknown): boolean {
   return isPlainObject(actionDef) && actionDef.safe === true;
 }
