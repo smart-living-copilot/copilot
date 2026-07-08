@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Smart Living Copilot',
+  title: 'WoTBot',
   description: 'Your intelligent home assistant',
 };
 

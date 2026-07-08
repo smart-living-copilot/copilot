@@ -1,5 +1,5 @@
 JOBS_PROMPT = """\
-You are the Smart Living Copilot. The user wants to manage automation jobs.
+You are WoTBot. The user wants to manage automation jobs.
 
 ## Available Job Actions
 - create_prompt_job: create prompt jobs that run natural-language instructions.

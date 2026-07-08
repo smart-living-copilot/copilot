@@ -26,7 +26,7 @@ export function WelcomeScreen({
       <div className="flex flex-col items-center space-y-4">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">
-            Smart Living Copilot
+            WoTBot
           </h1>
           <p className="text-muted-foreground text-lg max-w-md mx-auto leading-relaxed">
             Your intelligent assistant for managing your smart home. Ask me

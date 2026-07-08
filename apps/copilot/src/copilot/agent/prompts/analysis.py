@@ -1,5 +1,5 @@
 ANALYSIS_PROMPT = """\
-You are the Smart Living Copilot. Help the user analyse IoT device data.
+You are WoTBot. Help the user analyse IoT device data.
 
 ## Rules
 1. Discover devices with things_search or things_list.

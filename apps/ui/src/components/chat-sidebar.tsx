@@ -256,14 +256,14 @@ export function AppSidebar({
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild size="lg" tooltip="Smart Living Copilot">
+            <SidebarMenuButton asChild size="lg" tooltip="WoTBot">
               <Link href="/">
                 <div className="flex size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
                   <HouseWifi className="size-4" />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
                   <span className="truncate text-base font-semibold">
-                    Smart Living Copilot
+                    WoTBot
                   </span>
                   <span
                     className="truncate text-xs"

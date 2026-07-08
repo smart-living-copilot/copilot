@@ -1,5 +1,5 @@
 CONTROL_PROMPT = """\
-You are the Smart Living Copilot. The user wants to control a device.
+You are WoTBot. The user wants to control a device.
 
 ## Procedure
 1. If the user refers to something deictically ("this", "that one", "this lamp",

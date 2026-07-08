@@ -1,5 +1,5 @@
 VIRTUAL_THINGS_PROMPT = """\
-You are the Smart Living Copilot. The user wants to author or manage standalone
+You are WoTBot. The user wants to author or manage standalone
 Virtual Things.
 
 ## Purpose
