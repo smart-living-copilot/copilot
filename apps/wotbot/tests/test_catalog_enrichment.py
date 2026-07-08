@@ -367,6 +367,62 @@ def test_external_shapes_path_is_resolved_relative_to_config(tmp_path):
     assert config.shapes == str(tmp_path / "custom-shapes.ttl")
 
 
+def test_overlay_inherits_packaged_ontologies_when_override_omits_them(tmp_path):
+    packaged = load_enrichment_config()
+    config_file = tmp_path / "enrichment.json"
+    config_file.write_text(
+        json.dumps({"system_prompt_extra": "custom demo bias"}),
+        encoding="utf-8",
+    )
+
+    config = load_enrichment_config(str(config_file))
+
+    # The override wins for the key it provides...
+    assert config.system_prompt_extra == "custom demo bias"
+    # ...and inherits the packaged ontology stack for the keys it omits.
+    assert [o.prefix for o in config.ontologies] == [o.prefix for o in packaged.ontologies]
+    assert config.shapes == packaged.shapes
+    # Inherited ``terms`` still resolve as packaged resources (production builds
+    # the vocabulary without a config_path), so the vocabulary is non-empty.
+    vocab = build_vocabulary(config)
+    assert len(vocab.terms) == len(build_vocabulary(packaged).terms) > 0
+
+
+def test_overlay_ontologies_replace_packaged_and_resolve_from_override(tmp_path):
+    (tmp_path / "ex.json").write_text(
+        json.dumps([{"iri": "http://example/Thing", "kind": "thing", "label": "Thing"}]),
+        encoding="utf-8",
+    )
+    config_file = tmp_path / "enrichment.json"
+    config_file.write_text(
+        json.dumps(
+            {
+                "ontologies": [
+                    {"prefix": "ex", "namespace": "http://example/", "terms": "ex.json"}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_enrichment_config(str(config_file))
+
+    # Provided ontologies fully replace the packaged list and are absolutised
+    # relative to the override file so they read from disk, not the package.
+    assert [o.prefix for o in config.ontologies] == ["ex"]
+    assert config.ontologies[0].terms == str(tmp_path / "ex.json")
+    # system_prompt_extra was omitted -> inherited from the packaged default.
+    assert config.system_prompt_extra == load_enrichment_config().system_prompt_extra
+
+
+def test_overlay_rejects_non_object_config(tmp_path):
+    config_file = tmp_path / "enrichment.json"
+    config_file.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        load_enrichment_config(str(config_file))
+
+
 def test_external_shapes_override_validation(tmp_path):
     shapes = tmp_path / "shapes.ttl"
     shapes.write_text(

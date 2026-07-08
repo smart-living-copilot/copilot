@@ -26,18 +26,45 @@ class EnrichmentConfig(BaseModel):
 
 @lru_cache(maxsize=8)
 def load_enrichment_config(path: str = "") -> EnrichmentConfig:
-    if path:
-        config_path = Path(path)
-        payload = json.loads(config_path.read_text(encoding="utf-8"))
-        for ontology in payload.get("ontologies", []):
-            terms_path = ontology.get("terms")
+    """Load the enrichment config, optionally overlaying an external override.
+
+    With no ``path`` the packaged ``default.json`` is used verbatim. When ``path``
+    is set, that file is treated as an *overlay* onto the packaged default: keys
+    it provides win, keys it omits are inherited. This lets a deployment (e.g. a
+    demo) override just ``system_prompt_extra`` while keeping the packaged
+    ontology stack, whose ``terms``/``shapes`` keep resolving as packaged
+    resources. Keys the override *does* provide are resolved relative to the
+    override file (``terms``/``shapes`` become absolute), so they are read from
+    disk rather than the package.
+    """
+    default_payload = _load_packaged_json("default.json")
+    if not path:
+        return EnrichmentConfig.model_validate(default_payload)
+
+    config_path = Path(path)
+    override = json.loads(config_path.read_text(encoding="utf-8"))
+    if not isinstance(override, dict):
+        raise ValueError(f"Enrichment config {path!r} must be a JSON object")
+
+    payload: dict[str, Any] = dict(default_payload)
+
+    if "system_prompt_extra" in override:
+        payload["system_prompt_extra"] = override["system_prompt_extra"]
+
+    if "ontologies" in override:
+        ontologies = override["ontologies"]
+        for ontology in ontologies:
+            terms_path = ontology.get("terms") if isinstance(ontology, dict) else None
             if isinstance(terms_path, str) and not Path(terms_path).is_absolute():
                 ontology["terms"] = str((config_path.parent / terms_path).resolve())
-        shapes_path = payload.get("shapes")
+        payload["ontologies"] = ontologies
+
+    if "shapes" in override:
+        shapes_path = override["shapes"]
         if isinstance(shapes_path, str) and shapes_path and not Path(shapes_path).is_absolute():
-            payload["shapes"] = str((config_path.parent / shapes_path).resolve())
-    else:
-        payload = _load_packaged_json("default.json")
+            shapes_path = str((config_path.parent / shapes_path).resolve())
+        payload["shapes"] = shapes_path
+
     return EnrichmentConfig.model_validate(payload)
 
 
