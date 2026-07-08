@@ -1,5 +1,5 @@
 {
-  "system_prompt_extra": "This deployment is a smart living and building demo; prefer SAREF, SOSA, and QUDT terms when they clearly match the TD.",
+  "system_prompt_extra": "",
   "ontologies": [
     {
       "prefix": "saref",
@@ -39,7 +39,7 @@
     {
       "prefix": "unit",
       "namespace": "http://qudt.org/vocab/unit/",
-      "description": "QUDT unit IRIs for common smart-living measurements.",
+      "description": "QUDT unit IRIs for common measurements.",
       "terms": "vocab/qudt-units.json",
       "use_for": ["property_unit"]
     }
