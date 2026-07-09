@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from wotbot.clients.code_executor import CodeExecutorClient
 from wotbot.core.settings import Settings
-from wotbot.jobs.records import VirtualRecordStore
 from wotbot.virtual_things.cache import get_cached_value, set_cached_value
 from wotbot.virtual_things.handler import (
     HandlerRunResult,
@@ -15,6 +14,9 @@ from wotbot.virtual_things.handler import (
 )
 from wotbot.virtual_things.schemas import json_safe
 from wotbot.virtual_things.store import VirtualThingStore
+
+if TYPE_CHECKING:
+    from wotbot.jobs.records import VirtualRecordStore
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,8 @@ class VirtualThingDispatcher:
         code_executor: CodeExecutorClient | None = None,
         settings: Settings | None = None,
     ) -> None:
+        from wotbot.jobs.records import VirtualRecordStore
+
         self._store = store or VirtualThingStore()
         self._record_store = record_store or VirtualRecordStore()
         self._settings = settings or Settings()
