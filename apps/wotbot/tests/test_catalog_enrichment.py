@@ -388,11 +388,7 @@ def test_overlay_inherits_packaged_ontologies_when_override_omits_them(tmp_path)
     assert len(vocab.terms) == len(build_vocabulary(packaged).terms) > 0
 
 
-def test_overlay_ontologies_replace_packaged_and_resolve_from_override(tmp_path):
-    (tmp_path / "ex.json").write_text(
-        json.dumps([{"iri": "http://example/Thing", "kind": "thing", "label": "Thing"}]),
-        encoding="utf-8",
-    )
+def test_overlay_ontologies_merge_onto_packaged_by_prefix(tmp_path):
     config_file = tmp_path / "enrichment.json"
     config_file.write_text(
         json.dumps(
@@ -401,14 +397,46 @@ def test_overlay_ontologies_replace_packaged_and_resolve_from_override(tmp_path)
         encoding="utf-8",
     )
 
+    packaged = load_enrichment_config()
     config = load_enrichment_config(str(config_file))
 
-    # Provided ontologies fully replace the packaged list and are absolutised
-    # relative to the override file so they read from disk, not the package.
-    assert [o.prefix for o in config.ontologies] == ["ex"]
-    assert config.ontologies[0].terms == str(tmp_path / "ex.json")
+    # A new prefix is appended onto the packaged core, which is preserved...
+    assert [o.prefix for o in config.ontologies] == [
+        o.prefix for o in packaged.ontologies
+    ] + ["ex"]
+    # ...the override entry's terms are absolutised relative to the config file...
+    ex = next(o for o in config.ontologies if o.prefix == "ex")
+    assert ex.terms == str(tmp_path / "ex.json")
+    # ...and inherited core ontologies keep their packaged (relative) terms.
+    first_core = packaged.ontologies[0]
+    merged_core = next(o for o in config.ontologies if o.prefix == first_core.prefix)
+    assert merged_core.terms == first_core.terms
     # system_prompt_extra was omitted -> inherited from the packaged default.
-    assert config.system_prompt_extra == load_enrichment_config().system_prompt_extra
+    assert config.system_prompt_extra == packaged.system_prompt_extra
+
+
+def test_overlay_ontology_with_existing_prefix_overrides_core(tmp_path):
+    packaged = load_enrichment_config()
+    core_prefix = packaged.ontologies[0].prefix
+    config_file = tmp_path / "enrichment.json"
+    config_file.write_text(
+        json.dumps(
+            {
+                "ontologies": [
+                    {"prefix": core_prefix, "namespace": "http://override/", "terms": "c.json"}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_enrichment_config(str(config_file))
+
+    # Same prefix -> replaced in place, nothing appended.
+    assert [o.prefix for o in config.ontologies] == [o.prefix for o in packaged.ontologies]
+    overridden = next(o for o in config.ontologies if o.prefix == core_prefix)
+    assert overridden.namespace == "http://override/"
+    assert overridden.terms == str(tmp_path / "c.json")
 
 
 def test_overlay_rejects_non_object_config(tmp_path):

@@ -36,6 +36,11 @@ def load_enrichment_config(path: str = "") -> EnrichmentConfig:
     resources. Keys the override *does* provide are resolved relative to the
     override file (``terms``/``shapes`` become absolute), so they are read from
     disk rather than the package.
+
+    ``ontologies`` merge *by prefix* rather than replacing wholesale: an override
+    entry whose prefix matches a packaged one replaces just that ontology, and a
+    new prefix is appended. So a deployment adds its own domain vocabulary on top
+    of the packaged core without re-declaring it.
     """
     default_payload = _load_packaged_json("default.json")
     if not path:
@@ -52,12 +57,23 @@ def load_enrichment_config(path: str = "") -> EnrichmentConfig:
         payload["system_prompt_extra"] = override["system_prompt_extra"]
 
     if "ontologies" in override:
-        ontologies = override["ontologies"]
-        for ontology in ontologies:
+        # Merge deployment ontologies onto the packaged core by prefix: a matching
+        # prefix replaces that packaged entry, a new prefix is appended. Lets a
+        # deployment add its domain vocabulary without re-declaring the core.
+        by_prefix: dict[str, Any] = {}
+        order: list[str] = []
+        for ontology in default_payload.get("ontologies", []):
+            by_prefix[ontology["prefix"]] = ontology
+            order.append(ontology["prefix"])
+        for ontology in override["ontologies"]:
             terms_path = ontology.get("terms") if isinstance(ontology, dict) else None
             if isinstance(terms_path, str) and not Path(terms_path).is_absolute():
                 ontology["terms"] = str((config_path.parent / terms_path).resolve())
-        payload["ontologies"] = ontologies
+            prefix = ontology.get("prefix") if isinstance(ontology, dict) else None
+            if prefix not in by_prefix:
+                order.append(prefix)
+            by_prefix[prefix] = ontology
+        payload["ontologies"] = [by_prefix[p] for p in order]
 
     if "shapes" in override:
         shapes_path = override["shapes"]
