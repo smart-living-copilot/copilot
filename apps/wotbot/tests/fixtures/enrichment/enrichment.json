@@ -1,0 +1,27 @@
+{
+  "system_prompt_extra": "Synthetic test deployment: prefer the wotbot.test dev/ts/env vocabularies when they clearly match the TD.",
+  "ontologies": [
+    {
+      "prefix": "dev",
+      "namespace": "http://wotbot.test/dev/",
+      "description": "Synthetic device classes, properties, functions, and measurements.",
+      "terms": "vocab/dev.json",
+      "use_for": ["thing_type", "affordance_type"]
+    },
+    {
+      "prefix": "ts",
+      "namespace": "http://wotbot.test/ts/",
+      "description": "Synthetic time-series measurement terms.",
+      "terms": "vocab/ts.json",
+      "use_for": ["thing_type", "affordance_type"]
+    },
+    {
+      "prefix": "env",
+      "namespace": "http://wotbot.test/env/",
+      "description": "Synthetic environmental terms used by time-series measurements.",
+      "terms": "vocab/env.json",
+      "use_for": ["affordance_type"]
+    }
+  ],
+  "shapes": "shapes.ttl"
+}

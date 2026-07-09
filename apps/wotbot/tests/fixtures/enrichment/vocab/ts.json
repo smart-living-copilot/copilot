@@ -1,7 +1,7 @@
 [
   {
     "label": "Time Series Measurement",
-    "iri": "https://saref.etsi.org/saref4ehaw/TimeSeriesMeasurement",
+    "iri": "http://wotbot.test/ts/TimeSeriesMeasurement",
     "kind": "class",
     "aliases": [
       "time series",
@@ -13,19 +13,19 @@
   },
   {
     "label": "Data",
-    "iri": "https://saref.etsi.org/saref4ehaw/Data",
+    "iri": "http://wotbot.test/ts/Data",
     "kind": "class",
     "aliases": ["dataset", "record data", "measurement data"]
   },
   {
     "label": "has time series measurement",
-    "iri": "https://saref.etsi.org/saref4ehaw/hasTimeSeriesMesurement",
+    "iri": "http://wotbot.test/ts/hasTimeSeriesMesurement",
     "kind": "property",
     "aliases": ["has history", "has timeseries", "historical values"]
   },
   {
     "label": "has values",
-    "iri": "https://saref.etsi.org/saref4ehaw/hasValues",
+    "iri": "http://wotbot.test/ts/hasValues",
     "kind": "property",
     "aliases": ["sample values", "ordered values", "series values"]
   }

@@ -56,9 +56,6 @@ packages = ["src/wotbot"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/wotbot/catalog/td-schema.json" = "wotbot/catalog/td-schema.json"
 "src/wotbot/catalog/enrichment/data/default.json" = "wotbot/catalog/enrichment/data/default.json"
-"src/wotbot/catalog/enrichment/data/vocab/saref-core.json" = "wotbot/catalog/enrichment/data/vocab/saref-core.json"
-"src/wotbot/catalog/enrichment/data/vocab/saref4ehaw.json" = "wotbot/catalog/enrichment/data/vocab/saref4ehaw.json"
-"src/wotbot/catalog/enrichment/data/vocab/saref4envi.json" = "wotbot/catalog/enrichment/data/vocab/saref4envi.json"
 "src/wotbot/catalog/enrichment/data/vocab/sosa.json" = "wotbot/catalog/enrichment/data/vocab/sosa.json"
 "src/wotbot/catalog/enrichment/data/vocab/qudt-schema.json" = "wotbot/catalog/enrichment/data/vocab/qudt-schema.json"
 "src/wotbot/catalog/enrichment/data/vocab/qudt-units.json" = "wotbot/catalog/enrichment/data/vocab/qudt-units.json"

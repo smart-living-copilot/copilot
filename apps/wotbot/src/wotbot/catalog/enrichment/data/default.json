@@ -2,32 +2,11 @@
   "system_prompt_extra": "",
   "ontologies": [
     {
-      "prefix": "saref",
-      "namespace": "https://saref.etsi.org/core/",
-      "description": "SAREF device classes, properties, functions, and measurements.",
-      "terms": "vocab/saref-core.json",
-      "use_for": ["thing_type", "affordance_type"]
-    },
-    {
       "prefix": "sosa",
       "namespace": "http://www.w3.org/ns/sosa/",
       "description": "SOSA sensors, actuators, observations, and observable properties.",
       "terms": "vocab/sosa.json",
       "use_for": ["thing_type", "affordance_type"]
-    },
-    {
-      "prefix": "s4ehaw",
-      "namespace": "https://saref.etsi.org/saref4ehaw/",
-      "description": "SAREF4EHAW terms for health/wellbeing and time-series measurements.",
-      "terms": "vocab/saref4ehaw.json",
-      "use_for": ["thing_type", "affordance_type"]
-    },
-    {
-      "prefix": "s4envi",
-      "namespace": "https://saref.etsi.org/saref4envi/",
-      "description": "SAREF4ENVI environmental terms used by time-series measurements.",
-      "terms": "vocab/saref4envi.json",
-      "use_for": ["affordance_type"]
     },
     {
       "prefix": "qudt",

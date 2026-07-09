@@ -1,75 +1,75 @@
 [
   {
     "label": "Device",
-    "iri": "https://saref.etsi.org/core/Device",
+    "iri": "http://wotbot.test/dev/Device",
     "kind": "class"
   },
   {
     "label": "Sensor",
-    "iri": "https://saref.etsi.org/core/Sensor",
+    "iri": "http://wotbot.test/dev/Sensor",
     "kind": "class"
   },
   {
     "label": "Actuator",
-    "iri": "https://saref.etsi.org/core/Actuator",
+    "iri": "http://wotbot.test/dev/Actuator",
     "kind": "class"
   },
   {
     "label": "Temperature Sensor",
-    "iri": "https://saref.etsi.org/core/TemperatureSensor",
+    "iri": "http://wotbot.test/dev/TemperatureSensor",
     "kind": "class",
     "aliases": ["thermometer", "temperature sensor"]
   },
   {
     "label": "Humidity Sensor",
-    "iri": "https://saref.etsi.org/core/HumiditySensor",
+    "iri": "http://wotbot.test/dev/HumiditySensor",
     "kind": "class"
   },
   {
     "label": "Motion Sensor",
-    "iri": "https://saref.etsi.org/core/MotionSensor",
+    "iri": "http://wotbot.test/dev/MotionSensor",
     "kind": "class",
     "aliases": ["presence sensor", "occupancy sensor"]
   },
   {
     "label": "Light Switch",
-    "iri": "https://saref.etsi.org/core/LightSwitch",
+    "iri": "http://wotbot.test/dev/LightSwitch",
     "kind": "class"
   },
   {
     "label": "Temperature",
-    "iri": "https://saref.etsi.org/core/Temperature",
+    "iri": "http://wotbot.test/dev/Temperature",
     "kind": "property",
     "default_unit": "unit:DEG_C"
   },
   {
     "label": "Humidity",
-    "iri": "https://saref.etsi.org/core/Humidity",
+    "iri": "http://wotbot.test/dev/Humidity",
     "kind": "property",
     "default_unit": "unit:PERCENT"
   },
   {
     "label": "Illuminance",
-    "iri": "https://saref.etsi.org/core/Illuminance",
+    "iri": "http://wotbot.test/dev/Illuminance",
     "kind": "property",
     "aliases": ["light level", "brightness"],
     "default_unit": "unit:LUX"
   },
   {
     "label": "Power",
-    "iri": "https://saref.etsi.org/core/Power",
+    "iri": "http://wotbot.test/dev/Power",
     "kind": "property",
     "default_unit": "unit:W"
   },
   {
     "label": "Energy",
-    "iri": "https://saref.etsi.org/core/Energy",
+    "iri": "http://wotbot.test/dev/Energy",
     "kind": "property",
     "default_unit": "unit:KiloW-HR"
   },
   {
     "label": "On Off State",
-    "iri": "https://saref.etsi.org/core/OnOffState",
+    "iri": "http://wotbot.test/dev/OnOffState",
     "kind": "property"
   }
 ]
