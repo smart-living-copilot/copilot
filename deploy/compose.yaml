@@ -286,17 +286,6 @@ services:
       REGISTRY_URL: http://wotbot:8123
       VIRTUAL_SERVIENT_REGISTRY_TOKEN: "${VIRTUAL_SERVIENT_REGISTRY_TOKEN:-${WOT_RUNTIME_REGISTRY_TOKEN:-}}"
 
-  kokoro-tts:
-    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
-    profiles:
-      - tts
-    ports:
-      - "8880:8880"
-    networks:
-      - backend-isolated
-      - egress-api
-    restart: unless-stopped
-
 volumes:
   wotbot-data:
   postgres-data:

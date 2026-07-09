@@ -1,7 +1,7 @@
 """Build LiveKit STT/TTS plugins from the OpenAI-compatible speech settings.
 
-The project points STT/TTS at OpenAI-compatible endpoints (e.g. a self-hosted
-transcription service and Kokoro). These helpers translate the ``Settings``
+The project points STT/TTS at OpenAI-compatible endpoints (e.g. self-hosted
+transcription and text-to-speech services). These helpers translate the ``Settings``
 speech fields into the kwargs the ``livekit.plugins.openai`` STT/TTS clients
 expect, falling back to the shared OpenAI LLM credentials when no dedicated
 speech endpoint is configured.

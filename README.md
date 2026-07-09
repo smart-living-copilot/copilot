@@ -21,7 +21,7 @@ browser
 - [`apps/virtual-servient`](./apps/virtual-servient/README.md): internal node-wot producer that turns wotbot virtual Thing definitions into concrete catalog Thing Descriptions.
 - [`examples/thing-descriptions`](./examples/thing-descriptions): sample Thing Description assets for local scenarios.
 
-Docker Compose also starts Postgres with pgvector, Valkey, an RDF service, LiveKit Server, and an optional Kokoro TTS profile.
+Docker Compose also starts Postgres with pgvector, Valkey, an RDF service, and LiveKit Server.
 
 ## Getting Started
 

@@ -241,9 +241,9 @@ class Settings(BaseSettings):
     vision_jpeg_quality: int = 85
 
     # Text-to-speech
-    tts_speech_url: str = "http://kokoro-tts:8880/v1/audio/speech"
-    tts_model: str = "kokoro"
-    tts_voice: str = "af_heart"
+    tts_speech_url: str = ""
+    tts_model: str = "tts-1"
+    tts_voice: str = "alloy"
     tts_api_key: str = ""
     tts_response_format: str = "pcm"
     tts_speed: float = 1.0

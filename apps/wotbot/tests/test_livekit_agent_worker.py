@@ -73,13 +73,13 @@ def test_livekit_stt_kwargs_use_dedicated_speech_key_and_language() -> None:
 def test_livekit_tts_kwargs_use_speech_endpoint_without_llm_key() -> None:
     settings = Settings(
         openai_api_key="llm-key",
-        tts_speech_url="http://kokoro:8880/v1/audio/speech",
+        tts_speech_url="http://tts:8880/v1/audio/speech",
         tts_api_key="",
     )
 
     kwargs = livekit_speech.tts_kwargs(settings)
 
-    assert kwargs["base_url"] == "http://kokoro:8880/v1"
+    assert kwargs["base_url"] == "http://tts:8880/v1"
     assert "api_key" not in kwargs
 
 
