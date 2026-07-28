@@ -22,6 +22,7 @@ class Thing(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="manual")
     document: Mapped[ThingDocument] = mapped_column(JSONB, nullable=False)
     document_hash: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -42,5 +43,6 @@ class ThingRecord:
     title: str
     description: str
     tags: list[str]
+    source: str
     document: ThingDocument
     document_hash: str

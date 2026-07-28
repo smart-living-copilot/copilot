@@ -26,12 +26,14 @@ class ThingCatalogQueryService:
         query: str = "",
         page: int = 1,
         per_page: int = 25,
+        source: str | None = None,
     ) -> dict[str, Any]:
         items, total = list_things(
             self._session,
             query=query,
             page=page,
             per_page=per_page,
+            source=source,
         )
         return {
             "items": [serialize_thing(item) for item in items],

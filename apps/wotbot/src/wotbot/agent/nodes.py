@@ -28,6 +28,7 @@ from wotbot.agent.device_interactions import (
 from wotbot.agent.prompts import (
     ANALYSIS_PROMPT,
     CONTROL_PROMPT,
+    DISCOVERY_PROMPT,
     JOBS_PROMPT,
     RESPOND_PROMPT,
     ROUTER_PROMPT,
@@ -71,7 +72,7 @@ class WotbotState(CopilotKitState):
 
 
 class IntentClassification(BaseModel):
-    intent: Literal["chat", "control", "analysis", "jobs", "virtual_things"] = Field(
+    intent: Literal["chat", "control", "analysis", "jobs", "virtual_things", "discovery"] = Field(
         description="The classified intent"
     )
 
@@ -485,6 +486,39 @@ def make_virtual_things_node(
         active_tools = _active_tools_for_config(tools, config)
         _log_branch_entry(
             "virtual_things",
+            config=config,
+            active_tools=active_tools,
+            parallel_tool_calls=parallel_tool_calls,
+        )
+        runnable = (
+            llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
+            if active_tools
+            else llm
+        )
+        response = await runnable.ainvoke(messages)
+        return {"messages": [response]}
+
+    return node
+
+
+def make_discovery_node(
+    llm: ChatOpenAI,
+    tools: list[Any],
+    max_tokens: int,
+    *,
+    parallel_tool_calls: bool = True,
+    handoff_note: str = "",
+):
+    # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
+    async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
+        system_message = SystemMessage(
+            content=DISCOVERY_PROMPT + handoff_note + _current_time_block()
+        )
+        trimmed = _trim_conversation(state["messages"], max_tokens)
+        messages = [system_message, *trimmed]
+        active_tools = _active_tools_for_config(tools, config)
+        _log_branch_entry(
+            "discovery",
             config=config,
             active_tools=active_tools,
             parallel_tool_calls=parallel_tool_calls,

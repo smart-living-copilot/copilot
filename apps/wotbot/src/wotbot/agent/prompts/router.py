@@ -25,6 +25,19 @@ notifications, reminders, or actions that should happen when a condition is met.
 - **virtual_things**: Create, update, delete, disable, debug, or test standalone \
 computed/synthetic/virtual Things, including computed properties, computed \
 actions, emitted events, reusable threshold-crossing virtual events, and handler bindings.
+- **discovery**: Create a new W3C Thing Description (TD) from user-provided \
+information, from an OpenAPI / Swagger specification, or by importing assets from \
+an external dataspace, EDC connector, federated catalogue, or remote registry. \
+This includes: describing a new device's properties/actions/events to build and \
+store the TD; providing an API spec to be turned into a Thing; asking to "add", \
+"create", or "register" a new device not yet in the catalog; searching external \
+sources like a dataspace, EDC, or federated catalogue for Things to import. \
+Use this intent when the user explicitly mentions an external source (dataspace, \
+EDC, catalogue, SPARQL endpoint, remote registry), or when you have tried \
+things_search locally and found no results and the user wants to look further \
+afield. \
+Do NOT use for virtual/computed Things (use virtual_things) or for searching \
+existing Things (any other intent can search the local catalog).
 
 If a request mixes immediate device control with creating an automation for later, \
 classify as **jobs**.

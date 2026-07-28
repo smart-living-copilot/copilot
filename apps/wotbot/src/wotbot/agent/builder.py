@@ -12,6 +12,7 @@ from wotbot.agent.nodes import (
     make_analysis_node,
     make_background_job_node,
     make_control_node,
+    make_discovery_node,
     make_dispatch_node,
     make_jobs_node,
     make_respond_node,
@@ -135,6 +136,12 @@ def build_graph(
         + registry_tool_groups.virtual_authoring_runtime
         + local_tool_groups.virtual_thing_tools
     )
+    discovery_tools = (
+        registry_tool_groups.discovery
+        + registry_tool_groups.discovery_authoring
+        + [local_tool_groups.run_code]
+        + job_runtime_tools
+    )
 
     # When handoff is enabled, give the action branches the route_to tool so they
     # can continue the turn in another branch, and a system-prompt note telling
@@ -147,6 +154,7 @@ def build_graph(
         analysis_tools = analysis_tools + [route_to]
         jobs_tools = jobs_tools + [route_to]
         virtual_things_tools = virtual_things_tools + [route_to]
+        discovery_tools = discovery_tools + [route_to]
         handoff_note = HANDOFF_PROMPT
 
     graph = StateGraph(WotbotState)
@@ -181,6 +189,7 @@ def build_graph(
                     "analysis": "analysis_llm",
                     "jobs": "jobs_llm",
                     "virtual_things": "virtual_things_llm",
+                    "discovery": "discovery_llm",
                 },
                 finish_node="device_summary",
             ),
@@ -200,6 +209,12 @@ def build_graph(
             "virtual_things_tools",
             make_virtual_things_node,
             virtual_things_tools,
+        ),
+        (
+            "discovery_llm",
+            "discovery_tools",
+            make_discovery_node,
+            discovery_tools,
         ),
         (
             "control_llm",
@@ -237,6 +252,7 @@ def build_graph(
             "analysis": "analysis_llm",
             "jobs": "jobs_llm",
             "virtual_things": "virtual_things_llm",
+            "discovery": "discovery_llm",
         },
     )
 

@@ -47,6 +47,13 @@ def summarize_document(document: ThingDocument) -> tuple[str, str, list[str], st
     return thing_id, title, _normalize_tags(document.get("tags")), description
 
 
+def _get_source(document: ThingDocument) -> str:
+    source = document.get("source")
+    if isinstance(source, str) and source.strip():
+        return source.strip()
+    return "manual"
+
+
 def hash_document(document: ThingDocument) -> str:
     payload = json.dumps(document, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -58,6 +65,7 @@ def to_record(thing: Thing) -> ThingRecord:
         title=thing.title,
         description=thing.description,
         tags=list(thing.tags or []),
+        source=thing.source,
         document=dict(thing.document),
         document_hash=thing.document_hash,
     )
@@ -73,6 +81,7 @@ def list_things(
     query: str = "",
     page: int = 1,
     per_page: int = 25,
+    source: str | None = None,
 ) -> tuple[list[ThingRecord], int]:
     normalized_query = query.strip().lower()
     offset = (page - 1) * per_page
@@ -88,6 +97,9 @@ def list_things(
                 func.lower(cast(Thing.document, Text)).like(pattern),
             )
         )
+
+    if source is not None:
+        filters.append(Thing.source == source)
 
     count_query = select(func.count()).select_from(Thing).where(*filters)
     total = int(session.scalar(count_query) or 0)
@@ -121,6 +133,7 @@ def _update_thing(thing: Thing, document: ThingDocument) -> None:
     thing.title = str(values["title"])
     thing.description = str(values["description"])
     thing.tags = list(values["tags"])
+    thing.source = str(values["source"])
     thing.document = dict(values["document"])
     thing.document_hash = str(values["document_hash"])
     thing.updated_at = values["updated_at"]
@@ -138,6 +151,7 @@ def _thing_values(
         "title": title,
         "description": description,
         "tags": tags,
+        "source": _get_source(document),
         "document": document,
         "document_hash": hash_document(document),
         "updated_at": now,
@@ -172,6 +186,7 @@ def put_thing(session: Session, thing_id: str, document: ThingDocument) -> tuple
             "title": stmt.excluded.title,
             "description": stmt.excluded.description,
             "tags": stmt.excluded.tags,
+            "source": stmt.excluded.source,
             "document": stmt.excluded.document,
             "document_hash": stmt.excluded.document_hash,
             "updated_at": stmt.excluded.updated_at,

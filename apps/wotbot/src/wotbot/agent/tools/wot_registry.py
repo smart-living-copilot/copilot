@@ -124,16 +124,20 @@ async def things_list(
     query: str = "",
     page: int = 1,
     per_page: int = 25,
+    source: str = "",
 ) -> dict[str, Any]:
-    """List stored Thing Descriptions from the registry catalog."""
+    """List stored Thing Descriptions from the registry catalog. Optionally
+    filter by source (e.g. "manual" or "auto-discovered")."""
     normalized_page = _bounded_int(page, default=1, minimum=1, maximum=1_000_000)
     normalized_per_page = _bounded_int(per_page, default=25, minimum=1, maximum=200)
+    normalized_source = source.strip() or None
 
     return await _run_with_session(
         lambda session: ThingCatalogQueryService(session).list_owned_things(
             query=query,
             page=normalized_page,
             per_page=normalized_per_page,
+            source=normalized_source,
         )
     )
 
@@ -364,7 +368,17 @@ async def wot_invoke_action(
     form_index: int | None = None,
     idempotency_key: str | None = None,
 ) -> Any:
-    """Invoke a live WoT action and return the decoded response value directly."""
+    """Invoke a live WoT action and return the decoded response value directly.
+
+    IMPORTANT — authorization / bearer tokens: Do NOT pass tokens in the
+    ``input`` field. The runtime automatically injects stored credentials
+    (bearer tokens, API keys, etc.) from the credential store when it
+    invokes the action. Tokens must be stored in advance via the
+    credentials API (PUT /api/credentials/{thing_id}/{security_name})
+    with the scheme and credential payload. Use things_get first to
+    discover which security definitions the Thing requires, then store
+    the matching credentials before invoking.
+    """
     return _decoded_runtime_value(
         await _runtime_client().invoke_action(
             thing_id=thing_id,

@@ -12,7 +12,7 @@ import { Eye, Plus, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { type ThingRecord, fetchThings } from '@/lib/things-api';
-import { isVirtualThingId } from '@/lib/virtual-things';
+import { isAutoDiscoveredSource, isVirtualThingId } from '@/lib/virtual-things';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -43,6 +43,7 @@ const PER_PAGE = 12;
 export function ThingsList() {
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
+  const [sourceFilter, setSourceFilter] = useState<string>('');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<ThingRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -64,12 +65,12 @@ export function ThingsList() {
 
   useEffect(() => {
     setPage(1);
-  }, [deferredSearch]);
+  }, [deferredSearch, sourceFilter]);
 
   const loadData = useCallback(async () => {
     setIsPending(true);
     try {
-      const result = await fetchThings(page, PER_PAGE, deferredSearch);
+      const result = await fetchThings(page, PER_PAGE, deferredSearch, sourceFilter);
       setData(result.data);
       setTotal(result.total);
     } catch (error) {
@@ -79,7 +80,7 @@ export function ThingsList() {
     } finally {
       setIsPending(false);
     }
-  }, [page, deferredSearch]);
+  }, [page, deferredSearch, sourceFilter]);
 
   useEffect(() => {
     void loadData();
@@ -199,6 +200,20 @@ export function ThingsList() {
               />
             </div>
             <div className="flex min-h-8 items-center gap-2 text-sm text-muted-foreground">
+              <Badge
+                variant={sourceFilter === '' ? 'default' : 'outline'}
+                className="cursor-pointer"
+                onClick={() => setSourceFilter('')}
+              >
+                All
+              </Badge>
+              <Badge
+                variant={sourceFilter === 'auto-discovered' ? 'default' : 'outline'}
+                className="cursor-pointer"
+                onClick={() => setSourceFilter(sourceFilter === 'auto-discovered' ? '' : 'auto-discovered')}
+              >
+                Auto-Discovered
+              </Badge>
               <Badge variant="secondary">{total} total</Badge>
               <Badge variant="outline">
                 Page {page} of {totalPages}
@@ -239,6 +254,11 @@ export function ThingsList() {
                               </button>
                               {isVirtualThingId(record.id) ? (
                                 <Badge variant="secondary">Virtual</Badge>
+                              ) : null}
+                              {isAutoDiscoveredSource(record.source) ? (
+                                <Badge variant="outline" className="border-blue-300 text-blue-600">
+                                  Auto-Discovered
+                                </Badge>
                               ) : null}
                             </div>
                             <p className="line-clamp-2 max-w-xl text-sm leading-5 text-muted-foreground">

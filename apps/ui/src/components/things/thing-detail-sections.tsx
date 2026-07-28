@@ -12,6 +12,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { type ThingRecord } from '@/lib/things-api';
 import { type RuntimeAffordanceType } from '@/lib/wot-runtime-api';
+import { isAutoDiscoveredSource, isVirtualThingId } from '@/lib/virtual-things';
 import { type VirtualThingBinding } from '@/lib/virtual-things-api';
 import { withReturnTo } from '@/lib/return-to';
 
@@ -111,6 +112,11 @@ export function ThingDetailPageLayout({
           <div className="flex flex-wrap items-center gap-2">
             <ThingIndexStatusBadge status={indexStatus} />
             {isVirtual ? <Badge variant="secondary">Virtual</Badge> : null}
+            {isAutoDiscoveredSource(thing.source) ? (
+              <Badge variant="outline" className="border-blue-300 text-blue-600">
+                Auto-Discovered
+              </Badge>
+            ) : null}
             <Badge variant="outline">
               {properties.length} propert{properties.length === 1 ? 'y' : 'ies'}
             </Badge>

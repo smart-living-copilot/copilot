@@ -14,6 +14,7 @@ def serialize_thing(
         "title": record.title,
         "description": record.description,
         "tags": record.tags,
+        "source": record.source,
     }
 
     if include_document:

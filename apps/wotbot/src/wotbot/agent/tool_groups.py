@@ -57,6 +57,13 @@ _VIRTUAL_AUTHORING_RUNTIME_NAMES = {
     "wot_subscribe_event",
     "wot_remove_subscription",
 }
+# Discovery authoring tools: tools that can be shared with other groups
+_DISCOVERY_AUTHORING_NAMES = {
+    "things_upsert",
+    "things_delete",
+    "things_validate",
+    "things_get",
+}
 
 # Local tools that are referenced individually by the graph. Every other local
 # tool is treated as a job API tool for the dedicated jobs branch, so adding a
@@ -94,6 +101,7 @@ class RegistryToolGroups:
     runtime: list[Any]
     runtime_read: list[Any]
     virtual_authoring_runtime: list[Any]
+    discovery_authoring: list[Any]
 
     @property
     def discovery_and_inspect(self) -> list[Any]:
@@ -119,20 +127,25 @@ def partition_registry_tools(registry_tools: list[Any]) -> RegistryToolGroups:
     runtime: list[Any] = []
     runtime_read: list[Any] = []
     virtual_authoring_runtime: list[Any] = []
+    discovery_authoring: list[Any] = []
 
     for tool in registry_tools:
         name = tool.name
         if name in _DISCOVERY_NAMES:
             discovery.append(tool)
-        elif name in _INSPECT_NAMES:
+        if name in _INSPECT_NAMES:
             inspect.append(tool)
-        elif name in _RUNTIME_NAMES:
+        if name in _RUNTIME_NAMES:
             runtime.append(tool)
             if name in _RUNTIME_READ_NAMES:
                 runtime_read.append(tool)
             if name in _VIRTUAL_AUTHORING_RUNTIME_NAMES:
                 virtual_authoring_runtime.append(tool)
-        else:
+        if name in _DISCOVERY_AUTHORING_NAMES:
+            discovery_authoring.append(tool)
+            # If already in runtime, also pull into discovery_authoring
+        if name not in _DISCOVERY_NAMES and name not in _INSPECT_NAMES \
+                and name not in _RUNTIME_NAMES and name not in _DISCOVERY_AUTHORING_NAMES:
             logger.debug("Registry tool %r not assigned to any partition group", name)
 
     return RegistryToolGroups(
@@ -141,6 +154,7 @@ def partition_registry_tools(registry_tools: list[Any]) -> RegistryToolGroups:
         runtime=runtime,
         runtime_read=runtime_read,
         virtual_authoring_runtime=virtual_authoring_runtime,
+        discovery_authoring=discovery_authoring,
     )
 
 
