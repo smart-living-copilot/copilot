@@ -143,6 +143,14 @@ def build_graph(
         + job_runtime_tools
     )
 
+    # Locate the set_thing_credential tool for the discovery branch
+    set_credential_tool = next(
+        (t for t in local_tools if t.name == "set_thing_credential"),
+        None,
+    )
+    if set_credential_tool:
+        discovery_tools = [set_credential_tool] + discovery_tools
+
     # When handoff is enabled, give the action branches the route_to tool so they
     # can continue the turn in another branch, and a system-prompt note telling
     # them how. Off by default: the tool lists, prompts, and edges below stay

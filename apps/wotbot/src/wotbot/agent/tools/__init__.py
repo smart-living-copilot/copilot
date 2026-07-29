@@ -18,6 +18,7 @@ from wotbot.agent.tools.job_scheduler import (
 )
 from wotbot.agent.tools.look_at_camera import look_at_camera
 from wotbot.agent.tools.run_code import run_code
+from wotbot.agent.tools.set_thing_credential import set_thing_credential
 from wotbot.agent.tools.virtual_things import (
     activate_virtual_thing,
     add_virtual_action,
@@ -34,6 +35,7 @@ LOCAL_TOOLS = [
     create_web_interface,
     get_current_time,
     look_at_camera,
+    set_thing_credential,
     create_prompt_job,
     create_analysis_job,
     list_jobs,
@@ -69,4 +71,5 @@ __all__ = [
     "look_at_camera",
     "run_code",
     "run_job_now",
+    "set_thing_credential",
 ]

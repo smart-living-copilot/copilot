@@ -102,9 +102,10 @@ When the user asks to search or import from an external source, follow these
    - The correct `security` and `securityDefinitions` matching the dataspace's
      authentication scheme (typically bearer token).
 4. Use things_upsert(thing_id, document) to store each new Thing.
-5. After creating the TD, instruct the user to store the credentials (token) for
-   the new Thing via the credentials API so the runtime can authenticate. See
-   the Security and credentials section below.
+5. After creating the TD, store the credentials for the new Thing using
+   set_thing_credential(thing_id, security_name, scheme, credentials) —
+   this only works on auto-discovered Things. See the Security and
+   credentials section below.
 6. Report how many new Things were discovered and registered.
 
 ## Thing Description structure
@@ -113,11 +114,38 @@ Always produce a valid W3C WoT Thing Description with these required fields:
 - `id`: a stable unique URI/URN for the thing
 - `title`: human-readable name
 - `description`: short description of the device
-- `security`: ["bearer"] or ["nosec"] depending on what the user tells you
+- `security`: ["nosec"] or ["bearer"] depending on the API
 - `securityDefinitions`: matching the chosen security scheme
 - `properties`, `actions`, `events`: objects whose keys are affordance names and
   values contain `forms` arrays with `href`, `contentType`, and `op` (operation
   type). Every form href must be an absolute URL (base + path).
+
+## CRITICAL: Forms rules — hardcoded methods, templated URLs
+
+When building form entries in a Thing Description, follow these rules:
+
+1. **`href`** — MAY contain URI template variables like `{endpoint}` or
+   `{id}`. The runtime resolves these from `uri_variables` at invocation time.
+   Example: `"href": "{endpoint}/breweries/{id}"`
+
+2. **`htv:methodName`** — MUST be a hardcoded HTTP verb (`"GET"`, `"POST"`,
+   `"PUT"`, `"DELETE"`). The runtime does NOT resolve URI template variables
+   in `htv:methodName`. If you write `"htv:methodName": "{method}"`, the
+   runtime will literally send `{method}` as the HTTP verb, which the server
+   will reject with a validation error.
+   ❌ WRONG: `"htv:methodName": "{method}"`
+   ✅ RIGHT: `"htv:methodName": "GET"`
+
+3. **`contentType`** — always use a concrete media type like
+   `"application/json"`. Never use a template variable here.
+
+## CRITICAL: Validate vs. Store — DO NOT CONFUSE THEM
+- **things_validate** checks the document structure but does NOT save it.
+  Use this FIRST to verify your TD is well-formed before storing.
+- **things_upsert** is the ONLY tool that actually persists the Thing in the
+  catalog. After validation passes, you MUST call things_upsert(thing_id, document)
+  to store it. If you only validate, the Thing will not exist and subsequent
+  wot_invoke_action or things_get calls will fail with "Thing not found".
 
 If the user later wants to update an auto-discovered Thing, always preserve
 the `"source": "auto-discovered"` field so the UI can flag them separately.
@@ -132,24 +160,21 @@ If a Thing uses bearer token or other authentication, you MUST:
    },
    "security": ["bearer_sc"]
    ```
-2. After creating the Thing, instruct the user to store the credentials. The
-   credentials API endpoint is:
-   ```
-   PUT /api/credentials/{thing_id}/{security_name}
-   ```
-   With a JSON body like:
-   ```json
-   {
-     "scheme": "bearer",
-     "credentials": {
-       "token": "<the-bearer-token-value>"
-     }
-   }
-   ```
-   For other schemes:
-   - **API key** (`scheme: "apikey"`): `{ "apikey": "<key>" }`
-   - **Basic auth** (`scheme: "basic"`): `{ "username": "...", "password": "..." }`
-   - **NONE** (no auth): no credentials are needed.
+2. After creating the Thing, store the credentials using the
+   set_thing_credential(thing_id, security_name, scheme, credentials) tool.
+   This stores the token in the credential store so the runtime can inject it
+   automatically into HTTP requests to the Thing. Do NOT pass tokens inline
+   in action inputs.
+
+   NOTE: set_thing_credential ONLY works on auto-discovered Things (source=
+   "auto-discovered"). Manually created Things require the user to set
+   credentials via the API directly.
+
+   Common examples:
+   - Bearer token: set_thing_credential(thing_id, "bearer_sc", "bearer", {"token": "<value>"})
+   - API key:      set_thing_credential(thing_id, "apikey_sc", "apikey", {"apikey": "<value>"})
+   - Basic auth:   set_thing_credential(thing_id, "basic_sc", "basic", {"username": "...", "password": "..."})
+   - No auth:      no credentials needed
 3. The runtime automatically injects stored credentials into HTTP requests to
    the Thing — tokens must NOT be passed inline in the ``input`` field of
    wot_invoke_action, wot_read_property, or wot_write_property.

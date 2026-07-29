@@ -74,6 +74,7 @@ _CREATE_WEB_INTERFACE = "create_web_interface"
 _LOOK_AT_CAMERA = "look_at_camera"
 _ASK_JOB_USER = "ask_job_user"
 _SUBMIT_JOB_RECORD = "submit_job_record"
+_SET_THING_CREDENTIAL = "set_thing_credential"
 _VIRTUAL_THING_NAMES = {
     "create_virtual_thing",
     "add_virtual_property",
@@ -90,6 +91,7 @@ _NAMED_LOCAL_NAMES = {
     _LOOK_AT_CAMERA,
     _ASK_JOB_USER,
     _SUBMIT_JOB_RECORD,
+    _SET_THING_CREDENTIAL,
     *_VIRTUAL_THING_NAMES,
 }
 
