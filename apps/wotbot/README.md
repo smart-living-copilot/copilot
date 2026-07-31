@@ -56,6 +56,141 @@ Automation jobs use the same graph and persistence model as normal conversations
 
 Live voice uses a self-hosted LiveKit Server plus the `wotbot livekit-agent` worker. The worker handles realtime media, speech-to-text, text-to-speech, interruption handling, transcription forwarding, and the bridge back into the LangGraph assistant.
 
+## A2A (Agent-to-Agent) API
+
+WoTBot implements the [Google A2A protocol](https://a2a-protocol.org) (JSON-RPC 2.0) so any A2A-compatible agent can interact with it — send messages, send data files, and retrieve visualizations as artifacts.
+
+### Endpoints
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/a2a/.well-known/agent-card` | GET | A2A-standard agent card (name, version, capabilities, skills) |
+| `/api/a2a/agent-card` | GET | Legacy alias for the agent card |
+| `/api/a2a/jsonrpc` | POST | JSON-RPC 2.0 endpoint (`sendMessage` method) |
+| `/api/a2a/message` | POST | Backward-compatible simple message API |
+| `/api/a2a/upload` | POST | Upload a data file (CSV, JSON, image, …) for the Python sandbox |
+| `/api/a2a/artifacts/{filename}` | GET | Fetch an artifact or uploaded file by name |
+
+### Agent Card
+
+`GET /api/a2a/.well-known/agent-card` returns the standard agent card:
+
+```json
+{
+  "name": "WoTBot",
+  "description": "Conversational Web of Things assistant — query devices, run analysis code, generate visualizations, and control your smart home.",
+  "version": "1.1.0",
+  "capabilities": [
+    {"name": "chat", "description": "General conversation"},
+    {"name": "wot-runtime", "description": "WoT device interaction"},
+    {"name": "code-execution", "description": "Run Python analysis code"},
+    {"name": "visualization", "description": "Generate plots and charts"}
+  ],
+  "skills": [
+    {"id": "device_query", "name": "Device Query", "description": "Query device properties and sensor readings"},
+    {"id": "data_analysis", "name": "Data Analysis", "description": "Run Python code to analyze and visualize data"},
+    {"id": "device_control", "name": "Device Control", "description": "Control smart home devices"}
+  ],
+  "default_input_modes": ["text"],
+  "default_output_modes": ["text", "image/png", "text/html"]
+}
+```
+
+### Sending a message (JSON-RPC)
+
+```bash
+curl -X POST http://wotbot:8123/api/a2a/jsonrpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "sendMessage",
+    "params": {
+      "message": {
+        "parts": [{"text": "what is the temperature in the kitchen?"}],
+        "context_id": "my-thread-1"
+      }
+    }
+  }'
+```
+
+Response contains a `Task` with `status.state` (e.g. `completed`), the assistant text in `status.message.parts[].text`, and any visualizations in `task.artifacts[].parts[]`.
+
+### Sending data files
+
+Two options — either upload directly, then reference the returned filename, or embed base64 data in the message:
+
+**Option 1 — upload first, then reference:**
+
+```bash
+# Upload a CSV
+curl -X POST http://wotbot:8123/api/a2a/upload \
+  -F "file=@sensor_data.csv;type=text/csv"
+# → {"filename": "upload-abc123.csv", "size_bytes": 1024, "url": "http://.../api/a2a/artifacts/upload-abc123.csv"}
+
+# Then ask WoTBot to analyze it, telling it the file URL
+curl -X POST http://wotbot:8123/api/a2a/jsonrpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "2",
+    "method": "sendMessage",
+    "params": {
+      "message": {
+        "parts": [{"text": "Analyze the file at http://wotbot:8123/api/a2a/artifacts/upload-abc123.csv and plot it"}]
+      }
+    }
+  }'
+```
+
+**Option 2 — embed data in the message parts:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "3",
+  "method": "sendMessage",
+  "params": {
+    "message": {
+      "parts": [
+        {"text": "analyze this CSV and plot it"},
+        {"mime_type": "text/csv", "file_name": "data.csv", "inline_data": "<base64-encoded CSV>"}
+      ]
+    }
+  }
+}
+```
+
+### How uploaded data is handled
+
+Data files are **uploaded to the code executor** (or stored locally in WoTBot's `/tmp/a2a-uploads/` when the executor lacks the upload endpoint). The LLM **never receives the raw data** in context — it only gets the file URL, then uses the `run_code` tool to fetch and analyze the file with pandas/matplotlib inside the sandbox. This keeps large datasets out of the LLM context.
+
+### Visualizations returned as artifacts
+
+When the agent generates plots, the response `Task` includes an `artifacts` array. Each artifact has `parts` with:
+
+- `url` — resolvable link via `/api/a2a/artifacts/{filename}` (open in browser, or fetch for embedding)
+- `inline_data` — base64-encoded or raw HTML content for agents without out-of-band access
+- `mime_type` — `image/png` for raster images, `text/html` for Plotly charts
+
+Example artifact part:
+
+```json
+{
+  "mime_type": "text/html",
+  "url": "http://wotbot:8123/api/a2a/artifacts/93eaf8b1-....json",
+  "inline_data": "<!DOCTYPE html>...<script>Plotly.newPlot(...)</script></html>"
+}
+```
+
+### Security model
+
+A2A endpoints are **open by design** — the trust boundary is expected to be a dataspace connector (EDC) that only routes trusted agents to WoTBot. Safety guards that remain in place:
+
+- Upload **extension whitelist** (CSV, JSON, images, code files, …; no executables)
+- **50 MB** per-file upload limit
+- **Path traversal protection** on artifact names
+
 ## Persistence And Migrations
 
 The application schema is owned by Alembic migrations in [`src/wotbot/migrations`](./src/wotbot/migrations). They ship inside the `wotbot` package so `alembic upgrade head` resolves them in every install mode. App startup calls `alembic upgrade head`, so API, worker, LiveKit, and indexer processes share the same schema path.

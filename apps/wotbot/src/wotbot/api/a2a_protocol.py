@@ -163,6 +163,15 @@ class SendMessageResult(BaseModel):
     task: Task = Task()
 
 
+class TaskStatusUpdateEvent(BaseModel):
+    """A streaming status update event (A2A spec)."""
+
+    task_id: str = ""
+    context_id: str = ""
+    status: TaskStatus = TaskStatus()
+    final: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Agent Card
 # ---------------------------------------------------------------------------

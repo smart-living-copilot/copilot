@@ -14,6 +14,7 @@ dependencies = [
     "fastapi>=0.128,<1",
     "uvicorn[standard]>=0.37,<1",
     "pydantic-settings>=2.7",
+    "python-multipart>=0.0.18",
     "httpx>=0.27",
     "redis>=7,<8",
     "aiohttp>=3.10",
