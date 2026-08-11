@@ -139,6 +139,7 @@ def build_graph(
     discovery_tools = (
         registry_tool_groups.discovery
         + registry_tool_groups.discovery_authoring
+        + registry_tool_groups.runtime
         + [local_tool_groups.run_code]
         + job_runtime_tools
     )

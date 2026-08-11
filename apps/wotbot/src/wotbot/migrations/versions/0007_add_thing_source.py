@@ -1,7 +1,7 @@
 """add source column to things table
 
 Revision ID: 0007_add_thing_source
-Revises: 0006_add_virtual_thing_shared_state
+Revises: 0006_virtual_thing_shared_state
 Create Date: 2026-07-23 00:00:00
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0007_add_thing_source"
-down_revision = "0006_add_virtual_thing_shared_state"
+down_revision = "0006_virtual_thing_shared_state"
 branch_labels = None
 depends_on = None
 

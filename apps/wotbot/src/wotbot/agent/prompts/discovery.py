@@ -77,6 +77,73 @@ When the user asks to search or import from an external source, follow these
    assets and their metadata. Data is exchanged directly between the provider
    connector and the consumer connector — never through the catalogue.
 
+**CRITICAL: EDR token flow — each asset gets its own Thing with its own token**
+After a successful contract negotiation and data transfer, the EDC returns an
+**EDR (Endpoint Data Reference)** that contains a **per-asset bearer token**.
+This token is specific to the asset and the contract agreement. You MUST:
+
+1. **Negotiate a contract** using `wot_invoke_action` on the EDC consumer Thing
+   with the `negotiateContract` action. Pass the exact ODRL policy from the
+   catalog offer — do NOT modify it.
+2. **Poll the negotiation** by reading the `contractNegotiation` property with
+   `wot_read_property` (passing the negotiation ID as uri_variables) until the
+   state is `FINALIZED` or `VERIFIED`. Extract the `contractAgreementId` from
+   the response.
+3. **Initiate a transfer** using `wot_invoke_action` with the `initiateTransfer`
+   action. Pass the `contractId` (the agreement ID), `counterPartyAddress`, and
+   `transferType` (e.g. `"HttpData-PULL"`).
+4. **Poll the transfer** by reading the `transferProcess` property with
+   `wot_read_property` (passing the transfer process ID as uri_variables) until
+   the state is `COMPLETED`.
+5. **Get the EDR data address** by reading the `edrDataAddress` property with
+   `wot_read_property` (passing the transfer process ID as uri_variables). The
+   response contains the `endpoint` (or `baseUrl`) and `authorization` (bearer
+   token) for the asset's data plane.
+6. **Create a new Thing Description** for the asset using `things_upsert`. The
+   TD must use the EDR endpoint URL as its `base` and include the appropriate
+   `securityDefinitions` with `scheme: "bearer"`. Set `"source": "auto-discovered"`.
+
+   ⚠️ **When creating the asset TD, remember the forms rules above:**
+   `htv:methodName` must be a hardcoded verb like `"GET"`, NOT a template variable.
+   The EDR endpoint goes into `href` as a template variable `{endpoint}` — that is
+   the ONLY dynamic part. Example:
+
+   ```json
+   {
+     "@context": ["https://www.w3.org/2022/wot/td/v1.1", {"htv": "https://www.w3.org/2019/htp"}],
+     "id": "urn:uuid:<asset-id>",
+     "title": "<asset name>",
+     "source": "auto-discovered",
+     "securityDefinitions": {
+       "bearer_sc": { "scheme": "bearer", "in": "header" }
+     },
+     "security": ["bearer_sc"],
+     "actions": {
+       "download": {
+         "forms": [{
+           "op": ["invokeaction"],
+           "href": "{endpoint}",
+           "contentType": "application/json",
+           "htv:methodName": "GET"
+         }],
+         "uriVariables": {
+           "endpoint": { "type": "string" }
+         }
+       }
+     }
+   }
+   ```
+7. **Store the EDR token** as credentials for the new Thing using
+   `set_thing_credential(thing_id, "bearer_sc", "bearer", {"token": "<edr_token>"})`.
+   This is the ONLY way the runtime can authenticate requests to the asset's
+   data plane.
+8. **Confirm to the user** that the asset is now available as a registered Thing
+   with its own credentials, and they can interact with it using its Thing ID.
+
+**IMPORTANT:** Never pass the EDR token inline in action inputs. Always create
+a proper Thing Description and store the token as credentials. The runtime
+injects the token automatically from the credential store.
+
 **Workflow:**
 
 1. First, find the existing Thing that represents the external dataspace gateway
@@ -120,7 +187,7 @@ Always produce a valid W3C WoT Thing Description with these required fields:
   values contain `forms` arrays with `href`, `contentType`, and `op` (operation
   type). Every form href must be an absolute URL (base + path).
 
-## CRITICAL: Forms rules — hardcoded methods, templated URLs
+## ⚠️ CRITICAL: Forms rules — NEVER use template variables in htv:methodName
 
 When building form entries in a Thing Description, follow these rules:
 
@@ -138,6 +205,32 @@ When building form entries in a Thing Description, follow these rules:
 
 3. **`contentType`** — always use a concrete media type like
    `"application/json"`. Never use a template variable here.
+
+### ⚠️ COMMON MISTAKE — Do NOT mirror {endpoint} pattern onto htv:methodName
+
+It is tempting to write `"htv:methodName": "{method}"` because `"href": "{endpoint}"`
+works. **This is wrong.** The runtime only resolves URI templates in `href`, NOT in
+`htv:methodName`. A template variable in `htv:methodName` is sent verbatim as the
+HTTP method and will always fail.
+
+✅ Correct form for a dynamic endpoint with a fixed method:
+```json
+"forms": [
+  {
+    "op": ["invokeaction"],
+    "href": "{endpoint}",
+    "contentType": "application/json",
+    "htv:methodName": "GET"
+  }
+],
+"uriVariables": {
+  "endpoint": { "type": "string", "description": "The URL to call" }
+}
+```
+
+If you need to support multiple HTTP methods, create separate actions
+(e.g. `downloadAssetGet` and `downloadAssetPost`) each with a hardcoded
+`htv:methodName`. Do NOT use a template variable.
 
 ## CRITICAL: Validate vs. Store — DO NOT CONFUSE THEM
 - **things_validate** checks the document structure but does NOT save it.
