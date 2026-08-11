@@ -39,3 +39,8 @@ class WebArtifactRequest(BaseModel):
 
 class WebArtifactResponse(BaseModel):
     filename: str
+
+
+class UploadResponse(BaseModel):
+    filename: str
+    size_bytes: int

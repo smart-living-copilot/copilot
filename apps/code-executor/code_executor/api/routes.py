@@ -4,7 +4,7 @@ import json
 import os
 import uuid
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
 from code_executor.api.app import app
@@ -14,6 +14,7 @@ from code_executor.models import (
     ExecuteResponse,
     WebArtifactRequest,
     WebArtifactResponse,
+    UploadResponse,
 )
 from code_executor.utils import plotly_json_to_html
 
@@ -46,6 +47,35 @@ async def store_web_artifact(req: WebArtifactRequest, request: Request):
         f.write(req.html)
 
     return WebArtifactResponse(filename=filename)
+
+
+@app.post(
+    "/upload",
+    response_model=UploadResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+async def upload_file(request: Request, file: UploadFile):
+    """Upload a data file (CSV, JSON, image, etc.) that the Python sandbox can access.
+
+    The file is saved to the artifacts directory with a UUID filename.
+    Use ``/artifacts/{filename}`` to retrieve it, or reference it in Python code
+    via ``/tmp/code-executor-artifacts/{filename}``.
+    """
+    settings = request.app.state.settings
+    os.makedirs(settings.artifacts_dir, exist_ok=True)
+
+    # Preserve original extension
+    ext = ""
+    if file.filename and "." in file.filename:
+        ext = "." + file.filename.rsplit(".", 1)[1]
+    filename = f"{uuid.uuid4().hex}{ext}"
+    filepath = os.path.join(settings.artifacts_dir, filename)
+
+    content = await file.read()
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    return UploadResponse(filename=filename, size_bytes=len(content))
 
 
 @app.get("/artifacts/{filename}", dependencies=[Depends(verify_api_key)])

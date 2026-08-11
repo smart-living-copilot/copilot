@@ -37,6 +37,35 @@ docker compose up -d
 
 The root Compose files are compatibility wrappers around the canonical stack in [`deploy/compose.yaml`](./deploy/compose.yaml) and its local development override in [`deploy/compose.override.yaml`](./deploy/compose.override.yaml).
 
+## Agent-to-Agent (A2A) Integration
+
+WoTBot exposes a lightweight A2A HTTP surface so other agents can discover
+and send short messages into the agent runtime.
+
+- `GET /api/a2a/agent-card` — returns a small JSON "agent card" describing
+  the agent and the A2A inbox.
+- `POST /api/a2a/message` — send a short message to be executed by the
+  WoTBot AG-UI runtime. The request body should be `{ "message": "..." }`.
+
+When running via the provided Docker Compose (`deploy/compose.yaml`) the
+API is published on the host at `http://localhost:8123` (the Compose file
+maps the container port `8123` to the host). Example:
+
+```bash
+# Agent discovery
+curl http://localhost:8123/api/a2a/agent-card
+
+# Send a message (requires the configured internal API key in Authorization header)
+curl -X POST http://localhost:8123/api/a2a/message \
+  -H "Authorization: Bearer <INTERNAL_API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello from other-agent"}'
+```
+
+Note: `POST /api/a2a/message` is a convenience endpoint that runs the message
+via the AG-UI runtime and returns the run events. For richer streaming (SSE)
+use the `/ag-ui` endpoint.
+
 ## Development
 
 The default local setup uses Docker Compose with bind mounts and hot reload where practical:

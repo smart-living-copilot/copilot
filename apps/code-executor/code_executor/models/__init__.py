@@ -10,6 +10,7 @@ from code_executor.models.schemas import (
     ExecuteResponse,
     WebArtifactRequest,
     WebArtifactResponse,
+    UploadResponse,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "ExecuteResponse",
     "WebArtifactRequest",
     "WebArtifactResponse",
+    "UploadResponse",
 ]
