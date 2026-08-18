@@ -123,7 +123,32 @@ def _trim_conversation(messages: Sequence[BaseMessage], max_tokens: int) -> list
     )
     if trimmed and isinstance(trimmed[0], SystemMessage):
         trimmed.pop(0)
-    return _sanitize_message_sequence(trimmed)
+    sanitized = _sanitize_message_sequence(trimmed)
+    return _ensure_human_message(sanitized, prepared)
+
+
+def _ensure_human_message(
+    trimmed: list[BaseMessage], full_conversation: Sequence[BaseMessage]
+) -> list[BaseMessage]:
+    """Guarantee a HumanMessage survives trimming, if one exists at all.
+
+    Some model chat templates (Qwen3.5's, notably, served via vLLM) reject a
+    request whose messages are entirely tool-call/tool-response content with
+    no user-authored message anywhere in it, raising "No user query found in
+    messages." A token-budget trim of a large tool-call chain (e.g. a bulky
+    run_code result) can evict the HumanMessage that started the current turn
+    while keeping the tool exchange that followed it. When that happened,
+    splice the most recent HumanMessage from the untrimmed conversation back
+    in at the front so the tool exchange still has its originating question.
+    """
+    if any(isinstance(message, HumanMessage) for message in trimmed):
+        return trimmed
+
+    last_human = next(
+        (message for message in reversed(full_conversation) if isinstance(message, HumanMessage)),
+        None,
+    )
+    return [last_human, *trimmed] if last_human is not None else trimmed
 
 
 def _sanitize_message_sequence(messages: Sequence[BaseMessage]) -> list[BaseMessage]:

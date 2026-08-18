@@ -97,6 +97,43 @@ class PromptTrimmingTestCase(unittest.TestCase):
         self.assertTrue(tool_messages, "the run_code tool result should survive trimming")
         self.assertNotIn("wot_calls", tool_messages[0].content)
 
+    def test_trim_conversation_recovers_human_message_evicted_by_a_bulky_tool_turn(
+        self,
+    ) -> None:
+        """A token-tight budget can otherwise trim a turn down to nothing but
+        tool-call/tool-response content. Some model chat templates (Qwen3.5's,
+        served via vLLM) reject that outright with "No user query found in
+        messages." — the trimmed conversation must always keep the HumanMessage
+        that started the current turn, if one exists at all."""
+        tool_content = json.dumps({"rows": list(range(2000))})
+        messages = [
+            HumanMessage(content="Summarize the last week of readings"),
+            AIMessage(content="", tool_calls=[_tool_call("call-1")]),
+            ToolMessage(content=tool_content, tool_call_id="call-1"),
+            AIMessage(content="", tool_calls=[_tool_call("call-2")]),
+            ToolMessage(content=tool_content, tool_call_id="call-2"),
+        ]
+
+        trimmed = _trim_conversation(messages, max_tokens=200)
+
+        self.assertTrue(any(isinstance(m, HumanMessage) for m in trimmed))
+        self.assertEqual(trimmed[0].content, "Summarize the last week of readings")
+
+    def test_trim_conversation_leaves_tool_only_history_alone_without_a_human_message(
+        self,
+    ) -> None:
+        """Nothing to recover: a conversation with no HumanMessage at all (e.g.
+        a background job run) is returned unchanged rather than fabricating
+        one."""
+        messages = [
+            AIMessage(content="", tool_calls=[_tool_call("call-1")]),
+            ToolMessage(content='{"ok": true}', tool_call_id="call-1"),
+        ]
+
+        trimmed = _trim_conversation(messages, max_tokens=10_000)
+
+        self.assertFalse(any(isinstance(m, HumanMessage) for m in trimmed))
+
     def test_ui_device_summary_messages_are_not_sent_to_llm_prompts(self) -> None:
         summary = AIMessage(
             content=json.dumps(
