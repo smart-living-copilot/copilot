@@ -60,6 +60,12 @@ APP_VERSION="$(git describe --tags --always --dirty)" docker compose up -d --bui
 
 Most UI settings are backend URLs and shared internal credentials. See [`src/lib/backend-env.ts`](./src/lib/backend-env.ts), [`src/lib/app-version.ts`](./src/lib/app-version.ts), and the root [`.env.example`](../../.env.example).
 
+### Reasoning Effort
+
+`NEXT_PUBLIC_REASONING_EFFORT_ENABLED`, `NEXT_PUBLIC_REASONING_EFFORT_LEVELS` (comma-separated), and `NEXT_PUBLIC_REASONING_EFFORT_DEFAULT` control the reasoning-effort selector in the full chat toolbar ([`src/components/wotbot/chat-route/reasoning-effort-select.tsx`](./src/components/wotbot/chat-route/reasoning-effort-select.tsx); parsing lives in [`src/lib/reasoning-effort.ts`](./src/lib/reasoning-effort.ts)). The selector is hidden entirely unless enabled and at least one level is configured; it's absent from embedded chat by design. Selecting a level calls `useCopilotKit().copilotkit.setProperties({ reasoningEffort })`, which AG-UI forwards to the backend as `forwardedProps` on every subsequent run — the choice also persists in `localStorage` across reloads.
+
+These are `NEXT_PUBLIC_*` (build-time) flags, so keep them in sync with the backend's `REASONING_EFFORT_ENABLED`/`REASONING_EFFORT_LEVELS` (see the wotbot README): the backend independently validates the requested level against its own allow-list and silently ignores anything outside it, so a mismatch just means a level shown in the UI has no effect.
+
 ### Embedded Chat
 
 The embedded chat is available at `/embed/chat`. It creates an ephemeral chat session and cleans up best-effort when the page unloads.

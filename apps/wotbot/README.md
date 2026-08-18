@@ -121,6 +121,11 @@ Common groups:
 - Redis, Taskiq jobs, WoT runtime, virtual-servient, RDF service, and event stream settings.
 - LiveKit, speech-to-text, and text-to-speech settings.
 - Code-executor URL, timeout, and retry settings.
+- Reasoning-effort settings (see below).
+
+### Reasoning effort
+
+`REASONING_EFFORT_ENABLED`, `REASONING_EFFORT_LEVELS` (comma-separated allow-list), and `REASONING_EFFORT_DEFAULT` let a reasoning-capable model (o-series, gpt-5, etc. — whatever's behind `OPENAI_MODEL`/`OPENAI_API_BASE_URL`) be told how hard to think. `REASONING_EFFORT_DEFAULT`, when set, becomes the baseline `reasoning_effort` on every LLM call ([`src/wotbot/core/llm.py`](./src/wotbot/core/llm.py)); the chat UI can additionally request a level per turn via AG-UI `forwardedProps`, which only the respond/control/analysis/jobs/virtual_things branches honor, and only when the requested level is in `REASONING_EFFORT_LEVELS` (see `_resolve_reasoning_effort` in [`src/wotbot/agent/nodes.py`](./src/wotbot/agent/nodes.py)). Disabled by default. There's no standardized way to query which levels a given model/endpoint actually supports — this allow-list is how an operator declares it.
 
 ## Security Boundary
 
