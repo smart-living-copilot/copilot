@@ -1,5 +1,5 @@
 import { useCopilotKit } from '@copilotkit/react-core/v2';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
   Select,
@@ -10,13 +10,33 @@ import {
 } from '@/components/ui/select';
 import {
   DEFAULT_REASONING_EFFORT,
+  REASONING_EFFORT_LEVELS,
   REASONING_EFFORT_OPTIONS,
+  REASONING_EFFORT_STORAGE_KEY,
   isReasoningEffortSelectorEnabled,
+  resolveStoredReasoningEffort,
 } from '@/lib/reasoning-effort';
+
+function readStoredReasoningEffort(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    return window.localStorage.getItem(REASONING_EFFORT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 export function ReasoningEffortSelect() {
   const { copilotkit } = useCopilotKit();
-  const [level, setLevel] = useState(DEFAULT_REASONING_EFFORT);
+  const [level, setLevel] = useState(() =>
+    resolveStoredReasoningEffort(
+      REASONING_EFFORT_LEVELS,
+      readStoredReasoningEffort(),
+      DEFAULT_REASONING_EFFORT,
+    ),
+  );
 
   // Forward the initial (and every changed) level as AG-UI forwardedProps so
   // the very first run already carries it, not just runs after the first
@@ -28,12 +48,21 @@ export function ReasoningEffortSelect() {
     }
   }, [copilotkit, level]);
 
+  const handleChange = useCallback((next: string) => {
+    setLevel(next);
+    try {
+      window.localStorage.setItem(REASONING_EFFORT_STORAGE_KEY, next);
+    } catch {
+      // Persistence is best-effort in private or restricted contexts.
+    }
+  }, []);
+
   if (!isReasoningEffortSelectorEnabled() || !level) {
     return null;
   }
 
   return (
-    <Select onValueChange={setLevel} value={level}>
+    <Select onValueChange={handleChange} value={level}>
       <SelectTrigger
         aria-label="Reasoning effort"
         className="h-8"

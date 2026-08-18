@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   parseReasoningEffortLevels,
   resolveDefaultReasoningEffort,
+  resolveStoredReasoningEffort,
   toReasoningEffortLabel,
 } from './reasoning-effort';
 
@@ -45,4 +46,22 @@ test('resolveDefaultReasoningEffort falls back to the first level otherwise', ()
 
 test('resolveDefaultReasoningEffort returns null when there are no levels', () => {
   assert.equal(resolveDefaultReasoningEffort([], 'high'), null);
+});
+
+test('resolveStoredReasoningEffort prefers a stored value that is still allowed', () => {
+  assert.equal(
+    resolveStoredReasoningEffort(['low', 'medium', 'high'], 'high', 'low'),
+    'high',
+  );
+});
+
+test('resolveStoredReasoningEffort falls back when the stored value is missing or stale', () => {
+  assert.equal(
+    resolveStoredReasoningEffort(['low', 'medium', 'high'], null, 'low'),
+    'low',
+  );
+  assert.equal(
+    resolveStoredReasoningEffort(['low', 'medium', 'high'], 'extreme', 'low'),
+    'low',
+  );
 });

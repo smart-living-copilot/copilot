@@ -59,3 +59,16 @@ export const DEFAULT_REASONING_EFFORT: string | null =
 export function isReasoningEffortSelectorEnabled(): boolean {
   return REASONING_EFFORT_ENABLED && REASONING_EFFORT_LEVELS.length > 0;
 }
+
+// Remembers the last level a user picked across page loads (best-effort; a
+// disabled/changed level list, or a browser that blocks storage, just falls
+// back to DEFAULT_REASONING_EFFORT).
+export const REASONING_EFFORT_STORAGE_KEY = 'wotbot-reasoning-effort';
+
+export function resolveStoredReasoningEffort(
+  levels: string[],
+  stored: string | null,
+  fallback: string | null,
+): string | null {
+  return stored && levels.includes(stored) ? stored : fallback;
+}
