@@ -12,8 +12,10 @@ from wotbot.agent.nodes import (
     _make_llm_node,
     _make_router_messages,
     _prior_analysis_block,
+    _resolve_reasoning_effort,
     _sanitize_message_sequence,
     _strip_wot_calls,
+    make_analysis_node,
     make_router_node,
 )
 
@@ -40,11 +42,16 @@ class _FakeLLM:
     def __init__(self) -> None:
         self.bound_tools: list[list[str]] = []
         self.bound_kwargs: list[dict] = []
+        self.plain_bind_kwargs: list[dict] = []
         self.invocations: list[tuple[str, object]] = []
 
     def bind_tools(self, tools, **kwargs):
         self.bound_tools.append([tool.name for tool in tools])
         self.bound_kwargs.append(kwargs)
+        return _FakeBoundLLM(self)
+
+    def bind(self, **kwargs):
+        self.plain_bind_kwargs.append(kwargs)
         return _FakeBoundLLM(self)
 
     async def ainvoke(self, messages):
@@ -354,6 +361,122 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(llm.bound_tools, [])
         self.assertEqual(llm.invocations[0][0], "plain")
+
+
+class ReasoningEffortBindingTestCase(unittest.IsolatedAsyncioTestCase):
+    def test_resolve_reasoning_effort_requires_allow_listed_value(self) -> None:
+        allowed = frozenset({"low", "medium", "high"})
+
+        self.assertEqual(
+            _resolve_reasoning_effort({"reasoning_effort": "high"}, allowed), "high"
+        )
+        self.assertIsNone(_resolve_reasoning_effort({"reasoning_effort": "extreme"}, allowed))
+        self.assertIsNone(_resolve_reasoning_effort({}, allowed))
+
+    def test_resolve_reasoning_effort_disabled_when_no_allowed_levels(self) -> None:
+        self.assertIsNone(
+            _resolve_reasoning_effort({"reasoning_effort": "high"}, frozenset())
+        )
+
+    async def test_llm_node_binds_reasoning_effort_when_allowed(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[_tool("get_current_time")],
+            system_text="system",
+            max_tokens=4000,
+            reasoning_effort_levels=frozenset({"low", "high"}),
+        )
+
+        await node(
+            {
+                "messages": [HumanMessage(content="hi")],
+                "reasoning_effort": "high",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(llm.bound_kwargs[-1]["reasoning_effort"], "high")
+
+    async def test_llm_node_ignores_reasoning_effort_outside_allow_list(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[_tool("get_current_time")],
+            system_text="system",
+            max_tokens=4000,
+            reasoning_effort_levels=frozenset({"low", "high"}),
+        )
+
+        await node(
+            {
+                "messages": [HumanMessage(content="hi")],
+                "reasoning_effort": "extreme",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertNotIn("reasoning_effort", llm.bound_kwargs[-1])
+
+    async def test_llm_node_binds_reasoning_effort_without_active_tools(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[],
+            system_text="system",
+            max_tokens=4000,
+            reasoning_effort_levels=frozenset({"high"}),
+        )
+
+        await node(
+            {
+                "messages": [HumanMessage(content="hi")],
+                "reasoning_effort": "high",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(llm.plain_bind_kwargs[-1], {"reasoning_effort": "high"})
+        self.assertEqual(llm.invocations[0][0], "bound")
+
+    async def test_llm_node_stays_unbound_when_feature_disabled(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[],
+            system_text="system",
+            max_tokens=4000,
+        )
+
+        await node(
+            {
+                "messages": [HumanMessage(content="hi")],
+                "reasoning_effort": "high",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(llm.plain_bind_kwargs, [])
+        self.assertEqual(llm.invocations[0][0], "plain")
+
+    async def test_custom_analysis_node_binds_reasoning_effort(self) -> None:
+        llm = _FakeLLM()
+        node = make_analysis_node(
+            llm,
+            [_tool("run_code")],
+            4000,
+            reasoning_effort_levels=frozenset({"medium"}),
+        )
+
+        await node(
+            {
+                "messages": [HumanMessage(content="analyze")],
+                "reasoning_effort": "medium",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(llm.bound_kwargs[-1]["reasoning_effort"], "medium")
 
 
 class RouterObservabilityTestCase(unittest.IsolatedAsyncioTestCase):

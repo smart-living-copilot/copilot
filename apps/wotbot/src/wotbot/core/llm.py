@@ -22,4 +22,7 @@ def make_llm(settings: Settings) -> ChatOpenAI:
     }
     if llm.openai_temperature is not None:
         kwargs["temperature"] = llm.openai_temperature
+    reasoning_effort = settings.reasoning_effort
+    if reasoning_effort.enabled and reasoning_effort.default:
+        kwargs["reasoning_effort"] = reasoning_effort.default
     return ChatOpenAI(**kwargs)

@@ -1,3 +1,4 @@
+import logging
 import os
 import socket
 from dataclasses import dataclass
@@ -30,6 +31,13 @@ class LlmSettings:
     openai_temperature: float | None
     openai_disable_streaming: DisableStreamingMode
     openai_base_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningEffortSettings:
+    enabled: bool
+    levels: tuple[str, ...]
+    default: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +201,13 @@ class Settings(BaseSettings):
     )
     openai_embedding_model: str = "mxbai-embed-large"
 
+    # Reasoning effort: lets the chat UI ask a reasoning-capable model (o-series,
+    # gpt-5, etc.) how hard to think. Off by default; when disabled, no
+    # reasoning_effort is ever sent and the UI selector stays hidden.
+    reasoning_effort_enabled: bool = False
+    reasoning_effort_levels: str = "low,medium,high"
+    reasoning_effort_default: str = ""
+
     # Agent
     max_iterations: int = 20
     recursion_limit: int = 50
@@ -330,6 +345,19 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
+    def _validate_reasoning_effort_default(self) -> "Settings":
+        default = self.reasoning_effort_default.strip()
+        if default and default not in self._reasoning_effort_level_tuple():
+            logging.getLogger(__name__).warning(
+                "REASONING_EFFORT_DEFAULT=%r is not in REASONING_EFFORT_LEVELS=%r; "
+                "ignoring the default.",
+                default,
+                self.reasoning_effort_levels,
+            )
+            self.reasoning_effort_default = ""
+        return self
+
+    @model_validator(mode="after")
     def _apply_fallback_settings(self) -> "Settings":
         self.openai_embedding_api_base_url = _fallback_value(
             self.openai_embedding_api_base_url,
@@ -363,6 +391,21 @@ class Settings(BaseSettings):
             openai_temperature=self.openai_temperature,
             openai_disable_streaming=self.openai_disable_streaming,
             openai_base_url=self.openai_base_url,
+        )
+
+    def _reasoning_effort_level_tuple(self) -> tuple[str, ...]:
+        return tuple(
+            level
+            for raw in self.reasoning_effort_levels.split(",")
+            if (level := raw.strip())
+        )
+
+    @property
+    def reasoning_effort(self) -> ReasoningEffortSettings:
+        return ReasoningEffortSettings(
+            enabled=self.reasoning_effort_enabled,
+            levels=self._reasoning_effort_level_tuple(),
+            default=self.reasoning_effort_default.strip() or None,
         )
 
     @property

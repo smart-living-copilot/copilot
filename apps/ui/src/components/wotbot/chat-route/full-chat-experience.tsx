@@ -19,6 +19,7 @@ import { blockSubmitWhileRunning } from '@/components/wotbot/chat-route/block-su
 import { ChatAgentSync } from '@/components/wotbot/chat-route/chat-agent-sync';
 import { getLatestTurnArtifacts } from '@/components/wotbot/chat-route/chat-message-utils';
 import { PromptTextArea } from '@/components/wotbot/chat-route/prompt-text-area';
+import { ReasoningEffortSelect } from '@/components/wotbot/chat-route/reasoning-effort-select';
 import { LiveModePanel } from '@/components/wotbot/live-mode-panel';
 import { MediaIngressControl } from '@/components/wotbot/media-ingress-control';
 import { MessageViewWithWotSummary } from '@/components/wotbot/wot-interaction-summary';
@@ -80,7 +81,10 @@ export function FullChatExperience({
                   {textArea}
                 </div>
                 <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
-                  <MediaIngressControl session={mediaSession} />
+                  <div className="flex min-w-0 items-center gap-2">
+                    <MediaIngressControl session={mediaSession} />
+                    <ReasoningEffortSelect />
+                  </div>
                   {sendButton}
                 </div>
               </div>

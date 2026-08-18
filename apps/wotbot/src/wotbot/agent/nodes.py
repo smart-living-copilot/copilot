@@ -68,6 +68,11 @@ class WotbotState(CopilotKitState):
     # branch; consumed and cleared by the dispatch node. Absent/None means the
     # turn ends normally. Only used when agent_handoff_enabled is set.
     next: NotRequired[Optional[str]]
+    # Forwarded from the chat UI as AG-UI forwardedProps.reasoningEffort (see
+    # ag_ui_langgraph's camelCase->snake_case normalization). Only honored when
+    # it matches the operator-configured allow-list; see
+    # _resolve_reasoning_effort.
+    reasoning_effort: NotRequired[Optional[str]]
 
 
 class IntentClassification(BaseModel):
@@ -290,21 +295,54 @@ def _tool_names(tools: list[Any]) -> list[str]:
     return sorted(str(name) for tool in tools if (name := getattr(tool, "name", None)))
 
 
+def _resolve_reasoning_effort(
+    state: WotbotState, allowed_levels: frozenset[str]
+) -> str | None:
+    """Read ``state["reasoning_effort"]`` (set from the chat UI's forwardedProps)
+
+    and return it only when it's one of the operator-configured allowed
+    levels. Returns ``None`` (provider default) when the feature is disabled
+    (``allowed_levels`` empty), unset, or the value isn't recognized.
+    """
+    value = state.get("reasoning_effort")
+    return value if isinstance(value, str) and value in allowed_levels else None
+
+
+def _bind_runnable(
+    llm: ChatOpenAI,
+    active_tools: list[Any],
+    *,
+    parallel_tool_calls: bool,
+    reasoning_effort: str | None,
+):
+    bind_kwargs: dict[str, Any] = {}
+    if reasoning_effort:
+        bind_kwargs["reasoning_effort"] = reasoning_effort
+    if active_tools:
+        return llm.bind_tools(
+            active_tools, parallel_tool_calls=parallel_tool_calls, **bind_kwargs
+        )
+    return llm.bind(**bind_kwargs) if bind_kwargs else llm
+
+
 def _log_branch_entry(
     branch: str,
     *,
     config: Optional[RunnableConfig],
     active_tools: list[Any],
     parallel_tool_calls: bool,
+    reasoning_effort: str | None = None,
 ) -> None:
     names = _tool_names(active_tools)
     logger.debug(
-        "Agent branch entered branch=%s thread_id=%s tool_count=%d tools=%s parallel_tool_calls=%s",
+        "Agent branch entered branch=%s thread_id=%s tool_count=%d tools=%s "
+        "parallel_tool_calls=%s reasoning_effort=%s",
         branch,
         _thread_id_from_config(config),
         len(names),
         names,
         parallel_tool_calls,
+        reasoning_effort,
     )
 
 
@@ -337,6 +375,7 @@ def _make_llm_node(
     max_tokens: int,
     parallel_tool_calls: bool = True,
     branch_name: str = "llm",
+    reasoning_effort_levels: frozenset[str] = frozenset(),
 ):
     prompt = _make_node_prompt(system_text, max_tokens)
 
@@ -348,16 +387,19 @@ def _make_llm_node(
     # the ``thread_id`` that look_at_camera needs) arrives as ``None``.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
         active_tools = _active_tools_for_config(tools, config)
+        reasoning_effort = _resolve_reasoning_effort(state, reasoning_effort_levels)
         _log_branch_entry(
             branch_name,
             config=config,
             active_tools=active_tools,
             parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort=reasoning_effort,
         )
-        runnable = (
-            llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
-            if active_tools
-            else llm
+        runnable = _bind_runnable(
+            llm,
+            active_tools,
+            parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort=reasoning_effort,
         )
         response = await runnable.ainvoke(prompt(state))
         return {"messages": [response]}
@@ -371,6 +413,7 @@ def make_respond_node(
     max_tokens: int,
     *,
     parallel_tool_calls: bool = True,
+    reasoning_effort_levels: frozenset[str] = frozenset(),
 ):
     return _make_llm_node(
         llm,
@@ -379,6 +422,7 @@ def make_respond_node(
         max_tokens=max_tokens,
         parallel_tool_calls=parallel_tool_calls,
         branch_name="respond",
+        reasoning_effort_levels=reasoning_effort_levels,
     )
 
 
@@ -389,6 +433,7 @@ def make_control_node(
     *,
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
+    reasoning_effort_levels: frozenset[str] = frozenset(),
 ):
     return _make_llm_node(
         llm,
@@ -397,6 +442,7 @@ def make_control_node(
         max_tokens=max_tokens,
         parallel_tool_calls=parallel_tool_calls,
         branch_name="control",
+        reasoning_effort_levels=reasoning_effort_levels,
     )
 
 
@@ -407,6 +453,7 @@ def make_analysis_node(
     *,
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
+    reasoning_effort_levels: frozenset[str] = frozenset(),
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
@@ -416,16 +463,19 @@ def make_analysis_node(
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)
+        reasoning_effort = _resolve_reasoning_effort(state, reasoning_effort_levels)
         _log_branch_entry(
             "analysis",
             config=config,
             active_tools=active_tools,
             parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort=reasoning_effort,
         )
-        runnable = (
-            llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
-            if active_tools
-            else llm
+        runnable = _bind_runnable(
+            llm,
+            active_tools,
+            parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort=reasoning_effort,
         )
         response = await runnable.ainvoke(messages)
         return {"messages": [response]}
@@ -440,6 +490,7 @@ def make_jobs_node(
     *,
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
+    reasoning_effort_levels: frozenset[str] = frozenset(),
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
@@ -447,16 +498,19 @@ def make_jobs_node(
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)
+        reasoning_effort = _resolve_reasoning_effort(state, reasoning_effort_levels)
         _log_branch_entry(
             "jobs",
             config=config,
             active_tools=active_tools,
             parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort=reasoning_effort,
         )
-        runnable = (
-            llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
-            if active_tools
-            else llm
+        runnable = _bind_runnable(
+            llm,
+            active_tools,
+            parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort=reasoning_effort,
         )
         response = await runnable.ainvoke(messages)
         return {"messages": [response]}
@@ -471,6 +525,7 @@ def make_virtual_things_node(
     *,
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
+    reasoning_effort_levels: frozenset[str] = frozenset(),
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
@@ -483,16 +538,19 @@ def make_virtual_things_node(
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)
+        reasoning_effort = _resolve_reasoning_effort(state, reasoning_effort_levels)
         _log_branch_entry(
             "virtual_things",
             config=config,
             active_tools=active_tools,
             parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort=reasoning_effort,
         )
-        runnable = (
-            llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
-            if active_tools
-            else llm
+        runnable = _bind_runnable(
+            llm,
+            active_tools,
+            parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort=reasoning_effort,
         )
         response = await runnable.ainvoke(messages)
         return {"messages": [response]}
@@ -508,6 +566,8 @@ def make_background_job_node(
     parallel_tool_calls: bool = True,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
+    # Background job runs don't expose a reasoning-effort selector (see
+    # WotbotState.reasoning_effort docstring), so this always binds without one.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(content=BACKGROUND_JOB_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
@@ -518,10 +578,11 @@ def make_background_job_node(
             active_tools=active_tools,
             parallel_tool_calls=parallel_tool_calls,
         )
-        runnable = (
-            llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls)
-            if active_tools
-            else llm
+        runnable = _bind_runnable(
+            llm,
+            active_tools,
+            parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort=None,
         )
         response = await runnable.ainvoke([system_message, *trimmed])
         return {"messages": [response]}

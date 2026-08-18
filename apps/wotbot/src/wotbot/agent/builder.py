@@ -47,6 +47,7 @@ def _add_action_branch(
     action_branch_end: str,
     parallel_tool_calls: bool,
     handoff_note: str,
+    reasoning_effort_levels: frozenset[str],
 ) -> None:
     graph.add_node(
         llm_node,
@@ -56,6 +57,7 @@ def _add_action_branch(
             max_tokens,
             parallel_tool_calls=parallel_tool_calls,
             handoff_note=handoff_note,
+            reasoning_effort_levels=reasoning_effort_levels,
         ),
     )
     graph.add_node(
@@ -89,6 +91,7 @@ def build_graph(
     parallel_tool_calls: bool = True,
     vision_enabled: bool = False,
     handoff_enabled: bool = False,
+    reasoning_effort_levels: frozenset[str] = frozenset(),
 ):
     """Build and compile the wotbot agent StateGraph."""
     registry_tool_groups = partition_registry_tools(registry_tools)
@@ -159,6 +162,7 @@ def build_graph(
             respond_tools,
             max_tokens,
             parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort_levels=reasoning_effort_levels,
         ),
     )
     graph.add_node(
@@ -226,6 +230,7 @@ def build_graph(
             action_branch_end=action_branch_end,
             parallel_tool_calls=parallel_tool_calls,
             handoff_note=handoff_note,
+            reasoning_effort_levels=reasoning_effort_levels,
         )
 
     graph.add_conditional_edges(
