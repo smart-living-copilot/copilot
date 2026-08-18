@@ -1,4 +1,5 @@
 import { useCopilotKit } from '@copilotkit/react-core/v2';
+import { Gauge } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -69,6 +70,7 @@ export function ReasoningEffortSelect() {
         size="sm"
         title="Reasoning effort"
       >
+        <Gauge className="size-4 text-muted-foreground" />
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

@@ -61,6 +61,14 @@ export function FullChatExperience({
   );
   const chatInput = useMemo(() => {
     function FullInput(props: CopilotChatInputProps) {
+      // While the composer is empty and idle, the send button's slot shows
+      // the voice/video call toggle instead (merged, ChatGPT-style); as soon
+      // as there's a draft, or a response is in flight (so Stop stays
+      // reachable), it swaps back to send/stop. Once a call connects,
+      // showLiveMode below swaps out this whole composer, so there's no
+      // "active call" state to reconcile with send here.
+      const showSendButton = Boolean(props.value?.trim()) || props.isRunning;
+
       return (
         <CopilotChatInput {...props} textArea={PromptTextArea}>
           {({
@@ -80,12 +88,21 @@ export function FullChatExperience({
                 >
                   {textArea}
                 </div>
-                <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <MediaIngressControl session={mediaSession} />
-                    <ReasoningEffortSelect />
-                  </div>
-                  {sendButton}
+                <div className="flex items-center justify-end gap-2 border-t border-border pt-2">
+                  <ReasoningEffortSelect />
+                  {showSendButton ? (
+                    sendButton
+                  ) : (
+                    // Matches CopilotKit's own SendButton footprint exactly
+                    // (a 36px `h-9 w-9` circle in a `mr-[10px]` wrapper) so
+                    // swapping between the two doesn't shift the row.
+                    <div className="mr-[10px]">
+                      <MediaIngressControl
+                        session={mediaSession}
+                        size="icon-lg"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
               {disclaimer}
