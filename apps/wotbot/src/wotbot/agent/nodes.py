@@ -399,6 +399,40 @@ def make_router_node(llm: ChatOpenAI, max_tokens: int):
     return router
 
 
+def _prepare_branch_runnable(
+    llm: ChatOpenAI,
+    tools: list[Any],
+    *,
+    state: WotbotState,
+    config: RunnableConfig | None,
+    parallel_tool_calls: bool,
+    branch_name: str,
+    reasoning_effort: ReasoningEffortSettings | None,
+):
+    """Resolve active tools + reasoning effort for one node invocation, log
+
+    the branch entry, and return the bound runnable. Shared by every
+    LLM-calling node body (respond/control/analysis/jobs/virtual_things/
+    background_job).
+    """
+    active_tools = _active_tools_for_config(tools, config)
+    resolved_effort = _resolve_reasoning_effort(state, reasoning_effort)
+    _log_branch_entry(
+        branch_name,
+        config=config,
+        active_tools=active_tools,
+        parallel_tool_calls=parallel_tool_calls,
+        reasoning_effort=resolved_effort,
+    )
+    return _bind_runnable(
+        llm,
+        active_tools,
+        parallel_tool_calls=parallel_tool_calls,
+        reasoning_effort=resolved_effort,
+        reasoning_effort_style=reasoning_effort.style if reasoning_effort else "openai",
+    )
+
+
 def _make_llm_node(
     llm: ChatOpenAI,
     *,
@@ -418,21 +452,14 @@ def _make_llm_node(
     # ``RunnableConfig | None`` silently disables injection, so ``config`` (and
     # the ``thread_id`` that look_at_camera needs) arrives as ``None``.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
-        active_tools = _active_tools_for_config(tools, config)
-        resolved_effort = _resolve_reasoning_effort(state, reasoning_effort)
-        _log_branch_entry(
-            branch_name,
-            config=config,
-            active_tools=active_tools,
-            parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=resolved_effort,
-        )
-        runnable = _bind_runnable(
+        runnable = _prepare_branch_runnable(
             llm,
-            active_tools,
+            tools,
+            state=state,
+            config=config,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=resolved_effort,
-            reasoning_effort_style=reasoning_effort.style if reasoning_effort else "openai",
+            branch_name=branch_name,
+            reasoning_effort=reasoning_effort,
         )
         response = await runnable.ainvoke(prompt(state))
         return {"messages": [response]}
@@ -495,21 +522,14 @@ def make_analysis_node(
         )
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
-        active_tools = _active_tools_for_config(tools, config)
-        resolved_effort = _resolve_reasoning_effort(state, reasoning_effort)
-        _log_branch_entry(
-            "analysis",
-            config=config,
-            active_tools=active_tools,
-            parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=resolved_effort,
-        )
-        runnable = _bind_runnable(
+        runnable = _prepare_branch_runnable(
             llm,
-            active_tools,
+            tools,
+            state=state,
+            config=config,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=resolved_effort,
-            reasoning_effort_style=reasoning_effort.style if reasoning_effort else "openai",
+            branch_name="analysis",
+            reasoning_effort=reasoning_effort,
         )
         response = await runnable.ainvoke(messages)
         return {"messages": [response]}
@@ -531,21 +551,14 @@ def make_jobs_node(
         system_message = SystemMessage(content=JOBS_PROMPT + handoff_note + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
-        active_tools = _active_tools_for_config(tools, config)
-        resolved_effort = _resolve_reasoning_effort(state, reasoning_effort)
-        _log_branch_entry(
-            "jobs",
-            config=config,
-            active_tools=active_tools,
-            parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=resolved_effort,
-        )
-        runnable = _bind_runnable(
+        runnable = _prepare_branch_runnable(
             llm,
-            active_tools,
+            tools,
+            state=state,
+            config=config,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=resolved_effort,
-            reasoning_effort_style=reasoning_effort.style if reasoning_effort else "openai",
+            branch_name="jobs",
+            reasoning_effort=reasoning_effort,
         )
         response = await runnable.ainvoke(messages)
         return {"messages": [response]}
@@ -572,21 +585,14 @@ def make_virtual_things_node(
         )
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
-        active_tools = _active_tools_for_config(tools, config)
-        resolved_effort = _resolve_reasoning_effort(state, reasoning_effort)
-        _log_branch_entry(
-            "virtual_things",
-            config=config,
-            active_tools=active_tools,
-            parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=resolved_effort,
-        )
-        runnable = _bind_runnable(
+        runnable = _prepare_branch_runnable(
             llm,
-            active_tools,
+            tools,
+            state=state,
+            config=config,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=resolved_effort,
-            reasoning_effort_style=reasoning_effort.style if reasoning_effort else "openai",
+            branch_name="virtual_things",
+            reasoning_effort=reasoning_effort,
         )
         response = await runnable.ainvoke(messages)
         return {"messages": [response]}
@@ -607,17 +613,13 @@ def make_background_job_node(
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(content=BACKGROUND_JOB_PROMPT + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
-        active_tools = _active_tools_for_config(tools, config)
-        _log_branch_entry(
-            "background_job",
-            config=config,
-            active_tools=active_tools,
-            parallel_tool_calls=parallel_tool_calls,
-        )
-        runnable = _bind_runnable(
+        runnable = _prepare_branch_runnable(
             llm,
-            active_tools,
+            tools,
+            state=state,
+            config=config,
             parallel_tool_calls=parallel_tool_calls,
+            branch_name="background_job",
             reasoning_effort=None,
         )
         response = await runnable.ainvoke([system_message, *trimmed])

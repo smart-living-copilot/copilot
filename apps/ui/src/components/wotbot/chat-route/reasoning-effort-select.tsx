@@ -34,15 +34,27 @@ export function ReasoningEffortSelect({
   config: ReasoningEffortConfig;
 }) {
   const { copilotkit } = useCopilotKit();
-  const [level, setLevel] = useState(() =>
-    resolveStoredReasoningEffort(
-      config.levels,
-      readStoredReasoningEffort(),
-      config.defaultLevel,
-    ),
-  );
+  // Start from the SSR-safe default (localStorage doesn't exist on the
+  // server), not the stored preference — otherwise the server-rendered
+  // markup and the client's first render disagree and React flags a
+  // hydration mismatch. The stored value is adopted right after mount below.
+  const [level, setLevel] = useState(config.defaultLevel);
   const selectorEnabled = isReasoningEffortSelectorEnabled(config);
   const options = makeReasoningEffortOptions(config.levels);
+
+  // Runs once, client-only, after hydration: swap in the user's last pick if
+  // one is stored and still valid for the current level list.
+  useEffect(() => {
+    const stored = resolveStoredReasoningEffort(
+      config.levels,
+      readStoredReasoningEffort(),
+      null,
+    );
+    if (stored) {
+      setLevel(stored);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally mount-only
+  }, []);
 
   // Forward the initial (and every changed) level as AG-UI forwardedProps so
   // the very first run already carries it, not just runs after the first
