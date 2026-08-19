@@ -12,6 +12,7 @@ from ag_ui.core.types import RunAgentInput
 from ag_ui.encoder import EventEncoder
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
+from langchain_core.messages import AIMessage, HumanMessage
 
 from wotbot.threads import suggest_thread_title, sync_thread_after_run
 
@@ -19,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 EMBED_EPHEMERAL_THREAD_PREFIX = "embed-ephemeral-"
 _UNSET = object()
+
+# Shown in place of the response when a run is cancelled or fails before
+# producing one. See AguiRuntime._finalize_interrupted_run for why this needs
+# to exist at all.
+_INTERRUPTED_TURN_NOTICE = "The response was interrupted before it finished. Try asking again."
 
 
 class _AGUIAgentProxy:
@@ -42,6 +48,11 @@ class AguiRuntime:
         self.agent: Any | None = None
         self.checkpointer: Any | None = None
         self.settings: Any | None = None
+        # The compiled graph itself (as opposed to ``agent``, the AG-UI
+        # wrapper around it) -- needed to read/patch checkpoint state
+        # directly in _finalize_interrupted_run, independent of whatever the
+        # AG-UI adapter's own request/response cycle is doing.
+        self.graph: Any | None = None
         self._thread_run_locks: dict[str, asyncio.Lock] = {}
         self._thread_run_locks_guard = asyncio.Lock()
 
@@ -51,6 +62,7 @@ class AguiRuntime:
         agent: Any | None | object = _UNSET,
         checkpointer: Any | None | object = _UNSET,
         settings: Any | None | object = _UNSET,
+        graph: Any | None | object = _UNSET,
     ) -> None:
         if agent is not _UNSET:
             self.agent = agent
@@ -58,10 +70,13 @@ class AguiRuntime:
             self.checkpointer = checkpointer
         if settings is not _UNSET:
             self.settings = settings
+        if graph is not _UNSET:
+            self.graph = graph
 
     def clear_request_state(self) -> None:
         self.agent = None
         self.checkpointer = None
+        self.graph = None
         self._thread_run_locks = {}
 
     def current_settings(self) -> Any | None:
@@ -93,6 +108,18 @@ class AguiRuntime:
         )
         try:
             if thread_id:
+                # Proactively heal before starting, not just reactively after
+                # failing (finally, below): the reactive finalize for a PRIOR
+                # run on this thread runs in a background task specifically
+                # so a cancellation doesn't kill it (see
+                # run_persistence_operation) -- which means it isn't
+                # guaranteed to have finished by the time a fast reconnect
+                # (e.g. the user hits refresh right after clicking stop)
+                # starts a new run here. Checking again at the top closes
+                # that race: whichever of the two actually gets the thread
+                # lock first does the healing, the other finds nothing left
+                # to do.
+                await self._finalize_interrupted_run(thread_id)
                 lock = await self._thread_run_lock(thread_id)
                 async with lock:
                     async for event in self.agent.run(input_data):
@@ -118,7 +145,7 @@ class AguiRuntime:
             )
             raise
         finally:
-            await self.finalize_thread_run(thread_id)
+            await self.finalize_thread_run(thread_id, completed=completed)
         if completed:
             logger.info(
                 "AG-UI run finished thread_id=%s run_id=%s elapsed_ms=%.1f",
@@ -127,7 +154,7 @@ class AguiRuntime:
                 _elapsed_ms(started),
             )
 
-    async def finalize_thread_run(self, thread_id: str | None) -> None:
+    async def finalize_thread_run(self, thread_id: str | None, *, completed: bool = True) -> None:
         if _is_embed_ephemeral_thread(thread_id):
             if thread_id:
                 cancelled = await self.delete_checkpoint_thread(thread_id)
@@ -135,13 +162,57 @@ class AguiRuntime:
                     raise asyncio.CancelledError
             return
 
-        cancelled = await self.run_persistence_operation(
+        cancelled = False
+        if not completed:
+            # A run that didn't complete -- cancelled (stop button, closed
+            # tab, dropped connection) or a genuine error -- can leave the
+            # checkpoint's last message as an unanswered HumanMessage: the
+            # graph never reached a node that appended a response. Left as
+            # is, every future reconnect to this thread finds that same
+            # unfinished turn and reattempts it, failing again immediately.
+            # Closing the turn out here means a reconnect just replays
+            # ordinary finished history instead of unfinished work to redo.
+            cancelled = await self.run_persistence_operation(
+                self._finalize_interrupted_run(thread_id),
+                error_message=f"Failed to finalize interrupted run for {thread_id}",
+            )
+
+        metadata_cancelled = await self.run_persistence_operation(
             self._sync_thread_metadata_after_run(thread_id),
             error_message=f"Failed to sync thread metadata for {thread_id}",
         )
+        cancelled = cancelled or metadata_cancelled
 
         if cancelled:
             raise asyncio.CancelledError
+
+    async def _finalize_interrupted_run(self, thread_id: str | None) -> None:
+        """Idempotent: called both proactively (top of run(), before this
+        run touches anything) and reactively (finally, below, after this run
+        fails to complete). Either caller can win the race to run first --
+        whichever does, the other finds the checkpoint already clean and
+        no-ops via the isinstance check below.
+        """
+        if not thread_id or self.graph is None:
+            return
+
+        # Share the per-thread run lock with normal runs: if a new run for
+        # this thread starts before this gets to run, wait for it rather
+        # than racing it. By the time the lock is free the checkpoint's last
+        # message is very likely a real response already, in which case the
+        # isinstance check below is a no-op -- this never overwrites fresh
+        # content with a stale "interrupted" notice.
+        lock = await self._thread_run_lock(thread_id)
+        async with lock:
+            config = {"configurable": {"thread_id": thread_id}}
+            state = await self.graph.aget_state(config)
+            messages = state.values.get("messages", []) if state and state.values else []
+            if not messages or not isinstance(messages[-1], HumanMessage):
+                return
+            await self.graph.aupdate_state(
+                config,
+                {"messages": [AIMessage(content=_INTERRUPTED_TURN_NOTICE)]},
+            )
 
     async def run_persistence_operation(
         self,

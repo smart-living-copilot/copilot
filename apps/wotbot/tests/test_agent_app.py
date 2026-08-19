@@ -2,9 +2,11 @@ import asyncio
 import logging
 import unittest
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage, HumanMessage
 
 import wotbot.api.main as wotbot_app
 from wotbot.core.settings import Settings
@@ -13,6 +15,26 @@ from wotbot.core.settings import Settings
 def _enable_log_capture(logger_name: str) -> None:
     logging.disable(logging.NOTSET)
     logging.getLogger(logger_name).disabled = False
+
+
+class _FakeGraph:
+    """Minimal stand-in for a compiled LangGraph graph. Unlike a plain fixed
+    snapshot, aupdate_state actually mutates what aget_state subsequently
+    returns -- matching the real checkpointer closely enough that the
+    finalizer's two call sites (proactive, at the top of run(); reactive, in
+    its finally) see each other's work instead of redundantly re-finalizing
+    already-clean state."""
+
+    def __init__(self, messages: list) -> None:
+        self.state = SimpleNamespace(values={"messages": list(messages)})
+        self.update_calls: list[dict] = []
+
+    async def aget_state(self, _config):
+        return self.state
+
+    async def aupdate_state(self, _config, update, **_kwargs):
+        self.update_calls.append(update)
+        self.state.values["messages"].extend(update.get("messages", []))
 
 
 @asynccontextmanager
@@ -34,6 +56,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         self._original_settings = wotbot_app.agui_runtime.settings
         self._original_agent = wotbot_app.agui_runtime.agent
         self._original_checkpointer = wotbot_app.agui_runtime.checkpointer
+        self._original_graph = wotbot_app.agui_runtime.graph
         self._original_thread_run_locks = wotbot_app.agui_runtime._thread_run_locks
         self._original_app_state = dict(wotbot_app.app.state._state)
         wotbot_app.agui_runtime._thread_run_locks = {}
@@ -44,6 +67,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         wotbot_app.agui_runtime.settings = self._original_settings
         wotbot_app.agui_runtime.agent = self._original_agent
         wotbot_app.agui_runtime.checkpointer = self._original_checkpointer
+        wotbot_app.agui_runtime.graph = self._original_graph
         wotbot_app.agui_runtime._thread_run_locks = self._original_thread_run_locks
         wotbot_app.app.state._state.clear()
         wotbot_app.app.state._state.update(self._original_app_state)
@@ -345,6 +369,163 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         output = "\n".join(logs.output)
         self.assertIn("AG-UI run failed thread_id=thread-a run_id=run-a", output)
         self.assertIn("RuntimeError: agent boom", output)
+
+    def test_ag_ui_proxy_finalizes_dangling_human_turn_after_a_failed_run(self) -> None:
+        """A run that dies before producing a response (aborted, or a real
+        error) must not leave the checkpoint's last message as a bare
+        HumanMessage -- see AguiRuntime._finalize_interrupted_run for why:
+        every future reconnect to the thread would find that same unfinished
+        turn and reattempt (and re-fail) it.
+
+        The dangling message only appears once this run's own agent.run()
+        merges it in (a FakeAgent stand-in for what the real merge_state
+        does internally) -- the thread starts clean, so this exercises the
+        REACTIVE finalize (in run()'s finally), not the proactive one."""
+        fake_graph = _FakeGraph([])
+
+        class FakeAgent:
+            async def run(self, _input_data):
+                fake_graph.state.values["messages"].append(
+                    HumanMessage(content="write me a long poem")
+                )
+                if False:
+                    yield {"event": "unused"}
+                raise RuntimeError("agent boom")
+
+        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+
+        async def collect_events():
+            proxy = wotbot_app.agui_runtime.create_agent_proxy()
+            return [event async for event in proxy.run({"threadId": "thread-a", "runId": "run-a"})]
+
+        with self.assertRaises(RuntimeError):
+            asyncio.run(collect_events())
+
+        self.assertEqual(len(fake_graph.update_calls), 1)
+        appended = fake_graph.update_calls[0]["messages"]
+        self.assertEqual(len(appended), 1)
+        self.assertIsInstance(appended[0], AIMessage)
+        self.assertIn("interrupted", appended[0].content)
+
+    def test_ag_ui_proxy_does_not_touch_an_already_answered_turn(self) -> None:
+        """If the checkpoint's last message is already an AI response (the
+        failure happened elsewhere, e.g. a post-response persistence step),
+        there's nothing dangling to finalize -- don't append a spurious
+        notice after a real answer."""
+        fake_graph = _FakeGraph(
+            [
+                HumanMessage(content="write me a poem"),
+                AIMessage(content="Roses are red..."),
+            ]
+        )
+
+        class FakeAgent:
+            async def run(self, _input_data):
+                if False:
+                    yield {"event": "unused"}
+                raise RuntimeError("agent boom")
+
+        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+
+        async def collect_events():
+            proxy = wotbot_app.agui_runtime.create_agent_proxy()
+            return [event async for event in proxy.run({"threadId": "thread-a", "runId": "run-a"})]
+
+        with self.assertRaises(RuntimeError):
+            asyncio.run(collect_events())
+
+        self.assertEqual(fake_graph.update_calls, [])
+
+    def test_ag_ui_proxy_does_not_finalize_a_completed_run(self) -> None:
+        """A run that finishes normally, starting from a clean thread (no
+        dangling turn to begin with), must never trigger the
+        interrupted-turn finalizer."""
+        fake_graph = _FakeGraph([])
+
+        class FakeAgent:
+            async def run(self, _input_data):
+                yield {"event": "done"}
+
+        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+
+        async def collect_events():
+            proxy = wotbot_app.agui_runtime.create_agent_proxy()
+            return [event async for event in proxy.run({"threadId": "thread-a", "runId": "run-a"})]
+
+        events = asyncio.run(collect_events())
+
+        self.assertEqual(events, [{"event": "done"}])
+        self.assertEqual(fake_graph.update_calls, [])
+
+    def test_ag_ui_proxy_finalizes_dangling_turn_after_real_cancellation(self) -> None:
+        """The literal reported scenario: a genuine asyncio cancellation
+        (stop button, closed tab, dropped connection) mid-run -- not a
+        simulated exception -- must still finalize the dangling turn."""
+        fake_graph = _FakeGraph([])
+
+        class FakeAgent:
+            def __init__(self) -> None:
+                self.started = asyncio.Event()
+                self.release = asyncio.Event()
+
+            async def run(self, _input_data):
+                fake_graph.state.values["messages"].append(
+                    HumanMessage(content="write me a long poem")
+                )
+                self.started.set()
+                await self.release.wait()
+                yield {"event": "unused"}
+
+        fake_agent = FakeAgent()
+        wotbot_app.agui_runtime.configure(agent=fake_agent, graph=fake_graph)
+
+        async def exercise() -> None:
+            proxy = wotbot_app.agui_runtime.create_agent_proxy()
+
+            async def drain() -> None:
+                async for _event in proxy.run({"threadId": "thread-a", "runId": "run-a"}):
+                    pass
+
+            task = asyncio.create_task(drain())
+            await asyncio.wait_for(fake_agent.started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(exercise())
+
+        self.assertEqual(len(fake_graph.update_calls), 1)
+        appended = fake_graph.update_calls[0]["messages"]
+        self.assertIsInstance(appended[0], AIMessage)
+        self.assertIn("interrupted", appended[0].content)
+
+    def test_ag_ui_proxy_proactively_heals_a_turn_left_dangling_by_a_prior_run(self) -> None:
+        """The race actually reported: a previous run's reactive finalize
+        runs in a background task (specifically so a cancellation can't kill
+        it -- see run_persistence_operation) and isn't guaranteed to finish
+        before the user immediately reconnects/retries. A brand new run
+        starting against a thread that's still dangling from an earlier,
+        never-cleaned-up failure must heal it before proceeding -- even
+        though this new run itself succeeds normally."""
+        fake_graph = _FakeGraph([HumanMessage(content="write me a long poem")])
+
+        class FakeAgent:
+            async def run(self, _input_data):
+                yield {"event": "done"}
+
+        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+
+        async def collect_events():
+            proxy = wotbot_app.agui_runtime.create_agent_proxy()
+            return [event async for event in proxy.run({"threadId": "thread-a", "runId": "run-a"})]
+
+        events = asyncio.run(collect_events())
+
+        self.assertEqual(events, [{"event": "done"}])
+        self.assertEqual(len(fake_graph.update_calls), 1)
+        appended = fake_graph.update_calls[0]["messages"]
+        self.assertIsInstance(appended[0], AIMessage)
+        self.assertIn("interrupted", appended[0].content)
 
     def test_ag_ui_proxy_cleans_up_embed_ephemeral_checkpoints(self) -> None:
         class FakeAgent:

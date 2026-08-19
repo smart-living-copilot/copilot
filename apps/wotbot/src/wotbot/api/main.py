@@ -158,6 +158,7 @@ async def lifespan(app: FastAPI):
                 settings=settings,
                 checkpointer=checkpointer,
                 agent=agent,
+                graph=graph,
             )
 
             app.state.settings = settings
