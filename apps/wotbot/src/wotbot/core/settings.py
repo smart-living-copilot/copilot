@@ -8,6 +8,16 @@ from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DisableStreamingMode = bool | Literal["tool_calling"]
+# How a resolved reasoning-effort level gets sent to the model:
+# - "openai": the OpenAI/vLLM-standard ``reasoning_effort`` request field.
+# - "qwen": Qwen's own ``enable_thinking`` chat-template flag via
+#   ``extra_body``. Some vLLM/Qwen deployments don't reliably translate
+#   ``reasoning_effort`` into ``enable_thinking`` themselves (see
+#   https://github.com/vllm-project/vllm/issues/35574), so this talks to the
+#   model natively instead. Qwen's switch is binary, not graduated: the
+#   literal level "none" means thinking off, every other configured level
+#   means on.
+ReasoningEffortStyle = Literal["openai", "qwen"]
 
 
 def _normalize_database_url(value: str) -> str:
@@ -38,6 +48,7 @@ class ReasoningEffortSettings:
     enabled: bool
     levels: tuple[str, ...]
     default: str | None
+    style: ReasoningEffortStyle
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +218,7 @@ class Settings(BaseSettings):
     reasoning_effort_enabled: bool = False
     reasoning_effort_levels: str = "low,medium,high"
     reasoning_effort_default: str = ""
+    reasoning_effort_style: ReasoningEffortStyle = "openai"
 
     # Agent
     max_iterations: int = 20
@@ -406,6 +418,7 @@ class Settings(BaseSettings):
             enabled=self.reasoning_effort_enabled,
             levels=self._reasoning_effort_level_tuple(),
             default=self.reasoning_effort_default.strip() or None,
+            style=self.reasoning_effort_style,
         )
 
     @property

@@ -131,10 +131,8 @@ async def lifespan(app: FastAPI):
                 parallel_tool_calls=settings.parallel_tool_calls,
                 vision_enabled=settings.vision_enabled,
                 handoff_enabled=settings.agent_handoff_enabled,
-                reasoning_effort_levels=(
-                    frozenset(settings.reasoning_effort.levels)
-                    if settings.reasoning_effort.enabled
-                    else frozenset()
+                reasoning_effort=(
+                    settings.reasoning_effort if settings.reasoning_effort.enabled else None
                 ),
             )
             graph = graph.with_config(recursion_limit=settings.recursion_limit)

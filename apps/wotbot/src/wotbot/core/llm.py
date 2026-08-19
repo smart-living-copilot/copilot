@@ -5,6 +5,7 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 
+from wotbot.core.reasoning_effort import reasoning_effort_kwargs
 from wotbot.core.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -24,5 +25,5 @@ def make_llm(settings: Settings) -> ChatOpenAI:
         kwargs["temperature"] = llm.openai_temperature
     reasoning_effort = settings.reasoning_effort
     if reasoning_effort.enabled and reasoning_effort.default:
-        kwargs["reasoning_effort"] = reasoning_effort.default
+        kwargs.update(reasoning_effort_kwargs(reasoning_effort.default, reasoning_effort.style))
     return ChatOpenAI(**kwargs)

@@ -18,6 +18,7 @@ from wotbot.agent.nodes import (
     make_analysis_node,
     make_router_node,
 )
+from wotbot.core.settings import ReasoningEffortSettings, ReasoningEffortStyle
 
 
 def _tool(name: str) -> SimpleNamespace:
@@ -363,9 +364,17 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(llm.invocations[0][0], "plain")
 
 
+def _effort_settings(
+    levels: frozenset[str], style: ReasoningEffortStyle = "openai"
+) -> ReasoningEffortSettings:
+    return ReasoningEffortSettings(
+        enabled=True, levels=tuple(levels), default=None, style=style
+    )
+
+
 class ReasoningEffortBindingTestCase(unittest.IsolatedAsyncioTestCase):
     def test_resolve_reasoning_effort_requires_allow_listed_value(self) -> None:
-        allowed = frozenset({"low", "medium", "high"})
+        allowed = _effort_settings(frozenset({"low", "medium", "high"}))
 
         self.assertEqual(
             _resolve_reasoning_effort({"reasoning_effort": "high"}, allowed), "high"
@@ -373,10 +382,8 @@ class ReasoningEffortBindingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(_resolve_reasoning_effort({"reasoning_effort": "extreme"}, allowed))
         self.assertIsNone(_resolve_reasoning_effort({}, allowed))
 
-    def test_resolve_reasoning_effort_disabled_when_no_allowed_levels(self) -> None:
-        self.assertIsNone(
-            _resolve_reasoning_effort({"reasoning_effort": "high"}, frozenset())
-        )
+    def test_resolve_reasoning_effort_disabled_when_feature_off(self) -> None:
+        self.assertIsNone(_resolve_reasoning_effort({"reasoning_effort": "high"}, None))
 
     async def test_llm_node_binds_reasoning_effort_when_allowed(self) -> None:
         llm = _FakeLLM()
@@ -385,7 +392,7 @@ class ReasoningEffortBindingTestCase(unittest.IsolatedAsyncioTestCase):
             tools=[_tool("get_current_time")],
             system_text="system",
             max_tokens=4000,
-            reasoning_effort_levels=frozenset({"low", "high"}),
+            reasoning_effort=_effort_settings(frozenset({"low", "high"})),
         )
 
         await node(
@@ -405,7 +412,7 @@ class ReasoningEffortBindingTestCase(unittest.IsolatedAsyncioTestCase):
             tools=[_tool("get_current_time")],
             system_text="system",
             max_tokens=4000,
-            reasoning_effort_levels=frozenset({"low", "high"}),
+            reasoning_effort=_effort_settings(frozenset({"low", "high"})),
         )
 
         await node(
@@ -425,7 +432,7 @@ class ReasoningEffortBindingTestCase(unittest.IsolatedAsyncioTestCase):
             tools=[],
             system_text="system",
             max_tokens=4000,
-            reasoning_effort_levels=frozenset({"high"}),
+            reasoning_effort=_effort_settings(frozenset({"high"})),
         )
 
         await node(
@@ -459,13 +466,37 @@ class ReasoningEffortBindingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(llm.plain_bind_kwargs, [])
         self.assertEqual(llm.invocations[0][0], "plain")
 
+    async def test_llm_node_uses_qwen_style_enable_thinking(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[],
+            system_text="system",
+            max_tokens=4000,
+            reasoning_effort=_effort_settings(frozenset({"none", "high"}), style="qwen"),
+        )
+
+        await node(
+            {
+                "messages": [HumanMessage(content="hi")],
+                "reasoning_effort": "none",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertNotIn("reasoning_effort", llm.plain_bind_kwargs[-1])
+        self.assertEqual(
+            llm.plain_bind_kwargs[-1],
+            {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+        )
+
     async def test_custom_analysis_node_binds_reasoning_effort(self) -> None:
         llm = _FakeLLM()
         node = make_analysis_node(
             llm,
             [_tool("run_code")],
             4000,
-            reasoning_effort_levels=frozenset({"medium"}),
+            reasoning_effort=_effort_settings(frozenset({"medium"})),
         )
 
         await node(

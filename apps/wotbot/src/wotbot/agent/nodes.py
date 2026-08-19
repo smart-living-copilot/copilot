@@ -34,6 +34,8 @@ from wotbot.agent.prompts import (
     VIRTUAL_THINGS_PROMPT,
 )
 from wotbot.agent.tools.look_at_camera import is_look_at_camera_available
+from wotbot.core.reasoning_effort import reasoning_effort_kwargs
+from wotbot.core.settings import ReasoningEffortSettings, ReasoningEffortStyle
 from wotbot.core.time import utc_now
 from wotbot.jobs.enums import JobOutputKind
 
@@ -321,16 +323,18 @@ def _tool_names(tools: list[Any]) -> list[str]:
 
 
 def _resolve_reasoning_effort(
-    state: WotbotState, allowed_levels: frozenset[str]
+    state: WotbotState, reasoning_effort: ReasoningEffortSettings | None
 ) -> str | None:
     """Read ``state["reasoning_effort"]`` (set from the chat UI's forwardedProps)
 
     and return it only when it's one of the operator-configured allowed
     levels. Returns ``None`` (provider default) when the feature is disabled
-    (``allowed_levels`` empty), unset, or the value isn't recognized.
+    (``reasoning_effort`` is ``None``), unset, or the value isn't recognized.
     """
+    if reasoning_effort is None:
+        return None
     value = state.get("reasoning_effort")
-    return value if isinstance(value, str) and value in allowed_levels else None
+    return value if isinstance(value, str) and value in reasoning_effort.levels else None
 
 
 def _bind_runnable(
@@ -339,10 +343,13 @@ def _bind_runnable(
     *,
     parallel_tool_calls: bool,
     reasoning_effort: str | None,
+    reasoning_effort_style: ReasoningEffortStyle = "openai",
 ):
-    bind_kwargs: dict[str, Any] = {}
-    if reasoning_effort:
-        bind_kwargs["reasoning_effort"] = reasoning_effort
+    bind_kwargs: dict[str, Any] = (
+        reasoning_effort_kwargs(reasoning_effort, reasoning_effort_style)
+        if reasoning_effort
+        else {}
+    )
     if active_tools:
         return llm.bind_tools(
             active_tools, parallel_tool_calls=parallel_tool_calls, **bind_kwargs
@@ -400,7 +407,7 @@ def _make_llm_node(
     max_tokens: int,
     parallel_tool_calls: bool = True,
     branch_name: str = "llm",
-    reasoning_effort_levels: frozenset[str] = frozenset(),
+    reasoning_effort: ReasoningEffortSettings | None = None,
 ):
     prompt = _make_node_prompt(system_text, max_tokens)
 
@@ -412,19 +419,20 @@ def _make_llm_node(
     # the ``thread_id`` that look_at_camera needs) arrives as ``None``.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
         active_tools = _active_tools_for_config(tools, config)
-        reasoning_effort = _resolve_reasoning_effort(state, reasoning_effort_levels)
+        resolved_effort = _resolve_reasoning_effort(state, reasoning_effort)
         _log_branch_entry(
             branch_name,
             config=config,
             active_tools=active_tools,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=reasoning_effort,
+            reasoning_effort=resolved_effort,
         )
         runnable = _bind_runnable(
             llm,
             active_tools,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=reasoning_effort,
+            reasoning_effort=resolved_effort,
+            reasoning_effort_style=reasoning_effort.style if reasoning_effort else "openai",
         )
         response = await runnable.ainvoke(prompt(state))
         return {"messages": [response]}
@@ -438,7 +446,7 @@ def make_respond_node(
     max_tokens: int,
     *,
     parallel_tool_calls: bool = True,
-    reasoning_effort_levels: frozenset[str] = frozenset(),
+    reasoning_effort: ReasoningEffortSettings | None = None,
 ):
     return _make_llm_node(
         llm,
@@ -447,7 +455,7 @@ def make_respond_node(
         max_tokens=max_tokens,
         parallel_tool_calls=parallel_tool_calls,
         branch_name="respond",
-        reasoning_effort_levels=reasoning_effort_levels,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -458,7 +466,7 @@ def make_control_node(
     *,
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
-    reasoning_effort_levels: frozenset[str] = frozenset(),
+    reasoning_effort: ReasoningEffortSettings | None = None,
 ):
     return _make_llm_node(
         llm,
@@ -467,7 +475,7 @@ def make_control_node(
         max_tokens=max_tokens,
         parallel_tool_calls=parallel_tool_calls,
         branch_name="control",
-        reasoning_effort_levels=reasoning_effort_levels,
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -478,7 +486,7 @@ def make_analysis_node(
     *,
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
-    reasoning_effort_levels: frozenset[str] = frozenset(),
+    reasoning_effort: ReasoningEffortSettings | None = None,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
@@ -488,19 +496,20 @@ def make_analysis_node(
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)
-        reasoning_effort = _resolve_reasoning_effort(state, reasoning_effort_levels)
+        resolved_effort = _resolve_reasoning_effort(state, reasoning_effort)
         _log_branch_entry(
             "analysis",
             config=config,
             active_tools=active_tools,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=reasoning_effort,
+            reasoning_effort=resolved_effort,
         )
         runnable = _bind_runnable(
             llm,
             active_tools,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=reasoning_effort,
+            reasoning_effort=resolved_effort,
+            reasoning_effort_style=reasoning_effort.style if reasoning_effort else "openai",
         )
         response = await runnable.ainvoke(messages)
         return {"messages": [response]}
@@ -515,7 +524,7 @@ def make_jobs_node(
     *,
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
-    reasoning_effort_levels: frozenset[str] = frozenset(),
+    reasoning_effort: ReasoningEffortSettings | None = None,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
@@ -523,19 +532,20 @@ def make_jobs_node(
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)
-        reasoning_effort = _resolve_reasoning_effort(state, reasoning_effort_levels)
+        resolved_effort = _resolve_reasoning_effort(state, reasoning_effort)
         _log_branch_entry(
             "jobs",
             config=config,
             active_tools=active_tools,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=reasoning_effort,
+            reasoning_effort=resolved_effort,
         )
         runnable = _bind_runnable(
             llm,
             active_tools,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=reasoning_effort,
+            reasoning_effort=resolved_effort,
+            reasoning_effort_style=reasoning_effort.style if reasoning_effort else "openai",
         )
         response = await runnable.ainvoke(messages)
         return {"messages": [response]}
@@ -550,7 +560,7 @@ def make_virtual_things_node(
     *,
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
-    reasoning_effort_levels: frozenset[str] = frozenset(),
+    reasoning_effort: ReasoningEffortSettings | None = None,
 ):
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
@@ -563,19 +573,20 @@ def make_virtual_things_node(
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = [system_message, *trimmed]
         active_tools = _active_tools_for_config(tools, config)
-        reasoning_effort = _resolve_reasoning_effort(state, reasoning_effort_levels)
+        resolved_effort = _resolve_reasoning_effort(state, reasoning_effort)
         _log_branch_entry(
             "virtual_things",
             config=config,
             active_tools=active_tools,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=reasoning_effort,
+            reasoning_effort=resolved_effort,
         )
         runnable = _bind_runnable(
             llm,
             active_tools,
             parallel_tool_calls=parallel_tool_calls,
-            reasoning_effort=reasoning_effort,
+            reasoning_effort=resolved_effort,
+            reasoning_effort_style=reasoning_effort.style if reasoning_effort else "openai",
         )
         response = await runnable.ainvoke(messages)
         return {"messages": [response]}
