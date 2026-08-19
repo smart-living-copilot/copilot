@@ -60,6 +60,12 @@ APP_VERSION="$(git describe --tags --always --dirty)" docker compose up -d --bui
 
 Most UI settings are backend URLs and shared internal credentials. See [`src/lib/backend-env.ts`](./src/lib/backend-env.ts), [`src/lib/app-version.ts`](./src/lib/app-version.ts), and the root [`.env.example`](../../.env.example).
 
+### Reasoning Effort
+
+`REASONING_EFFORT_ENABLED`, `REASONING_EFFORT_LEVELS` (comma-separated), and `REASONING_EFFORT_DEFAULT` control the reasoning-effort selector in the full chat toolbar ([`src/components/wotbot/chat-route/reasoning-effort-select.tsx`](./src/components/wotbot/chat-route/reasoning-effort-select.tsx); parsing lives in [`src/lib/reasoning-effort.ts`](./src/lib/reasoning-effort.ts)). The selector is hidden entirely unless enabled and at least one level is configured; it's absent from embedded chat by design. Selecting a level calls `useCopilotKit().copilotkit.setProperties({ reasoningEffort })`, which AG-UI forwards to the backend as `forwardedProps` on every subsequent run — the choice also persists in `localStorage` across reloads.
+
+The chat page reads these values on the server from the container's runtime environment and passes a serialized configuration to the client. The UI and backend therefore use the same shared variables from the root `.env`; the published UI image does not need to be rebuilt for a different selector configuration. The backend still independently validates every requested level against its allow-list.
+
 ### Embedded Chat
 
 The embedded chat is available at `/embed/chat`. It creates an ephemeral chat session and cleans up best-effort when the page unloads.

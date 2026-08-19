@@ -1,4 +1,7 @@
 import { ChatRoutePage } from '@/components/wotbot/chat-route-page';
+import { getReasoningEffortRuntimeConfig } from '@/lib/reasoning-effort-runtime-config';
+
+export const dynamic = 'force-dynamic';
 
 export default async function ChatPage({
   params,
@@ -7,5 +10,11 @@ export default async function ChatPage({
 }) {
   const { chatId } = await params;
 
-  return <ChatRoutePage chatId={chatId} mode="full" />;
+  return (
+    <ChatRoutePage
+      chatId={chatId}
+      mode="full"
+      reasoningEffortConfig={getReasoningEffortRuntimeConfig()}
+    />
+  );
 }

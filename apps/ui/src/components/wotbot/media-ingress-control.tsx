@@ -6,8 +6,10 @@ import type { MediaIngressSession } from '@/hooks/use-media-ingress-session';
 
 export function MediaIngressControl({
   session,
+  size = 'icon',
 }: {
   session: MediaIngressSession;
+  size?: 'icon' | 'icon-lg';
 }) {
   const isBusy =
     session.state === 'requesting' || session.state === 'connecting';
@@ -28,7 +30,7 @@ export function MediaIngressControl({
         aria-pressed={isActive}
         disabled={isBusy}
         onClick={() => (isActive ? session.stop() : void session.start())}
-        size="icon"
+        size={size}
         title={label}
         type="button"
         variant={isActive ? 'secondary' : 'outline'}

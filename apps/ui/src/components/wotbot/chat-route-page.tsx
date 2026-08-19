@@ -14,6 +14,10 @@ import {
   type EmbedChatPrefill,
 } from '@/lib/embed-chat';
 import type { Theme } from '@/components/theme-provider';
+import {
+  DISABLED_REASONING_EFFORT_CONFIG,
+  type ReasoningEffortConfig,
+} from '@/lib/reasoning-effort';
 
 export { ChatIndexPage };
 
@@ -30,6 +34,7 @@ export function ChatRoutePage({
   embedQueryString = '',
   embedTheme = null,
   initialEmbedPrefill = null,
+  reasoningEffortConfig = DISABLED_REASONING_EFFORT_CONFIG,
 }: {
   allowedPrefillOrigins?: string[];
   chatId: string;
@@ -37,6 +42,7 @@ export function ChatRoutePage({
   embedQueryString?: string;
   embedTheme?: Theme | null;
   initialEmbedPrefill?: EmbedChatPrefill | null;
+  reasoningEffortConfig?: ReasoningEffortConfig;
 }) {
   const enableInspector =
     process.env.NEXT_PUBLIC_ENABLE_COPILOT_INSPECTOR === 'true';
@@ -73,7 +79,11 @@ export function ChatRoutePage({
           initialPrefill={initialEmbedPrefill}
         />
       ) : (
-        <FullChatExperience chatId={chatId} handleNewChat={handleNewChat} />
+        <FullChatExperience
+          chatId={chatId}
+          handleNewChat={handleNewChat}
+          reasoningEffortConfig={reasoningEffortConfig}
+        />
       )}
     </CopilotKit>
   );

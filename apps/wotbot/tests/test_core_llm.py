@@ -83,3 +83,100 @@ def test_make_llm_passes_configured_temperature():
         make_llm(settings)
 
     assert chat_openai.call_args.kwargs["temperature"] == 0
+
+
+def test_make_llm_omits_reasoning_effort_when_disabled():
+    settings = Settings(
+        openai_api_key="test-key",
+        openai_model="gpt-test",
+        reasoning_effort_enabled=False,
+        reasoning_effort_default="high",
+    )
+
+    with patch("wotbot.core.llm.ChatOpenAI", return_value=object()) as chat_openai:
+        make_llm(settings)
+
+    assert "reasoning_effort" not in chat_openai.call_args.kwargs
+
+
+def test_make_llm_omits_reasoning_effort_when_no_default_set():
+    settings = Settings(
+        openai_api_key="test-key",
+        openai_model="gpt-test",
+        reasoning_effort_enabled=True,
+    )
+
+    with patch("wotbot.core.llm.ChatOpenAI", return_value=object()) as chat_openai:
+        make_llm(settings)
+
+    assert "reasoning_effort" not in chat_openai.call_args.kwargs
+
+
+def test_make_llm_passes_configured_reasoning_effort_default():
+    settings = Settings(
+        openai_api_key="test-key",
+        openai_model="gpt-test",
+        reasoning_effort_enabled=True,
+        reasoning_effort_default="high",
+    )
+
+    with patch("wotbot.core.llm.ChatOpenAI", return_value=object()) as chat_openai:
+        make_llm(settings)
+
+    assert chat_openai.call_args.kwargs["reasoning_effort"] == "high"
+
+
+def test_make_llm_uses_qwen_style_enable_thinking():
+    settings = Settings(
+        openai_api_key="test-key",
+        openai_model="qwen-test",
+        reasoning_effort_enabled=True,
+        reasoning_effort_levels="none,high",
+        reasoning_effort_default="none",
+        reasoning_effort_style="qwen",
+    )
+
+    with patch("wotbot.core.llm.ChatOpenAI", return_value=object()) as chat_openai:
+        make_llm(settings)
+
+    assert "reasoning_effort" not in chat_openai.call_args.kwargs
+    assert chat_openai.call_args.kwargs["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": False}
+    }
+
+
+def test_settings_reasoning_effort_defaults_to_openai_style():
+    settings = Settings(_env_file=None, openai_api_key="test-key")
+
+    assert settings.reasoning_effort.style == "openai"
+
+
+def test_settings_reasoning_effort_parses_and_trims_levels():
+    settings = Settings(
+        openai_api_key="test-key",
+        reasoning_effort_enabled=True,
+        reasoning_effort_levels=" low, medium ,high ",
+        reasoning_effort_default="medium",
+    )
+
+    assert settings.reasoning_effort.levels == ("low", "medium", "high")
+    assert settings.reasoning_effort.default == "medium"
+
+
+def test_settings_reasoning_effort_drops_default_outside_levels():
+    settings = Settings(
+        openai_api_key="test-key",
+        reasoning_effort_enabled=True,
+        reasoning_effort_levels="low,medium",
+        reasoning_effort_default="extreme",
+    )
+
+    assert settings.reasoning_effort.default is None
+
+
+def test_settings_reasoning_effort_defaults_to_disabled():
+    settings = Settings(_env_file=None, openai_api_key="test-key")
+
+    assert settings.reasoning_effort.enabled is False
+    assert settings.reasoning_effort.levels == ("low", "medium", "high")
+    assert settings.reasoning_effort.default is None

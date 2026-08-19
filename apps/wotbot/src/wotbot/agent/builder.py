@@ -22,6 +22,7 @@ from wotbot.agent.nodes import (
 from wotbot.agent.prompts import HANDOFF_PROMPT
 from wotbot.agent.tool_groups import group_local_tools, partition_registry_tools
 from wotbot.agent.tools.route_to import make_route_to_tool
+from wotbot.core.settings import ReasoningEffortSettings
 
 
 def _tool_error_message(error: Exception) -> str:
@@ -47,6 +48,7 @@ def _add_action_branch(
     action_branch_end: str,
     parallel_tool_calls: bool,
     handoff_note: str,
+    reasoning_effort: ReasoningEffortSettings | None,
 ) -> None:
     graph.add_node(
         llm_node,
@@ -56,6 +58,7 @@ def _add_action_branch(
             max_tokens,
             parallel_tool_calls=parallel_tool_calls,
             handoff_note=handoff_note,
+            reasoning_effort=reasoning_effort,
         ),
     )
     graph.add_node(
@@ -89,6 +92,7 @@ def build_graph(
     parallel_tool_calls: bool = True,
     vision_enabled: bool = False,
     handoff_enabled: bool = False,
+    reasoning_effort: ReasoningEffortSettings | None = None,
 ):
     """Build and compile the wotbot agent StateGraph."""
     registry_tool_groups = partition_registry_tools(registry_tools)
@@ -159,6 +163,7 @@ def build_graph(
             respond_tools,
             max_tokens,
             parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort=reasoning_effort,
         ),
     )
     graph.add_node(
@@ -226,6 +231,7 @@ def build_graph(
             action_branch_end=action_branch_end,
             parallel_tool_calls=parallel_tool_calls,
             handoff_note=handoff_note,
+            reasoning_effort=reasoning_effort,
         )
 
     graph.add_conditional_edges(

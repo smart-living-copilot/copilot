@@ -122,6 +122,7 @@ async def lifespan(app: FastAPI):
             checkpointer = saver
             agui_runtime.configure(settings=settings, checkpointer=checkpointer)
             app.state.checkpointer = checkpointer
+            reasoning_effort = settings.reasoning_effort
             graph = build_graph(
                 llm=llm,
                 registry_tools=REGISTRY_TOOLS,
@@ -131,6 +132,7 @@ async def lifespan(app: FastAPI):
                 parallel_tool_calls=settings.parallel_tool_calls,
                 vision_enabled=settings.vision_enabled,
                 handoff_enabled=settings.agent_handoff_enabled,
+                reasoning_effort=reasoning_effort if reasoning_effort.enabled else None,
             )
             graph = graph.with_config(recursion_limit=settings.recursion_limit)
             app.state.graph = graph

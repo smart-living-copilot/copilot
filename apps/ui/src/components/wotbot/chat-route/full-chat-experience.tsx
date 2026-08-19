@@ -19,6 +19,7 @@ import { blockSubmitWhileRunning } from '@/components/wotbot/chat-route/block-su
 import { ChatAgentSync } from '@/components/wotbot/chat-route/chat-agent-sync';
 import { getLatestTurnArtifacts } from '@/components/wotbot/chat-route/chat-message-utils';
 import { PromptTextArea } from '@/components/wotbot/chat-route/prompt-text-area';
+import { ReasoningEffortSelect } from '@/components/wotbot/chat-route/reasoning-effort-select';
 import { LiveModePanel } from '@/components/wotbot/live-mode-panel';
 import { MediaIngressControl } from '@/components/wotbot/media-ingress-control';
 import { MessageViewWithWotSummary } from '@/components/wotbot/wot-interaction-summary';
@@ -28,13 +29,16 @@ import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
 import { type ChatSummary } from '@/lib/chat-list-cache';
+import type { ReasoningEffortConfig } from '@/lib/reasoning-effort';
 
 export function FullChatExperience({
   chatId,
   handleNewChat,
+  reasoningEffortConfig,
 }: {
   chatId: string;
   handleNewChat: () => Promise<ChatSummary | null>;
+  reasoningEffortConfig: ReasoningEffortConfig;
 }) {
   const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
   const [sidebarRefreshToken, setSidebarRefreshToken] = useState(0);
@@ -60,6 +64,14 @@ export function FullChatExperience({
   );
   const chatInput = useMemo(() => {
     function FullInput(props: CopilotChatInputProps) {
+      // While the composer is empty and idle, the send button's slot shows
+      // the voice/video call toggle instead (merged, ChatGPT-style); as soon
+      // as there's a draft, or a response is in flight (so Stop stays
+      // reachable), it swaps back to send/stop. Once a call connects,
+      // showLiveMode below swaps out this whole composer, so there's no
+      // "active call" state to reconcile with send here.
+      const showSendButton = Boolean(props.value?.trim()) || props.isRunning;
+
       return (
         <CopilotChatInput {...props} textArea={PromptTextArea}>
           {({
@@ -79,9 +91,21 @@ export function FullChatExperience({
                 >
                   {textArea}
                 </div>
-                <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
-                  <MediaIngressControl session={mediaSession} />
-                  {sendButton}
+                <div className="flex items-center justify-end gap-2 border-t border-border pt-2">
+                  <ReasoningEffortSelect config={reasoningEffortConfig} />
+                  {showSendButton ? (
+                    sendButton
+                  ) : (
+                    // Matches CopilotKit's own SendButton footprint exactly
+                    // (a 36px `h-9 w-9` circle in a `mr-[10px]` wrapper) so
+                    // swapping between the two doesn't shift the row.
+                    <div className="mr-[10px]">
+                      <MediaIngressControl
+                        session={mediaSession}
+                        size="icon-lg"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
               {disclaimer}
@@ -102,7 +126,7 @@ export function FullChatExperience({
       TextArea: CopilotChatInput.TextArea,
       ToolbarButton: CopilotChatInput.ToolbarButton,
     });
-  }, [mediaSession]);
+  }, [mediaSession, reasoningEffortConfig]);
   const showLiveMode = mediaSession.state !== 'idle';
   const liveArtifacts = useMemo(
     () => getLatestTurnArtifacts(liveMessages),

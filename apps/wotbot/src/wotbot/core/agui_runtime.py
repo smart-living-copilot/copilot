@@ -77,6 +77,7 @@ class AguiRuntime:
         if self.agent is None:
             raise RuntimeError("AG-UI agent is not ready")
 
+        input_data = _with_forwarded_reasoning_effort(input_data)
         thread_id = _request_thread_id(input_data)
         run_id = _request_run_id(input_data)
         heartbeat_timeout = _heartbeat_timeout(self.settings)
@@ -320,6 +321,42 @@ def _request_thread_id(input_data: Any) -> str | None:
 
 def _request_run_id(input_data: Any) -> str | None:
     return _request_string(input_data, ("runId", "run_id"))
+
+
+def _with_forwarded_reasoning_effort(input_data: Any) -> Any:
+    """Make the request-scoped selector value win over stale client state.
+
+    CopilotKit sends the graph's last state snapshot back on every run. The
+    AG-UI LangGraph adapter merges ``forwardedProps`` first and that state
+    second, so a previously checkpointed ``reasoning_effort`` otherwise masks
+    a newly selected value. Mirror the forwarded value into this request's
+    state before handing it to the adapter; normal node-level allow-list
+    validation still decides whether the value is honored.
+    """
+    if isinstance(input_data, dict):
+        forwarded_props = input_data.get("forwardedProps") or input_data.get(
+            "forwarded_props"
+        )
+        state = input_data.get("state")
+    else:
+        forwarded_props = getattr(input_data, "forwarded_props", None)
+        state = getattr(input_data, "state", None)
+
+    if not isinstance(forwarded_props, dict):
+        return input_data
+
+    effort = forwarded_props.get("reasoningEffort")
+    if effort is None:
+        effort = forwarded_props.get("reasoning_effort")
+    if not isinstance(effort, str) or (state is not None and not isinstance(state, dict)):
+        return input_data
+
+    updated_state = {**(state or {}), "reasoning_effort": effort}
+    if isinstance(input_data, dict):
+        return {**input_data, "state": updated_state}
+
+    model_copy = getattr(input_data, "model_copy", None)
+    return model_copy(update={"state": updated_state}) if model_copy else input_data
 
 
 def _request_string(input_data: Any, keys: tuple[str, ...]) -> str | None:

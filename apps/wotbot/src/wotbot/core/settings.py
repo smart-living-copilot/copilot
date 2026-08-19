@@ -1,3 +1,4 @@
+import logging
 import os
 import socket
 from dataclasses import dataclass
@@ -7,6 +8,16 @@ from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DisableStreamingMode = bool | Literal["tool_calling"]
+# How a resolved reasoning-effort level gets sent to the model:
+# - "openai": the OpenAI/vLLM-standard ``reasoning_effort`` request field.
+# - "qwen": Qwen's own ``enable_thinking`` chat-template flag via
+#   ``extra_body``. Some vLLM/Qwen deployments don't reliably translate
+#   ``reasoning_effort`` into ``enable_thinking`` themselves (see
+#   https://github.com/vllm-project/vllm/issues/35574), so this talks to the
+#   model natively instead. Qwen's switch is binary, not graduated: the
+#   literal level "none" means thinking off, every other configured level
+#   means on.
+ReasoningEffortStyle = Literal["openai", "qwen"]
 
 
 def _normalize_database_url(value: str) -> str:
@@ -30,6 +41,14 @@ class LlmSettings:
     openai_temperature: float | None
     openai_disable_streaming: DisableStreamingMode
     openai_base_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningEffortSettings:
+    enabled: bool
+    levels: tuple[str, ...]
+    default: str | None
+    style: ReasoningEffortStyle
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +212,14 @@ class Settings(BaseSettings):
     )
     openai_embedding_model: str = "mxbai-embed-large"
 
+    # Reasoning effort: lets the chat UI ask a reasoning-capable model (o-series,
+    # gpt-5, etc.) how hard to think. Off by default; when disabled, no
+    # reasoning_effort is ever sent and the UI selector stays hidden.
+    reasoning_effort_enabled: bool = False
+    reasoning_effort_levels: str = "low,medium,high"
+    reasoning_effort_default: str = ""
+    reasoning_effort_style: ReasoningEffortStyle = "openai"
+
     # Agent
     max_iterations: int = 20
     recursion_limit: int = 50
@@ -330,6 +357,19 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
+    def _validate_reasoning_effort_default(self) -> "Settings":
+        default = self.reasoning_effort_default.strip()
+        if default and default not in self._reasoning_effort_level_tuple():
+            logging.getLogger(__name__).warning(
+                "REASONING_EFFORT_DEFAULT=%r is not in REASONING_EFFORT_LEVELS=%r; "
+                "ignoring the default.",
+                default,
+                self.reasoning_effort_levels,
+            )
+            self.reasoning_effort_default = ""
+        return self
+
+    @model_validator(mode="after")
     def _apply_fallback_settings(self) -> "Settings":
         self.openai_embedding_api_base_url = _fallback_value(
             self.openai_embedding_api_base_url,
@@ -363,6 +403,22 @@ class Settings(BaseSettings):
             openai_temperature=self.openai_temperature,
             openai_disable_streaming=self.openai_disable_streaming,
             openai_base_url=self.openai_base_url,
+        )
+
+    def _reasoning_effort_level_tuple(self) -> tuple[str, ...]:
+        return tuple(
+            level
+            for raw in self.reasoning_effort_levels.split(",")
+            if (level := raw.strip())
+        )
+
+    @property
+    def reasoning_effort(self) -> ReasoningEffortSettings:
+        return ReasoningEffortSettings(
+            enabled=self.reasoning_effort_enabled,
+            levels=self._reasoning_effort_level_tuple(),
+            default=self.reasoning_effort_default.strip() or None,
+            style=self.reasoning_effort_style,
         )
 
     @property
