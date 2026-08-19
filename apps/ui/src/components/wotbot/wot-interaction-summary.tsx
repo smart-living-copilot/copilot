@@ -20,6 +20,7 @@ import {
   isFirstToolOnlyMessageInGroup,
   isToolOnlyAssistantMessage,
 } from '@/components/wotbot/chat-tool-calls/grouped-tool-call-model';
+import { UserMessageWithEdit } from '@/components/wotbot/chat-route/user-message-with-edit';
 import { WotInteractionSummaryCard } from '@/components/wotbot/wot-summary/wot-interaction-summary-card';
 import { cn } from '@/lib/utils';
 import {
@@ -212,6 +213,7 @@ function MessageViewWithWotSummaryImpl({
         assistantMessage={AssistantMessageWithWotSummary}
         isRunning={isRunning}
         messages={displayMessages}
+        userMessage={UserMessageWithEdit}
       >
         {({ interruptElement, isRunning, messageElements }) => {
           const groupedMessageElements = groupToolCallMessageElements({
