@@ -527,6 +527,95 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         self.assertIsInstance(appended[0], AIMessage)
         self.assertIn("interrupted", appended[0].content)
 
+    def test_ag_ui_proxy_persists_partial_text_streamed_before_the_interruption(self) -> None:
+        """Stopping mid-answer should keep the truncated answer the user was
+        already watching, not replace it with a generic notice on reload."""
+        fake_graph = _FakeGraph([])
+
+        class FakeAgent:
+            async def run(self, _input_data):
+                fake_graph.state.values["messages"].append(HumanMessage(content="write a poem"))
+                yield SimpleNamespace(type="TEXT_MESSAGE_START", message_id="m1")
+                yield SimpleNamespace(type="TEXT_MESSAGE_CONTENT", message_id="m1", delta="Roses are ")
+                yield SimpleNamespace(type="TEXT_MESSAGE_CONTENT", message_id="m1", delta="red, violets")
+                raise RuntimeError("stopped mid-answer")
+
+        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+
+        async def collect_events():
+            proxy = wotbot_app.agui_runtime.create_agent_proxy()
+            return [event async for event in proxy.run({"threadId": "thread-a", "runId": "run-a"})]
+
+        with self.assertRaises(RuntimeError):
+            asyncio.run(collect_events())
+
+        appended = fake_graph.update_calls[0]["messages"]
+        self.assertEqual(appended[0].content, "Roses are red, violets")
+
+    def test_ag_ui_proxy_keeps_only_the_in_flight_message_as_partial_text(self) -> None:
+        """The router node streams its own ``{"intent": ...}`` payload as a
+        text message before the answering node starts. An interrupted turn
+        must persist the answer in progress, not that earlier payload."""
+        fake_graph = _FakeGraph([])
+
+        class FakeAgent:
+            async def run(self, _input_data):
+                fake_graph.state.values["messages"].append(HumanMessage(content="write a poem"))
+                yield SimpleNamespace(type="TEXT_MESSAGE_START", message_id="router")
+                yield SimpleNamespace(
+                    type="TEXT_MESSAGE_CONTENT", message_id="router", delta='{"intent":"chat"}'
+                )
+                yield SimpleNamespace(type="TEXT_MESSAGE_END", message_id="router")
+                yield SimpleNamespace(type="TEXT_MESSAGE_START", message_id="answer")
+                yield SimpleNamespace(
+                    type="TEXT_MESSAGE_CONTENT", message_id="answer", delta="Roses are red"
+                )
+                raise RuntimeError("stopped mid-answer")
+
+        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+
+        async def collect_events():
+            proxy = wotbot_app.agui_runtime.create_agent_proxy()
+            return [event async for event in proxy.run({"threadId": "thread-a", "runId": "run-a"})]
+
+        with self.assertRaises(RuntimeError):
+            asyncio.run(collect_events())
+
+        appended = fake_graph.update_calls[0]["messages"]
+        self.assertEqual(appended[0].content, "Roses are red")
+        self.assertNotIn("intent", appended[0].content)
+
+    def test_ag_ui_proxy_ignores_a_completed_message_when_nothing_is_in_flight(self) -> None:
+        """Interrupting in the gap AFTER the router's message completed but
+        BEFORE the answering node starts streaming leaves no in-flight
+        message at all. The router's completed ``{"intent": ...}`` payload
+        must not be persisted as the assistant's reply -- fall back to the
+        generic notice instead (regression: it used to be stored verbatim)."""
+        fake_graph = _FakeGraph([])
+
+        class FakeAgent:
+            async def run(self, _input_data):
+                fake_graph.state.values["messages"].append(HumanMessage(content="write a poem"))
+                yield SimpleNamespace(type="TEXT_MESSAGE_START", message_id="router")
+                yield SimpleNamespace(
+                    type="TEXT_MESSAGE_CONTENT", message_id="router", delta='{"intent":"chat"}'
+                )
+                yield SimpleNamespace(type="TEXT_MESSAGE_END", message_id="router")
+                raise RuntimeError("stopped between nodes")
+
+        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+
+        async def collect_events():
+            proxy = wotbot_app.agui_runtime.create_agent_proxy()
+            return [event async for event in proxy.run({"threadId": "thread-a", "runId": "run-a"})]
+
+        with self.assertRaises(RuntimeError):
+            asyncio.run(collect_events())
+
+        appended = fake_graph.update_calls[0]["messages"]
+        self.assertNotIn("intent", appended[0].content)
+        self.assertIn("interrupted", appended[0].content)
+
     def test_ag_ui_proxy_cleans_up_embed_ephemeral_checkpoints(self) -> None:
         class FakeAgent:
             async def run(self, _input_data):

@@ -22,9 +22,51 @@ EMBED_EPHEMERAL_THREAD_PREFIX = "embed-ephemeral-"
 _UNSET = object()
 
 # Shown in place of the response when a run is cancelled or fails before
-# producing one. See AguiRuntime._finalize_interrupted_run for why this needs
-# to exist at all.
+# producing ANY output. See AguiRuntime._finalize_interrupted_run for why this
+# needs to exist at all. When the run did stream some text before being cut
+# off, that partial text is persisted instead (see _PartialAssistantText), so
+# the reloaded thread shows the same truncated answer the user was already
+# watching rather than replacing it with this notice.
 _INTERRUPTED_TURN_NOTICE = "The response was interrupted before it finished. Try asking again."
+
+
+def _event_type_name(event: Any) -> str:
+    event_type = getattr(event, "type", None)
+    value = getattr(event_type, "value", event_type)
+    return value if isinstance(value, str) else ""
+
+
+class _PartialAssistantText:
+    """Accumulates the text of the assistant message currently *in flight*.
+
+    Only an unfinished message counts: TEXT_MESSAGE_START resets the buffer
+    and TEXT_MESSAGE_END clears it, so a message the model completed is never
+    reported as partial. That distinction matters because the graph streams
+    more than the answer -- the router node emits its own
+    ``{"intent": ...}`` payload as a complete text message before the
+    answering node starts, and an interruption in the gap between the two
+    must not persist that internal payload as the assistant's reply.
+    """
+
+    def __init__(self) -> None:
+        self._parts: list[str] = []
+        self._in_flight = False
+
+    def observe(self, event: Any) -> None:
+        event_type = _event_type_name(event)
+        if event_type == "TEXT_MESSAGE_START":
+            self._parts.clear()
+            self._in_flight = True
+        elif event_type == "TEXT_MESSAGE_END":
+            self._parts.clear()
+            self._in_flight = False
+        elif event_type == "TEXT_MESSAGE_CONTENT" and self._in_flight:
+            delta = getattr(event, "delta", None)
+            if isinstance(delta, str):
+                self._parts.append(delta)
+
+    def text(self) -> str:
+        return "".join(self._parts).strip()
 
 
 class _AGUIAgentProxy:
@@ -106,6 +148,7 @@ class AguiRuntime:
             uses_thread_lock,
             heartbeat_timeout,
         )
+        partial = _PartialAssistantText()
         try:
             if thread_id:
                 # Proactively heal before starting, not just reactively after
@@ -123,9 +166,11 @@ class AguiRuntime:
                 lock = await self._thread_run_lock(thread_id)
                 async with lock:
                     async for event in self.agent.run(input_data):
+                        partial.observe(event)
                         yield event
             else:
                 async for event in self.agent.run(input_data):
+                    partial.observe(event)
                     yield event
             completed = True
         except (asyncio.CancelledError, GeneratorExit):
@@ -145,7 +190,9 @@ class AguiRuntime:
             )
             raise
         finally:
-            await self.finalize_thread_run(thread_id, completed=completed)
+            await self.finalize_thread_run(
+                thread_id, completed=completed, partial_text=partial.text()
+            )
         if completed:
             logger.info(
                 "AG-UI run finished thread_id=%s run_id=%s elapsed_ms=%.1f",
@@ -154,7 +201,13 @@ class AguiRuntime:
                 _elapsed_ms(started),
             )
 
-    async def finalize_thread_run(self, thread_id: str | None, *, completed: bool = True) -> None:
+    async def finalize_thread_run(
+        self,
+        thread_id: str | None,
+        *,
+        completed: bool = True,
+        partial_text: str = "",
+    ) -> None:
         if _is_embed_ephemeral_thread(thread_id):
             if thread_id:
                 cancelled = await self.delete_checkpoint_thread(thread_id)
@@ -173,7 +226,7 @@ class AguiRuntime:
             # Closing the turn out here means a reconnect just replays
             # ordinary finished history instead of unfinished work to redo.
             cancelled = await self.run_persistence_operation(
-                self._finalize_interrupted_run(thread_id),
+                self._finalize_interrupted_run(thread_id, partial_text=partial_text),
                 error_message=f"Failed to finalize interrupted run for {thread_id}",
             )
 
@@ -186,12 +239,21 @@ class AguiRuntime:
         if cancelled:
             raise asyncio.CancelledError
 
-    async def _finalize_interrupted_run(self, thread_id: str | None) -> None:
+    async def _finalize_interrupted_run(
+        self, thread_id: str | None, *, partial_text: str = ""
+    ) -> None:
         """Idempotent: called both proactively (top of run(), before this
         run touches anything) and reactively (finally, below, after this run
         fails to complete). Either caller can win the race to run first --
         whichever does, the other finds the checkpoint already clean and
         no-ops via the isinstance check below.
+
+        ``partial_text`` is whatever the interrupted run had already streamed
+        to the client. Persisting that (rather than a generic notice) keeps
+        the reloaded thread consistent with what the user was watching when
+        they hit stop; the notice is only used when the run produced nothing
+        at all. The proactive caller has no partial text by definition, and
+        passes none.
         """
         if not thread_id or self.graph is None:
             return
@@ -209,9 +271,10 @@ class AguiRuntime:
             messages = state.values.get("messages", []) if state and state.values else []
             if not messages or not isinstance(messages[-1], HumanMessage):
                 return
+            content = partial_text.strip() or _INTERRUPTED_TURN_NOTICE
             await self.graph.aupdate_state(
                 config,
-                {"messages": [AIMessage(content=_INTERRUPTED_TURN_NOTICE)]},
+                {"messages": [AIMessage(content=content)]},
             )
 
     async def run_persistence_operation(
