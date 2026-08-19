@@ -29,13 +29,16 @@ import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
 import { type ChatSummary } from '@/lib/chat-list-cache';
+import type { ReasoningEffortConfig } from '@/lib/reasoning-effort';
 
 export function FullChatExperience({
   chatId,
   handleNewChat,
+  reasoningEffortConfig,
 }: {
   chatId: string;
   handleNewChat: () => Promise<ChatSummary | null>;
+  reasoningEffortConfig: ReasoningEffortConfig;
 }) {
   const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
   const [sidebarRefreshToken, setSidebarRefreshToken] = useState(0);
@@ -89,7 +92,7 @@ export function FullChatExperience({
                   {textArea}
                 </div>
                 <div className="flex items-center justify-end gap-2 border-t border-border pt-2">
-                  <ReasoningEffortSelect />
+                  <ReasoningEffortSelect config={reasoningEffortConfig} />
                   {showSendButton ? (
                     sendButton
                   ) : (
@@ -123,7 +126,7 @@ export function FullChatExperience({
       TextArea: CopilotChatInput.TextArea,
       ToolbarButton: CopilotChatInput.ToolbarButton,
     });
-  }, [mediaSession]);
+  }, [mediaSession, reasoningEffortConfig]);
   const showLiveMode = mediaSession.state !== 'idle';
   const liveArtifacts = useMemo(
     () => getLatestTurnArtifacts(liveMessages),

@@ -10,12 +10,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  DEFAULT_REASONING_EFFORT,
-  REASONING_EFFORT_LEVELS,
-  REASONING_EFFORT_OPTIONS,
   REASONING_EFFORT_STORAGE_KEY,
   isReasoningEffortSelectorEnabled,
+  makeReasoningEffortOptions,
   resolveStoredReasoningEffort,
+  type ReasoningEffortConfig,
 } from '@/lib/reasoning-effort';
 
 function readStoredReasoningEffort(): string | null {
@@ -29,25 +28,34 @@ function readStoredReasoningEffort(): string | null {
   }
 }
 
-export function ReasoningEffortSelect() {
+export function ReasoningEffortSelect({
+  config,
+}: {
+  config: ReasoningEffortConfig;
+}) {
   const { copilotkit } = useCopilotKit();
   const [level, setLevel] = useState(() =>
     resolveStoredReasoningEffort(
-      REASONING_EFFORT_LEVELS,
+      config.levels,
       readStoredReasoningEffort(),
-      DEFAULT_REASONING_EFFORT,
+      config.defaultLevel,
     ),
   );
+  const selectorEnabled = isReasoningEffortSelectorEnabled(config);
+  const options = makeReasoningEffortOptions(config.levels);
 
   // Forward the initial (and every changed) level as AG-UI forwardedProps so
   // the very first run already carries it, not just runs after the first
   // change. wotbot's chat graph reads it back from state as
   // `reasoning_effort` (see agent/nodes.py).
   useEffect(() => {
-    if (level) {
-      copilotkit.setProperties({ reasoningEffort: level });
+    if (selectorEnabled && level) {
+      copilotkit.setProperties({
+        ...copilotkit.properties,
+        reasoningEffort: level,
+      });
     }
-  }, [copilotkit, level]);
+  }, [copilotkit, level, selectorEnabled]);
 
   const handleChange = useCallback((next: string) => {
     setLevel(next);
@@ -58,7 +66,7 @@ export function ReasoningEffortSelect() {
     }
   }, []);
 
-  if (!isReasoningEffortSelectorEnabled() || !level) {
+  if (!selectorEnabled || !level) {
     return null;
   }
 
@@ -74,7 +82,7 @@ export function ReasoningEffortSelect() {
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {REASONING_EFFORT_OPTIONS.map((option) => (
+        {options.map((option) => (
           <SelectItem key={option.value} value={option.value}>
             {option.label}
           </SelectItem>

@@ -291,6 +291,38 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         self.assertIn("uses_thread_lock=True", output)
         self.assertIn("AG-UI run finished thread_id=thread-a run_id=run-a", output)
 
+    def test_ag_ui_proxy_prefers_forwarded_reasoning_effort_over_stale_state(self) -> None:
+        received_inputs: list[dict] = []
+
+        class FakeAgent:
+            async def run(self, input_data):
+                received_inputs.append(input_data)
+                yield {"event": "done"}
+
+        wotbot_app.agui_runtime.configure(agent=FakeAgent())
+
+        async def collect_events():
+            proxy = wotbot_app.agui_runtime.create_agent_proxy()
+            return [
+                event
+                async for event in proxy.run(
+                    {
+                        "threadId": "thread-a",
+                        "runId": "run-a",
+                        "state": {"reasoning_effort": "high", "intent": "chat"},
+                        "forwardedProps": {"reasoningEffort": "low"},
+                    }
+                )
+            ]
+
+        events = asyncio.run(collect_events())
+
+        self.assertEqual(events, [{"event": "done"}])
+        self.assertEqual(
+            received_inputs[0]["state"],
+            {"reasoning_effort": "low", "intent": "chat"},
+        )
+
     def test_ag_ui_proxy_logs_agent_failure(self) -> None:
         _enable_log_capture("wotbot.core.agui_runtime")
 
