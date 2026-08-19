@@ -187,3 +187,121 @@ test('flushes pending text before non-text events to preserve ordering', async (
   );
   assert.match(output, /partial/);
 });
+
+function eventTypes(output: string): string[] {
+  return output
+    .split('\n')
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => {
+      try {
+        return (JSON.parse(line.slice(5)) as { type?: string }).type ?? '?';
+      } catch {
+        return '?';
+      }
+    });
+}
+
+test('rewrites a user-initiated abort into a clean RUN_FINISHED', async () => {
+  // A stop is a normal end of the run, not a failure -- left as RUN_ERROR
+  // the user gets an error toast ("This operation was aborted"). The open
+  // text message and step must be closed first, since the client's own
+  // validator refuses RUN_FINISHED while either is still active.
+  const input =
+    sse({ type: 'RUN_STARTED', threadId: 't1', runId: 'r1' }) +
+    sse({ type: 'STEP_STARTED', stepName: 'respond' }) +
+    sse({ type: 'TEXT_MESSAGE_START', messageId: 'm1', role: 'assistant' }) +
+    sse({
+      type: 'TEXT_MESSAGE_CONTENT',
+      messageId: 'm1',
+      delta: 'partial answer',
+    }) +
+    sse({
+      type: 'RUN_ERROR',
+      message: 'This operation was aborted',
+      code: 'abort',
+    });
+
+  const output = await readStream(filterWotbotEventStream(makeSource(input)));
+
+  assert.doesNotMatch(output, /"type":"RUN_ERROR"/);
+  assert.doesNotMatch(output, /This operation was aborted/);
+  assert.match(
+    output,
+    /partial answer/,
+    'text streamed before the stop should be kept',
+  );
+  assert.deepEqual(eventTypes(output), [
+    'RUN_STARTED',
+    'STEP_STARTED',
+    'TEXT_MESSAGE_START',
+    'TEXT_MESSAGE_CONTENT',
+    'TEXT_MESSAGE_END',
+    'STEP_FINISHED',
+    'RUN_FINISHED',
+  ]);
+  assert.match(output, /"threadId":"t1"/);
+  assert.match(output, /"runId":"r1"/);
+});
+
+test('closes an open tool call when the run is aborted', async () => {
+  const input =
+    sse({ type: 'RUN_STARTED', threadId: 't1', runId: 'r1' }) +
+    sse({
+      type: 'TOOL_CALL_START',
+      toolCallId: 'tc1',
+      toolCallName: 'run_code',
+    }) +
+    sse({ type: 'TOOL_CALL_ARGS', toolCallId: 'tc1', delta: '{"code":"x"}' }) +
+    sse({ type: 'RUN_ERROR', message: 'aborted', code: 'abort' });
+
+  const output = await readStream(filterWotbotEventStream(makeSource(input)));
+
+  assert.deepEqual(eventTypes(output), [
+    'RUN_STARTED',
+    'TOOL_CALL_START',
+    'TOOL_CALL_ARGS',
+    'TOOL_CALL_END',
+    'RUN_FINISHED',
+  ]);
+  assert.match(
+    output,
+    /\{\\"code\\":\\"x\\"\}/,
+    'buffered args should be flushed',
+  );
+});
+
+test('leaves a genuine (non-abort) RUN_ERROR as an error', async () => {
+  const input =
+    sse({ type: 'RUN_STARTED', threadId: 't1', runId: 'r1' }) +
+    sse({ type: 'RUN_ERROR', message: 'Unknown error' }) +
+    sse({ type: 'STEP_FINISHED', stepName: 'respond' });
+
+  const output = await readStream(filterWotbotEventStream(makeSource(input)));
+
+  assert.match(output, /"type":"RUN_ERROR"/);
+  assert.match(output, /Unknown error/);
+  assert.doesNotMatch(output, /"type":"RUN_FINISHED"/);
+  assert.doesNotMatch(output, /"type":"STEP_FINISHED"/);
+});
+
+test('drops events split across separate reads after RUN_FINISHED', async () => {
+  const chunks = [
+    sse({ type: 'RUN_FINISHED' }),
+    sse({ type: 'TEXT_MESSAGE_END', messageId: 'm1' }),
+  ];
+
+  const source = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+      controller.close();
+    },
+  });
+
+  const output = await readStream(filterWotbotEventStream(source));
+
+  assert.match(output, /"type":"RUN_FINISHED"/);
+  assert.doesNotMatch(output, /"type":"TEXT_MESSAGE_END"/);
+});

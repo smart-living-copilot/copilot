@@ -16,6 +16,10 @@ interface ParsedSseEvent {
   toolCallName?: string;
   delta?: string;
   messages?: unknown;
+  code?: string;
+  stepName?: string;
+  threadId?: string;
+  runId?: string;
   [key: string]: unknown;
 }
 
@@ -54,6 +58,13 @@ function stripRawEvent(event: ParsedSseEvent): ParsedSseEvent {
 /** Minimum interval (ms) between flushing buffered text deltas. */
 const TEXT_THROTTLE_MS = 80;
 
+const TERMINAL_EVENT_TYPES = new Set(['RUN_ERROR', 'RUN_FINISHED']);
+
+/** RUN_ERROR codes that mean "the user stopped this run", not "something
+ * broke". The runtime proxy reports the aborted upstream fetch as
+ * code "abort"; the stop handler's own interrupt uses "STOPPED". */
+const ABORT_ERROR_CODES = new Set(['abort', 'STOPPED']);
+
 export function filterWotbotEventStream(
   stream: ReadableStream<string | Uint8Array>,
 ): ReadableStream<Uint8Array> {
@@ -66,6 +77,26 @@ export function filterWotbotEventStream(
   let pendingTextDelta = '';
   let pendingTextEvent: ParsedSseEvent | null = null;
   let textFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  // Once RUN_ERROR/RUN_FINISHED has been forwarded, the run is over as far
+  // as the client's own event-ordering validator is concerned -- it rejects
+  // every event type unconditionally once it's seen one, including a
+  // perfectly legitimate late-arriving TEXT_MESSAGE_END. wotbot's abort path
+  // can genuinely emit one after RUN_ERROR: the upstream fetch aborts and
+  // the runtime proxy injects a terminal RUN_ERROR immediately, but a
+  // TEXT_MESSAGE_END closing out whatever text had already streamed can
+  // still be in flight through the pipe at that moment. Drop everything
+  // after the terminal event rather than let that race surface as
+  // "Agent execution failed: AGUIError: Cannot send event type
+  // 'TEXT_MESSAGE_END' ...".
+  let runEnded = false;
+  // Open scopes, tracked so an aborted run can be closed out cleanly (see
+  // the abort handling in processBlock). The client's validator rejects
+  // RUN_FINISHED while any text message, tool call, or step is still open.
+  const openTextMessages = new Set<string>();
+  const openToolCalls = new Set<string>();
+  const openSteps: string[] = [];
+  let runThreadId: string | undefined;
+  let runId: string | undefined;
 
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -89,6 +120,10 @@ export function filterWotbotEventStream(
       };
 
       const processBlock = (block: string): void => {
+        if (runEnded) {
+          return;
+        }
+
         const parsed = parseSseBlock(block);
 
         if (!parsed) {
@@ -99,6 +134,36 @@ export function filterWotbotEventStream(
         // Drop RAW events
         if (parsed.type === 'RAW') {
           return;
+        }
+
+        // Track open scopes so an abort can close them out (see below).
+        switch (parsed.type) {
+          case 'RUN_STARTED':
+            runThreadId = parsed.threadId ?? runThreadId;
+            runId = parsed.runId ?? runId;
+            break;
+          case 'TEXT_MESSAGE_START':
+            if (parsed.messageId) openTextMessages.add(parsed.messageId);
+            break;
+          case 'TEXT_MESSAGE_END':
+            if (parsed.messageId) openTextMessages.delete(parsed.messageId);
+            break;
+          case 'TOOL_CALL_START':
+            if (parsed.toolCallId) openToolCalls.add(parsed.toolCallId);
+            break;
+          case 'TOOL_CALL_END':
+            if (parsed.toolCallId) openToolCalls.delete(parsed.toolCallId);
+            break;
+          case 'STEP_STARTED':
+            if (parsed.stepName) openSteps.push(parsed.stepName);
+            break;
+          case 'STEP_FINISHED': {
+            const index = parsed.stepName
+              ? openSteps.indexOf(parsed.stepName)
+              : -1;
+            if (index !== -1) openSteps.splice(index, 1);
+            break;
+          }
         }
 
         // Throttle TEXT_MESSAGE_CONTENT — batch deltas, flush on timer
@@ -119,6 +184,78 @@ export function filterWotbotEventStream(
             textFlushTimer = null;
           }
           flushTextDelta();
+        }
+
+        // A user-initiated stop is a normal end of the run, not a failure.
+        // Left as RUN_ERROR it surfaces to the user as an error ("This
+        // operation was aborted"), so rewrite it into a clean RUN_FINISHED.
+        // The client's validator refuses RUN_FINISHED while any text
+        // message / tool call / step is still open, so close those out
+        // first -- which also leaves whatever partial text had already
+        // streamed rendered as a normal (if truncated) assistant message,
+        // matching what the backend persists for the interrupted turn.
+        if (
+          parsed.type === 'RUN_ERROR' &&
+          ABORT_ERROR_CODES.has(parsed.code ?? '')
+        ) {
+          for (const messageId of openTextMessages) {
+            controller.enqueue(
+              encoder.encode(
+                makeSseBlock({ type: 'TEXT_MESSAGE_END', messageId }),
+              ),
+            );
+          }
+          openTextMessages.clear();
+
+          for (const toolCallId of openToolCalls) {
+            const accumulated = toolCallArgs.get(toolCallId);
+            if (accumulated) {
+              controller.enqueue(
+                encoder.encode(
+                  makeSseBlock({
+                    type: 'TOOL_CALL_ARGS',
+                    toolCallId,
+                    delta: accumulated,
+                  }),
+                ),
+              );
+              toolCallArgs.delete(toolCallId);
+            }
+            controller.enqueue(
+              encoder.encode(
+                makeSseBlock({ type: 'TOOL_CALL_END', toolCallId }),
+              ),
+            );
+          }
+          openToolCalls.clear();
+
+          // Innermost step first, mirroring how they were opened.
+          for (const stepName of [...openSteps].reverse()) {
+            controller.enqueue(
+              encoder.encode(makeSseBlock({ type: 'STEP_FINISHED', stepName })),
+            );
+          }
+          openSteps.length = 0;
+
+          controller.enqueue(
+            encoder.encode(
+              makeSseBlock({
+                type: 'RUN_FINISHED',
+                ...(runThreadId ? { threadId: runThreadId } : {}),
+                ...(runId ? { runId } : {}),
+              }),
+            ),
+          );
+          runEnded = true;
+          return;
+        }
+
+        if (TERMINAL_EVENT_TYPES.has(parsed.type ?? '')) {
+          controller.enqueue(
+            encoder.encode(makeSseBlock(stripRawEvent(parsed))),
+          );
+          runEnded = true;
+          return;
         }
 
         // Buffer TOOL_CALL_ARGS — don't emit partial argument fragments.
@@ -161,12 +298,14 @@ export function filterWotbotEventStream(
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            // Flush any remaining text delta
+            // Flush any remaining text delta -- unless the run already
+            // ended, in which case forwarding it would hit the same
+            // rejected-by-the-client race this filter exists to avoid.
             if (textFlushTimer) {
               clearTimeout(textFlushTimer);
               textFlushTimer = null;
             }
-            if (pendingTextDelta) {
+            if (pendingTextDelta && !runEnded) {
               flushTextDelta();
             }
             if (buffer) {
