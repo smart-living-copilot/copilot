@@ -16,6 +16,7 @@ from langchain_core.messages import (
     ToolMessage,
     trim_messages,
 )
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END
@@ -106,6 +107,95 @@ def _strip_wot_calls(message: BaseMessage) -> BaseMessage:
     return message.model_copy(update={"content": json.dumps(stripped)})
 
 
+def _count_tokens(messages: Sequence[BaseMessage]) -> int:
+    """Token counter used for prompt-budget trimming.
+
+    ``count_tokens_approximately``'s char-based heuristic assumes generic
+    English-text token/char ratios, which don't match whatever model is
+    actually serving the request (e.g. Qwen via vLLM, not OpenAI).
+    ``use_usage_metadata_scaling`` calibrates the estimate against the real
+    ``usage_metadata.total_tokens`` the model itself already reported on its
+    most recent response in this conversation, so counts track the actual
+    tokenizer in use. It degrades gracefully to the plain heuristic when no
+    usage metadata is available yet (e.g. the first turn, or in tests).
+    """
+    return count_tokens_approximately(list(messages), use_usage_metadata_scaling=True)
+
+
+def _group_conversation_units(messages: Sequence[BaseMessage]) -> list[list[BaseMessage]]:
+    """Split an already-sanitized conversation into atomic eviction units.
+
+    A unit is either one ordinary message, or an AIMessage with tool_calls
+    together with every one of its matching ToolMessages. Trimming (below)
+    only ever drops or keeps a whole unit, so it can no longer cut through the
+    middle of a tool call/result pair -- there's nothing left to repair after.
+    This relies on ``_sanitize_message_sequence`` having already run so every
+    AIMessage.tool_calls entry here is guaranteed to have a matching
+    ToolMessage immediately following it.
+    """
+    units: list[list[BaseMessage]] = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        if isinstance(message, AIMessage) and message.tool_calls:
+            tool_call_ids = {tool_call["id"] for tool_call in message.tool_calls}
+            group: list[BaseMessage] = [message]
+            next_index = index + 1
+            while next_index < len(messages):
+                candidate = messages[next_index]
+                if not isinstance(candidate, ToolMessage) or candidate.tool_call_id not in (
+                    tool_call_ids
+                ):
+                    break
+                group.append(candidate)
+                next_index += 1
+            units.append(group)
+            index = next_index
+            continue
+        units.append([message])
+        index += 1
+    return units
+
+
+def _fit_units_to_budget(units: list[list[BaseMessage]], max_tokens: int) -> list[BaseMessage]:
+    """Keep whole units, most-recent first, until the token budget runs out.
+
+    The most recent unit is always kept even if it alone exceeds the budget,
+    so a tight budget never returns nothing. Some model chat templates
+    (Qwen3.5's, notably, served via vLLM) also reject a request that's
+    entirely tool-call/tool-response content with no user-authored message
+    anywhere in it ("No user query found in messages."), so the unit holding
+    the current turn's HumanMessage is always kept too, regardless of budget.
+    """
+    keep = [False] * len(units)
+    budget = max_tokens
+    any_kept = False
+    for index in range(len(units) - 1, -1, -1):
+        cost = _count_tokens(units[index])
+        if not any_kept or cost <= budget:
+            keep[index] = True
+            any_kept = True
+            budget -= cost
+        else:
+            break
+
+    human_index = next(
+        (
+            index
+            for index in range(len(units) - 1, -1, -1)
+            if isinstance(units[index][0], HumanMessage)
+        ),
+        None,
+    )
+    if human_index is not None:
+        keep[human_index] = True
+
+    result = [message for index, unit in enumerate(units) if keep[index] for message in unit]
+    if result and isinstance(result[0], SystemMessage):
+        result.pop(0)
+    return result
+
+
 def _trim_conversation(messages: Sequence[BaseMessage], max_tokens: int) -> list[BaseMessage]:
     # Strip ``wot_calls`` BEFORE counting tokens: those device-interaction
     # payloads are removed from the prompt anyway, but a single run_code result
@@ -115,42 +205,12 @@ def _trim_conversation(messages: Sequence[BaseMessage], max_tokens: int) -> list
         _strip_wot_calls(message)
         for message in without_device_interaction_summary_messages(messages)
     ]
-    trimmed = trim_messages(
-        prepared,
-        max_tokens=max_tokens,
-        token_counter="approximate",
-        strategy="last",
-        include_system=True,
-        allow_partial=True,
-    )
-    if trimmed and isinstance(trimmed[0], SystemMessage):
-        trimmed.pop(0)
-    sanitized = _sanitize_message_sequence(trimmed)
-    return _ensure_human_message(sanitized, prepared)
-
-
-def _ensure_human_message(
-    trimmed: list[BaseMessage], full_conversation: Sequence[BaseMessage]
-) -> list[BaseMessage]:
-    """Guarantee a HumanMessage survives trimming, if one exists at all.
-
-    Some model chat templates (Qwen3.5's, notably, served via vLLM) reject a
-    request whose messages are entirely tool-call/tool-response content with
-    no user-authored message anywhere in it, raising "No user query found in
-    messages." A token-budget trim of a large tool-call chain (e.g. a bulky
-    run_code result) can evict the HumanMessage that started the current turn
-    while keeping the tool exchange that followed it. When that happened,
-    splice the most recent HumanMessage from the untrimmed conversation back
-    in at the front so the tool exchange still has its originating question.
-    """
-    if any(isinstance(message, HumanMessage) for message in trimmed):
-        return trimmed
-
-    last_human = next(
-        (message for message in reversed(full_conversation) if isinstance(message, HumanMessage)),
-        None,
-    )
-    return [last_human, *trimmed] if last_human is not None else trimmed
+    # Repair tool_call/ToolMessage pairing BEFORE grouping into eviction units
+    # (below), so every unit is already internally valid going in -- trimming
+    # can then only ever drop or keep a whole unit, never cut through one.
+    sanitized = _sanitize_message_sequence(prepared)
+    units = _group_conversation_units(sanitized)
+    return _fit_units_to_budget(units, max_tokens)
 
 
 def _sanitize_message_sequence(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
@@ -223,8 +283,9 @@ def _make_router_messages(messages: Sequence[BaseMessage], max_tokens: int) -> l
     trimmed = trim_messages(
         without_device_interaction_summary_messages(messages),
         max_tokens=max_tokens,
-        token_counter="approximate",
+        token_counter=_count_tokens,
         strategy="last",
+        start_on="human",
         include_system=False,
         allow_partial=False,
     )

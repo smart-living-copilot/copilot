@@ -164,5 +164,77 @@ class PromptTrimmingTestCase(unittest.TestCase):
         self.assertNotIn(summary, routed)
 
 
+def _assert_no_dangling_tool_calls(case: unittest.TestCase, messages: list) -> None:
+    """A trimmed sequence must never send an AI tool_call with no matching
+    ToolMessage right after it, or a ToolMessage with nothing before it. This
+    used to require a post-hoc repair pass (``_sanitize_message_sequence``
+    run *after* cutting); trimming by whole units means it can't happen in
+    the first place, so this checks the invariant holds regardless of how
+    tight the budget is."""
+    for index, message in enumerate(messages):
+        if isinstance(message, AIMessage) and message.tool_calls:
+            expected_ids = {tc["id"] for tc in message.tool_calls}
+            following_ids = {
+                m.tool_call_id
+                for m in messages[index + 1 :]
+                if isinstance(m, ToolMessage)
+            }
+            case.assertTrue(
+                expected_ids.issubset(following_ids),
+                f"AI tool_calls {expected_ids} missing matching ToolMessage in {following_ids}",
+            )
+        if isinstance(message, ToolMessage):
+            preceding = messages[index - 1] if index > 0 else None
+            case.assertTrue(
+                isinstance(preceding, (AIMessage, ToolMessage)),
+                "ToolMessage with no preceding AI tool_calls message",
+            )
+
+
+class TrimStructuralInvariantsTestCase(unittest.TestCase):
+    def test_tight_budget_never_leaves_a_dangling_tool_call(self) -> None:
+        """Regression for the class of bug ``_ensure_human_message`` and
+        ``_sanitize_message_sequence`` used to patch reactively: even under a
+        budget too tight to fit anything comfortably, the output must stay a
+        structurally valid sequence."""
+        messages = [
+            HumanMessage(content="Summarize the last week of readings"),
+            AIMessage(content="", tool_calls=[_tool_call("call-1")]),
+            ToolMessage(content=json.dumps({"rows": list(range(2000))}), tool_call_id="call-1"),
+            AIMessage(content="", tool_calls=[_tool_call("call-2")]),
+            ToolMessage(content=json.dumps({"rows": list(range(2000))}), tool_call_id="call-2"),
+        ]
+
+        for budget in (1, 10, 50, 200, 1_000, 10_000):
+            with self.subTest(budget=budget):
+                trimmed = _trim_conversation(messages, max_tokens=budget)
+                _assert_no_dangling_tool_calls(self, trimmed)
+                self.assertTrue(any(isinstance(m, HumanMessage) for m in trimmed))
+
+    def test_partial_parallel_tool_results_never_leave_a_dangling_call_id(self) -> None:
+        """An AI message that made 2 parallel tool calls but only has 1
+        ToolMessage in state (e.g. a checkpoint saved mid-turn) must come out
+        patched to reference only the tool_call it actually has a result for,
+        under any budget -- not just when the budget happens to be generous
+        enough for sanitize to run on the full, untrimmed list."""
+        ai = AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "wot_get_action", "args": {}, "id": "call_a"},
+                {"name": "wot_get_action", "args": {}, "id": "call_b"},
+            ],
+        )
+        messages = [
+            HumanMessage(content="Inspect both"),
+            ai,
+            ToolMessage(content=json.dumps({"schema": list(range(2000))}), tool_call_id="call_a"),
+        ]
+
+        for budget in (1, 50, 500, 10_000):
+            with self.subTest(budget=budget):
+                trimmed = _trim_conversation(messages, max_tokens=budget)
+                _assert_no_dangling_tool_calls(self, trimmed)
+
+
 if __name__ == "__main__":
     unittest.main()
