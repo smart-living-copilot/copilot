@@ -119,12 +119,67 @@ export function filterWotbotEventStream(
         pendingTextEvent = null;
       };
 
-      const processBlock = (block: string): void => {
-        if (runEnded) {
-          return;
+      /** Close every scope still open, so a following RUN_FINISHED is valid.
+       *
+       * The client refuses RUN_FINISHED while any text message, tool call,
+       * or step is still open, and the upstream adapter does emit exactly
+       * that: when its event loop exits early -- the error branch `break`s,
+       * or the graph stream just ends -- it falls through to emit
+       * STEP_FINISHED/snapshots/RUN_FINISHED without ever closing a tool
+       * call that was mid-flight, producing "Cannot send 'RUN_FINISHED'
+       * while tool calls are still active: <id>". Closing here keeps that
+       * violation from reaching the client, whether the RUN_FINISHED is the
+       * upstream's own or the one synthesized for an abort below. */
+      const closeOpenScopes = (): void => {
+        for (const messageId of openTextMessages) {
+          controller.enqueue(
+            encoder.encode(
+              makeSseBlock({ type: 'TEXT_MESSAGE_END', messageId }),
+            ),
+          );
         }
+        openTextMessages.clear();
 
+        for (const toolCallId of openToolCalls) {
+          const accumulated = toolCallArgs.get(toolCallId);
+          if (accumulated) {
+            controller.enqueue(
+              encoder.encode(
+                makeSseBlock({
+                  type: 'TOOL_CALL_ARGS',
+                  toolCallId,
+                  delta: accumulated,
+                }),
+              ),
+            );
+            toolCallArgs.delete(toolCallId);
+          }
+          controller.enqueue(
+            encoder.encode(makeSseBlock({ type: 'TOOL_CALL_END', toolCallId })),
+          );
+        }
+        openToolCalls.clear();
+
+        // Innermost step first, mirroring how they were opened.
+        for (const stepName of [...openSteps].reverse()) {
+          controller.enqueue(
+            encoder.encode(makeSseBlock({ type: 'STEP_FINISHED', stepName })),
+          );
+        }
+        openSteps.length = 0;
+      };
+
+      const processBlock = (block: string): void => {
         const parsed = parseSseBlock(block);
+
+        if (runEnded) {
+          // Everything after a run's terminal event is dropped -- except a
+          // new RUN_STARTED, which begins a fresh run in the same response.
+          if (parsed?.type !== 'RUN_STARTED') {
+            return;
+          }
+          runEnded = false;
+        }
 
         if (!parsed) {
           controller.enqueue(encoder.encode(block));
@@ -141,6 +196,12 @@ export function filterWotbotEventStream(
           case 'RUN_STARTED':
             runThreadId = parsed.threadId ?? runThreadId;
             runId = parsed.runId ?? runId;
+            // One response can carry several runs back to back (a replayed
+            // thread history is a sequence of complete runs), so the
+            // end-of-run bookkeeping is per run, not per stream.
+            openTextMessages.clear();
+            openToolCalls.clear();
+            openSteps.length = 0;
             break;
           case 'TEXT_MESSAGE_START':
             if (parsed.messageId) openTextMessages.add(parsed.messageId);
@@ -189,54 +250,14 @@ export function filterWotbotEventStream(
         // A user-initiated stop is a normal end of the run, not a failure.
         // Left as RUN_ERROR it surfaces to the user as an error ("This
         // operation was aborted"), so rewrite it into a clean RUN_FINISHED.
-        // The client's validator refuses RUN_FINISHED while any text
-        // message / tool call / step is still open, so close those out
-        // first -- which also leaves whatever partial text had already
-        // streamed rendered as a normal (if truncated) assistant message,
-        // matching what the backend persists for the interrupted turn.
+        // Whatever partial text had already streamed stays rendered as a
+        // normal (if truncated) assistant message, matching what the
+        // backend persists for the interrupted turn.
         if (
           parsed.type === 'RUN_ERROR' &&
           ABORT_ERROR_CODES.has(parsed.code ?? '')
         ) {
-          for (const messageId of openTextMessages) {
-            controller.enqueue(
-              encoder.encode(
-                makeSseBlock({ type: 'TEXT_MESSAGE_END', messageId }),
-              ),
-            );
-          }
-          openTextMessages.clear();
-
-          for (const toolCallId of openToolCalls) {
-            const accumulated = toolCallArgs.get(toolCallId);
-            if (accumulated) {
-              controller.enqueue(
-                encoder.encode(
-                  makeSseBlock({
-                    type: 'TOOL_CALL_ARGS',
-                    toolCallId,
-                    delta: accumulated,
-                  }),
-                ),
-              );
-              toolCallArgs.delete(toolCallId);
-            }
-            controller.enqueue(
-              encoder.encode(
-                makeSseBlock({ type: 'TOOL_CALL_END', toolCallId }),
-              ),
-            );
-          }
-          openToolCalls.clear();
-
-          // Innermost step first, mirroring how they were opened.
-          for (const stepName of [...openSteps].reverse()) {
-            controller.enqueue(
-              encoder.encode(makeSseBlock({ type: 'STEP_FINISHED', stepName })),
-            );
-          }
-          openSteps.length = 0;
-
+          closeOpenScopes();
           controller.enqueue(
             encoder.encode(
               makeSseBlock({
@@ -251,6 +272,13 @@ export function filterWotbotEventStream(
         }
 
         if (TERMINAL_EVENT_TYPES.has(parsed.type ?? '')) {
+          // RUN_FINISHED must not arrive with scopes still open (see
+          // closeOpenScopes). RUN_ERROR is always valid, so it goes through
+          // untouched -- closing scopes after a failure would only invent
+          // completions that never happened.
+          if (parsed.type === 'RUN_FINISHED') {
+            closeOpenScopes();
+          }
           controller.enqueue(
             encoder.encode(makeSseBlock(stripRawEvent(parsed))),
           );

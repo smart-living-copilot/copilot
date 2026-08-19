@@ -270,6 +270,72 @@ test('closes an open tool call when the run is aborted', async () => {
   );
 });
 
+test('closes a dangling tool call before forwarding the upstream RUN_FINISHED', async () => {
+  // ag_ui_langgraph's event loop exits early (its error branch breaks, or the
+  // graph stream just ends) and then falls through to emit
+  // STEP_FINISHED/snapshots/RUN_FINISHED without ever closing a tool call
+  // that was still mid-flight. The client rejects that with "Cannot send
+  // 'RUN_FINISHED' while tool calls are still active: <id>".
+  const input =
+    sse({ type: 'RUN_STARTED', threadId: 't1', runId: 'r1' }) +
+    sse({ type: 'STEP_STARTED', stepName: 'analysis' }) +
+    sse({
+      type: 'TOOL_CALL_START',
+      toolCallId: 'call_dRJ9G4ShZFy02bqVa9X5GXyC',
+      toolCallName: 'run_code',
+    }) +
+    sse({
+      type: 'TOOL_CALL_ARGS',
+      toolCallId: 'call_dRJ9G4ShZFy02bqVa9X5GXyC',
+      delta: '{"code":"pri',
+    }) +
+    sse({ type: 'RUN_FINISHED', threadId: 't1', runId: 'r1' });
+
+  const output = await readStream(filterWotbotEventStream(makeSource(input)));
+
+  assert.deepEqual(eventTypes(output), [
+    'RUN_STARTED',
+    'STEP_STARTED',
+    'TOOL_CALL_START',
+    'TOOL_CALL_ARGS',
+    'TOOL_CALL_END',
+    'STEP_FINISHED',
+    'RUN_FINISHED',
+  ]);
+  const finishedIdx = output.indexOf('"RUN_FINISHED"');
+  const toolEndIdx = output.indexOf('"TOOL_CALL_END"');
+  assert.ok(
+    toolEndIdx < finishedIdx,
+    'tool call must be closed before RUN_FINISHED',
+  );
+});
+
+test('keeps replaying runs after the first one finishes', async () => {
+  // A replayed thread history is several complete runs back to back; the
+  // end-of-run bookkeeping must not swallow everything after run one.
+  const input =
+    sse({ type: 'RUN_STARTED', threadId: 't1', runId: 'r1' }) +
+    sse({ type: 'TEXT_MESSAGE_START', messageId: 'm1', role: 'assistant' }) +
+    sse({ type: 'TEXT_MESSAGE_CONTENT', messageId: 'm1', delta: 'first' }) +
+    sse({ type: 'TEXT_MESSAGE_END', messageId: 'm1' }) +
+    sse({ type: 'RUN_FINISHED', threadId: 't1', runId: 'r1' }) +
+    sse({ type: 'RUN_STARTED', threadId: 't1', runId: 'r2' }) +
+    sse({ type: 'TEXT_MESSAGE_START', messageId: 'm2', role: 'assistant' }) +
+    sse({ type: 'TEXT_MESSAGE_CONTENT', messageId: 'm2', delta: 'second' }) +
+    sse({ type: 'TEXT_MESSAGE_END', messageId: 'm2' }) +
+    sse({ type: 'RUN_FINISHED', threadId: 't1', runId: 'r2' });
+
+  const output = await readStream(filterWotbotEventStream(makeSource(input)));
+
+  assert.match(output, /first/);
+  assert.match(output, /second/, 'the second run must not be dropped');
+  assert.equal(eventTypes(output).filter((t) => t === 'RUN_STARTED').length, 2);
+  assert.equal(
+    eventTypes(output).filter((t) => t === 'RUN_FINISHED').length,
+    2,
+  );
+});
+
 test('leaves a genuine (non-abort) RUN_ERROR as an error', async () => {
   const input =
     sse({ type: 'RUN_STARTED', threadId: 't1', runId: 'r1' }) +
