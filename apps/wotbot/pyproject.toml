@@ -10,7 +10,15 @@ dependencies = [
     "langgraph-prebuilt<1.0.8",
     "langgraph-checkpoint-postgres>=2.0",
     "livekit-agents[langchain,openai,silero]~=1.5",
-    "copilotkit>=0.1.31",
+    "copilotkit>=0.1.95,<0.2",
+    # Pulled in transitively by copilotkit, but declared (and effectively
+    # pinned) here on purpose: it is the AG-UI<->LangGraph adapter that
+    # produces our chat event stream, it is still 0.0.x, and its releases
+    # have changed stream behaviour. 0.0.43 is the version the streaming
+    # fixes in apps/ui/src/lib/wotbot-stream.ts were validated against, and
+    # the version whose parallel-tool-call boundary guard (agent.py:1295) we
+    # tested PARALLEL_TOOL_CALLS=true against. Re-test both before moving it.
+    "ag-ui-langgraph>=0.0.43,<0.0.44",
     "fastapi>=0.128,<1",
     "uvicorn[standard]>=0.37,<1",
     "pydantic-settings>=2.7",
