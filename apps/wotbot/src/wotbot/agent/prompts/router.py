@@ -36,6 +36,9 @@ Use this intent when the user explicitly mentions an external source (dataspace,
 EDC, catalogue, SPARQL endpoint, remote registry), or when you have tried \
 things_search locally and found no results and the user wants to look further \
 afield. \
+**ALWAYS use discovery for any EDC/dataspace negotiation, transfer, or asset \
+download — these require wot_invoke_action and wot_read_property on the EDC \
+consumer Thing, which are only available in the discovery branch.** \
 Do NOT use for virtual/computed Things (use virtual_things) or for searching \
 existing Things (any other intent can search the local catalog).
 

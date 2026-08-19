@@ -73,6 +73,27 @@ When the user asks to search or import from an external source, follow these
      missing/wrong ODRL namespace prefix, mismatched `target` asset ID) causes
      rejection. Report this to the user and advise them to accept the offered
      policy without modification.
+   - **400 Bad Request on POST actions (negotiateContract, initiateTransfer,
+     queryCatalog, etc.)**: This is almost always caused by passing ``input``
+     as a JSON string instead of a Python dict. Check your code — if you wrote
+     ``input='{"@context": ...}'`` (with quotes around the braces), that is a
+     string, not a dict. The runtime sends it as a literal string and the EDC
+     API rejects it. Fix: remove the outer quotes so ``input`` is a proper dict.
+     If the input is already a dict, the 400 may indicate:
+     - Missing ``@type`` field — every EDC POST request needs ``@type``
+       (e.g. ``"CatalogRequest"``, ``"ContractRequest"``, ``"TransferRequestDto"``,
+       ``"DatasetRequest"``).
+     - A missing required field (e.g. ``assigner`` in the policy).
+     - A scope issue with the API token.
+   - **400 Bad Request on negotiateContract specifically**: Check that:
+     - ``@type`` is set to ``"ContractRequest"``.
+     - ``odrl:permission``, ``odrl:prohibition``, and ``odrl:obligation`` are
+       passed as arrays ``[{...}]``, not single objects ``{...}``.
+     - ODRL keys use the ``odrl:`` prefix (``odrl:permission``, ``odrl:action``,
+       ``odrl:constraint``, ``odrl:leftOperand``, ``odrl:operator``,
+       ``odrl:rightOperand``, ``odrl:and``).
+     - ``@type`` inside the policy is ``"odrl:Offer"``.
+     - ``assigner`` (provider BPN) and ``target`` (asset ID) are present.
 4. **The catalogue is only for discovery.** The catalogue endpoint lists available
    assets and their metadata. Data is exchanged directly between the provider
    connector and the consumer connector — never through the catalogue.
@@ -80,69 +101,326 @@ When the user asks to search or import from an external source, follow these
 **CRITICAL: EDR token flow — each asset gets its own Thing with its own token**
 After a successful contract negotiation and data transfer, the EDC returns an
 **EDR (Endpoint Data Reference)** that contains a **per-asset bearer token**.
-This token is specific to the asset and the contract agreement. You MUST:
+This token is specific to the asset and the contract agreement.
 
-1. **Negotiate a contract** using `wot_invoke_action` on the EDC consumer Thing
-   with the `negotiateContract` action. Pass the exact ODRL policy from the
-   catalog offer — do NOT modify it.
-2. **Poll the negotiation** by reading the `contractNegotiation` property with
-   `wot_read_property` (passing the negotiation ID as uri_variables) until the
-   state is `FINALIZED` or `VERIFIED`. Extract the `contractAgreementId` from
-   the response.
-3. **Initiate a transfer** using `wot_invoke_action` with the `initiateTransfer`
-   action. Pass the `contractId` (the agreement ID), `counterPartyAddress`, and
-   `transferType` (e.g. `"HttpData-PULL"`).
-4. **Poll the transfer** by reading the `transferProcess` property with
-   `wot_read_property` (passing the transfer process ID as uri_variables) until
-   the state is `COMPLETED`.
-5. **Get the EDR data address** by reading the `edrDataAddress` property with
-   `wot_read_property` (passing the transfer process ID as uri_variables). The
-   response contains the `endpoint` (or `baseUrl`) and `authorization` (bearer
-   token) for the asset's data plane.
-6. **Create a new Thing Description** for the asset using `things_upsert`. The
-   TD must use the EDR endpoint URL as its `base` and include the appropriate
-   `securityDefinitions` with `scheme: "bearer"`. Set `"source": "auto-discovered"`.
+### ⚠️ EDC REQUEST CHECKLIST — verify every payload before sending
 
-   ⚠️ **When creating the asset TD, remember the forms rules above:**
-   `htv:methodName` must be a hardcoded verb like `"GET"`, NOT a template variable.
-   The EDR endpoint goes into `href` as a template variable `{endpoint}` — that is
-   the ONLY dynamic part. Example:
+Every EDC POST request MUST pass ALL of these checks. If any is wrong, the
+server returns 400/500:
 
-   ```json
-   {
-     "@context": ["https://www.w3.org/2022/wot/td/v1.1", {"htv": "https://www.w3.org/2019/htp"}],
-     "id": "urn:uuid:<asset-id>",
-     "title": "<asset name>",
-     "source": "auto-discovered",
-     "securityDefinitions": {
-       "bearer_sc": { "scheme": "bearer", "in": "header" }
-     },
-     "security": ["bearer_sc"],
-     "actions": {
-       "download": {
-         "forms": [{
-           "op": ["invokeaction"],
-           "href": "{endpoint}",
-           "contentType": "application/json",
-           "htv:methodName": "GET"
-         }],
-         "uriVariables": {
-           "endpoint": { "type": "string" }
-         }
-       }
-     }
-   }
+1. **``@type`` field** — EVERY POST request body needs ``@type``:
+   - ``queryCatalog`` → ``"@type": "CatalogRequest"``
+   - ``getSingleDataset`` → ``"@type": "DatasetRequest"``
+   - ``negotiateContract`` → ``"@type": "ContractRequest"``
+   - ``initiateTransfer`` → ``"@type": "TransferRequestDto"``
+
+2. **``odrl:permission`` is ALWAYS an array** — ``[{...}]``, never ``{...}``:
+   ```python
+   "odrl:permission": [{"odrl:action": {"@id": "odrl:use"}, ...}]  # ✅
+   "odrl:permission": {"odrl:action": {"@id": "odrl:use"}, ...}   # ❌
    ```
-7. **Store the EDR token** as credentials for the new Thing using
-   `set_thing_credential(thing_id, "bearer_sc", "bearer", {"token": "<edr_token>"})`.
-   This is the ONLY way the runtime can authenticate requests to the asset's
-   data plane.
-8. **Confirm to the user** that the asset is now available as a registered Thing
-   with its own credentials, and they can interact with it using its Thing ID.
+   Same for ``odrl:prohibition`` and ``odrl:obligation``. The catalog may
+   return these as single objects — you MUST convert them to arrays.
 
-**IMPORTANT:** Never pass the EDR token inline in action inputs. Always create
-a proper Thing Description and store the token as credentials. The runtime
-injects the token automatically from the credential store.
+3. **ODRL keys use ``odrl:`` prefix** — ``odrl:permission``, ``odrl:action``,
+   ``odrl:constraint``, ``odrl:leftOperand``, ``odrl:operator``,
+   ``odrl:rightOperand``, ``odrl:and``.
+
+4. **Policy ``@type`` is ``"odrl:Offer"``**, not ``"Set"``.
+
+5. **Policy includes ``assigner``** (provider BPN) and **``target``** (asset ID).
+
+6. **``input`` is a Python dict** — NOT a JSON string. Use ``{}`` not ``'{}'``.
+
+### EDC Management API — exact request formats
+
+Every EDC POST request body MUST include a ``@type`` field. Below are the exact
+formats taken from a working EDC integration:
+
+#### Step 1: Query the catalog
+```python
+wot_invoke_action(
+    thing_id="urn:smart-living:dataspace:edc-consumer",
+    action_name="queryCatalog",
+    input={
+        "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
+        "@type": "CatalogRequest",
+        "counterPartyAddress": "https://tx-provider.dataspace.plaiful.org/api/v1/dsp",
+        "protocol": "dataspace-protocol-http",
+    }
+)
+```
+
+#### Step 2: Get a specific dataset's policy
+```python
+wot_invoke_action(
+    thing_id="urn:smart-living:dataspace:edc-consumer",
+    action_name="getSingleDataset",
+    input={
+        "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
+        "@type": "DatasetRequest",
+        "@id": "<dataset-id>",
+        "counterPartyAddress": "https://tx-provider.dataspace.plaiful.org/api/v1/dsp",
+        "protocol": "dataspace-protocol-http",
+    }
+)
+```
+
+#### Step 3: Negotiate a contract
+Before sending, you MUST enrich the ODRL policy from the catalog with three
+extra fields: ``assigner`` (provider BPN), ``target`` (asset/dataset ID), and
+``@context`` (``"http://www.w3.org/ns/odrl.jsonld"``).
+
+```python
+negotiation = wot_invoke_action(
+    thing_id="urn:smart-living:dataspace:edc-consumer",
+    action_name="negotiateContract",
+    input={
+        "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
+        "@type": "ContractRequest",
+        "counterPartyAddress": "https://tx-provider.dataspace.plaiful.org/api/v1/dsp",
+        "protocol": "dataspace-protocol-http",
+        "policy": {
+            "@context": "http://www.w3.org/ns/odrl.jsonld",
+            "@id": "<policy-id-from-catalog>",
+            "@type": "odrl:Offer",
+            "assigner": "BPNL000000000002",
+            "target": "<dataset-id>",
+            "odrl:permission": [
+                {
+                    "odrl:action": {"@id": "odrl:use"},
+                    "odrl:constraint": {
+                        "odrl:and": [
+                            {
+                                "odrl:leftOperand": {"@id": "https://w3id.org/catenax/2025/9/policy/FrameworkAgreement"},
+                                "odrl:operator": {"@id": "odrl:eq"},
+                                "odrl:rightOperand": "DataExchangeGovernance:1.0"
+                            },
+                            {
+                                "odrl:leftOperand": {"@id": "https://w3id.org/catenax/2025/9/policy/UsagePurpose"},
+                                "odrl:operator": {"@id": "odrl:isAnyOf"},
+                                "odrl:rightOperand": "cx.core.industrycore:1"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "odrl:prohibition": [],
+            "odrl:obligation": []
+        }
+    }
+)
+# negotiation["@id"] is the negotiation ID — poll on it
+```
+
+**⚠️ Critical rules for the policy object:**
+- ``odrl:permission``, ``odrl:prohibition``, ``odrl:obligation`` MUST be
+  **arrays** ``[{...}]``, even if they contain only one item. The catalog
+  may return them as single objects — you MUST convert them to arrays.
+- Use the ``odrl:`` prefix on all ODRL keys (``odrl:permission``, ``odrl:action``,
+  ``odrl:constraint``, ``odrl:leftOperand``, ``odrl:operator``, ``odrl:rightOperand``,
+  ``odrl:and``). These are the prefixed forms the EDC management API expects.
+- ``@type`` must be ``"odrl:Offer"`` (not ``"odrl:Set"`` — ``odrl:Offer`` signals
+  the consumer is requesting a contract for a specific offer).
+- Always include ``assigner`` (provider BPN) and ``target`` (asset ID).
+
+#### Step 4: Poll the negotiation state
+```python
+state = wot_read_property(
+    thing_id="urn:smart-living:dataspace:edc-consumer",
+    property_name="contractNegotiation",
+    uri_variables={"negotiationId": "<negotiation-id>"}
+)
+# Poll until state["state"] == "FINALIZED" or "VERIFIED"
+```
+
+#### Step 5: Get the contract agreement ID
+```python
+agreement = wot_read_property(
+    thing_id="urn:smart-living:dataspace:edc-consumer",
+    property_name="contractAgreement",
+    uri_variables={"agreementId": "<agreement-id>"}
+)
+# The agreement ID is the contractAgreementId from the negotiation response.
+# You can also get it via GET /v3/contractnegotiations/{id}/agreement
+```
+
+#### Step 6: Initiate a transfer (HTTP pull)
+```python
+transfer = wot_invoke_action(
+    thing_id="urn:smart-living:dataspace:edc-consumer",
+    action_name="initiateTransfer",
+    input={
+        "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
+        "@type": "TransferRequestDto",
+        "contractId": "<contract-agreement-id>",
+        "counterPartyAddress": "https://tx-provider.dataspace.plaiful.org/api/v1/dsp",
+        "protocol": "dataspace-protocol-http",
+        "transferType": "HttpData-PULL",
+    }
+)
+# transfer["@id"] is the transfer process ID — poll on it
+```
+
+#### Step 7: Get the EDR data address (do NOT wait for COMPLETED)
+For ``HttpData-PULL`` and ``ProxyHttpData-PULL`` transfers, the state stays
+at ``STARTED`` — it will **never** reach ``COMPLETED``. The EDR token is
+available **immediately** after initiating the transfer. Do NOT poll for
+``COMPLETED``; go straight to getting the EDR.
+
+```python
+# Do NOT poll for COMPLETED — STARTED is the final state for PULL transfers
+edr = wot_read_property(
+    thing_id="urn:smart-living:dataspace:edc-consumer",
+    property_name="edrDataAddress",
+    uri_variables={"transferProcessId": "<transfer-process-id>"}
+)
+# edr = {"endpoint": "https://...", "authorization": "eyJ...", "endpointType": "HttpData"}
+```
+
+The ``endpoint`` is the URL to pull data from. The ``authorization`` is the
+bearer token (does NOT include the ``"Bearer "`` prefix — it's the raw JWT).
+
+**⚠️ IMPORTANT: ``STARTED`` is the correct final state for PULL transfers.**
+Do NOT wait for ``COMPLETED`` — it will never come. The EDR is ready as soon
+as the transfer process is created. If you poll, you will waste time and
+confuse the user. Just get the EDR and download the data.
+
+#### Step 8: Download the asset data (preferred — direct approach)
+Use the ``downloadAsset`` action on the EDC consumer Thing. This action
+accepts the endpoint URL and authorization token and makes a direct HTTP GET
+request with the proper Authorization header. **Do NOT create a separate Thing
+for the asset** — the EDR token is short-lived (5 minutes) and the
+``downloadAsset`` action handles the request correctly.
+
+```python
+result = wot_invoke_action(
+    thing_id="urn:smart-living:dataspace:edc-consumer",
+    action_name="downloadAsset",
+    input={
+        "endpoint": "<edr-endpoint>",
+        "authorization": "<edr-authorization-token>"
+    }
+)
+# result contains the raw asset data (e.g. JSON array of TODO items)
+```
+
+**Important:** The ``authorization`` value is the raw JWT from the EDR
+(without a ``"Bearer "`` prefix). The ``downloadAsset`` action adds it as
+an ``Authorization`` header automatically.
+
+**⚠️ CRITICAL: NEVER append API sub-paths to the EDR endpoint.**
+The EDR endpoint is the exact URL returned by ``edrDataAddress``. The EDR
+token is scoped to that specific path only. If you append sub-paths like
+``/v1/breweries/random``, the provider's data plane will reject the request
+with ``{"errors": []}`` or ``403 Forbidden``.
+
+✅ Correct:
+```python
+"endpoint": "https://tx-provider.dataspace.plaiful.org/api/public/"
+```
+
+❌ Wrong (appending API paths):
+```python
+"endpoint": "https://tx-provider.dataspace.plaiful.org/api/public/v1/breweries/random?size=5"
+```
+
+The asset data is served at the root EDR endpoint. If the asset represents
+an API (like Open Brewery DB), the provider's data plane serves it at the
+root — do NOT add sub-paths.
+
+**⚠️ CRITICAL: ``input`` MUST be a Python dict, NOT a JSON string.**
+When calling ``wot_invoke_action``, the ``input`` parameter must be a
+Python ``dict`` (``{...}``), NOT a JSON string (``'{...}'``).
+
+✅ Correct:
+```python
+input={"endpoint": edr_url, "authorization": edr_token}
+```
+
+❌ Wrong (JSON string):
+```python
+input='{"endpoint": "https://...", "authorization": "eyJ..."}'
+```
+
+#### Step 9 (optional): Create a cached asset Thing for repeated access
+If the user wants to access the asset repeatedly, you can create a lightweight
+Thing Description for it. However, the EDR token expires after 5 minutes, so
+you MUST refresh it before each access:
+
+1. Call ``edrDataAddress`` on the EDC consumer Thing to get a fresh token.
+2. Update the credential for the asset Thing with the new token.
+3. Then invoke the download action on the asset Thing.
+
+```python
+# Create the asset Thing (only if repeated access is needed)
+things_upsert(
+    thing_id="urn:dataspace:<asset-name>",
+    document={
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": "urn:dataspace:<asset-name>",
+        "title": "<Asset Title>",
+        "description": "Dataspace asset accessed via EDC consumer connector",
+        "source": "auto-discovered",
+        "base": "<edr-endpoint>",
+        "securityDefinitions": {
+            "bearer_sc": {
+                "scheme": "bearer",
+                "format": "edr_token"
+            }
+        },
+        "security": ["bearer_sc"],
+        "actions": {
+            "download": {
+                "title": "Download Asset Data",
+                "description": "Download the asset data from the dataspace provider",
+                "forms": [{
+                    "op": ["invokeaction"],
+                    "href": "",
+                    "contentType": "application/json",
+                    "htv:methodName": "GET"
+                }]
+            }
+        }
+    }
+)
+
+# Store the EDR token as credential
+set_thing_credential(
+    thing_id="urn:dataspace:<asset-name>",
+    security_name="bearer_sc",
+    credentials={"token": "<edr-authorization-token>"}
+)
+
+# Before each access, refresh the token:
+edr = wot_read_property(
+    thing_id="urn:smart-living:dataspace:edc-consumer",
+    property_name="edrDataAddress",
+    uri_variables={"transferProcessId": "<transfer-process-id>"}
+)
+set_thing_credential(
+    thing_id="urn:dataspace:<asset-name>",
+    security_name="bearer_sc",
+    credentials={"token": edr["authorization"]}
+)
+```
+
+### ⚠️ EDR token is short-lived — must be refreshed on every access
+
+   ⚠️ **ALWAYS route asset connections through the EDC.** The `base` URL (and
+   the `href` in every form) of a dataspace asset Thing MUST be the EDR data
+   address endpoint of the corresponding EDC consumer connector — NOT the
+   provider's direct URL. Dataspace assets are NEVER reachable directly: the
+   provider's data plane only accepts requests that carry a valid EDR token,
+   which only the EDC consumer portal can issue.
+
+**IMPORTANT:** Prefer using the ``downloadAsset`` action on the EDC consumer
+Thing directly (Step 8 above) instead of creating a separate asset Thing.
+The EDR token expires after 5 minutes, and the ``downloadAsset`` action
+handles the request correctly without needing credential management.
+
+If you MUST create a separate asset Thing (e.g. for repeated access), remember
+to refresh the EDR token before every access as shown in Step 9 above.
 
 **Workflow:**
 
@@ -165,7 +443,9 @@ injects the token automatically from the credential store.
    - A title and description from the asset metadata.
    - Appropriate affordances based on the asset's API or type.
    - `"source": "auto-discovered"` in the document root.
-   - The base URL of the asset's API endpoint as the form href.
+   - The base URL of the asset's API endpoint as the form href. For dataspace
+     assets this MUST be the EDR endpoint from the corresponding EDC consumer —
+     never the provider's direct URL. All asset traffic flows through the EDC.
    - The correct `security` and `securityDefinitions` matching the dataspace's
      authentication scheme (typically bearer token).
 4. Use things_upsert(thing_id, document) to store each new Thing.
@@ -271,6 +551,22 @@ If a Thing uses bearer token or other authentication, you MUST:
 3. The runtime automatically injects stored credentials into HTTP requests to
    the Thing — tokens must NOT be passed inline in the ``input`` field of
    wot_invoke_action, wot_read_property, or wot_write_property.
+
+4. **⚠️ Dataspace EDR tokens are short-lived — refresh on every access.**
+   For assets obtained through the EDC dataspace, the EDR token expires after
+   a short time. Before interacting with a dataspace asset Thing:
+   - Call `wot_read_property` on the EDC consumer's `edrDataAddress` property
+     (with the transfer process ID) to get a fresh token.
+   - Immediately call `set_thing_credential` to update the asset Thing's stored
+     token.
+   - Then proceed with the interaction. Never reuse a cached token.
+
+5. **⚠️ ALL asset traffic must be routed through the EDC.**
+   The `base` URL and every form `href` in a dataspace asset Thing MUST point
+   to the EDR data address endpoint of the EDC consumer connector — NOT to the
+   provider's direct URL. The provider's data plane only accepts requests with
+   a valid EDR token, which only the EDC consumer portal can issue. Without
+   routing through the EDC, the runtime cannot authenticate or reach the asset.
 
 Do NOT create abstract virtual Things. Use the virtual_things intent for that.
 """

@@ -1,6 +1,7 @@
 """LangGraph tools for the WoT registry and runtime."""
 
 import asyncio
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -18,12 +19,30 @@ from wotbot.core.database import get_session_factory
 from wotbot.rdf.schema import CLASSES_QUERY, PREDICATES_QUERY, summarize_schema
 from wotbot.search import get_active_search_service
 
+from .set_thing_credential import _get_thing_record
+
 
 def _tool_error(exc: HTTPException) -> ValueError:
     detail = exc.detail
     if isinstance(detail, str) and detail.strip():
         return ValueError(detail)
     return ValueError(f"Request failed with status {exc.status_code}")
+
+
+def _maybe_parse_json_string(value: Any) -> Any:
+    """If value is a JSON string, parse it into a Python object.
+
+    The agent sometimes passes ``input`` as a JSON string (e.g.
+    ``'{"@context": ...}'') instead of a proper Python dict. This
+    helper detects that and parses it so the runtime sends a proper
+    JSON object to the server, avoiding 400 Bad Request errors.
+    """
+    if isinstance(value, str) and value.strip().startswith(("{", "[")):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            return value
+    return value
 
 
 async def _run_with_session(operation: Callable[[Session], dict[str, Any]]) -> dict[str, Any]:
@@ -298,8 +317,27 @@ def _looks_like_abstract_virtual_thing(document: dict[str, Any]) -> bool:
 
 @tool
 async def things_delete(thing_id: str) -> dict[str, str]:
-    """Delete a Thing Description by id."""
+    """Delete a Thing Description by id. Only auto-discovered Things
+    (source='auto-discovered') can be deleted through this tool. Manually
+    created Things must be deleted by the user through the UI."""
     decoded_thing_id = decode_thing_id(thing_id)
+
+    # Only allow deletion of auto-discovered Things
+    thing_record = await _get_thing_record(decoded_thing_id)
+    if thing_record is None:
+        return {"id": decoded_thing_id, "status": "error", "message": f"Thing '{thing_id}' not found in catalog"}
+    if thing_record.source != "auto-discovered":
+        return {
+            "id": decoded_thing_id,
+            "status": "error",
+            "message": (
+                f"Thing '{thing_id}' has source='{thing_record.source}'. "
+                "Only auto-discovered Things (source='auto-discovered') can be "
+                "deleted through this tool. Manually created Things must be "
+                "deleted by the user through the UI."
+            ),
+        }
+
     await _run_with_session(
         lambda session: (
             ThingCatalogWriteService(session).delete(decoded_thing_id)
@@ -378,12 +416,20 @@ async def wot_invoke_action(
     with the scheme and credential payload. Use things_get first to
     discover which security definitions the Thing requires, then store
     the matching credentials before invoking.
+
+    IMPORTANT — input format: Pass ``input`` as a Python dict/object, NOT
+    as a JSON string. If you pass a JSON string, the runtime will send it
+    as a literal string to the server, which will reject it with a 400
+    error. Always pass structured data as a dict.
     """
+    # Auto-parse JSON string inputs to dict — the agent sometimes passes
+    # a JSON string instead of a proper Python dict, which causes 400 errors.
+    parsed_input = _maybe_parse_json_string(input)
     return _decoded_runtime_value(
         await _runtime_client().invoke_action(
             thing_id=thing_id,
             action_name=action_name,
-            input=input,
+            input=parsed_input,
             input_content_type=input_content_type,
             input_base64=input_base64,
             uri_variables=uri_variables,

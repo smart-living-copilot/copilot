@@ -12,6 +12,7 @@ import {
 import { createRuntimeError, formatError, isDataSchemaError } from '../services/errors.js';
 import { getAffordanceDefinition, getFormHttpMethod, resolveFormIndex } from '../services/form-selection.js';
 import { getRuntimeHealth } from '../services/runtime-health.js';
+import axios from 'axios';
 
 /**
  * Checks if a value is a plain object.
@@ -351,6 +352,36 @@ export async function handleInvokeAction(request: any): Promise<any> {
     log.debug(`Dropping body for ${httpMethod} action '${thingId}/${actionName}'; input flows via uriVariables`);
   }
   const input = bodilessMethod ? undefined : resolvedInput;
+
+  // Special handling for downloadAsset: the action uses GET but needs to pass
+  // the EDR authorization token as an HTTP header. node-wot drops the body for
+  // GET requests (RFC 9110), and the credential system injects the portal API
+  // token — not the EDR token. So we make a direct HTTP request here.
+  // Also handles the case where input is a JSON string (common agent mistake).
+  let dlInput = decodedInput;
+  if (actionName === 'downloadAsset' && typeof dlInput === 'string') {
+    try { dlInput = JSON.parse(dlInput); } catch { /* not JSON, ignore */ }
+  }
+  if (actionName === 'downloadAsset' && isPlainObject(dlInput)) {
+    const dlEndpoint = String((dlInput as Record<string, unknown>).endpoint || '');
+    const dlAuth = String((dlInput as Record<string, unknown>).authorization || '');
+    if (dlEndpoint && dlAuth) {
+      log.info(`Direct HTTP GET for downloadAsset at ${dlEndpoint}`);
+      const dlResponse = await axios.get(dlEndpoint, {
+        headers: { Authorization: dlAuth },
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      });
+      const dlBody = Buffer.from(dlResponse.data);
+      const dlContentType = String(dlResponse.headers['content-type'] || 'application/octet-stream');
+      return {
+        completedResult: buildEncodedInteractionResponse(
+          { body: dlBody, contentType: dlContentType },
+          dlContentType,
+        ).response,
+      };
+    }
+  }
 
   if (isPlainObject(actionDef) && actionDef.synchronous === false) {
     throw createRuntimeError(
