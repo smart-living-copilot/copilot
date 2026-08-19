@@ -124,7 +124,12 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     wotbot_app, "_checkpoint_saver_context", return_value=FakeSaverContext()
                 ),
                 patch.object(wotbot_app, "build_graph", return_value=fake_graph) as build_graph,
-                patch.object(wotbot_app, "LangGraphAGUIAgent", return_value=object()),
+                # SimpleNamespace, not object(): lifespan sets
+                # ``agent.emit_raw_events`` on the constructed agent, which a
+                # bare object() cannot accept.
+                patch.object(
+                    wotbot_app, "LangGraphAGUIAgent", return_value=SimpleNamespace()
+                ),
                 patch.object(wotbot_app, "JobService", return_value=fake_job_service),
                 patch.object(wotbot_app, "set_active_job_service"),
             ):
