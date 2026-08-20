@@ -310,6 +310,252 @@ export async function handleWriteProperty(request: any): Promise<any> {
 }
 
 /**
+ * Checks if a form has an MCP tool binding.
+ */
+function getMcpToolName(document: ThingDescription, actionName: string, formIndex: number | undefined): string | null {
+  try {
+    const actionDef = getAffordanceDefinition(document, actionName, 'invokeaction');
+    if (!isPlainObject(actionDef)) return null;
+    const forms = (actionDef as Record<string, unknown>).forms;
+    if (!Array.isArray(forms)) return null;
+    const idx = typeof formIndex === 'number' ? formIndex : 0;
+    const form = forms[idx];
+    if (!isPlainObject(form)) return null;
+    const mcpTool = (form as Record<string, unknown>)['mcp:tool'];
+    return typeof mcpTool === 'string' && mcpTool.trim() ? mcpTool.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolves the MCP server endpoint URL from a form href + document base.
+ */
+function resolveMcpEndpoint(document: ThingDescription, actionName: string, formIndex: number | undefined): string {
+  const actionDef = getAffordanceDefinition(document, actionName, 'invokeaction');
+  if (!isPlainObject(actionDef)) {
+    throw createRuntimeError('invalid_argument', `Cannot resolve MCP endpoint for '${actionName}'`);
+  }
+  const forms = (actionDef as Record<string, unknown>).forms;
+  if (!Array.isArray(forms)) {
+    throw createRuntimeError('invalid_argument', `No forms found for action '${actionName}'`);
+  }
+  const idx = typeof formIndex === 'number' ? formIndex : 0;
+  const form = forms[idx];
+  if (!isPlainObject(form)) {
+    throw createRuntimeError('invalid_argument', `No form at index ${idx} for action '${actionName}'`);
+  }
+  const href = (form as Record<string, unknown>).href;
+  if (typeof href !== 'string' || !href) {
+    throw createRuntimeError('invalid_argument', `Form href is missing for action '${actionName}'`);
+  }
+  // Resolve relative href against the document's base URL
+  const base = typeof document.base === 'string' ? document.base : '';
+  try {
+    return new URL(href, base).href;
+  } catch {
+    throw createRuntimeError('invalid_argument', `Cannot resolve MCP endpoint href='${href}' base='${base}'`);
+  }
+}
+
+/**
+ * In-memory cache for MCP sessions: endpoint → sessionId.
+ * Sessions are reused across multiple tool calls within the same runtime lifetime.
+ */
+const mcpSessionCache = new Map<string, string>();
+
+/**
+ * MCP headers required for Streamable HTTP transport.
+ */
+const MCP_HEADERS = {
+  'Content-Type': 'application/json',
+  'Accept': 'application/json, text/event-stream',
+  'mcp-protocol-version': '2025-03-26',
+};
+
+/**
+ * Parses an SSE (Server-Sent Events) response and extracts the JSON payload
+ * from the first "data:" line inside an "event: message" block.
+ */
+function parseSseToJson(sseText: string): any {
+  const dataMatch = sseText.match(/event:\s*message\s*\n\s*data:\s*(\{.*\})/s);
+  if (dataMatch) {
+    try {
+      return JSON.parse(dataMatch[1]);
+    } catch {
+      // fall through
+    }
+  }
+  // Fallback: try parsing raw text as JSON
+  try {
+    return JSON.parse(sseText);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Initializes an MCP session if one is not already cached.
+ * Uses JSON-RPC 2.0 "initialize" to create a session and returns the session ID.
+ */
+async function ensureMcpSession(endpoint: string): Promise<string> {
+  const cached = mcpSessionCache.get(endpoint);
+  if (cached) {
+    return cached;
+  }
+
+  const initPayload = {
+    jsonrpc: '2.0',
+    method: 'initialize',
+    params: {
+      protocolVersion: '2025-03-26',
+      capabilities: {},
+      clientInfo: { name: 'wot-runtime', version: '1.0.0' },
+    },
+    id: 'init-1',
+  };
+
+  log.info(`MCP initialize session on ${endpoint}`);
+  const response = await axios.post(endpoint, initPayload, {
+    headers: MCP_HEADERS,
+    responseType: 'text',
+    timeout: 30_000,
+    validateStatus: () => true,
+  });
+
+  if (response.status >= 400) {
+    const body = parseSseToJson(response.data) || response.data;
+    const errorMsg = body?.error?.message || body?.error || String(body).substring(0, 500);
+    throw createRuntimeError('unknown', `MCP initialize failed [${response.status}]: ${errorMsg}`);
+  }
+
+  // Extract session ID from response headers
+  const sessionId = response.headers['mcp-session-id'];
+  if (!sessionId) {
+    log.info('MCP server did not return a session ID; assuming stateless');
+    mcpSessionCache.set(endpoint, '__stateless__');
+    return '__stateless__';
+  }
+
+  log.info(`MCP session established: ${sessionId}`);
+  mcpSessionCache.set(endpoint, sessionId);
+  return sessionId;
+}
+
+/**
+ * Builds MCP request headers including session ID if available.
+ */
+function buildMcpHeaders(sessionId: string): Record<string, string> {
+  const headers: Record<string, string> = { ...MCP_HEADERS };
+  if (sessionId && sessionId !== '__stateless__') {
+    headers['mcp-session-id'] = sessionId;
+  }
+  return headers;
+}
+
+/**
+ * Performs an MCP JSON-RPC call, handling SSE responses and session management.
+ * Handles Streamable HTTP transport: POST returns 200 (inline SSE) or 202 (accepted, GET to poll).
+ */
+async function mcpCall(
+  endpoint: string,
+  method: string,
+  params: Record<string, unknown>,
+  sessionId: string,
+): Promise<any> {
+  const payload = {
+    jsonrpc: '2.0',
+    method,
+    params,
+    id: crypto.randomUUID(),
+  };
+
+  let response = await axios.post(endpoint, payload, {
+    headers: buildMcpHeaders(sessionId),
+    responseType: 'text',
+    timeout: 60_000,
+    validateStatus: (status) => status === 200 || status === 202,
+  });
+
+  // Streamable HTTP: 202 Accepted means the result needs a GET to poll
+  if (response.status === 202) {
+    log.debug(`MCP 202 Accepted for ${method}, polling via GET`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    response = await axios.get(endpoint, {
+      headers: buildMcpHeaders(sessionId),
+      responseType: 'text',
+      timeout: 60_000,
+      validateStatus: () => true,
+    });
+  }
+
+  // Parse SSE or JSON response
+  const body = parseSseToJson(response.data);
+
+  if (!body) {
+    throw createRuntimeError('unknown', `MCP: could not parse response: ${String(response.data).substring(0, 500)}`);
+  }
+
+  if (response.status >= 400) {
+    const errorMsg = body?.error?.message || body?.error || String(response.data).substring(0, 500);
+    throw createRuntimeError('unknown', `MCP server error [${response.status}]: ${errorMsg}`);
+  }
+
+  if (body?.error) {
+    const errorMsg = typeof body.error === 'object'
+      ? body.error.message || JSON.stringify(body.error)
+      : String(body.error);
+    throw createRuntimeError('unknown', `MCP error: ${errorMsg}`);
+  }
+
+  return body.result;
+}
+
+/**
+ * Handles an MCP (Model Context Protocol) action invocation via JSON-RPC 2.0.
+ */
+async function handleMcpAction(
+  document: ThingDescription,
+  thingId: string,
+  actionName: string,
+  mcpToolName: string,
+  input: unknown,
+  formIndex: number | undefined,
+): Promise<any> {
+  const endpoint = resolveMcpEndpoint(document, actionName, formIndex);
+  const mcpInput = isPlainObject(input) ? (input as Record<string, unknown>) : {};
+
+  // Ensure MCP session is initialized
+  const sessionId = await ensureMcpSession(endpoint);
+
+  log.info(`MCP call: ${mcpToolName} on ${endpoint}`);
+
+  const result = await mcpCall(endpoint, 'tools/call', { name: mcpToolName, arguments: mcpInput }, sessionId);
+
+  const content = result?.content;
+
+  if (Array.isArray(content) && content.length > 0) {
+    const textItems = content.filter((c: any) => c?.type === 'text').map((c: any) => c.text);
+    if (textItems.length > 0) {
+      const combined = textItems.join('\n');
+      const mcpBody = Buffer.from(combined, 'utf-8');
+      return {
+        completedResult: buildEncodedInteractionResponse({ body: mcpBody, contentType: 'application/json' }).response,
+      };
+    }
+    const mcpBody = Buffer.from(JSON.stringify(content), 'utf-8');
+    return {
+      completedResult: buildEncodedInteractionResponse({ body: mcpBody, contentType: 'application/json' }).response,
+    };
+  }
+
+  const mcpBody = Buffer.from(JSON.stringify(result ?? {}), 'utf-8');
+  return {
+    completedResult: buildEncodedInteractionResponse({ body: mcpBody, contentType: 'application/json' }).response,
+  };
+}
+
+/**
  * Handles an InvokeAction interaction.
  *
  * @param request The runtime request containing target, input, and options.
@@ -352,6 +598,14 @@ export async function handleInvokeAction(request: any): Promise<any> {
     log.debug(`Dropping body for ${httpMethod} action '${thingId}/${actionName}'; input flows via uriVariables`);
   }
   const input = bodilessMethod ? undefined : resolvedInput;
+
+  // MCP (Model Context Protocol) support: if the action's form has an
+  // "mcp:tool" property, route the call through JSON-RPC 2.0 to the
+  // MCP server instead of using node-wot.
+  const mcpToolName = getMcpToolName(document, actionName, resolvedFormIndex);
+  if (mcpToolName) {
+    return handleMcpAction(document, thingId, actionName, mcpToolName, resolvedInput, resolvedFormIndex);
+  }
 
   // Special handling for downloadAsset: the action uses GET but needs to pass
   // the EDR authorization token as an HTTP header. node-wot drops the body for

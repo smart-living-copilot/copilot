@@ -66,6 +66,94 @@ Note: `POST /api/a2a/message` is a convenience endpoint that runs the message
 via the AG-UI runtime and returns the run events. For richer streaming (SSE)
 use the `/ag-ui` endpoint.
 
+## EDC Dataspace Integration
+
+WoTBot can interact with Eclipse Dataspace Components (EDC) connectors to
+discover, negotiate, and download datasets from a dataspace. The integration
+is driven by Thing Descriptions — an EDC consumer portal is registered as a
+Thing whose actions (queryCatalog, negotiateContract, initiateTransfer, etc.)
+map to the EDC Management API.
+
+### Thing Description structure
+
+The EDC consumer portal Thing (`urn:smart-living:dataspace:edc-consumer`)
+exposes the full dataspace lifecycle:
+
+1. **Discover** — `searchFederatedCatalog` / `queryCatalog` to find datasets
+2. **Negotiate** — `negotiateContract` with an ODRL policy, poll `contractNegotiation`
+3. **Transfer** — `initiateTransfer` (HttpData-PULL), get EDR via `edrDataAddress`
+4. **Download** — `downloadAsset` with the EDR endpoint and authorization token
+
+The `downloadAsset` action is special-cased in the wot-runtime: it makes a
+direct HTTP GET request with the EDR bearer token, bypassing node-wot's
+GET-without-body limitation. The authorization value is the raw JWT from the
+EDR (without a `"Bearer "` prefix).
+
+
+## MCP (Model Context Protocol) Integration
+
+WoTBot supports MCP servers as first-class Things. Any MCP server with a
+Streamable HTTP transport can be registered as a Thing Description whose
+actions have `mcp:tool` form bindings. The wot-runtime transparently routes
+`wot_invoke_action` calls through JSON-RPC 2.0 to the MCP server.
+
+### Architecture
+
+```
+Agent: wot_invoke_action("urn:edc:mcp:tx-consumer-portal", "get_catalog", {...})
+  │
+  ▼
+wot-runtime → detects "mcp:tool" in the form → JSON-RPC 2.0 call
+  │
+  ├─ POST {jsonrpc:"2.0", method:"tools/call", params:{name:"<tool>", arguments:{...}}}
+  │   to the MCP server endpoint
+  │
+  ▼
+MCP Server → returns SSE response → runtime extracts content → agent
+```
+
+### Session management
+
+The wot-runtime automatically manages MCP sessions:
+
+1. **`ensureMcpSession()`** — sends `initialize` JSON-RPC call, caches the
+   `mcp-session-id` header value per endpoint
+2. **`mcpCall()`** — sends `tools/call` with the session ID, handles SSE
+   (`event: message` / `data: {...}`) responses
+3. **202 Accepted** — if the server returns 202 (Streamable HTTP), the
+   runtime polls via GET to retrieve the result
+4. Sessions are reused across multiple tool calls within the same runtime
+   lifetime
+
+### Thing Description format
+
+Add an MCP server to the catalog by creating a Thing Description with
+`mcp:tool` on each action form:
+
+```json
+{
+  "@context": [
+    "https://www.w3.org/2022/wot/td/v1.1",
+    { "mcp": "https://modelcontextprotocol.io/specification/2025-03-26#" }
+  ],
+  "id": "urn:mcp:my-server",
+  "title": "My MCP Server",
+  "actions": {
+    "my_tool": {
+      "title": "My Tool",
+      "input": { "type": "object", "properties": { ... } },
+      "forms": [{
+        "href": "http://mcp-server:8081/mcp",
+        "contentType": "application/json",
+        "op": ["invokeaction"],
+        "mcp:tool": "my_tool"
+      }]
+    }
+  }
+}
+```
+
+
 ## Development
 
 The default local setup uses Docker Compose with bind mounts and hot reload where practical:
