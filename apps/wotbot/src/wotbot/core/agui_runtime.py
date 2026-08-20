@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 from ag_ui.core.events import RunErrorEvent
 from ag_ui.core.types import RunAgentInput
@@ -87,7 +88,7 @@ class AguiRuntime:
     """Holds AG-UI request state and lifecycle behavior for the process."""
 
     def __init__(self) -> None:
-        self.agent: Any | None = None
+        self.agent_factory: Callable[[], Any] | None = None
         self.checkpointer: Any | None = None
         self.settings: Any | None = None
         # The compiled graph itself (as opposed to ``agent``, the AG-UI
@@ -101,13 +102,13 @@ class AguiRuntime:
     def configure(
         self,
         *,
-        agent: Any | None | object = _UNSET,
+        agent_factory: Callable[[], Any] | None | object = _UNSET,
         checkpointer: Any | None | object = _UNSET,
         settings: Any | None | object = _UNSET,
         graph: Any | None | object = _UNSET,
     ) -> None:
-        if agent is not _UNSET:
-            self.agent = agent
+        if agent_factory is not _UNSET:
+            self.agent_factory = cast(Callable[[], Any] | None, agent_factory)
         if checkpointer is not _UNSET:
             self.checkpointer = checkpointer
         if settings is not _UNSET:
@@ -116,7 +117,7 @@ class AguiRuntime:
             self.graph = graph
 
     def clear_request_state(self) -> None:
-        self.agent = None
+        self.agent_factory = None
         self.checkpointer = None
         self.graph = None
         self._thread_run_locks = {}
@@ -130,9 +131,13 @@ class AguiRuntime:
     def create_agent_proxy(self) -> _AGUIAgentProxy:
         return _AGUIAgentProxy(self)
 
-    async def run(self, input_data):
-        if self.agent is None:
+    def create_request_agent(self) -> Any:
+        if self.agent_factory is None:
             raise RuntimeError("AG-UI agent is not ready")
+        return self.agent_factory()
+
+    async def run(self, input_data):
+        request_agent = self.create_request_agent()
 
         input_data = _with_forwarded_reasoning_effort(input_data)
         thread_id = _request_thread_id(input_data)
@@ -165,11 +170,11 @@ class AguiRuntime:
                 await self._finalize_interrupted_run(thread_id)
                 lock = await self._thread_run_lock(thread_id)
                 async with lock:
-                    async for event in self.agent.run(input_data):
+                    async for event in request_agent.run(input_data):
                         partial.observe(event)
                         yield event
             else:
-                async for event in self.agent.run(input_data):
+                async for event in request_agent.run(input_data):
                     partial.observe(event)
                     yield event
             completed = True
@@ -468,9 +473,7 @@ def _with_forwarded_reasoning_effort(input_data: Any) -> Any:
     validation still decides whether the value is honored.
     """
     if isinstance(input_data, dict):
-        forwarded_props = input_data.get("forwardedProps") or input_data.get(
-            "forwarded_props"
-        )
+        forwarded_props = input_data.get("forwardedProps") or input_data.get("forwarded_props")
         state = input_data.get("state")
     else:
         forwarded_props = getattr(input_data, "forwarded_props", None)

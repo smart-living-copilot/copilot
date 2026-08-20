@@ -144,33 +144,30 @@ async def lifespan(app: FastAPI):
                 settings.recursion_limit,
             )
 
-            # LangGraphAGUIAgent runs the graph via astream_events with the
-            # config passed here, which overrides the graph's bound config — so
-            # recursion_limit must be forwarded explicitly or it falls back to
-            # langgraph's default of 25 (surfaces as GraphRecursionError).
-            agent = LangGraphAGUIAgent(
-                name="wotbot",
-                description="WoTBot",
-                graph=graph,
-                config={"recursion_limit": settings.recursion_limit},
-            )
-            # Set after construction, not as a constructor argument:
-            # LangGraphAGUIAgent's __init__ takes a fixed keyword set and does
-            # not forward extras to its ag_ui_langgraph base, so passing this
-            # in raises TypeError at startup.
-            #
-            # The adapter otherwise re-emits every underlying LangGraph event
-            # twice over the wire: once as a full RAW event, and again as a
-            # ``raw_event`` copy piggy-backed onto nearly every other event.
-            # On graphs with large state that dominates the payload. Nothing
-            # downstream reads it -- the UI dropped RAW and stripped raw_event
-            # straight back off -- so stop sending it rather than paying to
-            # serialize and discard it.
-            agent.emit_raw_events = False
+            def create_agent() -> LangGraphAGUIAgent:
+                # The adapter keeps active-run, message, and subgraph state on
+                # itself. A fresh instance per request prevents concurrent
+                # chats from overwriting each other's protocol scopes.
+                #
+                # Its config overrides the graph's bound config, so forward
+                # recursion_limit explicitly rather than falling back to
+                # LangGraph's default of 25.
+                agent = LangGraphAGUIAgent(
+                    name="wotbot",
+                    description="WoTBot",
+                    graph=graph,
+                    config={"recursion_limit": settings.recursion_limit},
+                )
+                # Set after construction because this subclass accepts a fixed
+                # keyword set. RAW events and raw_event copies are unused and
+                # otherwise dominate payloads for graphs with large state.
+                agent.emit_raw_events = False
+                return agent
+
             agui_runtime.configure(
                 settings=settings,
                 checkpointer=checkpointer,
-                agent=agent,
+                agent_factory=create_agent,
                 graph=graph,
             )
 

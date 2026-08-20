@@ -54,7 +54,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         self._original_settings = wotbot_app.agui_runtime.settings
-        self._original_agent = wotbot_app.agui_runtime.agent
+        self._original_agent_factory = wotbot_app.agui_runtime.agent_factory
         self._original_checkpointer = wotbot_app.agui_runtime.checkpointer
         self._original_graph = wotbot_app.agui_runtime.graph
         self._original_thread_run_locks = wotbot_app.agui_runtime._thread_run_locks
@@ -65,7 +65,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         self.client.close()
         wotbot_app.agui_runtime.settings = self._original_settings
-        wotbot_app.agui_runtime.agent = self._original_agent
+        wotbot_app.agui_runtime.agent_factory = self._original_agent_factory
         wotbot_app.agui_runtime.checkpointer = self._original_checkpointer
         wotbot_app.agui_runtime.graph = self._original_graph
         wotbot_app.agui_runtime._thread_run_locks = self._original_thread_run_locks
@@ -108,9 +108,14 @@ class AgentAppRoutesTestCase(unittest.TestCase):
 
         fake_saver = object()
         fake_graph = FakeGraph()
-        fake_agent = SimpleNamespace()
+        fake_agents: list[SimpleNamespace] = []
         fake_settings = Settings(agent_handoff_enabled=True)
         fake_job_service = AsyncMock()
+
+        def create_fake_agent(**_kwargs) -> SimpleNamespace:
+            fake_agent = SimpleNamespace()
+            fake_agents.append(fake_agent)
+            return fake_agent
 
         async def exercise() -> None:
             with (
@@ -125,9 +130,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     wotbot_app, "_checkpoint_saver_context", return_value=FakeSaverContext()
                 ),
                 patch.object(wotbot_app, "build_graph", return_value=fake_graph) as build_graph,
-                patch.object(
-                    wotbot_app, "LangGraphAGUIAgent", return_value=fake_agent
-                ),
+                patch.object(wotbot_app, "LangGraphAGUIAgent", side_effect=create_fake_agent),
                 patch.object(wotbot_app, "JobService", return_value=fake_job_service),
                 patch.object(wotbot_app, "set_active_job_service"),
             ):
@@ -135,7 +138,12 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     self.assertIs(wotbot_app.app.state.graph, fake_graph)
                     self.assertIs(build_graph.call_args.kwargs["checkpointer"], fake_saver)
                     self.assertTrue(build_graph.call_args.kwargs["handoff_enabled"])
-                    self.assertIs(fake_agent.emit_raw_events, False)
+                    first_agent = wotbot_app.agui_runtime.create_request_agent()
+                    second_agent = wotbot_app.agui_runtime.create_request_agent()
+                    self.assertIsNot(first_agent, second_agent)
+                    self.assertEqual(fake_agents, [first_agent, second_agent])
+                    self.assertIs(first_agent.emit_raw_events, False)
+                    self.assertIs(second_agent.emit_raw_events, False)
                     fake_job_service.start.assert_awaited_once()
                 fake_job_service.stop.assert_awaited_once()
 
@@ -304,7 +312,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
             async def run(self, _input_data):
                 yield {"event": "done"}
 
-        wotbot_app.agui_runtime.configure(agent=FakeAgent())
+        wotbot_app.agui_runtime.configure(agent_factory=FakeAgent)
 
         async def collect_events():
             proxy = wotbot_app.agui_runtime.create_agent_proxy()
@@ -319,6 +327,56 @@ class AgentAppRoutesTestCase(unittest.TestCase):
         self.assertIn("uses_thread_lock=True", output)
         self.assertIn("AG-UI run finished thread_id=thread-a run_id=run-a", output)
 
+    def test_ag_ui_proxy_isolates_agent_state_across_concurrent_threads(self) -> None:
+        created_agents: list[object] = []
+
+        async def exercise() -> list[list[SimpleNamespace]]:
+            both_started = asyncio.Event()
+            started_count = 0
+
+            class StatefulFakeAgent:
+                def __init__(self) -> None:
+                    self.active_step: str | None = None
+                    created_agents.append(self)
+
+                async def run(self, input_data):
+                    nonlocal started_count
+                    self.active_step = input_data["state"]["step"]
+                    yield SimpleNamespace(type="STEP_STARTED", step_name=self.active_step)
+                    started_count += 1
+                    if started_count == 2:
+                        both_started.set()
+                    await asyncio.wait_for(both_started.wait(), timeout=1)
+                    yield SimpleNamespace(type="STEP_FINISHED", step_name=self.active_step)
+
+            wotbot_app.agui_runtime.configure(agent_factory=StatefulFakeAgent)
+
+            async def collect(thread_id: str, step: str):
+                proxy = wotbot_app.agui_runtime.create_agent_proxy()
+                return [
+                    event
+                    async for event in proxy.run(
+                        {
+                            "threadId": thread_id,
+                            "runId": f"run-{thread_id}",
+                            "state": {"step": step},
+                        }
+                    )
+                ]
+
+            return await asyncio.gather(
+                collect("thread-a", "router"),
+                collect("thread-b", "control_llm"),
+            )
+
+        event_sequences = asyncio.run(exercise())
+
+        self.assertEqual(len(created_agents), 2)
+        self.assertEqual(
+            [[event.step_name for event in events] for events in event_sequences],
+            [["router", "router"], ["control_llm", "control_llm"]],
+        )
+
     def test_ag_ui_proxy_prefers_forwarded_reasoning_effort_over_stale_state(self) -> None:
         received_inputs: list[dict] = []
 
@@ -327,7 +385,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 received_inputs.append(input_data)
                 yield {"event": "done"}
 
-        wotbot_app.agui_runtime.configure(agent=FakeAgent())
+        wotbot_app.agui_runtime.configure(agent_factory=FakeAgent)
 
         async def collect_events():
             proxy = wotbot_app.agui_runtime.create_agent_proxy()
@@ -360,7 +418,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     yield {"event": "unused"}
                 raise RuntimeError("agent boom")
 
-        wotbot_app.agui_runtime.configure(agent=FakeAgent())
+        wotbot_app.agui_runtime.configure(agent_factory=FakeAgent)
 
         async def collect_events():
             proxy = wotbot_app.agui_runtime.create_agent_proxy()
@@ -396,7 +454,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     yield {"event": "unused"}
                 raise RuntimeError("agent boom")
 
-        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+        wotbot_app.agui_runtime.configure(agent_factory=FakeAgent, graph=fake_graph)
 
         async def collect_events():
             proxy = wotbot_app.agui_runtime.create_agent_proxy()
@@ -429,7 +487,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     yield {"event": "unused"}
                 raise RuntimeError("agent boom")
 
-        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+        wotbot_app.agui_runtime.configure(agent_factory=FakeAgent, graph=fake_graph)
 
         async def collect_events():
             proxy = wotbot_app.agui_runtime.create_agent_proxy()
@@ -450,7 +508,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
             async def run(self, _input_data):
                 yield {"event": "done"}
 
-        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+        wotbot_app.agui_runtime.configure(agent_factory=FakeAgent, graph=fake_graph)
 
         async def collect_events():
             proxy = wotbot_app.agui_runtime.create_agent_proxy()
@@ -481,7 +539,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 yield {"event": "unused"}
 
         fake_agent = FakeAgent()
-        wotbot_app.agui_runtime.configure(agent=fake_agent, graph=fake_graph)
+        wotbot_app.agui_runtime.configure(agent_factory=lambda: fake_agent, graph=fake_graph)
 
         async def exercise() -> None:
             proxy = wotbot_app.agui_runtime.create_agent_proxy()
@@ -517,7 +575,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
             async def run(self, _input_data):
                 yield {"event": "done"}
 
-        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+        wotbot_app.agui_runtime.configure(agent_factory=FakeAgent, graph=fake_graph)
 
         async def collect_events():
             proxy = wotbot_app.agui_runtime.create_agent_proxy()
@@ -540,11 +598,15 @@ class AgentAppRoutesTestCase(unittest.TestCase):
             async def run(self, _input_data):
                 fake_graph.state.values["messages"].append(HumanMessage(content="write a poem"))
                 yield SimpleNamespace(type="TEXT_MESSAGE_START", message_id="m1")
-                yield SimpleNamespace(type="TEXT_MESSAGE_CONTENT", message_id="m1", delta="Roses are ")
-                yield SimpleNamespace(type="TEXT_MESSAGE_CONTENT", message_id="m1", delta="red, violets")
+                yield SimpleNamespace(
+                    type="TEXT_MESSAGE_CONTENT", message_id="m1", delta="Roses are "
+                )
+                yield SimpleNamespace(
+                    type="TEXT_MESSAGE_CONTENT", message_id="m1", delta="red, violets"
+                )
                 raise RuntimeError("stopped mid-answer")
 
-        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+        wotbot_app.agui_runtime.configure(agent_factory=FakeAgent, graph=fake_graph)
 
         async def collect_events():
             proxy = wotbot_app.agui_runtime.create_agent_proxy()
@@ -576,7 +638,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 )
                 raise RuntimeError("stopped mid-answer")
 
-        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+        wotbot_app.agui_runtime.configure(agent_factory=FakeAgent, graph=fake_graph)
 
         async def collect_events():
             proxy = wotbot_app.agui_runtime.create_agent_proxy()
@@ -607,7 +669,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                 yield SimpleNamespace(type="TEXT_MESSAGE_END", message_id="router")
                 raise RuntimeError("stopped between nodes")
 
-        wotbot_app.agui_runtime.configure(agent=FakeAgent(), graph=fake_graph)
+        wotbot_app.agui_runtime.configure(agent_factory=FakeAgent, graph=fake_graph)
 
         async def collect_events():
             proxy = wotbot_app.agui_runtime.create_agent_proxy()
@@ -634,7 +696,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
 
         fake_checkpointer = FakeCheckpointer()
         wotbot_app.agui_runtime.configure(
-            agent=FakeAgent(),
+            agent_factory=FakeAgent,
             checkpointer=fake_checkpointer,
         )
 
