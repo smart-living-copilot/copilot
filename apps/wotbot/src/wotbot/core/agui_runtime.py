@@ -42,11 +42,9 @@ class _PartialAssistantText:
 
     Only an unfinished message counts: TEXT_MESSAGE_START resets the buffer
     and TEXT_MESSAGE_END clears it, so a message the model completed is never
-    reported as partial. That distinction matters because the graph streams
-    more than the answer -- the router node emits its own
-    ``{"intent": ...}`` payload as a complete text message before the
-    answering node starts, and an interruption in the gap between the two
-    must not persist that internal payload as the assistant's reply.
+    reported as partial. This matters for multi-message runs: an interruption
+    must persist only the message currently being streamed, never an earlier
+    completed message.
     """
 
     def __init__(self) -> None:

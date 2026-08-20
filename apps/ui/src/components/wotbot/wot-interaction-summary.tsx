@@ -32,38 +32,6 @@ type ChatMessage = NonNullable<
   ComponentProps<typeof CopilotChatMessageView>['messages']
 >[number];
 
-function isIntentPayloadMessage(message: { content?: unknown }) {
-  const content = message.content;
-  const normalized =
-    typeof content === 'string'
-      ? content.trim()
-      : Array.isArray(content) &&
-          content.length === 1 &&
-          typeof content[0] === 'string'
-        ? content[0].trim()
-        : null;
-
-  if (!normalized) {
-    return false;
-  }
-
-  try {
-    const parsed = JSON.parse(normalized) as unknown;
-    return (
-      !!parsed &&
-      typeof parsed === 'object' &&
-      !Array.isArray(parsed) &&
-      Object.keys(parsed).length === 1 &&
-      (parsed as Record<string, unknown>).intent !== undefined &&
-      ['analysis', 'chat', 'control'].includes(
-        String((parsed as Record<string, unknown>).intent),
-      )
-    );
-  } catch {
-    return false;
-  }
-}
-
 function getElementMessage({
   element,
   messages,
@@ -201,27 +169,21 @@ function MessageViewWithWotSummaryImpl({
   messages = [],
   ...props
 }: ComponentProps<typeof CopilotChatMessageView>) {
-  const displayMessages = useMemo(
-    () => messages.filter((message) => !isIntentPayloadMessage(message)),
-    [messages],
-  );
-
   return (
     <div className={cn('flex flex-1 flex-col gap-3 pt-2', className)}>
       <CopilotChatMessageView
         {...props}
         assistantMessage={AssistantMessageWithWotSummary}
         isRunning={isRunning}
-        messages={displayMessages}
+        messages={messages}
         userMessage={UserMessageWithEdit}
       >
         {({ interruptElement, isRunning, messageElements }) => {
           const groupedMessageElements = groupToolCallMessageElements({
             messageElements,
-            messages: displayMessages,
+            messages,
           });
-          const showCursor =
-            isRunning && displayMessages.at(-1)?.role !== 'reasoning';
+          const showCursor = isRunning && messages.at(-1)?.role !== 'reasoning';
 
           return (
             <div

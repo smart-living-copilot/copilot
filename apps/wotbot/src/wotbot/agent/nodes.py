@@ -42,6 +42,13 @@ from wotbot.jobs.enums import JobOutputKind
 
 logger = logging.getLogger(__name__)
 
+_SILENT_AGUI_STREAM_METADATA = {
+    "emit-messages": False,
+    "emit-tool-calls": False,
+    "copilotkit:emit-messages": False,
+    "copilotkit:emit-tool-calls": False,
+}
+
 BACKGROUND_JOB_PROMPT = """\
 You are executing one background prompt job run for WoTBot.
 
@@ -446,9 +453,17 @@ def make_router_node(llm: ChatOpenAI, max_tokens: int):
 
     async def router(state: WotbotState, config: Optional[RunnableConfig] = None):
         tail = _make_router_messages(state["messages"], max_tokens)
+        router_config = dict(config or {})
+        router_config["metadata"] = {
+            **dict(router_config.get("metadata") or {}),
+            **_SILENT_AGUI_STREAM_METADATA,
+        }
         result = cast(
             IntentClassification,
-            await structured_llm.ainvoke([system_message, *tail]),
+            await structured_llm.ainvoke(
+                [system_message, *tail],
+                config=cast(RunnableConfig, router_config),
+            ),
         )
         logger.info(
             "Router classified intent thread_id=%s intent=%s",

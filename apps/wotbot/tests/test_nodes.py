@@ -61,13 +61,20 @@ class _FakeLLM:
 
 
 class _FakeStructuredLLM:
-    async def ainvoke(self, _messages):
+    def __init__(self) -> None:
+        self.configs: list[object] = []
+
+    async def ainvoke(self, _messages, config=None):
+        self.configs.append(config)
         return IntentClassification(intent="analysis")
 
 
 class _FakeRouterLLM:
+    def __init__(self) -> None:
+        self.structured = _FakeStructuredLLM()
+
     def with_structured_output(self, _schema):
-        return _FakeStructuredLLM()
+        return self.structured
 
 
 class NodeMessageSanitizationTestCase(unittest.TestCase):
@@ -528,6 +535,36 @@ class RouterObservabilityTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("thread_id=thread-router", output)
         self.assertIn("intent=analysis", output)
         self.assertNotIn("secret router text", output)
+
+    async def test_router_suppresses_internal_llm_stream_events(self) -> None:
+        llm = _FakeRouterLLM()
+        router = make_router_node(llm, max_tokens=4000)
+        config = {
+            "configurable": {"thread_id": "thread-router"},
+            "metadata": {"existing": "preserved"},
+        }
+
+        await router(
+            {"messages": [HumanMessage(content="route this")]},
+            config,
+        )
+
+        self.assertEqual(
+            llm.structured.configs,
+            [
+                {
+                    "configurable": {"thread_id": "thread-router"},
+                    "metadata": {
+                        "existing": "preserved",
+                        "emit-messages": False,
+                        "emit-tool-calls": False,
+                        "copilotkit:emit-messages": False,
+                        "copilotkit:emit-tool-calls": False,
+                    },
+                }
+            ],
+        )
+        self.assertEqual(config["metadata"], {"existing": "preserved"})
 
 
 class PriorAnalysisBlockTestCase(unittest.TestCase):
