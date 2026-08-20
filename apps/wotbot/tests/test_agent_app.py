@@ -108,6 +108,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
 
         fake_saver = object()
         fake_graph = FakeGraph()
+        fake_agent = SimpleNamespace()
         fake_settings = Settings(agent_handoff_enabled=True)
         fake_job_service = AsyncMock()
 
@@ -124,11 +125,8 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     wotbot_app, "_checkpoint_saver_context", return_value=FakeSaverContext()
                 ),
                 patch.object(wotbot_app, "build_graph", return_value=fake_graph) as build_graph,
-                # SimpleNamespace, not object(): lifespan sets
-                # ``agent.emit_raw_events`` on the constructed agent, which a
-                # bare object() cannot accept.
                 patch.object(
-                    wotbot_app, "LangGraphAGUIAgent", return_value=SimpleNamespace()
+                    wotbot_app, "LangGraphAGUIAgent", return_value=fake_agent
                 ),
                 patch.object(wotbot_app, "JobService", return_value=fake_job_service),
                 patch.object(wotbot_app, "set_active_job_service"),
@@ -137,6 +135,7 @@ class AgentAppRoutesTestCase(unittest.TestCase):
                     self.assertIs(wotbot_app.app.state.graph, fake_graph)
                     self.assertIs(build_graph.call_args.kwargs["checkpointer"], fake_saver)
                     self.assertTrue(build_graph.call_args.kwargs["handoff_enabled"])
+                    self.assertIs(fake_agent.emit_raw_events, False)
                     fake_job_service.start.assert_awaited_once()
                 fake_job_service.stop.assert_awaited_once()
 
