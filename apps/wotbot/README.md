@@ -26,7 +26,9 @@ ui
      -> Postgres / Valkey
 ```
 
-The frontend `chatId`, CopilotKit `threadId`, LangGraph `thread_id`, and code-executor session id are intentionally the same value so chat continuity stays aligned across services.
+The frontend `chatId`, LangGraph SDK `threadId`, backend LangGraph `thread_id`,
+and code-executor session id are intentionally the same value so chat
+continuity stays aligned across services.
 
 ## Agent Architecture
 
@@ -125,7 +127,7 @@ Common groups:
 
 ### Reasoning effort
 
-`REASONING_EFFORT_ENABLED`, `REASONING_EFFORT_LEVELS` (comma-separated allow-list), and `REASONING_EFFORT_DEFAULT` let a reasoning-capable model (o-series, gpt-5, etc. — whatever's behind `OPENAI_MODEL`/`OPENAI_API_BASE_URL`) be told how hard to think. The full chat UI reads these same variables from its runtime environment, so the shared root `.env` controls both services without rebuilding the UI image. `REASONING_EFFORT_DEFAULT`, when set, becomes the baseline `reasoning_effort` on every LLM call ([`src/wotbot/core/llm.py`](./src/wotbot/core/llm.py)); the chat UI can additionally request a level per turn via AG-UI `forwardedProps`, which only the respond/control/analysis/jobs/virtual_things branches honor, and only when the requested level is in `REASONING_EFFORT_LEVELS` (see `_resolve_reasoning_effort` in [`src/wotbot/agent/nodes.py`](./src/wotbot/agent/nodes.py)). Disabled by default. There's no standardized way to query which levels a given model/endpoint actually supports — this allow-list is how an operator declares it.
+`REASONING_EFFORT_ENABLED`, `REASONING_EFFORT_LEVELS` (comma-separated allow-list), and `REASONING_EFFORT_DEFAULT` let a reasoning-capable model (o-series, gpt-5, etc. — whatever's behind `OPENAI_MODEL`/`OPENAI_API_BASE_URL`) be told how hard to think. The full chat UI reads these same variables from its runtime environment, so the shared root `.env` controls both services without rebuilding the UI image. `REASONING_EFFORT_DEFAULT`, when set, becomes the baseline `reasoning_effort` on every LLM call ([`src/wotbot/core/llm.py`](./src/wotbot/core/llm.py)); the chat UI can additionally request a level per turn as plain LangGraph state. The respond/control/analysis/jobs/virtual_things branches honor it only when the requested level is in `REASONING_EFFORT_LEVELS` (see `_resolve_reasoning_effort` in [`src/wotbot/agent/nodes.py`](./src/wotbot/agent/nodes.py)). Disabled by default. There's no standardized way to query which levels a given model/endpoint actually supports — this allow-list is how an operator declares it.
 
 `REASONING_EFFORT_STYLE` controls *how* the resolved level is sent, since not every backend speaks the OpenAI field the same way: `openai` (default) sends the level as the `reasoning_effort` request field. `qwen` instead sets Qwen's own `enable_thinking` chat-template flag via `extra_body` — vLLM is supposed to translate `reasoning_effort` into that automatically, but it's known to be unreliable for Qwen3.5 specifically ([vllm-project/vllm#35574](https://github.com/vllm-project/vllm/issues/35574)), so this talks to the model natively instead. The mapping lives in [`src/wotbot/core/reasoning_effort.py`](./src/wotbot/core/reasoning_effort.py). Qwen's switch is binary, not graduated: the literal level `"none"` means thinking off, every other configured level means on — so a Qwen deployment typically only needs `REASONING_EFFORT_LEVELS=none,think` (or similar) rather than the full OpenAI-style scale.
 
@@ -155,7 +157,8 @@ Shared internal credentials protect service-to-service calls when configured. Re
 
 ## Contributor Notes
 
-- Keep AG-UI transport concerns in the framework helper where possible.
+- Keep the LangGraph stream wire contract and run lifecycle in
+  `wotbot.threads.runs`.
 - Keep thread ids aligned across UI, LangGraph, and code execution.
 - Keep prompts concise and prefer clearer tool boundaries over longer instructions.
 - Treat schema changes as migration changes and verify with `alembic check`.

@@ -154,12 +154,8 @@ def test_silent_run_config_suppresses_chat_streaming():
     """Enrichment runs inside the agent turn; its LLM tokens must not stream to the UI."""
     from wotbot.virtual_things.enrichment import _SILENT_RUN_CONFIG
 
-    metadata = _SILENT_RUN_CONFIG["metadata"]
-    # Both adapter layers gate on different keys (ag_ui_langgraph vs copilotkit).
-    assert metadata["emit-messages"] is False
-    assert metadata["emit-tool-calls"] is False
-    assert metadata["copilotkit:emit-messages"] is False
-    assert metadata["copilotkit:emit-tool-calls"] is False
+    assert "nostream" in _SILENT_RUN_CONFIG["tags"]
+    assert "metadata" not in _SILENT_RUN_CONFIG
 
 
 @pytest.mark.anyio

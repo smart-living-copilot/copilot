@@ -29,8 +29,10 @@ def _tool_error_message(error: Exception) -> str:
     return f"Tool error: {error}"
 
 
-def _after_tool_node(next_node: str):
-    def route(_state: WotbotState):
+def _after_tool_node(next_node: str, *, handoff_node: str | None = None):
+    def route(state: WotbotState):
+        if handoff_node is not None and state.get("next"):
+            return handoff_node
         return next_node
 
     return route
@@ -46,6 +48,7 @@ def _add_action_branch(
     tools: list[Any],
     max_tokens: int,
     action_branch_end: str,
+    handoff_node: str | None,
     parallel_tool_calls: bool,
     handoff_note: str,
     reasoning_effort: ReasoningEffortSettings | None,
@@ -73,13 +76,13 @@ def _add_action_branch(
             END: action_branch_end,
         },
     )
+    after_tool_targets = {llm_node: llm_node, END: END}
+    if handoff_node is not None:
+        after_tool_targets[handoff_node] = handoff_node
     graph.add_conditional_edges(
         tools_node,
-        _after_tool_node(llm_node),
-        {
-            llm_node: llm_node,
-            END: END,
-        },
+        _after_tool_node(llm_node, handoff_node=handoff_node),
+        after_tool_targets,
     )
 
 
@@ -176,8 +179,10 @@ def build_graph(
     # branch or falls through to device_summary) when handoff is enabled,
     # otherwise straight at "device_summary" as in the single-branch graph.
     action_branch_end = "device_summary"
+    handoff_node = None
     if handoff_enabled:
         action_branch_end = "dispatch"
+        handoff_node = "dispatch"
         graph.add_node(
             "dispatch",
             make_dispatch_node(
@@ -229,6 +234,7 @@ def build_graph(
             tools=tools,
             max_tokens=max_tokens,
             action_branch_end=action_branch_end,
+            handoff_node=handoff_node,
             parallel_tool_calls=parallel_tool_calls,
             handoff_note=handoff_note,
             reasoning_effort=reasoning_effort,

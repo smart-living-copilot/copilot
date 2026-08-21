@@ -230,7 +230,7 @@ class Settings(BaseSettings):
     # default: the compiled graph is identical to the single-branch graph.
     agent_handoff_enabled: bool = False
     agent_state_database_url: str = ""
-    # Seconds of silence on the AG-UI SSE stream before we emit a keepalive
+    # Seconds of silence on the chat SSE stream before we emit a keepalive
     # comment. Long tool calls (e.g. a slow plot in the code executor) produce
     # no events; without a heartbeat the consuming undici client aborts the
     # stream with UND_ERR_BODY_TIMEOUT before the final answer. <=0 disables it.
@@ -407,9 +407,7 @@ class Settings(BaseSettings):
 
     def _reasoning_effort_level_tuple(self) -> tuple[str, ...]:
         return tuple(
-            level
-            for raw in self.reasoning_effort_levels.split(",")
-            if (level := raw.strip())
+            level for raw in self.reasoning_effort_levels.split(",") if (level := raw.strip())
         )
 
     @property

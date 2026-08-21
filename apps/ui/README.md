@@ -4,7 +4,8 @@
 
 ## What This App Owns
 
-- Chat and embedded chat experiences built around CopilotKit.
+- Chat and embedded chat experiences rendered with assistant-ui and streamed
+  directly from LangGraph.
 - Live mode controls for microphone, camera, agent dispatch, transcripts, and artifacts.
 - Sidebar thread navigation, search, rename, and delete flows.
 - Thing registry views for listing, creating, uploading, inspecting, and credential management.
@@ -12,7 +13,9 @@
 - Settings screens for API key management.
 - Server-side proxying to `wotbot`, `code-executor`, and other internal service APIs.
 
-The UI does not persist the active conversation itself. CopilotKit, the `chatId` route parameter, and the backend LangGraph checkpointer share the same thread identity.
+The UI does not persist the active conversation itself. The `chatId` route
+parameter, LangGraph SDK `threadId`, and backend LangGraph checkpointer share
+the same thread identity.
 
 ## Runtime Shape
 
@@ -62,7 +65,7 @@ Most UI settings are backend URLs and shared internal credentials. See [`src/lib
 
 ### Reasoning Effort
 
-`REASONING_EFFORT_ENABLED`, `REASONING_EFFORT_LEVELS` (comma-separated), and `REASONING_EFFORT_DEFAULT` control the reasoning-effort selector in the full chat toolbar ([`src/components/wotbot/chat-route/reasoning-effort-select.tsx`](./src/components/wotbot/chat-route/reasoning-effort-select.tsx); parsing lives in [`src/lib/reasoning-effort.ts`](./src/lib/reasoning-effort.ts)). The selector is hidden entirely unless enabled and at least one level is configured; it's absent from embedded chat by design. Selecting a level calls `useCopilotKit().copilotkit.setProperties({ reasoningEffort })`, which AG-UI forwards to the backend as `forwardedProps` on every subsequent run — the choice also persists in `localStorage` across reloads.
+`REASONING_EFFORT_ENABLED`, `REASONING_EFFORT_LEVELS` (comma-separated), and `REASONING_EFFORT_DEFAULT` control the reasoning-effort selector in the full chat toolbar ([`src/components/wotbot/chat-route/reasoning-effort-select.tsx`](./src/components/wotbot/chat-route/reasoning-effort-select.tsx); parsing lives in [`src/lib/reasoning-effort.ts`](./src/lib/reasoning-effort.ts)). The selector is hidden entirely unless enabled and at least one level is configured; it's absent from embedded chat by design. The selected level is submitted as ordinary LangGraph state on every subsequent run and persists in `localStorage` across reloads.
 
 The chat page reads these values on the server from the container's runtime environment and passes a serialized configuration to the client. The UI and backend therefore use the same shared variables from the root `.env`; the published UI image does not need to be rebuilt for a different selector configuration. The backend still independently validates every requested level against its allow-list.
 
@@ -120,7 +123,8 @@ Only exact `http` and `https` origins are accepted. Wildcards, opaque `null` ori
 ## Contributor Notes
 
 - Keep backend service calls in server-side helpers or route handlers.
-- Keep `chatId`, CopilotKit `threadId`, LangGraph `thread_id`, and code-executor session ids aligned.
+- Keep `chatId`, LangGraph SDK `threadId`, backend `thread_id`, and
+  code-executor session ids aligned.
 - Keep Next.js route handlers thin; business logic belongs in shared libs or backend services.
 - Preserve thread-delete cleanup across chat metadata, LangGraph state, and code-executor sessions.
 - Prefer focused component tests around parsing, formatting, streaming, and cleanup behavior.

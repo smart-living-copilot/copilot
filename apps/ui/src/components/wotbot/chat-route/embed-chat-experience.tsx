@@ -1,24 +1,19 @@
-import {
-  CopilotChat,
-  CopilotChatInput,
-  type CopilotChatInputProps,
-  useCopilotKit,
-} from '@copilotkit/react-core/v2';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-  type ReactElement,
-} from 'react';
+'use client';
 
-import { blockSubmitWhileRunning } from '@/components/wotbot/chat-route/block-submit-while-running';
+import { AssistantRuntimeProvider } from '@assistant-ui/react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import {
+  ThreadErrorNotice,
+  WotbotThread,
+} from '@/components/wotbot/assistant/thread';
+import {
+  useThreadHistory,
+  useWotbotRuntime,
+  type ThreadHistory,
+} from '@/components/wotbot/assistant/use-wotbot-runtime';
 import { LiveModePanel } from '@/components/wotbot/live-mode-panel';
 import { MediaIngressControl } from '@/components/wotbot/media-ingress-control';
-import { MessageViewWithWotSummary } from '@/components/wotbot/wot-interaction-summary';
-import { PromptTextArea } from '@/components/wotbot/chat-route/prompt-text-area';
 import { WelcomeScreen } from '@/components/wotbot/welcome-screen';
 import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
 import {
@@ -60,67 +55,131 @@ function getDeckPrefill(data: unknown): EmbedChatPrefill | null {
   };
 }
 
-function EmbedPrefillInput({
-  agentReady,
-  inputAppliedPrefillIdsRef,
+/**
+ * Owns the stream, mounted only once history has loaded: `useStream` latches
+ * `initialValues` at mount and will not adopt a later change.
+ */
+function EmbedStream({
+  appliedPrefillIdsRef,
+  chatId,
+  history,
+  mediaSession,
   prefillRequest,
   submittedPrefillIdsRef,
-  ...props
-}: CopilotChatInputProps & {
-  agentReady: boolean;
-  inputAppliedPrefillIdsRef: { current: Set<number> };
+}: {
+  appliedPrefillIdsRef: { current: Set<number> };
+  chatId: string;
+  history: ThreadHistory;
+  mediaSession: ReturnType<typeof useMediaIngressSession>;
   prefillRequest: EmbedChatPrefillRequest | null;
   submittedPrefillIdsRef: { current: Set<number> };
 }) {
-  const { isRunning, onChange, onSubmitMessage } = props;
+  const {
+    isRecovering,
+    rerunConfirmation,
+    retryRecovery,
+    runError,
+    runtime,
+    stream,
+    submitText,
+  } = useWotbotRuntime({ threadId: chatId, initialValues: history.values });
 
+  // Applies a queued prefill to the composer, and submits it when asked.
   useEffect(() => {
     if (!prefillRequest) {
       return;
     }
 
-    if (!inputAppliedPrefillIdsRef.current.has(prefillRequest.id)) {
-      inputAppliedPrefillIdsRef.current.add(prefillRequest.id);
-      onChange?.(prefillRequest.prompt);
+    if (!appliedPrefillIdsRef.current.has(prefillRequest.id)) {
+      appliedPrefillIdsRef.current.add(prefillRequest.id);
+      runtime.thread.composer.setText(prefillRequest.prompt);
     }
 
     if (
       prefillRequest.submit &&
-      agentReady &&
+      !stream.isLoading &&
       !submittedPrefillIdsRef.current.has(prefillRequest.id)
     ) {
       submittedPrefillIdsRef.current.add(prefillRequest.id);
-      if (!isRunning) {
-        onSubmitMessage?.(prefillRequest.prompt);
-      }
+      runtime.thread.composer.setText('');
+      submitText(prefillRequest.prompt);
     }
   }, [
-    agentReady,
-    inputAppliedPrefillIdsRef,
-    isRunning,
-    onChange,
-    onSubmitMessage,
+    appliedPrefillIdsRef,
     prefillRequest,
+    runtime,
+    stream.isLoading,
+    submitText,
     submittedPrefillIdsRef,
   ]);
 
-  return <CopilotChatInput {...props} textArea={PromptTextArea} />;
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <WotbotThread
+        className="wotbot-chat embed-chat-frame flex-1"
+        emptyState={<WelcomeScreen historyLoaded />}
+        emptyComposerSlot={<MediaIngressControl session={mediaSession} />}
+        error={runError}
+        isRetrying={isRecovering}
+        onRetry={() => void retryRecovery()}
+        rerunConfirmation={rerunConfirmation}
+      />
+    </AssistantRuntimeProvider>
+  );
 }
 
-function useAgentReady(agentId: string): boolean {
-  const { copilotkit } = useCopilotKit();
-  const [, forceUpdate] = useReducer((value: number) => value + 1, 0);
+/** Waits for history before mounting the stream, which latches it at mount. */
+function EmbedSurface({
+  appliedPrefillIdsRef,
+  chatId,
+  mediaSession,
+  onHistorySettled,
+  prefillRequest,
+  settleAfterLive,
+  submittedPrefillIdsRef,
+}: {
+  appliedPrefillIdsRef: { current: Set<number> };
+  chatId: string;
+  mediaSession: ReturnType<typeof useMediaIngressSession>;
+  onHistorySettled: () => void;
+  prefillRequest: EmbedChatPrefillRequest | null;
+  settleAfterLive: boolean;
+  submittedPrefillIdsRef: { current: Set<number> };
+}) {
+  const history = useThreadHistory(chatId, {
+    onSettled: onHistorySettled,
+    settleAfterLive,
+  });
 
-  useEffect(() => {
-    const subscription = copilotkit.subscribe({
-      onAgentsChanged: forceUpdate,
-      onRuntimeConnectionStatusChanged: forceUpdate,
-    });
+  if (!history.loaded) {
+    return (
+      <div className="wotbot-chat embed-chat-frame flex min-h-0 flex-1 flex-col">
+        <WelcomeScreen historyLoaded={false} />
+      </div>
+    );
+  }
+  if (history.error) {
+    return (
+      <div className="wotbot-chat embed-chat-frame grid min-h-0 flex-1 place-items-center px-3">
+        <ThreadErrorNotice
+          className="w-full max-w-xl"
+          message={history.error}
+          onRetry={history.reload}
+        />
+      </div>
+    );
+  }
 
-    return () => subscription.unsubscribe();
-  }, [copilotkit]);
-
-  return Boolean(copilotkit.getAgent(agentId));
+  return (
+    <EmbedStream
+      appliedPrefillIdsRef={appliedPrefillIdsRef}
+      chatId={chatId}
+      history={history}
+      mediaSession={mediaSession}
+      prefillRequest={prefillRequest}
+      submittedPrefillIdsRef={submittedPrefillIdsRef}
+    />
+  );
 }
 
 function EmbedThemeOverride({ theme }: { theme: Theme | null }) {
@@ -145,10 +204,9 @@ export function EmbedChatExperience({
   embedTheme: Theme | null;
   initialPrefill: EmbedChatPrefill | null;
 }) {
-  const agentReady = useAgentReady('wotbot');
   const cleanupRequestedRef = useRef(false);
   const initialPrefillAppliedRef = useRef(false);
-  const inputAppliedPrefillIdsRef = useRef<Set<number>>(new Set());
+  const appliedPrefillIdsRef = useRef<Set<number>>(new Set());
   const lastQueuedPrefillRef = useRef<{
     key: string;
     queuedAt: number;
@@ -157,7 +215,15 @@ export function EmbedChatExperience({
   const submittedPrefillIdsRef = useRef<Set<number>>(new Set());
   const [prefillRequest, setPrefillRequest] =
     useState<EmbedChatPrefillRequest | null>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [settleHistoryChatId, setSettleHistoryChatId] = useState<string | null>(
+    null,
+  );
   const mediaSession = useMediaIngressSession(chatId);
+  const handleHistorySettled = useCallback(() => {
+    setSettleHistoryChatId((current) => (current === chatId ? null : current));
+  }, [chatId]);
+
   const allowedPrefillOriginSet = useMemo(
     () => new Set(allowedPrefillOrigins),
     [allowedPrefillOrigins],
@@ -195,72 +261,6 @@ export function EmbedChatExperience({
       submit: prefill.submit,
     });
   }, []);
-
-  const chatLabels = useMemo(
-    () => ({
-      title: 'Assistant',
-      chatInputPlaceholder: 'Type your message...',
-    }),
-    [],
-  );
-  const renderWelcomeScreen = useCallback(
-    (props: Record<string, unknown>) => (
-      <WelcomeScreen {...props} historyLoaded />
-    ),
-    [],
-  );
-  const chatInput = useMemo(() => {
-    function EmbedInput(props: CopilotChatInputProps) {
-      return (
-        <EmbedPrefillInput
-          {...props}
-          agentReady={agentReady}
-          inputAppliedPrefillIdsRef={inputAppliedPrefillIdsRef}
-          prefillRequest={prefillRequest}
-          submittedPrefillIdsRef={submittedPrefillIdsRef}
-        >
-          {({
-            textArea,
-            sendButton,
-            disclaimer,
-          }: {
-            textArea: ReactElement;
-            sendButton: ReactElement;
-            disclaimer: ReactElement;
-          }) => (
-            <div className="mx-auto w-full px-3 pb-3">
-              <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
-                <div
-                  className="min-h-16"
-                  onKeyDownCapture={blockSubmitWhileRunning(props.isRunning)}
-                >
-                  {textArea}
-                </div>
-                <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
-                  <MediaIngressControl session={mediaSession} />
-                  {sendButton}
-                </div>
-              </div>
-              {disclaimer}
-            </div>
-          )}
-        </EmbedPrefillInput>
-      );
-    }
-
-    return Object.assign(EmbedInput, {
-      AddMenuButton: CopilotChatInput.AddMenuButton,
-      AudioRecorder: CopilotChatInput.AudioRecorder,
-      CancelTranscribeButton: CopilotChatInput.CancelTranscribeButton,
-      Disclaimer: CopilotChatInput.Disclaimer,
-      FinishTranscribeButton: CopilotChatInput.FinishTranscribeButton,
-      SendButton: CopilotChatInput.SendButton,
-      StartTranscribeButton: CopilotChatInput.StartTranscribeButton,
-      TextArea: CopilotChatInput.TextArea,
-      ToolbarButton: CopilotChatInput.ToolbarButton,
-    });
-  }, [agentReady, mediaSession, prefillRequest]);
-  const showLiveMode = mediaSession.state !== 'idle';
 
   useEffect(() => {
     if (!initialPrefill || initialPrefillAppliedRef.current) {
@@ -318,6 +318,20 @@ export function EmbedChatExperience({
     };
   }, [chatId]);
 
+  const showLiveMode = mediaSession.state !== 'idle';
+
+  // LiveKit writes turns through the voice worker, outside this component's
+  // stream. Remount the history loader after a call so the text thread adopts
+  // those turns instead of reopening with the pre-call snapshot.
+  const [wasLiveMode, setWasLiveMode] = useState(showLiveMode);
+  if (wasLiveMode !== showLiveMode) {
+    setWasLiveMode(showLiveMode);
+    if (!showLiveMode) {
+      setSettleHistoryChatId(chatId);
+      setHistoryVersion((version) => version + 1);
+    }
+  }
+
   return (
     <main className="embed-chat-shell flex h-dvh flex-col px-3 py-3 md:px-6 md:py-6">
       <EmbedThemeOverride theme={embedTheme} />
@@ -327,14 +341,15 @@ export function EmbedChatExperience({
             <LiveModePanel session={mediaSession} />
           </div>
         ) : (
-          <CopilotChat
-            agentId="wotbot"
-            threadId={chatId}
-            className="wotbot-chat embed-chat-frame flex-1"
-            input={chatInput}
-            labels={chatLabels}
-            messageView={MessageViewWithWotSummary}
-            welcomeScreen={renderWelcomeScreen}
+          <EmbedSurface
+            key={`${chatId}:${historyVersion}`}
+            appliedPrefillIdsRef={appliedPrefillIdsRef}
+            chatId={chatId}
+            mediaSession={mediaSession}
+            onHistorySettled={handleHistorySettled}
+            prefillRequest={prefillRequest}
+            settleAfterLive={settleHistoryChatId === chatId}
+            submittedPrefillIdsRef={submittedPrefillIdsRef}
           />
         )}
       </div>

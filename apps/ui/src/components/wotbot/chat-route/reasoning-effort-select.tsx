@@ -1,4 +1,3 @@
-import { useCopilotKit } from '@copilotkit/react-core/v2';
 import { Gauge } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -30,10 +29,12 @@ function readStoredReasoningEffort(): string | null {
 
 export function ReasoningEffortSelect({
   config,
+  onLevelChange,
 }: {
   config: ReasoningEffortConfig;
+  /** Reports the active level so the next run can carry it as graph state. */
+  onLevelChange?: (level: string | null) => void;
 }) {
-  const { copilotkit } = useCopilotKit();
   // Start from the SSR-safe default (localStorage doesn't exist on the
   // server), not the stored preference — otherwise the server-rendered
   // markup and the client's first render disagree and React flags a
@@ -56,18 +57,13 @@ export function ReasoningEffortSelect({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally mount-only
   }, []);
 
-  // Forward the initial (and every changed) level as AG-UI forwardedProps so
-  // the very first run already carries it, not just runs after the first
-  // change. wotbot's chat graph reads it back from state as
-  // `reasoning_effort` (see agent/nodes.py).
+  // Report the initial (and every changed) level so the very first run already
+  // carries it, not just runs after the first change. It travels as ordinary
+  // graph state; wotbot's chat graph reads it back as `reasoning_effort` (see
+  // agent/nodes.py).
   useEffect(() => {
-    if (selectorEnabled && level) {
-      copilotkit.setProperties({
-        ...copilotkit.properties,
-        reasoningEffort: level,
-      });
-    }
-  }, [copilotkit, level, selectorEnabled]);
+    onLevelChange?.(selectorEnabled && level ? level : null);
+  }, [level, onLevelChange, selectorEnabled]);
 
   const handleChange = useCallback((next: string) => {
     setLevel(next);

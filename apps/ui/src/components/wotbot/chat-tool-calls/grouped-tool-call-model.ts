@@ -1,14 +1,21 @@
 import {
-  type AssistantMessage,
-  type Message,
-  type ToolCall,
-  type ToolMessage,
-} from '@ag-ui/core';
-
-import {
   type CatchAllToolCallRenderProps,
   type ToolCallStatus,
 } from '../chat-tool-call-model';
+import type { LangChainMessage } from '@/lib/thread-messages';
+
+type ToolCall = NonNullable<LangChainMessage['tool_calls']>[number] & {
+  id: string;
+  name: string;
+};
+type AssistantMessage = LangChainMessage & {
+  type: 'ai' | 'assistant' | 'AIMessageChunk';
+  tool_calls: ToolCall[];
+};
+type ToolMessage = LangChainMessage & {
+  type: 'tool';
+  tool_call_id: string;
+};
 
 export type ToolStatusCounts = Record<ToolCallStatus, number>;
 
@@ -21,12 +28,17 @@ export function createToolStatusCounts(): ToolStatusCounts {
 }
 
 export function isToolOnlyAssistantMessage(
-  message: Message,
+  message: LangChainMessage,
 ): message is AssistantMessage {
   return (
-    message.role === 'assistant' &&
-    (message.toolCalls?.length ?? 0) > 0 &&
-    !(message.content ?? '').trim()
+    (message.type === 'ai' ||
+      message.type === 'assistant' ||
+      message.type === 'AIMessageChunk') &&
+    (message.tool_calls?.length ?? 0) > 0 &&
+    message.tool_calls?.every(
+      (call) => typeof call.id === 'string' && typeof call.name === 'string',
+    ) === true &&
+    (typeof message.content !== 'string' || !message.content.trim())
   );
 }
 
@@ -35,7 +47,7 @@ export function isFirstToolOnlyMessageInGroup({
   messages,
 }: {
   message: AssistantMessage;
-  messages: Message[];
+  messages: LangChainMessage[];
 }) {
   if (!isToolOnlyAssistantMessage(message)) {
     return true;
@@ -50,7 +62,7 @@ export function isFirstToolOnlyMessageInGroup({
 
   for (let index = messageIndex - 1; index >= 0; index -= 1) {
     const previous = messages[index];
-    if (!previous || previous.role === 'tool') {
+    if (!previous || previous.type === 'tool') {
       continue;
     }
 
@@ -65,13 +77,13 @@ export function getGroupedToolCalls({
   messages,
 }: {
   message: AssistantMessage;
-  messages: Message[];
+  messages: LangChainMessage[];
 }) {
   if (
-    (message.toolCalls?.length ?? 0) === 0 ||
-    (message.content ?? '').trim()
+    (message.tool_calls?.length ?? 0) === 0 ||
+    (typeof message.content === 'string' && message.content.trim())
   ) {
-    return message.toolCalls ?? [];
+    return message.tool_calls ?? [];
   }
 
   const groupedToolCalls: ToolCall[] = [];
@@ -79,7 +91,7 @@ export function getGroupedToolCalls({
     (candidate) => candidate.id === message.id,
   );
   if (messageIndex < 0) {
-    return message.toolCalls ?? [];
+    return message.tool_calls ?? [];
   }
 
   for (let index = messageIndex; index < messages.length; index += 1) {
@@ -87,14 +99,14 @@ export function getGroupedToolCalls({
     if (!current) {
       continue;
     }
-    if (current.role === 'tool') {
+    if (current.type === 'tool') {
       continue;
     }
     if (!isToolOnlyAssistantMessage(current)) {
       break;
     }
 
-    groupedToolCalls.push(...(current.toolCalls ?? []));
+    groupedToolCalls.push(...(current.tool_calls ?? []));
   }
 
   return groupedToolCalls;
@@ -104,16 +116,22 @@ export function getToolMessageForCall({
   messages,
   toolCall,
 }: {
-  messages: Message[];
+  messages: LangChainMessage[];
   toolCall: ToolCall;
 }) {
   return messages.find(
     (candidate): candidate is ToolMessage =>
-      candidate.role === 'tool' && candidate.toolCallId === toolCall.id,
+      candidate.type === 'tool' && candidate.tool_call_id === toolCall.id,
   );
 }
 
-function parseToolArgs(rawArgs: string) {
+function parseToolArgs(rawArgs: unknown) {
+  if (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)) {
+    return rawArgs as Record<string, unknown>;
+  }
+  if (typeof rawArgs !== 'string') {
+    return {};
+  }
   try {
     const parsed = JSON.parse(rawArgs);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
@@ -150,8 +168,8 @@ export function buildToolCallProps({
   toolMessage?: ToolMessage;
 }): CatchAllToolCallRenderProps {
   return {
-    args: parseToolArgs(toolCall.function.arguments),
-    name: toolCall.function.name,
+    args: parseToolArgs(toolCall.args),
+    name: toolCall.name,
     result: toolMessage?.content,
     status: getToolStatus({ executingToolCallIds, toolCall, toolMessage }),
   };
@@ -164,16 +182,20 @@ export function formatToolCount(count: number) {
 export function formatToolStatusSummary({
   completeCount,
   count,
+  errorCount = 0,
   executingCount,
   inProgressCount,
 }: {
   completeCount: number;
   count: number;
+  errorCount?: number;
   executingCount: number;
   inProgressCount: number;
 }) {
   if (completeCount === count) {
-    return 'Finished';
+    return errorCount
+      ? `Finished with ${errorCount} error${errorCount === 1 ? '' : 's'}`
+      : 'Finished';
   }
 
   const parts = [];
@@ -183,8 +205,12 @@ export function formatToolStatusSummary({
   if (inProgressCount) {
     parts.push(`${inProgressCount} preparing`);
   }
-  if (completeCount) {
-    parts.push(`${completeCount} complete`);
+  if (errorCount) {
+    parts.push(`${errorCount} failed`);
+  }
+  const successfulCount = Math.max(0, completeCount - errorCount);
+  if (successfulCount) {
+    parts.push(`${successfulCount} complete`);
   }
 
   return parts.join(' • ') || 'Working';

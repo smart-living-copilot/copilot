@@ -5,9 +5,7 @@ from wotbot.core.reasoning_effort import reasoning_effort_kwargs
 
 class ReasoningEffortKwargsTestCase(unittest.TestCase):
     def test_openai_style_sends_reasoning_effort_field(self) -> None:
-        self.assertEqual(
-            reasoning_effort_kwargs("high", "openai"), {"reasoning_effort": "high"}
-        )
+        self.assertEqual(reasoning_effort_kwargs("high", "openai"), {"reasoning_effort": "high"})
 
     def test_qwen_style_maps_none_to_thinking_off(self) -> None:
         self.assertEqual(

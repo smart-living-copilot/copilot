@@ -1,35 +1,126 @@
-import {
-  CopilotChat,
-  CopilotChatInput,
-  type CopilotChatInputProps,
-} from '@copilotkit/react-core/v2';
-import type { Message } from '@copilotkit/shared';
+'use client';
+
+import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { MessageSquarePlus } from 'lucide-react';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactElement,
-} from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AppSidebar } from '@/components/chat-sidebar';
-import { blockSubmitWhileRunning } from '@/components/wotbot/chat-route/block-submit-while-running';
-import { ChatAgentSync } from '@/components/wotbot/chat-route/chat-agent-sync';
-import { getLatestTurnArtifacts } from '@/components/wotbot/chat-route/chat-message-utils';
-import { PromptTextArea } from '@/components/wotbot/chat-route/prompt-text-area';
+import { latestTurnArtifacts } from '@/components/wotbot/assistant/artifacts';
+import {
+  ThreadErrorNotice,
+  WotbotThread,
+} from '@/components/wotbot/assistant/thread';
+import {
+  useThreadHistory,
+  useWotbotRuntime,
+} from '@/components/wotbot/assistant/use-wotbot-runtime';
 import { ReasoningEffortSelect } from '@/components/wotbot/chat-route/reasoning-effort-select';
 import { LiveModePanel } from '@/components/wotbot/live-mode-panel';
 import { MediaIngressControl } from '@/components/wotbot/media-ingress-control';
-import { MessageViewWithWotSummary } from '@/components/wotbot/wot-interaction-summary';
 import { WelcomeScreen } from '@/components/wotbot/welcome-screen';
 import { SiteHeader } from '@/components/site-header';
 import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
-import { useMediaIngressSession } from '@/hooks/use-media-ingress-session';
+import {
+  useMediaIngressSession,
+  type MediaIngressSession,
+} from '@/hooks/use-media-ingress-session';
 import { type ChatSummary } from '@/lib/chat-list-cache';
+import type { ThreadHistory } from '@/components/wotbot/assistant/use-wotbot-runtime';
+import type { LangChainMessage } from '@/lib/thread-messages';
 import type { ReasoningEffortConfig } from '@/lib/reasoning-effort';
+
+/**
+ * Owns the stream for one thread.
+ *
+ * Split out so it can be remounted by key: `useStream` holds the message list,
+ * and after live mode has appended turns through LiveKit the only way to adopt
+ * them is to rebuild the stream from freshly loaded history.
+ */
+function ChatStream({
+  chatId,
+  initialValues,
+  mediaSession,
+  onThreadUpdated,
+  reasoningEffortConfig,
+}: {
+  chatId: string;
+  initialValues: ThreadHistory['values'];
+  mediaSession: MediaIngressSession;
+  onThreadUpdated: () => void;
+  reasoningEffortConfig: ReasoningEffortConfig;
+}) {
+  const [reasoningEffort, setReasoningEffort] = useState<string | undefined>();
+
+  const handleLevelChange = useCallback((level: string | null) => {
+    setReasoningEffort(level ?? undefined);
+  }, []);
+
+  const { isRecovering, rerunConfirmation, retryRecovery, runError, runtime } =
+    useWotbotRuntime({
+      threadId: chatId,
+      initialValues,
+      reasoningEffort,
+      onThreadUpdated,
+    });
+
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <WotbotThread
+        actionSlot={
+          <ReasoningEffortSelect
+            config={reasoningEffortConfig}
+            onLevelChange={handleLevelChange}
+          />
+        }
+        className="wotbot-chat flex-1"
+        emptyState={<WelcomeScreen historyLoaded />}
+        emptyComposerSlot={<MediaIngressControl session={mediaSession} />}
+        error={runError}
+        isRetrying={isRecovering}
+        onRetry={() => void retryRecovery()}
+        placeholder="Ask me anything..."
+        rerunConfirmation={rerunConfirmation}
+      />
+    </AssistantRuntimeProvider>
+  );
+}
+
+/** Waits for history before mounting the stream, which latches it at mount. */
+function ChatSurface({
+  onHistorySettled,
+  settleAfterLive,
+  ...streamProps
+}: {
+  chatId: string;
+  mediaSession: MediaIngressSession;
+  onHistorySettled: () => void;
+  onThreadUpdated: () => void;
+  reasoningEffortConfig: ReasoningEffortConfig;
+  settleAfterLive: boolean;
+}) {
+  const history = useThreadHistory(streamProps.chatId, {
+    onSettled: onHistorySettled,
+    settleAfterLive,
+  });
+
+  if (!history.loaded) {
+    return <WelcomeScreen historyLoaded={false} />;
+  }
+  if (history.error) {
+    return (
+      <div className="grid min-h-0 flex-1 place-items-center px-3">
+        <ThreadErrorNotice
+          className="w-full max-w-xl"
+          message={history.error}
+          onRetry={history.reload}
+        />
+      </div>
+    );
+  }
+
+  return <ChatStream {...streamProps} initialValues={history.values} />;
+}
 
 export function FullChatExperience({
   chatId,
@@ -40,129 +131,84 @@ export function FullChatExperience({
   handleNewChat: () => Promise<ChatSummary | null>;
   reasoningEffortConfig: ReasoningEffortConfig;
 }) {
-  const [loadedChatId, setLoadedChatId] = useState<string | null>(null);
   const [sidebarRefreshToken, setSidebarRefreshToken] = useState(0);
-  const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
-  const [liveMessages, setLiveMessages] = useState<Message[]>([]);
-  const wasLiveModeRef = useRef(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [settleHistoryChatId, setSettleHistoryChatId] = useState<string | null>(
+    null,
+  );
+  const [liveHistory, setLiveHistory] = useState<{
+    chatId: string;
+    messages: LangChainMessage[];
+  } | null>(null);
   const mediaSession = useMediaIngressSession(chatId);
+
   const handleSidebarRefresh = useCallback(() => {
     setSidebarRefreshToken((current) => current + 1);
   }, []);
-  const historyLoaded = loadedChatId === chatId;
+  const handleHistorySettled = useCallback(() => {
+    setSettleHistoryChatId((current) => (current === chatId ? null : current));
+  }, [chatId]);
 
   const breadcrumbs = useMemo(() => [{ label: 'Chat', href: '/chat' }], []);
-  const chatLabels = useMemo(
-    () => ({ chatInputPlaceholder: 'Ask me anything...' }),
-    [],
-  );
-  const renderWelcomeScreen = useCallback(
-    (props: Record<string, unknown>) => (
-      <WelcomeScreen {...props} historyLoaded={historyLoaded} />
-    ),
-    [historyLoaded],
-  );
-  const chatInput = useMemo(() => {
-    function FullInput(props: CopilotChatInputProps) {
-      // While the composer is empty and idle, the send button's slot shows
-      // the voice/video call toggle instead (merged, ChatGPT-style); as soon
-      // as there's a draft, or a response is in flight (so Stop stays
-      // reachable), it swaps back to send/stop. Once a call connects,
-      // showLiveMode below swaps out this whole composer, so there's no
-      // "active call" state to reconcile with send here.
-      const showSendButton = Boolean(props.value?.trim()) || props.isRunning;
-
-      return (
-        <CopilotChatInput {...props} textArea={PromptTextArea}>
-          {({
-            textArea,
-            sendButton,
-            disclaimer,
-          }: {
-            textArea: ReactElement;
-            sendButton: ReactElement;
-            disclaimer: ReactElement;
-          }) => (
-            <div className="mx-auto w-full max-w-3xl px-4 pb-4">
-              <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
-                <div
-                  className="min-h-16"
-                  onKeyDownCapture={blockSubmitWhileRunning(props.isRunning)}
-                >
-                  {textArea}
-                </div>
-                <div className="flex items-center justify-end gap-2 border-t border-border pt-2">
-                  <ReasoningEffortSelect config={reasoningEffortConfig} />
-                  {showSendButton ? (
-                    sendButton
-                  ) : (
-                    // Matches CopilotKit's own SendButton footprint exactly
-                    // (a 36px `h-9 w-9` circle in a `mr-[10px]` wrapper) so
-                    // swapping between the two doesn't shift the row.
-                    <div className="mr-[10px]">
-                      <MediaIngressControl
-                        session={mediaSession}
-                        size="icon-lg"
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-              {disclaimer}
-            </div>
-          )}
-        </CopilotChatInput>
-      );
-    }
-
-    return Object.assign(FullInput, {
-      AddMenuButton: CopilotChatInput.AddMenuButton,
-      AudioRecorder: CopilotChatInput.AudioRecorder,
-      CancelTranscribeButton: CopilotChatInput.CancelTranscribeButton,
-      Disclaimer: CopilotChatInput.Disclaimer,
-      FinishTranscribeButton: CopilotChatInput.FinishTranscribeButton,
-      SendButton: CopilotChatInput.SendButton,
-      StartTranscribeButton: CopilotChatInput.StartTranscribeButton,
-      TextArea: CopilotChatInput.TextArea,
-      ToolbarButton: CopilotChatInput.ToolbarButton,
-    });
-  }, [mediaSession, reasoningEffortConfig]);
   const showLiveMode = mediaSession.state !== 'idle';
+
+  // Adjust-during-render rather than an effect: leaving live mode must remount
+  // the chat surface so it reloads the turns LiveKit appended, and doing that
+  // in an effect would render the stale thread for a frame first.
+  const [wasLiveMode, setWasLiveMode] = useState(showLiveMode);
+  if (wasLiveMode !== showLiveMode) {
+    setWasLiveMode(showLiveMode);
+    if (!showLiveMode) {
+      setSettleHistoryChatId(chatId);
+      setHistoryVersion((version) => version + 1);
+    }
+  }
+  const liveMessages = useMemo(
+    () => (liveHistory?.chatId === chatId ? liveHistory.messages : []),
+    [chatId, liveHistory],
+  );
   const liveArtifacts = useMemo(
-    () => getLatestTurnArtifacts(liveMessages),
+    () => latestTurnArtifacts(liveMessages),
     [liveMessages],
   );
 
+  // Live mode drives the same thread over LiveKit rather than through this
+  // stream, so its turns are only visible by re-reading the thread. Poll while
+  // it runs to keep the artifact panel current, then remount the chat surface
+  // on exit so the text thread adopts everything that was said.
   useEffect(() => {
     if (!showLiveMode) {
-      if (wasLiveModeRef.current) {
-        const refreshFrame = window.requestAnimationFrame(() => {
-          setHistoryRefreshToken((current) => current + 1);
-        });
-        wasLiveModeRef.current = false;
-        return () => window.cancelAnimationFrame(refreshFrame);
-      }
-      wasLiveModeRef.current = false;
       return;
     }
 
-    wasLiveModeRef.current = true;
-    const interval = window.setInterval(() => {
-      setHistoryRefreshToken((current) => current + 1);
-    }, 2500);
-    return () => window.clearInterval(interval);
-  }, [showLiveMode]);
+    let cancelled = false;
+
+    const poll = () => {
+      void fetch(`/api/chat/${encodeURIComponent(chatId)}/state`)
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data: { values?: { messages?: LangChainMessage[] } } | null) => {
+          if (!cancelled) {
+            setLiveHistory({
+              chatId,
+              messages: data?.values?.messages ?? [],
+            });
+          }
+        })
+        .catch(() => {
+          // Best-effort: a missed poll just delays the artifact panel.
+        });
+    };
+
+    poll();
+    const interval = window.setInterval(poll, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [chatId, showLiveMode]);
 
   return (
     <SidebarProvider className="relative h-dvh overflow-hidden text-foreground">
-      <ChatAgentSync
-        chatId={chatId}
-        onHistoryLoaded={setLoadedChatId}
-        onMessagesLoaded={setLiveMessages}
-        onThreadUpdated={handleSidebarRefresh}
-        refreshToken={historyRefreshToken}
-      />
-
       <AppSidebar
         activeChatId={chatId}
         onNewChat={handleNewChat}
@@ -187,14 +233,14 @@ export function FullChatExperience({
           {showLiveMode ? (
             <LiveModePanel artifacts={liveArtifacts} session={mediaSession} />
           ) : (
-            <CopilotChat
-              agentId="wotbot"
-              threadId={chatId}
-              className="wotbot-chat flex-1"
-              input={chatInput}
-              labels={chatLabels}
-              messageView={MessageViewWithWotSummary}
-              welcomeScreen={renderWelcomeScreen}
+            <ChatSurface
+              key={`${chatId}:${historyVersion}`}
+              chatId={chatId}
+              mediaSession={mediaSession}
+              onHistorySettled={handleHistorySettled}
+              onThreadUpdated={handleSidebarRefresh}
+              reasoningEffortConfig={reasoningEffortConfig}
+              settleAfterLive={settleHistoryChatId === chatId}
             />
           )}
         </div>
