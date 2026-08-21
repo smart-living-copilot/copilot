@@ -63,16 +63,16 @@ function ChatStream({
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <WotbotThread
-        className="wotbot-chat flex-1"
-        composerSlot={
+        actionSlot={
           <ReasoningEffortSelect
             config={reasoningEffortConfig}
             onLevelChange={handleLevelChange}
           />
         }
+        className="wotbot-chat flex-1"
         emptyState={<WelcomeScreen historyLoaded />}
+        emptyComposerSlot={<MediaIngressControl session={mediaSession} />}
         placeholder="Ask me anything..."
-        sendSlot={<MediaIngressControl session={mediaSession} size="icon-lg" />}
       />
     </AssistantRuntimeProvider>
   );

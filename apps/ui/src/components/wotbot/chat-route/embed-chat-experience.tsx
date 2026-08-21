@@ -109,8 +109,8 @@ function EmbedStream({
     <AssistantRuntimeProvider runtime={runtime}>
       <WotbotThread
         className="wotbot-chat embed-chat-frame flex-1"
-        composerSlot={<MediaIngressControl session={mediaSession} />}
         emptyState={<WelcomeScreen historyLoaded />}
+        emptyComposerSlot={<MediaIngressControl session={mediaSession} />}
       />
     </AssistantRuntimeProvider>
   );

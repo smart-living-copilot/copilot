@@ -42,7 +42,7 @@ import { cn } from '@/lib/utils';
  * someone else's.
  */
 
-/** Whether the composer holds a draft, deciding Send vs. the call button. */
+/** Whether the composer holds a draft, deciding Send vs. the live-mode button. */
 const hasDraft = (state: { thread: { composer: { text: string } } }) =>
   Boolean(state.thread.composer.text.trim());
 
@@ -219,22 +219,22 @@ function AssistantMessage() {
 }
 
 export function WotbotThread({
+  actionSlot,
   className,
-  composerSlot,
   emptyState,
+  emptyComposerSlot,
   footer,
   placeholder = 'Type your message...',
-  sendSlot,
 }: {
+  /** Controls rendered immediately before the shared Voice/Send slot. */
+  actionSlot?: ReactNode;
   className?: string;
-  /** Extra controls in the composer toolbar (voice, reasoning effort, ...). */
-  composerSlot?: ReactNode;
   emptyState?: ReactNode;
+  /** Replaces Send while the composer has no draft (for example, Live mode). */
+  emptyComposerSlot?: ReactNode;
   /** Replaces the composer entirely, for read-only transcripts. */
   footer?: ReactNode;
   placeholder?: string;
-  /** Replaces the Send button while the composer is empty and idle. */
-  sendSlot?: ReactNode;
 }) {
   return (
     <ThreadPrimitive.Root className={cn('flex min-h-0 flex-col', className)}>
@@ -275,37 +275,32 @@ export function WotbotThread({
               placeholder={placeholder}
               rows={2}
             />
-            <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
-              <div className="flex items-center gap-2">{composerSlot}</div>
-
+            <div className="flex items-center justify-end gap-2 border-t border-border pt-2">
               {/* Send and Stop share a slot: the primitives render whichever
                 matches the thread's running state. */}
               <div className="flex items-center gap-2">
                 <ThreadPrimitive.If running={false}>
-                  {sendSlot ? (
+                  {actionSlot}
+                  {emptyComposerSlot ? (
                     <>
                       <AuiIf condition={hasDraft}>
                         <ComposerPrimitive.Send asChild>
-                          <Button size="sm" type="submit">
-                            Send
-                          </Button>
+                          <Button type="submit">Send</Button>
                         </ComposerPrimitive.Send>
                       </AuiIf>
                       <AuiIf condition={(state) => !hasDraft(state)}>
-                        {sendSlot}
+                        {emptyComposerSlot}
                       </AuiIf>
                     </>
                   ) : (
                     <ComposerPrimitive.Send asChild>
-                      <Button size="sm" type="submit">
-                        Send
-                      </Button>
+                      <Button type="submit">Send</Button>
                     </ComposerPrimitive.Send>
                   )}
                 </ThreadPrimitive.If>
                 <ThreadPrimitive.If running>
                   <ComposerPrimitive.Cancel asChild>
-                    <Button size="sm" variant="secondary" type="button">
+                    <Button variant="secondary" type="button">
                       <Square className="mr-1 size-3" />
                       Stop
                     </Button>
