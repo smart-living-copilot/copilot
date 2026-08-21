@@ -1,3 +1,5 @@
+import { WOT_SUMMARY_NAME } from '@/lib/thread-messages';
+
 type AssistantMessageActionState = {
   message: {
     content: readonly {
@@ -24,8 +26,10 @@ type RetryMessage = {
   content:
     | string
     | readonly {
+        args?: unknown;
         type: string;
         text?: string;
+        toolName?: string;
       }[];
 };
 
@@ -33,6 +37,26 @@ export type RetryTarget = {
   sourceId: string | null;
   text: string;
 };
+
+const DEVICE_CHANGE_TYPES = new Set(['invoke_action', 'write_property']);
+
+function retryUserMessageIndex(
+  messages: readonly RetryMessage[],
+  parentId: string | null,
+): number {
+  const parentIndex = messages.findIndex((message) => message.id === parentId);
+  if (parentIndex < 0) {
+    return -1;
+  }
+
+  for (let index = parentIndex; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'user') {
+      return index;
+    }
+  }
+
+  return -1;
+}
 
 /** Only settled assistant responses with visible text and no tool calls get actions. */
 export function hasAssistantResponseActions(
@@ -66,30 +90,75 @@ export function findRetryTarget(
   messages: readonly RetryMessage[],
   parentId: string | null,
 ): RetryTarget | null {
-  const parentIndex = messages.findIndex((message) => message.id === parentId);
-  if (parentIndex < 0) {
+  const userIndex = retryUserMessageIndex(messages, parentId);
+  if (userIndex < 0) {
     return null;
   }
 
-  for (let index = parentIndex; index >= 0; index -= 1) {
+  const message = messages[userIndex];
+  if (!message) return null;
+  const text =
+    typeof message.content === 'string'
+      ? message.content.trim()
+      : message.content
+          .filter(
+            (part): part is { type: 'text'; text: string } =>
+              part.type === 'text' && typeof part.text === 'string',
+          )
+          .map((part) => part.text)
+          .join('\n')
+          .trim();
+  return text ? { sourceId: message.id ?? null, text } : null;
+}
+
+/** Counts successful physical changes anywhere in the turn being regenerated. */
+export function countDeviceChangesForRetry(
+  messages: readonly RetryMessage[],
+  parentId: string | null,
+): number {
+  const userIndex = retryUserMessageIndex(messages, parentId);
+  if (userIndex < 0) {
+    return 0;
+  }
+
+  let count = 0;
+  for (let index = userIndex + 1; index < messages.length; index += 1) {
     const message = messages[index];
-    if (message?.role !== 'user') {
+    if (!message || message.role === 'user') {
+      break;
+    }
+    if (typeof message.content === 'string') {
       continue;
     }
 
-    const text =
-      typeof message.content === 'string'
-        ? message.content.trim()
-        : message.content
-            .filter(
-              (part): part is { type: 'text'; text: string } =>
-                part.type === 'text' && typeof part.text === 'string',
-            )
-            .map((part) => part.text)
-            .join('\n')
-            .trim();
-    return text ? { sourceId: message.id ?? null, text } : null;
+    for (const part of message.content) {
+      if (part.type !== 'tool-call' || part.toolName !== WOT_SUMMARY_NAME) {
+        continue;
+      }
+      const args =
+        part.args && typeof part.args === 'object' && !Array.isArray(part.args)
+          ? (part.args as { interactions?: unknown }).interactions
+          : undefined;
+      if (!Array.isArray(args)) {
+        continue;
+      }
+      count += args.filter((interaction) => {
+        if (
+          !interaction ||
+          typeof interaction !== 'object' ||
+          Array.isArray(interaction)
+        ) {
+          return false;
+        }
+        const candidate = interaction as { ok?: unknown; type?: unknown };
+        return (
+          candidate.ok !== false &&
+          typeof candidate.type === 'string' &&
+          DEVICE_CHANGE_TYPES.has(candidate.type)
+        );
+      }).length;
+    }
   }
 
-  return null;
+  return count;
 }

@@ -182,16 +182,20 @@ export function formatToolCount(count: number) {
 export function formatToolStatusSummary({
   completeCount,
   count,
+  errorCount = 0,
   executingCount,
   inProgressCount,
 }: {
   completeCount: number;
   count: number;
+  errorCount?: number;
   executingCount: number;
   inProgressCount: number;
 }) {
   if (completeCount === count) {
-    return 'Finished';
+    return errorCount
+      ? `Finished with ${errorCount} error${errorCount === 1 ? '' : 's'}`
+      : 'Finished';
   }
 
   const parts = [];
@@ -201,8 +205,12 @@ export function formatToolStatusSummary({
   if (inProgressCount) {
     parts.push(`${inProgressCount} preparing`);
   }
-  if (completeCount) {
-    parts.push(`${completeCount} complete`);
+  if (errorCount) {
+    parts.push(`${errorCount} failed`);
+  }
+  const successfulCount = Math.max(0, completeCount - errorCount);
+  if (successfulCount) {
+    parts.push(`${successfulCount} complete`);
   }
 
   return parts.join(' • ') || 'Working';

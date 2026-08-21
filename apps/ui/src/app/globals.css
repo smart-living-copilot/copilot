@@ -141,6 +141,24 @@ body {
   scrollbar-color: oklch(0.81 0.02 238.33) transparent;
 }
 
+/* Touch interfaces have no hover state, so chat actions stay discoverable.
+   Fine-pointer devices retain the quieter reveal-on-hover treatment. */
+.wotbot-message-actions {
+  opacity: 1;
+  transition: opacity 150ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .wotbot-message-actions {
+    opacity: 0;
+  }
+
+  .wotbot-message:hover .wotbot-message-actions,
+  .wotbot-message-actions:focus-within {
+    opacity: 1;
+  }
+}
+
 .dark * {
   scrollbar-color: oklch(0.35 0.02 240) transparent;
 }

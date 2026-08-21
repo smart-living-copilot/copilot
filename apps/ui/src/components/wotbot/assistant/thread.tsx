@@ -31,6 +31,7 @@ import {
 import { markdownRemarkPlugins } from '@/components/wotbot/assistant/markdown';
 import { WotbotToolCall } from '@/components/wotbot/assistant/tool-ui';
 import { ThinkingIndicator } from '@/components/elements/thinking-indicator';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -128,13 +129,13 @@ function BranchPicker({ className }: { className?: string }) {
 
 function UserMessage() {
   return (
-    <MessagePrimitive.Root className="group flex w-full flex-col items-end py-2">
+    <MessagePrimitive.Root className="wotbot-message flex w-full flex-col items-end py-2">
       <div className="flex w-full items-center justify-end gap-1">
         {/* Editing forks the thread server-side, so the old answer is replaced
             rather than left sitting next to the new one. */}
         <ActionBarPrimitive.Root
           autohide="never"
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+          className="wotbot-message-actions"
         >
           <ActionBarPrimitive.Edit asChild>
             <Button aria-label="Edit message" size="icon" variant="ghost">
@@ -186,7 +187,7 @@ function SystemMessage() {
 
 function AssistantMessage() {
   return (
-    <MessagePrimitive.Root className="group flex w-full flex-col items-start py-2">
+    <MessagePrimitive.Root className="wotbot-message flex w-full flex-col items-start py-2">
       <div className="w-full min-w-0 text-foreground">
         <MessagePrimitive.Parts components={assistantComponents} />
       </div>
@@ -194,7 +195,7 @@ function AssistantMessage() {
         <AuiIf condition={hasAssistantResponseActions}>
           <ActionBarPrimitive.Root
             autohide="never"
-            className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+            className="wotbot-message-actions flex items-center gap-1"
           >
             <ActionBarPrimitive.Copy asChild>
               <Button aria-label="Copy response" size="icon" variant="ghost">
@@ -271,6 +272,7 @@ export function WotbotThread({
   isRetrying,
   onRetry,
   placeholder = 'Type your message...',
+  rerunConfirmation,
 }: {
   /** Controls rendered immediately before the shared Voice/Send slot. */
   actionSlot?: ReactNode;
@@ -284,9 +286,39 @@ export function WotbotThread({
   isRetrying?: boolean;
   onRetry?: () => void;
   placeholder?: string;
+  rerunConfirmation?: {
+    deviceChangeCount: number;
+    kind: 'edit' | 'regenerate';
+    onCancel: () => void;
+    onConfirm: () => Promise<void>;
+  } | null;
 }) {
+  const deviceChangeCount = rerunConfirmation?.deviceChangeCount ?? 0;
+  const rerunAction =
+    rerunConfirmation?.kind === 'edit'
+      ? 'Saving this edit'
+      : 'Regenerating this response';
+
   return (
     <ThreadPrimitive.Root className={cn('flex min-h-0 flex-col', className)}>
+      {rerunConfirmation ? (
+        <ConfirmDialog
+          confirmLabel={
+            rerunConfirmation.kind === 'edit'
+              ? 'Save and run again'
+              : 'Regenerate anyway'
+          }
+          description={`${rerunAction} runs the turn again and may repeat ${deviceChangeCount} successful device-changing interaction${deviceChangeCount === 1 ? '' : 's'}. Continue only if repeating those changes is safe.`}
+          destructive
+          onConfirm={rerunConfirmation.onConfirm}
+          onOpenChange={(open) => {
+            if (!open) rerunConfirmation.onCancel();
+          }}
+          open
+          title="Repeat device changes?"
+        />
+      ) : null}
+
       <ThreadPrimitive.Viewport className="relative flex min-h-0 flex-1 flex-col overflow-y-auto px-3">
         {emptyState ? (
           <ThreadPrimitive.Empty>{emptyState}</ThreadPrimitive.Empty>

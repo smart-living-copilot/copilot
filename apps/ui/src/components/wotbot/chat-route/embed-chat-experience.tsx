@@ -74,8 +74,15 @@ function EmbedStream({
   prefillRequest: EmbedChatPrefillRequest | null;
   submittedPrefillIdsRef: { current: Set<number> };
 }) {
-  const { isRecovering, retryRecovery, runError, runtime, stream, submitText } =
-    useWotbotRuntime({ threadId: chatId, initialValues: history.values });
+  const {
+    isRecovering,
+    rerunConfirmation,
+    retryRecovery,
+    runError,
+    runtime,
+    stream,
+    submitText,
+  } = useWotbotRuntime({ threadId: chatId, initialValues: history.values });
 
   // Applies a queued prefill to the composer, and submits it when asked.
   useEffect(() => {
@@ -115,6 +122,7 @@ function EmbedStream({
         error={runError}
         isRetrying={isRecovering}
         onRetry={() => void retryRecovery()}
+        rerunConfirmation={rerunConfirmation}
       />
     </AssistantRuntimeProvider>
   );

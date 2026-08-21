@@ -5,6 +5,7 @@ import type { LangChainMessage } from '@/lib/thread-messages';
 
 import {
   buildToolCallProps,
+  formatToolStatusSummary,
   getGroupedToolCalls,
   isFirstToolOnlyMessageInGroup,
 } from './grouped-tool-call-model';
@@ -104,4 +105,40 @@ test('keeps complete tool args and results in renderer props', () => {
   assert.deepEqual(props.args, { query: 'temperature' });
   assert.equal(props.result, '{"result":"22 C"}');
   assert.equal(props.status, 'complete');
+});
+
+test('summarizes a settled tool group with errors accurately', () => {
+  assert.equal(
+    formatToolStatusSummary({
+      completeCount: 3,
+      count: 3,
+      errorCount: 1,
+      executingCount: 0,
+      inProgressCount: 0,
+    }),
+    'Finished with 1 error',
+  );
+  assert.equal(
+    formatToolStatusSummary({
+      completeCount: 3,
+      count: 3,
+      errorCount: 2,
+      executingCount: 0,
+      inProgressCount: 0,
+    }),
+    'Finished with 2 errors',
+  );
+});
+
+test('separates failed and successful tools while a group is running', () => {
+  assert.equal(
+    formatToolStatusSummary({
+      completeCount: 2,
+      count: 4,
+      errorCount: 1,
+      executingCount: 1,
+      inProgressCount: 1,
+    }),
+    '1 running • 1 preparing • 1 failed • 1 complete',
+  );
 });

@@ -106,60 +106,73 @@ function ToolCallGroup({
   calls: GroupedToolCall[];
   groupStatus: ToolCallMessagePartProps['status'];
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isManuallyExpanded, setIsManuallyExpanded] = useState(false);
+  const [shouldAutoExpandError, setShouldAutoExpandError] = useState(true);
 
-  const { hasError, renderedArtifacts, renderedTools, statusCounts } =
-    useMemo(() => {
-      const renderedTools: ReactNode[] = [];
-      const renderedArtifacts: ReactNode[] = [];
-      const statusCounts = createToolStatusCounts();
-      let hasError = false;
+  const {
+    errorCount,
+    hasError,
+    renderedArtifacts,
+    renderedTools,
+    statusCounts,
+  } = useMemo(() => {
+    const renderedTools: ReactNode[] = [];
+    const renderedArtifacts: ReactNode[] = [];
+    const statusCounts = createToolStatusCounts();
+    let errorCount = 0;
 
-      for (const call of calls) {
-        const props: CatchAllToolCallRenderProps = {
-          args: call.args,
-          name: call.name,
-          result: call.result,
-          status: toCardStatus(call, groupStatus),
-        };
-        statusCounts[props.status] += 1;
-        const isComplete = props.status === 'complete';
+    for (const call of calls) {
+      const props: CatchAllToolCallRenderProps = {
+        args: call.args,
+        name: call.name,
+        result: call.result,
+        status: toCardStatus(call, groupStatus),
+      };
+      statusCounts[props.status] += 1;
+      const isComplete = props.status === 'complete';
+      let callHasError = call.isError === true;
 
-        if (call.name === 'run_code') {
-          const result = isComplete ? normalizeRunCodeResult(props.result) : {};
-          hasError = hasError || Boolean(result.error);
-          renderedTools.push(<SingleToolCard key={call.id} {...props} />);
-          if (isComplete && result.artifacts?.length) {
-            renderedArtifacts.push(
-              <RunCodeArtifacts key={`${call.id}-artifacts`} result={result} />,
-            );
-          }
-          continue;
+      if (call.name === 'run_code') {
+        const result = isComplete ? normalizeRunCodeResult(props.result) : {};
+        callHasError = callHasError || Boolean(result.error);
+        renderedTools.push(<SingleToolCard key={call.id} {...props} />);
+        if (isComplete && result.artifacts?.length) {
+          renderedArtifacts.push(
+            <RunCodeArtifacts key={`${call.id}-artifacts`} result={result} />,
+          );
         }
-
-        if (call.name === 'create_web_interface') {
-          const parsed = isComplete
-            ? normalizeWebInterfaceResult(props.result)
-            : {};
-          hasError = hasError || Boolean(parsed.error);
-          renderedTools.push(<SingleToolCard key={call.id} {...props} />);
-          if (isComplete && parsed.artifact) {
-            renderedArtifacts.push(
-              <WebInterfaceArtifactView
-                key={`${call.id}-interface`}
-                artifact={enrichArtifactForPinning(parsed.artifact, props.args)}
-              />,
-            );
-          }
-          continue;
+      } else if (call.name === 'create_web_interface') {
+        const parsed = isComplete
+          ? normalizeWebInterfaceResult(props.result)
+          : {};
+        callHasError = callHasError || Boolean(parsed.error);
+        renderedTools.push(<SingleToolCard key={call.id} {...props} />);
+        if (isComplete && parsed.artifact) {
+          renderedArtifacts.push(
+            <WebInterfaceArtifactView
+              key={`${call.id}-interface`}
+              artifact={enrichArtifactForPinning(parsed.artifact, props.args)}
+            />,
+          );
         }
-
-        hasError = hasError || hasErrorResult(props.result);
+      } else {
+        callHasError = callHasError || hasErrorResult(props.result);
         renderedTools.push(<SingleToolCard key={call.id} {...props} />);
       }
 
-      return { hasError, renderedArtifacts, renderedTools, statusCounts };
-    }, [calls, groupStatus]);
+      if (callHasError) {
+        errorCount += 1;
+      }
+    }
+
+    return {
+      errorCount,
+      hasError: errorCount > 0,
+      renderedArtifacts,
+      renderedTools,
+      statusCounts,
+    };
+  }, [calls, groupStatus]);
 
   const toolCount = calls.length;
   if (!toolCount) {
@@ -167,16 +180,26 @@ function ToolCallGroup({
   }
 
   const isComplete = statusCounts.complete === toolCount;
+  // A failure opens the group as soon as it arrives. Once the user explicitly
+  // collapses it, keep respecting that choice instead of forcing it back open.
+  const isExpanded = isManuallyExpanded || (hasError && shouldAutoExpandError);
+  const handleExpandedChange = (open: boolean) => {
+    setIsManuallyExpanded(open);
+    if (hasError && !open) {
+      setShouldAutoExpandError(false);
+    }
+  };
   const summary = formatToolStatusSummary({
     completeCount: statusCounts.complete,
     count: toolCount,
+    errorCount,
     executingCount: statusCounts.executing,
     inProgressCount: statusCounts.inProgress,
   });
 
   return (
     <div className="my-1 space-y-2">
-      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+      <Collapsible open={isExpanded} onOpenChange={handleExpandedChange}>
         <div className="rounded-md border border-border/50 bg-muted/20">
           <CollapsibleTrigger asChild>
             <Button

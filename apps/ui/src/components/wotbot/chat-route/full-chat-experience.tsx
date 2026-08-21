@@ -56,12 +56,13 @@ function ChatStream({
     setReasoningEffort(level ?? undefined);
   }, []);
 
-  const { isRecovering, retryRecovery, runError, runtime } = useWotbotRuntime({
-    threadId: chatId,
-    initialValues,
-    reasoningEffort,
-    onThreadUpdated,
-  });
+  const { isRecovering, rerunConfirmation, retryRecovery, runError, runtime } =
+    useWotbotRuntime({
+      threadId: chatId,
+      initialValues,
+      reasoningEffort,
+      onThreadUpdated,
+    });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -79,6 +80,7 @@ function ChatStream({
         isRetrying={isRecovering}
         onRetry={() => void retryRecovery()}
         placeholder="Ask me anything..."
+        rerunConfirmation={rerunConfirmation}
       />
     </AssistantRuntimeProvider>
   );

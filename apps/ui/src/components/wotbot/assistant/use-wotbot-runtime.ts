@@ -11,7 +11,11 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import { findRetryTarget } from '@/components/wotbot/assistant/message-actions';
+import {
+  countDeviceChangesForRetry,
+  findRetryTarget,
+  type RetryTarget,
+} from '@/components/wotbot/assistant/message-actions';
 import {
   buildTextSubmission,
   type WotbotState,
@@ -49,6 +53,11 @@ export type ThreadHistory = {
 };
 
 const EMPTY_HISTORY: WotbotState = { messages: [] };
+
+type PendingRerun = RetryTarget & {
+  deviceChangeCount: number;
+  kind: 'edit' | 'regenerate';
+};
 
 /**
  * Loads a thread's persisted state.
@@ -153,6 +162,7 @@ export function useWotbotRuntime({
     null,
   );
   const [runError, setRunError] = useState<string | null>(null);
+  const [pendingRerun, setPendingRerun] = useState<PendingRerun | null>(null);
 
   const reconcileThreadState = useCallback(async () => {
     const generation = recoveryGenerationRef.current + 1;
@@ -284,6 +294,33 @@ export function useWotbotRuntime({
     [submitText, threadId],
   );
 
+  const rerunWithSafetyCheck = useCallback(
+    async ({
+      kind,
+      parentId,
+      target,
+    }: {
+      kind: PendingRerun['kind'];
+      parentId: string | null;
+      target: RetryTarget;
+    }) => {
+      const deviceChangeCount = countDeviceChangesForRetry(messages, parentId);
+      if (deviceChangeCount > 0) {
+        setPendingRerun({ ...target, deviceChangeCount, kind });
+        return;
+      }
+      await editAndResubmit(target.sourceId, target.text);
+    },
+    [editAndResubmit, messages],
+  );
+
+  const confirmRerun = useCallback(async () => {
+    if (!pendingRerun) return;
+    await editAndResubmit(pendingRerun.sourceId, pendingRerun.text);
+  }, [editAndResubmit, pendingRerun]);
+
+  const dismissRerun = useCallback(() => setPendingRerun(null), []);
+
   const cancel = useCallback(async () => {
     await stream.stop();
     try {
@@ -322,12 +359,24 @@ export function useWotbotRuntime({
       submitText(appendedText(message.content));
     },
     onEdit: async (message) => {
-      await editAndResubmit(message.sourceId, appendedText(message.content));
+      const target = {
+        sourceId: message.sourceId,
+        text: appendedText(message.content),
+      };
+      await rerunWithSafetyCheck({
+        kind: 'edit',
+        parentId: message.sourceId,
+        target,
+      });
     },
     onReload: async (parentId) => {
       const target = findRetryTarget(messages, parentId);
       if (target) {
-        await editAndResubmit(target.sourceId, target.text);
+        await rerunWithSafetyCheck({
+          kind: 'regenerate',
+          parentId,
+          target,
+        });
       } else {
         toast.error('Could not find the turn to regenerate.');
       }
@@ -337,6 +386,14 @@ export function useWotbotRuntime({
 
   return {
     isRecovering,
+    rerunConfirmation: pendingRerun
+      ? {
+          deviceChangeCount: pendingRerun.deviceChangeCount,
+          kind: pendingRerun.kind,
+          onCancel: dismissRerun,
+          onConfirm: confirmRerun,
+        }
+      : null,
     retryRecovery,
     runError,
     runtime,
