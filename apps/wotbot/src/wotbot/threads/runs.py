@@ -19,6 +19,7 @@ so that payload must serialize as a 2-element array, never a bare message.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager, suppress
@@ -26,7 +27,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    ToolMessage,
+)
 from langgraph.types import Command
 
 from wotbot.core.sse import format_sse_error, format_sse_event
@@ -40,6 +47,11 @@ logger = logging.getLogger(__name__)
 # they dominate payload size on graphs with large state.
 RUN_STREAM_MODES: tuple[str, ...] = ("values", "messages", "updates", "custom")
 _INTERRUPTED_TURN_NOTICE = "The response was interrupted before it finished. Try asking again."
+# Stands in for a tool result that never arrived. Without it the call has no
+# result forever, and the UI renders it as still executing on every reload.
+_STOPPED_TOOL_RESULT = json.dumps(
+    {"status": "stopped", "reason": "run_interrupted"}, separators=(",", ":")
+)
 _CONCURRENT_RUN_NOTICE = "A response is already running for this thread."
 
 
@@ -168,6 +180,63 @@ class _PartialAssistantText:
         return "".join(self._parts).strip()
 
 
+def _interrupted_turn_updates(
+    messages: Sequence[Any],
+    *,
+    partial_text: str = "",
+) -> list[BaseMessage]:
+    """Messages that close the last user turn, or ``[]`` if it is already closed.
+
+    A cancelled run can leave the checkpoint in more than one unfinished shape,
+    because LangGraph checkpoints after every node:
+
+    * ``[... Human]`` -- stopped before the model answered.
+    * ``[... Human, AI(tool_calls)]`` -- stopped between the model and the tool
+      node, so the calls have no results.
+    * ``[... Human, AI(tool_calls), Tool]`` -- tools ran, but the final answer
+      never arrived.
+
+    Only the first was handled before, so the other two survived a reload as a
+    turn that never ends -- and an unanswered call renders as permanently
+    executing, since the UI derives that status from a missing result.
+
+    Pairing the unanswered calls is for display only; the prompt is already
+    protected by ``_sanitize_message_sequence`` in ``agent/nodes.py``.
+    """
+    last_human = next(
+        (
+            index
+            for index in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[index], HumanMessage)
+        ),
+        None,
+    )
+    if last_human is None:
+        return []
+
+    turn = messages[last_human + 1 :]
+    # An assistant message with no tool calls ends the turn. Checking this
+    # rather than the last message alone keeps the repair idempotent, so the
+    # proactive and reactive callers can race without doubling up.
+    if any(isinstance(message, AIMessage) and not message.tool_calls for message in turn):
+        return []
+
+    resolved = {message.tool_call_id for message in turn if isinstance(message, ToolMessage)}
+    updates: list[BaseMessage] = []
+    for message in turn:
+        if not isinstance(message, AIMessage):
+            continue
+        for tool_call in message.tool_calls or ():
+            tool_call_id = tool_call.get("id")
+            if not isinstance(tool_call_id, str) or tool_call_id in resolved:
+                continue
+            resolved.add(tool_call_id)
+            updates.append(ToolMessage(content=_STOPPED_TOOL_RESULT, tool_call_id=tool_call_id))
+
+    updates.append(AIMessage(content=partial_text.strip() or _INTERRUPTED_TURN_NOTICE))
+    return updates
+
+
 async def _finalize_interrupted_run(
     graph: Any,
     thread_id: str,
@@ -178,13 +247,11 @@ async def _finalize_interrupted_run(
     config = {"configurable": {"thread_id": thread_id}}
     state = await graph.aget_state(config)
     messages = state.values.get("messages", []) if state and state.values else []
-    if not messages or not isinstance(messages[-1], HumanMessage):
+    updates = _interrupted_turn_updates(messages, partial_text=partial_text)
+    if not updates:
         return
 
-    await graph.aupdate_state(
-        config,
-        {"messages": [AIMessage(content=partial_text.strip() or _INTERRUPTED_TURN_NOTICE)]},
-    )
+    await graph.aupdate_state(config, {"messages": updates})
 
 
 async def _sync_thread_metadata(

@@ -14,13 +14,19 @@ from typing import Annotated, Any, TypedDict
 
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    HumanMessage,
+    ToolMessage,
+)
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import START, StateGraph
 from langgraph.graph.message import add_messages
 
 from wotbot.threads.runs import (
     RunRegistry,
+    _interrupted_turn_updates,
     _event_name,
     fork_before_message,
     stream_run,
@@ -175,9 +181,7 @@ async def test_graph_failure_repairs_checkpoint_before_error_is_exposed():
     async for frame in frames:
         if any(name == "error" for name, _ in _parse_sse([frame])):
             messages = (
-                await graph.aget_state(
-                    {"configurable": {"thread_id": "t-error-order"}}
-                )
+                await graph.aget_state({"configurable": {"thread_id": "t-error-order"}})
             ).values["messages"]
             assert isinstance(messages[-1], AIMessage)
             assert "interrupted" in messages[-1].content
@@ -356,3 +360,92 @@ async def test_fork_returns_false_for_unknown_message():
     assert await fork_before_message(graph=graph, thread_id="t-unknown", message_id="nope") is False
     # Untouched.
     assert len((await graph.aget_state(config)).values["messages"]) == 2
+
+
+def _tool_call(call_id: str, name: str = "run_code") -> dict[str, Any]:
+    return {"id": call_id, "name": name, "args": {}}
+
+
+def test_unfinished_turn_ending_on_a_tool_result_is_closed():
+    """Tools ran but the final answer never arrived."""
+    updates = _interrupted_turn_updates(
+        [
+            HumanMessage(content="go", id="h1"),
+            AIMessage(content="", tool_calls=[_tool_call("c1")], id="a1"),
+            ToolMessage(content='{"ok":1}', tool_call_id="c1", id="t1"),
+        ]
+    )
+
+    assert [type(message) for message in updates] == [AIMessage]
+    assert "interrupted" in updates[0].content
+
+
+def test_unanswered_tool_calls_are_paired_before_the_turn_is_closed():
+    """Stopped between the model and the tool node, so the calls have no results.
+
+    Without the stand-in results the UI derives "still executing" from the
+    missing result and shows a spinner on every reload.
+    """
+    updates = _interrupted_turn_updates(
+        [
+            HumanMessage(content="go", id="h1"),
+            AIMessage(
+                content="",
+                tool_calls=[_tool_call("c1"), _tool_call("c2")],
+                id="a1",
+            ),
+        ]
+    )
+
+    assert [type(message) for message in updates] == [
+        ToolMessage,
+        ToolMessage,
+        AIMessage,
+    ]
+    assert [message.tool_call_id for message in updates[:2]] == ["c1", "c2"]
+    assert all("stopped" in message.content for message in updates[:2])
+
+
+def test_only_unresolved_tool_calls_are_paired():
+    updates = _interrupted_turn_updates(
+        [
+            HumanMessage(content="go", id="h1"),
+            AIMessage(
+                content="",
+                tool_calls=[_tool_call("c1"), _tool_call("c2")],
+                id="a1",
+            ),
+            ToolMessage(content='{"ok":1}', tool_call_id="c1", id="t1"),
+        ]
+    )
+
+    tool_updates = [m for m in updates if isinstance(m, ToolMessage)]
+    assert [m.tool_call_id for m in tool_updates] == ["c2"]
+
+
+def test_a_closed_turn_needs_no_repair():
+    """Keeps the proactive and reactive callers from doubling up."""
+    assert (
+        _interrupted_turn_updates(
+            [
+                HumanMessage(content="go", id="h1"),
+                AIMessage(content="", tool_calls=[_tool_call("c1")], id="a1"),
+                ToolMessage(content='{"ok":1}', tool_call_id="c1", id="t1"),
+                AIMessage(content="all done", id="a2"),
+            ]
+        )
+        == []
+    )
+
+
+def test_partial_text_is_preserved_over_the_generic_notice():
+    updates = _interrupted_turn_updates(
+        [HumanMessage(content="go", id="h1")],
+        partial_text="  half an answer  ",
+    )
+    assert updates[0].content == "half an answer"
+
+
+def test_a_thread_with_no_user_turn_is_left_alone():
+    assert _interrupted_turn_updates([]) == []
+    assert _interrupted_turn_updates([AIMessage(content="hi", id="a1")]) == []
