@@ -6,7 +6,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AppSidebar } from '@/components/chat-sidebar';
 import { latestTurnArtifacts } from '@/components/wotbot/assistant/artifacts';
-import { WotbotThread } from '@/components/wotbot/assistant/thread';
+import {
+  ThreadErrorNotice,
+  WotbotThread,
+} from '@/components/wotbot/assistant/thread';
 import {
   useThreadHistory,
   useWotbotRuntime,
@@ -53,7 +56,7 @@ function ChatStream({
     setReasoningEffort(level ?? undefined);
   }, []);
 
-  const { runtime } = useWotbotRuntime({
+  const { isRecovering, retryRecovery, runError, runtime } = useWotbotRuntime({
     threadId: chatId,
     initialValues,
     reasoningEffort,
@@ -72,6 +75,9 @@ function ChatStream({
         className="wotbot-chat flex-1"
         emptyState={<WelcomeScreen historyLoaded />}
         emptyComposerSlot={<MediaIngressControl session={mediaSession} />}
+        error={runError}
+        isRetrying={isRecovering}
+        onRetry={() => void retryRecovery()}
         placeholder="Ask me anything..."
       />
     </AssistantRuntimeProvider>
@@ -79,19 +85,39 @@ function ChatStream({
 }
 
 /** Waits for history before mounting the stream, which latches it at mount. */
-function ChatSurface(props: {
+function ChatSurface({
+  onHistorySettled,
+  settleAfterLive,
+  ...streamProps
+}: {
   chatId: string;
   mediaSession: MediaIngressSession;
+  onHistorySettled: () => void;
   onThreadUpdated: () => void;
   reasoningEffortConfig: ReasoningEffortConfig;
+  settleAfterLive: boolean;
 }) {
-  const history = useThreadHistory(props.chatId);
+  const history = useThreadHistory(streamProps.chatId, {
+    onSettled: onHistorySettled,
+    settleAfterLive,
+  });
 
   if (!history.loaded) {
     return <WelcomeScreen historyLoaded={false} />;
   }
+  if (history.error) {
+    return (
+      <div className="grid min-h-0 flex-1 place-items-center px-3">
+        <ThreadErrorNotice
+          className="w-full max-w-xl"
+          message={history.error}
+          onRetry={history.reload}
+        />
+      </div>
+    );
+  }
 
-  return <ChatStream {...props} initialValues={history.values} />;
+  return <ChatStream {...streamProps} initialValues={history.values} />;
 }
 
 export function FullChatExperience({
@@ -105,6 +131,9 @@ export function FullChatExperience({
 }) {
   const [sidebarRefreshToken, setSidebarRefreshToken] = useState(0);
   const [historyVersion, setHistoryVersion] = useState(0);
+  const [settleHistoryChatId, setSettleHistoryChatId] = useState<string | null>(
+    null,
+  );
   const [liveHistory, setLiveHistory] = useState<{
     chatId: string;
     messages: LangChainMessage[];
@@ -114,6 +143,9 @@ export function FullChatExperience({
   const handleSidebarRefresh = useCallback(() => {
     setSidebarRefreshToken((current) => current + 1);
   }, []);
+  const handleHistorySettled = useCallback(() => {
+    setSettleHistoryChatId((current) => (current === chatId ? null : current));
+  }, [chatId]);
 
   const breadcrumbs = useMemo(() => [{ label: 'Chat', href: '/chat' }], []);
   const showLiveMode = mediaSession.state !== 'idle';
@@ -125,6 +157,7 @@ export function FullChatExperience({
   if (wasLiveMode !== showLiveMode) {
     setWasLiveMode(showLiveMode);
     if (!showLiveMode) {
+      setSettleHistoryChatId(chatId);
       setHistoryVersion((version) => version + 1);
     }
   }
@@ -202,8 +235,10 @@ export function FullChatExperience({
               key={`${chatId}:${historyVersion}`}
               chatId={chatId}
               mediaSession={mediaSession}
+              onHistorySettled={handleHistorySettled}
               onThreadUpdated={handleSidebarRefresh}
               reasoningEffortConfig={reasoningEffortConfig}
+              settleAfterLive={settleHistoryChatId === chatId}
             />
           )}
         </div>

@@ -18,7 +18,11 @@ def test_make_llm_omits_temperature_when_unset():
 
 
 def test_make_llm_disables_streaming_for_tool_calling_by_default():
-    settings = Settings(openai_api_key="test-key", openai_model="gpt-test")
+    settings = Settings(
+        _env_file=None,
+        openai_api_key="test-key",
+        openai_model="gpt-test",
+    )
 
     with patch("wotbot.core.llm.ChatOpenAI", return_value=object()) as chat_openai:
         make_llm(settings)

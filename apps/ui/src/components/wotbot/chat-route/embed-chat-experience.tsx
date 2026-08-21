@@ -3,7 +3,10 @@
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { WotbotThread } from '@/components/wotbot/assistant/thread';
+import {
+  ThreadErrorNotice,
+  WotbotThread,
+} from '@/components/wotbot/assistant/thread';
 import {
   useThreadHistory,
   useWotbotRuntime,
@@ -71,10 +74,8 @@ function EmbedStream({
   prefillRequest: EmbedChatPrefillRequest | null;
   submittedPrefillIdsRef: { current: Set<number> };
 }) {
-  const { runtime, stream, submitText } = useWotbotRuntime({
-    threadId: chatId,
-    initialValues: history.values,
-  });
+  const { isRecovering, retryRecovery, runError, runtime, stream, submitText } =
+    useWotbotRuntime({ threadId: chatId, initialValues: history.values });
 
   // Applies a queued prefill to the composer, and submits it when asked.
   useEffect(() => {
@@ -111,6 +112,9 @@ function EmbedStream({
         className="wotbot-chat embed-chat-frame flex-1"
         emptyState={<WelcomeScreen historyLoaded />}
         emptyComposerSlot={<MediaIngressControl session={mediaSession} />}
+        error={runError}
+        isRetrying={isRecovering}
+        onRetry={() => void retryRecovery()}
       />
     </AssistantRuntimeProvider>
   );
@@ -121,21 +125,39 @@ function EmbedSurface({
   appliedPrefillIdsRef,
   chatId,
   mediaSession,
+  onHistorySettled,
   prefillRequest,
+  settleAfterLive,
   submittedPrefillIdsRef,
 }: {
   appliedPrefillIdsRef: { current: Set<number> };
   chatId: string;
   mediaSession: ReturnType<typeof useMediaIngressSession>;
+  onHistorySettled: () => void;
   prefillRequest: EmbedChatPrefillRequest | null;
+  settleAfterLive: boolean;
   submittedPrefillIdsRef: { current: Set<number> };
 }) {
-  const history = useThreadHistory(chatId);
+  const history = useThreadHistory(chatId, {
+    onSettled: onHistorySettled,
+    settleAfterLive,
+  });
 
   if (!history.loaded) {
     return (
       <div className="wotbot-chat embed-chat-frame flex min-h-0 flex-1 flex-col">
         <WelcomeScreen historyLoaded={false} />
+      </div>
+    );
+  }
+  if (history.error) {
+    return (
+      <div className="wotbot-chat embed-chat-frame grid min-h-0 flex-1 place-items-center px-3">
+        <ThreadErrorNotice
+          className="w-full max-w-xl"
+          message={history.error}
+          onRetry={history.reload}
+        />
       </div>
     );
   }
@@ -186,7 +208,13 @@ export function EmbedChatExperience({
   const [prefillRequest, setPrefillRequest] =
     useState<EmbedChatPrefillRequest | null>(null);
   const [historyVersion, setHistoryVersion] = useState(0);
+  const [settleHistoryChatId, setSettleHistoryChatId] = useState<string | null>(
+    null,
+  );
   const mediaSession = useMediaIngressSession(chatId);
+  const handleHistorySettled = useCallback(() => {
+    setSettleHistoryChatId((current) => (current === chatId ? null : current));
+  }, [chatId]);
 
   const allowedPrefillOriginSet = useMemo(
     () => new Set(allowedPrefillOrigins),
@@ -291,6 +319,7 @@ export function EmbedChatExperience({
   if (wasLiveMode !== showLiveMode) {
     setWasLiveMode(showLiveMode);
     if (!showLiveMode) {
+      setSettleHistoryChatId(chatId);
       setHistoryVersion((version) => version + 1);
     }
   }
@@ -309,7 +338,9 @@ export function EmbedChatExperience({
             appliedPrefillIdsRef={appliedPrefillIdsRef}
             chatId={chatId}
             mediaSession={mediaSession}
+            onHistorySettled={handleHistorySettled}
             prefillRequest={prefillRequest}
+            settleAfterLive={settleHistoryChatId === chatId}
             submittedPrefillIdsRef={submittedPrefillIdsRef}
           />
         )}

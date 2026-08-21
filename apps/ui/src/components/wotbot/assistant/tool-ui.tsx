@@ -52,9 +52,8 @@ import type { WotInteraction } from '@/lib/wot-interactions';
 /**
  * Renders tool calls through the existing cards.
  *
- * assistant-ui's `tools.Override` is the counterpart of the CopilotKit
- * `defineToolCallRenderer({ name: '*' })` this replaces. The cards are
- * unchanged -- they already take `{args, name, result, status}`.
+ * assistant-ui's `tools.Override` routes every server-side tool call through
+ * the existing cards, which take `{args, name, result, status}`.
  *
  * A run of tool calls arrives coalesced into one synthetic part (see
  * `TOOL_GROUP_NAME`), which is what lets the compact cards sit inside a

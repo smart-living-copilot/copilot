@@ -9,7 +9,6 @@ import type { LangChainMessage } from '@/lib/thread-messages';
  *
  * Live mode shows only the current turn's plots, so this walks back to the
  * most recent human message and collects what the tools returned after it.
- * The LangChain-shaped counterpart of the AG-UI `getLatestTurnArtifacts`.
  */
 export function latestTurnArtifacts(
   messages: readonly LangChainMessage[] | undefined,

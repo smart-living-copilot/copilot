@@ -8,15 +8,20 @@ import {
   FetchStreamTransport,
   useStream,
 } from '@langchain/langgraph-sdk/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import { findRetryTarget } from '@/components/wotbot/assistant/message-actions';
-import { toThreadMessages, type LangChainMessage } from '@/lib/thread-messages';
-
-type WotbotState = {
-  messages: LangChainMessage[];
-  reasoning_effort?: string;
-};
+import {
+  buildTextSubmission,
+  type WotbotState,
+} from '@/lib/chat-runtime-state';
+import {
+  LIVE_MODE_SETTLE_DELAYS_MS,
+  RUN_RECOVERY_DELAYS_MS,
+  loadSettledThreadState,
+} from '@/lib/thread-state';
+import { toThreadMessages } from '@/lib/thread-messages';
 
 function appendedText(content: readonly { type: string }[]): string {
   return content
@@ -37,7 +42,9 @@ function appendedText(content: readonly { type: string }[]): string {
  * nothing that can synthesize an event out of order.
  */
 export type ThreadHistory = {
+  error: string | null;
   loaded: boolean;
+  reload: () => void;
   values: WotbotState;
 };
 
@@ -54,37 +61,78 @@ const EMPTY_HISTORY: WotbotState = { messages: [] };
  * A custom transport has no `fetchStateHistory`, so this is where history
  * comes from at all.
  */
-export function useThreadHistory(threadId: string): ThreadHistory {
+function normalizeWotbotState(values: Partial<WotbotState>): WotbotState {
+  return {
+    ...values,
+    messages: Array.isArray(values.messages) ? values.messages : [],
+  };
+}
+
+export function useThreadHistory(
+  threadId: string,
+  {
+    onSettled,
+    settleAfterLive = false,
+  }: { onSettled?: () => void; settleAfterLive?: boolean } = {},
+): ThreadHistory {
   // Keyed by threadId so switching threads derives "not loaded yet" rather
   // than resetting state imperatively inside the effect.
   const [history, setHistory] = useState<{
+    error: string | null;
+    revision: number;
     threadId: string;
     values: WotbotState;
   } | null>(null);
+  const [revision, setRevision] = useState(0);
+  // A keyed history surface mounts specifically for one post-live reload. Do
+  // not restart its request when the parent clears that one-shot flag.
+  const settleAfterLiveRef = useRef(settleAfterLive);
+  const reload = useCallback(() => setRevision((current) => current + 1), []);
 
   useEffect(() => {
     let cancelled = false;
 
-    void fetch(`/api/chat/${encodeURIComponent(threadId)}/state`)
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data: { values?: WotbotState } | null) => {
+    void loadSettledThreadState<WotbotState>(threadId, {
+      delaysMs: settleAfterLiveRef.current ? LIVE_MODE_SETTLE_DELAYS_MS : [0],
+    })
+      .then((values) => {
         if (cancelled) return;
-        setHistory({ threadId, values: data?.values ?? EMPTY_HISTORY });
+        setHistory({
+          error: null,
+          revision,
+          threadId,
+          values: normalizeWotbotState(values),
+        });
+        if (settleAfterLiveRef.current) {
+          onSettled?.();
+        }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (cancelled) return;
-        // Start empty rather than block the thread on a failed read.
-        setHistory({ threadId, values: EMPTY_HISTORY });
+        setHistory({
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Could not load conversation',
+          revision,
+          threadId,
+          values: EMPTY_HISTORY,
+        });
       });
 
     return () => {
       cancelled = true;
     };
-  }, [threadId]);
+  }, [onSettled, revision, threadId]);
 
-  return history?.threadId === threadId
-    ? { loaded: true, values: history.values }
-    : { loaded: false, values: EMPTY_HISTORY };
+  return history?.threadId === threadId && history.revision === revision
+    ? {
+        error: history.error,
+        loaded: true,
+        reload,
+        values: history.values,
+      }
+    : { error: null, loaded: false, reload, values: EMPTY_HISTORY };
 }
 
 export function useWotbotRuntime({
@@ -99,6 +147,36 @@ export function useWotbotRuntime({
   reasoningEffort?: string;
   onThreadUpdated?: () => void;
 }) {
+  const recoveryGenerationRef = useRef(0);
+  const [isRecovering, setIsRecovering] = useState(false);
+  const [reconciledValues, setReconciledValues] = useState<WotbotState | null>(
+    null,
+  );
+  const [runError, setRunError] = useState<string | null>(null);
+
+  const reconcileThreadState = useCallback(async () => {
+    const generation = recoveryGenerationRef.current + 1;
+    recoveryGenerationRef.current = generation;
+    setIsRecovering(true);
+    try {
+      const values = await loadSettledThreadState<WotbotState>(threadId, {
+        delaysMs: RUN_RECOVERY_DELAYS_MS,
+      });
+      if (recoveryGenerationRef.current !== generation) {
+        return false;
+      }
+      setReconciledValues(normalizeWotbotState(values));
+      onThreadUpdated?.();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      if (recoveryGenerationRef.current === generation) {
+        setIsRecovering(false);
+      }
+    }
+  }, [onThreadUpdated, threadId]);
+
   const transport = useMemo(
     () =>
       new FetchStreamTransport<WotbotState>({
@@ -111,7 +189,15 @@ export function useWotbotRuntime({
     transport,
     threadId,
     initialValues,
-    onFinish: () => onThreadUpdated?.(),
+    onError: () => {
+      setRunError('The response failed. Reload the conversation to try again.');
+      void reconcileThreadState();
+    },
+    onFinish: () => {
+      setReconciledValues(null);
+      setRunError(null);
+      onThreadUpdated?.();
+    },
   });
 
   // `stream.messages` is empty until a run produces values -- `initialValues`
@@ -120,22 +206,38 @@ export function useWotbotRuntime({
   // carry the full accumulated state, so the stream becomes authoritative and
   // this falls away.
   const messages = useMemo(() => {
-    const streamed = stream.messages as LangChainMessage[] | undefined;
-    const source = streamed?.length ? streamed : initialValues.messages;
+    const streamedValues = stream.values as Partial<WotbotState>;
+    const streamed = Array.isArray(streamedValues.messages)
+      ? streamedValues.messages
+      : null;
+    const source =
+      reconciledValues?.messages ?? streamed ?? initialValues.messages;
     return toThreadMessages(source);
-  }, [initialValues.messages, stream.messages]);
+  }, [initialValues.messages, reconciledValues, stream.values]);
 
   const submitText = useCallback(
-    (text: string) => {
+    (text: string, replaceFromId?: string | null) => {
       if (!text) return;
-      stream.submit({
-        messages: [{ type: 'human', content: text }],
-        // Plain graph state. The AG-UI stack needed a forwardedProps hack here
-        // to beat CopilotKit's state-merge ordering; nothing to beat now.
-        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
-      } as Partial<WotbotState>);
+      const streamedValues = stream.values as Partial<WotbotState>;
+      const currentValues = reconciledValues ?? streamedValues;
+      const submission = buildTextSubmission({
+        currentValues,
+        initialValues,
+        messageId: crypto.randomUUID(),
+        reasoningEffort,
+        replaceFromId,
+        text,
+      });
+
+      recoveryGenerationRef.current += 1;
+      setIsRecovering(false);
+      setReconciledValues(null);
+      setRunError(null);
+      void stream.submit(submission.input, {
+        optimisticValues: submission.optimisticValues,
+      });
     },
-    [reasoningEffort, stream],
+    [initialValues, reasoningEffort, reconciledValues, stream],
   );
 
   /**
@@ -146,49 +248,75 @@ export function useWotbotRuntime({
    * from that fork. The authoritative `values` frame it emits replaces the
    * client's message list, which is what makes the superseded answer vanish.
    *
-   * The AG-UI adapter did this implicitly by detecting "same id, different
-   * content"; with it gone, the fork is an explicit call.
+   * Keeping the fork explicit also lets a failed rewind stop safely instead of
+   * silently appending the edited text as a duplicate turn.
    */
   const editAndResubmit = useCallback(
     async (sourceId: string | null, text: string) => {
       if (!text) return;
       if (sourceId) {
         try {
-          await fetch(`/api/chat/${encodeURIComponent(threadId)}/fork`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message_id: sourceId }),
-          });
+          const response = await fetch(
+            `/api/chat/${encodeURIComponent(threadId)}/fork`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message_id: sourceId }),
+            },
+          );
+          const data: unknown = response.ok ? await response.json() : null;
+          if (
+            !response.ok ||
+            typeof data !== 'object' ||
+            data === null ||
+            !('forked' in data) ||
+            data.forked !== true
+          ) {
+            throw new Error('Thread fork failed');
+          }
         } catch {
-          // Fall through and append: a failed fork should not swallow the edit.
+          toast.error('Could not replace that turn. Please try again.');
+          return;
         }
       }
-      submitText(text);
+      submitText(text, sourceId);
     },
     [submitText, threadId],
   );
 
   const cancel = useCallback(async () => {
-    stream.stop();
-    // The abort does propagate now that nothing buffers between the browser and
-    // the backend, but ask explicitly too: this is the call that never existed
-    // before, and it is what actually stops the graph rather than just the
-    // client's view of it.
-    await fetch(`/api/chat/${encodeURIComponent(threadId)}/cancel`, {
-      method: 'POST',
-    }).catch(() => {
-      // Best-effort; the abort above already stopped the client stream.
-    });
-  }, [stream, threadId]);
+    await stream.stop();
+    try {
+      const response = await fetch(
+        `/api/chat/${encodeURIComponent(threadId)}/cancel`,
+        {
+          method: 'POST',
+        },
+      );
+      if (!response.ok) {
+        throw new Error('Cancellation failed');
+      }
+    } catch {
+      setRunError(
+        'The response was stopped locally, but server cancellation could not be confirmed.',
+      );
+    } finally {
+      await reconcileThreadState();
+    }
+  }, [reconcileThreadState, stream, threadId]);
+
+  const retryRecovery = useCallback(async () => {
+    if (await reconcileThreadState()) {
+      setRunError(null);
+    } else {
+      setRunError('Could not reload the conversation. Please try again.');
+    }
+  }, [reconcileThreadState]);
 
   const runtime = useExternalStoreRuntime<ThreadMessageLike>({
     messages,
     isRunning: stream.isLoading,
-    // Deliberately NOT gating on history loading: `isLoading` disables the
-    // composer, so a slow or failed state fetch would leave the user unable to
-    // type at all. History is only a seed -- the graph appends to the
-    // checkpointed thread server-side regardless -- so the welcome screen
-    // surfaces the loading state instead (see `historyLoaded`).
+    isSendDisabled: isRecovering,
     convertMessage: (message) => message,
     onNew: async (message) => {
       submitText(appendedText(message.content));
@@ -200,10 +328,19 @@ export function useWotbotRuntime({
       const target = findRetryTarget(messages, parentId);
       if (target) {
         await editAndResubmit(target.sourceId, target.text);
+      } else {
+        toast.error('Could not find the turn to regenerate.');
       }
     },
     onCancel: cancel,
   });
 
-  return { runtime, stream, submitText };
+  return {
+    isRecovering,
+    retryRecovery,
+    runError,
+    runtime,
+    stream,
+    submitText,
+  };
 }

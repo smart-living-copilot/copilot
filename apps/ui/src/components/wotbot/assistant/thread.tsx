@@ -14,7 +14,9 @@ import {
   ArrowDown,
   ChevronLeft,
   ChevronRight,
+  CircleAlert,
   Copy,
+  LoaderCircle,
   Pencil,
   RefreshCw,
   Square,
@@ -218,12 +220,56 @@ function AssistantMessage() {
   );
 }
 
+export function ThreadErrorNotice({
+  className,
+  message,
+  onRetry,
+  retrying = false,
+}: {
+  className?: string;
+  message: string;
+  onRetry: () => void;
+  retrying?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-foreground',
+        className,
+      )}
+      role="alert"
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <CircleAlert className="size-4 shrink-0 text-destructive" />
+        <span>{message}</span>
+      </div>
+      <Button
+        disabled={retrying}
+        onClick={onRetry}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        {retrying ? (
+          <LoaderCircle className="size-3.5 animate-spin" />
+        ) : (
+          <RefreshCw className="size-3.5" />
+        )}
+        Reload
+      </Button>
+    </div>
+  );
+}
+
 export function WotbotThread({
   actionSlot,
   className,
   emptyState,
   emptyComposerSlot,
+  error,
   footer,
+  isRetrying,
+  onRetry,
   placeholder = 'Type your message...',
 }: {
   /** Controls rendered immediately before the shared Voice/Send slot. */
@@ -232,8 +278,11 @@ export function WotbotThread({
   emptyState?: ReactNode;
   /** Replaces Send while the composer has no draft (for example, Live mode). */
   emptyComposerSlot?: ReactNode;
+  error?: string | null;
   /** Replaces the composer entirely, for read-only transcripts. */
   footer?: ReactNode;
+  isRetrying?: boolean;
+  onRetry?: () => void;
   placeholder?: string;
 }) {
   return (
@@ -265,6 +314,15 @@ export function WotbotThread({
           </Button>
         </ThreadPrimitive.ScrollToBottom>
       </ThreadPrimitive.Viewport>
+
+      {error && onRetry ? (
+        <ThreadErrorNotice
+          className="mx-auto mb-2 w-[calc(100%-1.5rem)] max-w-3xl"
+          message={error}
+          onRetry={onRetry}
+          retrying={isRetrying}
+        />
+      ) : null}
 
       {footer ?? (
         <ComposerPrimitive.Root className="mx-auto w-full max-w-3xl px-3 pb-3">

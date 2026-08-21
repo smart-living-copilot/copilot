@@ -21,6 +21,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
@@ -38,6 +40,7 @@ logger = logging.getLogger(__name__)
 # they dominate payload size on graphs with large state.
 RUN_STREAM_MODES: tuple[str, ...] = ("values", "messages", "updates", "custom")
 _INTERRUPTED_TURN_NOTICE = "The response was interrupted before it finished. Try asking again."
+_CONCURRENT_RUN_NOTICE = "A response is already running for this thread."
 
 
 def _event_name(mode: str, namespace: Sequence[str] | None) -> str:
@@ -68,15 +71,25 @@ def _build_command(raw: Any) -> Command | None:
     return Command(**kwargs) if kwargs else None
 
 
+@dataclass(slots=True)
+class _ThreadLockEntry:
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    users: int = 0
+
+
 class RunRegistry:
     """Tracks the in-flight run per thread so a cancel request can stop it."""
 
     def __init__(self) -> None:
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._thread_locks: dict[str, asyncio.Lock] = {}
+        self._thread_locks: dict[str, _ThreadLockEntry] = {}
 
-    def register(self, thread_id: str, task: asyncio.Task[None]) -> None:
+    def register(self, thread_id: str, task: asyncio.Task[None]) -> bool:
+        existing = self._tasks.get(thread_id)
+        if existing is not None and not existing.done():
+            return False
         self._tasks[thread_id] = task
+        return True
 
     def unregister(self, thread_id: str, task: asyncio.Task[None]) -> None:
         if self._tasks.get(thread_id) is task:
@@ -90,12 +103,20 @@ class RunRegistry:
         logger.info("Cancelled in-flight run thread_id=%s", thread_id)
         return True
 
-    def thread_lock(self, thread_id: str) -> asyncio.Lock:
-        lock = self._thread_locks.get(thread_id)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._thread_locks[thread_id] = lock
-        return lock
+    @asynccontextmanager
+    async def thread_lock(self, thread_id: str) -> AsyncIterator[None]:
+        entry = self._thread_locks.get(thread_id)
+        if entry is None:
+            entry = _ThreadLockEntry()
+            self._thread_locks[thread_id] = entry
+        entry.users += 1
+        try:
+            async with entry.lock:
+                yield
+        finally:
+            entry.users -= 1
+            if entry.users == 0 and self._thread_locks.get(thread_id) is entry:
+                del self._thread_locks[thread_id]
 
 
 def _message_text(content: Any) -> str:
@@ -248,6 +269,7 @@ async def stream_run(
 
     async def pump() -> None:
         completed = False
+        run_error: Exception | None = None
         try:
             async with registry.thread_lock(thread_id):
                 # Heal a prior cancellation that may still be finalizing in a
@@ -271,7 +293,7 @@ async def stream_run(
             raise
         except Exception as exc:
             logger.exception("Graph run failed thread_id=%s: %s", thread_id, exc)
-            await queue.put(format_sse_error(exc))
+            run_error = exc
         finally:
             await _persist(
                 _finish_run(
@@ -284,10 +306,20 @@ async def stream_run(
                 ),
                 error_message=f"Failed to finalize graph run for {thread_id}",
             )
+            # Finalize the checkpoint before exposing the terminal error. The
+            # client responds to this frame by re-reading state; ordering it
+            # first would race that read against interrupted-turn repair.
+            if run_error is not None:
+                await queue.put(format_sse_error(run_error))
             await queue.put(None)
 
     task = asyncio.create_task(pump())
-    registry.register(thread_id, task)
+    if not registry.register(thread_id, task):
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        yield format_sse_error(RuntimeError(_CONCURRENT_RUN_NOTICE))
+        return
     try:
         while True:
             frame = await queue.get()

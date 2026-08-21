@@ -6,7 +6,7 @@ import { fetchWotbot } from '@/lib/wotbot-backend';
  * Deliberately dumb: it pipes the upstream body through untouched so the SSE
  * frames reach `useStream` exactly as the backend wrote them. It exists only to
  * keep INTERNAL_API_KEY server-side -- it does not parse, buffer, reorder, or
- * synthesize events, which is what the CopilotKit runtime it replaces did.
+ * synthesize events.
  */
 export async function POST(
   req: Request,

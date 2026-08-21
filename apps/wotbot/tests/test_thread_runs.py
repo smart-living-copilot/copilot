@@ -159,6 +159,34 @@ async def test_graph_failure_emits_terminal_error_frame():
 
 
 @pytest.mark.anyio
+async def test_graph_failure_repairs_checkpoint_before_error_is_exposed():
+    graph = _build_graph(fail=True)
+    registry = RunRegistry()
+    frames = stream_run(
+        graph=graph,
+        registry=registry,
+        thread_id="t-error-order",
+        input_data={"messages": [("human", "hi")]},
+        context=None,
+        command=None,
+        sync_thread=_noop_sync,
+    )
+
+    async for frame in frames:
+        if any(name == "error" for name, _ in _parse_sse([frame])):
+            messages = (
+                await graph.aget_state(
+                    {"configurable": {"thread_id": "t-error-order"}}
+                )
+            ).values["messages"]
+            assert isinstance(messages[-1], AIMessage)
+            assert "interrupted" in messages[-1].content
+            break
+    else:
+        pytest.fail("expected an error frame")
+
+
+@pytest.mark.anyio
 async def test_cancel_stops_an_in_flight_run():
     registry = RunRegistry()
     graph = _build_graph(slow=True)
@@ -186,6 +214,55 @@ async def test_cancel_stops_an_in_flight_run():
     messages = (await graph.aget_state({"configurable": {"thread_id": "t1"}})).values["messages"]
     assert isinstance(messages[-1], AIMessage)
     assert "interrupted" in messages[-1].content
+
+
+@pytest.mark.anyio
+async def test_second_run_is_rejected_without_replacing_cancel_target():
+    registry = RunRegistry()
+    graph = _build_graph(slow=True)
+    first_frames = stream_run(
+        graph=graph,
+        registry=registry,
+        thread_id="t-concurrent",
+        input_data={"messages": [("human", "first")]},
+        context=None,
+        command=None,
+        sync_thread=_noop_sync,
+    )
+
+    async def drain_first() -> None:
+        async for _frame in first_frames:
+            pass
+
+    first_task = asyncio.create_task(drain_first())
+    await asyncio.sleep(0.1)
+
+    second_events = [
+        event
+        async for frame in stream_run(
+            graph=graph,
+            registry=registry,
+            thread_id="t-concurrent",
+            input_data={"messages": [("human", "second")]},
+            context=None,
+            command=None,
+            sync_thread=_noop_sync,
+        )
+        for event in _parse_sse([frame])
+    ]
+
+    assert second_events == [
+        (
+            "error",
+            {
+                "message": "A response is already running for this thread.",
+                "name": "RuntimeError",
+            },
+        )
+    ]
+    assert registry.cancel("t-concurrent") is True
+    await asyncio.wait_for(first_task, timeout=5)
+    assert registry._thread_locks == {}
 
 
 @pytest.mark.anyio
