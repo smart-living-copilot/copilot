@@ -5,6 +5,7 @@ import {
 } from '@copilotkit/runtime/v2';
 
 import { getWotbotUrl } from '@/lib/backend-env';
+import { WotbotAgentRunner } from '@/lib/wotbot-agent-runner';
 import { WotbotEventMiddleware } from '@/lib/wotbot-middleware';
 
 const wotbotUrl = getWotbotUrl();
@@ -16,6 +17,7 @@ const runtime = new CopilotRuntime({
   agents: {
     wotbot: wotbotAgent,
   },
+  runner: new WotbotAgentRunner(),
 });
 
 // Keep this on the v2 single-route API: its agent/stop handler reaches

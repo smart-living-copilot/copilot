@@ -20,6 +20,7 @@ import {
 import { InMemoryAgentRunner } from '@copilotkit/runtime/v2';
 import { Observable, of, ReplaySubject } from 'rxjs';
 
+import { WotbotAgentRunner } from './wotbot-agent-runner';
 import { WotbotEventMiddleware } from './wotbot-middleware';
 
 function runStarted(threadId: string, runId: string): BaseEvent {
@@ -626,6 +627,71 @@ test('InMemoryAgentRunner finalizes a stopped run and replays canonical history'
     });
   });
   assert.deepEqual(replayed, compactEvents(events));
+});
+
+test('WotbotAgentRunner keeps steps live and removes them from replay', async () => {
+  const threadId = `runner-replay-${randomUUID()}`;
+  const runId = randomUUID();
+  const agent = new ScriptedAgent(threadId, () =>
+    of(
+      runStarted(threadId, runId),
+      { type: EventType.STEP_STARTED, stepName: 'control_llm' },
+      {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: 'm1',
+        role: 'assistant',
+      },
+      {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId: 'm1',
+        delta: 'panel ready',
+      },
+      { type: EventType.TEXT_MESSAGE_END, messageId: 'm1' },
+      { type: EventType.STEP_FINISHED, stepName: 'control_llm' },
+      runFinished(threadId, runId),
+    ),
+  );
+  const runner = new WotbotAgentRunner();
+  const liveEvents: BaseEvent[] = [];
+
+  await new Promise<void>((resolve, reject) => {
+    runner
+      .run({ threadId, agent, input: runInput(threadId, runId) })
+      .subscribe({
+        next: (event) => liveEvents.push(event),
+        error: reject,
+        complete: resolve,
+      });
+  });
+
+  assert.equal(
+    liveEvents.some((event) => event.type === EventType.STEP_STARTED),
+    true,
+  );
+  assert.equal(
+    liveEvents.some((event) => event.type === EventType.STEP_FINISHED),
+    true,
+  );
+
+  const replayedEvents: BaseEvent[] = [];
+  await new Promise<void>((resolve, reject) => {
+    runner.connect({ threadId }).subscribe({
+      next: (event) => replayedEvents.push(event),
+      error: reject,
+      complete: resolve,
+    });
+  });
+
+  assert.equal(
+    replayedEvents.some(
+      (event) =>
+        event.type === EventType.STEP_STARTED ||
+        event.type === EventType.STEP_FINISHED,
+    ),
+    false,
+  );
+  assert.equal(replayedEvents[0]?.type, EventType.RUN_STARTED);
+  assert.equal(replayedEvents.at(-1)?.type, EventType.RUN_FINISHED);
 });
 
 test('InMemoryAgentRunner turns terminal-free completion into a valid error', async () => {
