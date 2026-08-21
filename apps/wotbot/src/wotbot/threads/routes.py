@@ -219,7 +219,23 @@ def create_threads_router(
         if not isinstance(message_id, str) or not message_id:
             raise HTTPException(status_code=400, detail="message_id is required")
 
-        forked = await fork_before_message(graph=graph, thread_id=thread_id, message_id=message_id)
+        if run_registry.is_running(thread_id):
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot edit a thread while its response is still running",
+            )
+
+        async with run_registry.thread_lock(thread_id):
+            if run_registry.is_running(thread_id):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot edit a thread while its response is still running",
+                )
+            forked = await fork_before_message(
+                graph=graph,
+                thread_id=thread_id,
+                message_id=message_id,
+            )
         return {"thread_id": thread_id, "forked": forked}
 
     @router.post("/{thread_id}/runs/cancel")
@@ -233,9 +249,14 @@ def create_threads_router(
     async def delete_thread(thread_id: str, request: Request):
         verify_internal_api_key(request)
 
-        return await _delete_thread_record(
-            get_checkpointer=get_checkpointer,
-            thread_id=thread_id,
-        )
+        # A finishing run synchronizes thread metadata after writing its final
+        # checkpoint. Wait for that cleanup before deleting, otherwise the chat
+        # can reappear immediately after a successful DELETE response.
+        await run_registry.cancel_and_wait(thread_id)
+        async with run_registry.thread_lock(thread_id):
+            return await _delete_thread_record(
+                get_checkpointer=get_checkpointer,
+                thread_id=thread_id,
+            )
 
     return router

@@ -115,6 +115,22 @@ class RunRegistry:
         logger.info("Cancelled in-flight run thread_id=%s", thread_id)
         return True
 
+    def is_running(self, thread_id: str) -> bool:
+        task = self._tasks.get(thread_id)
+        return task is not None and not task.done()
+
+    async def cancel_and_wait(self, thread_id: str) -> bool:
+        """Cancel a run and wait for its checkpoint finalizer to finish."""
+        task = self._tasks.get(thread_id)
+        if task is None or task.done():
+            return False
+
+        task.cancel()
+        logger.info("Cancelled in-flight run before thread mutation thread_id=%s", thread_id)
+        with suppress(asyncio.CancelledError):
+            await task
+        return True
+
     @asynccontextmanager
     async def thread_lock(self, thread_id: str) -> AsyncIterator[None]:
         entry = self._thread_locks.get(thread_id)

@@ -407,9 +407,7 @@ class Settings(BaseSettings):
 
     def _reasoning_effort_level_tuple(self) -> tuple[str, ...]:
         return tuple(
-            level
-            for raw in self.reasoning_effort_levels.split(",")
-            if (level := raw.strip())
+            level for raw in self.reasoning_effort_levels.split(",") if (level := raw.strip())
         )
 
     @property

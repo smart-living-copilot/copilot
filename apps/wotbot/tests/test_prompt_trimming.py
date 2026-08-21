@@ -175,9 +175,7 @@ def _assert_no_dangling_tool_calls(case: unittest.TestCase, messages: list) -> N
         if isinstance(message, AIMessage) and message.tool_calls:
             expected_ids = {tc["id"] for tc in message.tool_calls}
             following_ids = {
-                m.tool_call_id
-                for m in messages[index + 1 :]
-                if isinstance(m, ToolMessage)
+                m.tool_call_id for m in messages[index + 1 :] if isinstance(m, ToolMessage)
             }
             case.assertTrue(
                 expected_ids.issubset(following_ids),

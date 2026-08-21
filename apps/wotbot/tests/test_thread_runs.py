@@ -307,7 +307,41 @@ async def test_completed_run_syncs_thread_title():
 
 
 def test_cancel_is_false_when_no_run_is_active():
-    assert RunRegistry().cancel("nope") is False
+    registry = RunRegistry()
+    assert registry.cancel("nope") is False
+    assert registry.is_running("nope") is False
+
+
+@pytest.mark.anyio
+async def test_cancel_and_wait_finishes_run_cleanup_before_returning():
+    registry = RunRegistry()
+    graph = _build_graph(slow=True)
+    frames = stream_run(
+        graph=graph,
+        registry=registry,
+        thread_id="t-delete",
+        input_data={"messages": [("human", "hi")]},
+        context=None,
+        command=None,
+        sync_thread=_noop_sync,
+    )
+
+    async def drain() -> None:
+        async for _frame in frames:
+            pass
+
+    drain_task = asyncio.create_task(drain())
+    await asyncio.sleep(0.1)
+    assert registry.is_running("t-delete") is True
+    assert await registry.cancel_and_wait("t-delete") is True
+    await asyncio.wait_for(drain_task, timeout=5)
+
+    assert registry.is_running("t-delete") is False
+    messages = (await graph.aget_state({"configurable": {"thread_id": "t-delete"}})).values[
+        "messages"
+    ]
+    assert isinstance(messages[-1], AIMessage)
+    assert "interrupted" in messages[-1].content
 
 
 def _build_checkpointed_graph():
