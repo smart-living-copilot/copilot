@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import 'tw-shimmer';
 @plugin '@tailwindcss/typography';
 
 /* Generate utility classes used by the bundled @rjsf/shadcn form theme. */

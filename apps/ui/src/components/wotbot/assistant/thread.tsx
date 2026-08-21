@@ -2,12 +2,13 @@
 
 import {
   ActionBarPrimitive,
+  AuiIf,
   BranchPickerPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useAuiState,
 } from '@assistant-ui/react';
-import { AuiIf } from '@assistant-ui/react';
 import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown';
 import {
   ArrowDown,
@@ -27,6 +28,7 @@ import {
 } from '@/components/wotbot/assistant/message-actions';
 import { markdownRemarkPlugins } from '@/components/wotbot/assistant/markdown';
 import { WotbotToolCall } from '@/components/wotbot/assistant/tool-ui';
+import { ThinkingIndicator } from '@/components/elements/thinking-indicator';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -65,6 +67,19 @@ function MarkdownTable({
 }
 
 function MarkdownText() {
+  const isEmptyRunningPart = useAuiState(
+    (state) =>
+      state.part.type === 'text' &&
+      state.part.status.type === 'running' &&
+      state.part.text.length === 0,
+  );
+
+  if (isEmptyRunningPart) {
+    return (
+      <ThinkingIndicator aria-live="polite" label="Thinking" role="status" />
+    );
+  }
+
   return (
     <MarkdownTextPrimitive
       remarkPlugins={markdownRemarkPlugins}
@@ -112,7 +127,7 @@ function BranchPicker({ className }: { className?: string }) {
 function UserMessage() {
   return (
     <MessagePrimitive.Root className="group flex w-full flex-col items-end py-2">
-      <div className="flex items-center gap-1">
+      <div className="flex w-full items-center justify-end gap-1">
         {/* Editing forks the thread server-side, so the old answer is replaced
             rather than left sitting next to the new one. */}
         <ActionBarPrimitive.Root
@@ -126,7 +141,7 @@ function UserMessage() {
           </ActionBarPrimitive.Edit>
         </ActionBarPrimitive.Root>
 
-        <div className="max-w-[80%] rounded-lg bg-muted px-4 py-2 text-foreground">
+        <div className="min-w-0 max-w-[80%] rounded-lg bg-muted px-4 py-2 text-foreground">
           <MessagePrimitive.Parts />
         </div>
       </div>
