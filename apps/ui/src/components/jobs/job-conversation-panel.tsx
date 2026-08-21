@@ -1,18 +1,17 @@
 'use client';
 
 import {
-  CopilotChatConfigurationProvider,
-  CopilotKitProvider,
-  CopilotChatView,
-  type Message,
-} from '@copilotkit/react-core/v2';
+  AssistantRuntimeProvider,
+  useExternalStoreRuntime,
+  type ThreadMessageLike,
+} from '@assistant-ui/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { MessageSquareReply } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { chatToolCallRenderers } from '@/components/wotbot/chat-tool-call-renderer';
-import { MessageViewWithWotSummary } from '@/components/wotbot/wot-interaction-summary';
+import { WotbotThread } from '@/components/wotbot/assistant/thread';
+import { toThreadMessages, type LangChainMessage } from '@/lib/thread-messages';
 import { JobEventTimeline } from '@/components/jobs/job-event-timeline';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -26,90 +25,78 @@ import {
   fetchJobThread,
 } from '@/lib/jobs-api';
 
-export function normalizeMessages(thread: JobThreadRecord | null): Message[] {
+export function normalizeMessages(
+  thread: JobThreadRecord | null,
+): LangChainMessage[] {
   return (thread?.messages ?? []).map((message, index) => {
     return {
       ...message,
       id: message.id ?? `job-message-${index}`,
-    } as Message;
+    } as LangChainMessage;
   });
 }
 
-/** The CopilotKit-rendered message transcript for a job thread. */
+/**
+ * Read-only transcript of a job thread.
+ *
+ * Job turns are produced by the worker, not typed here, so the runtime is fed
+ * a fixed message list and the composer is replaced by a notice bar -- replies
+ * happen on the Overview tab.
+ */
 export function JobTranscript({
   messages,
-  threadId,
   jobId,
   isWaiting,
   waitingQuestion,
 }: {
-  messages: Message[];
-  threadId: string;
+  messages: LangChainMessage[];
   jobId: string;
   isWaiting: boolean;
   waitingQuestion?: string | null;
 }) {
-  const enableInspector =
-    process.env.NEXT_PUBLIC_ENABLE_COPILOT_INSPECTOR === 'true';
+  const threadMessages = useMemo(() => toThreadMessages(messages), [messages]);
 
-  const chatInput = useMemo(
-    () => ({
-      children: () => {
-        return (
-          <div className="mx-auto w-full max-w-3xl px-4 pb-4">
-            <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                {isWaiting ? (
-                  <>
-                    <div className="font-medium text-foreground">
-                      {waitingQuestion || 'The job is waiting for a reply.'}
-                    </div>
-                    <div>Answer this question from the Overview tab.</div>
-                  </>
-                ) : (
-                  <div>Transcript view</div>
-                )}
+  const runtime = useExternalStoreRuntime<ThreadMessageLike>({
+    messages: threadMessages,
+    convertMessage: (message) => message,
+    isDisabled: true,
+    onNew: async () => {
+      // Read-only: the composer is replaced by the notice bar below.
+    },
+  });
+
+  const footer = (
+    <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+      <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          {isWaiting ? (
+            <>
+              <div className="font-medium text-foreground">
+                {waitingQuestion || 'The job is waiting for a reply.'}
               </div>
-              {isWaiting ? (
-                <Button size="sm" asChild>
-                  <Link href={`/jobs/${jobId}`}>
-                    <MessageSquareReply className="h-4 w-4" />
-                    Answer
-                  </Link>
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        );
-      },
-    }),
-    [isWaiting, waitingQuestion, jobId],
+              <div>Answer this question from the Overview tab.</div>
+            </>
+          ) : (
+            <div>Transcript view</div>
+          )}
+        </div>
+        {isWaiting ? (
+          <Button size="sm" asChild>
+            <Link href={`/jobs/${jobId}`}>
+              <MessageSquareReply className="h-4 w-4" />
+              Answer
+            </Link>
+          </Button>
+        ) : null}
+      </div>
+    </div>
   );
 
   return (
     <div className="min-h-[34rem] flex-1 overflow-hidden rounded-md border border-border/70 bg-background shadow-sm shadow-black/5">
-      <CopilotKitProvider
-        runtimeUrl="/api/copilotkit"
-        showDevConsole={enableInspector}
-        renderToolCalls={chatToolCallRenderers}
-      >
-        <CopilotChatConfigurationProvider
-          agentId="wotbot"
-          threadId={threadId}
-          labels={{
-            chatInputPlaceholder: 'Transcript view',
-          }}
-        >
-          <CopilotChatView
-            autoScroll
-            className="wotbot-chat h-full"
-            input={chatInput}
-            messageView={MessageViewWithWotSummary}
-            messages={messages}
-            welcomeScreen={false}
-          />
-        </CopilotChatConfigurationProvider>
-      </CopilotKitProvider>
+      <AssistantRuntimeProvider runtime={runtime}>
+        <WotbotThread className="wotbot-chat h-full" footer={footer} />
+      </AssistantRuntimeProvider>
     </div>
   );
 }
@@ -165,7 +152,6 @@ export function JobConversationPanel({
     ),
   );
 
-  const threadId = thread?.id ?? job.job_thread_id ?? jobId;
   const messages = useMemo(() => normalizeMessages(thread), [thread]);
   const events = thread?.events ?? [];
   const isWaiting = supportsJobReply(job);
@@ -200,7 +186,6 @@ export function JobConversationPanel({
   return (
     <JobTranscript
       messages={messages}
-      threadId={threadId}
       jobId={jobId}
       isWaiting={isWaiting}
       waitingQuestion={job.waiting_question}

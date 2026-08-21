@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  type AssistantMessage,
-  type Message,
-  type ToolCall,
-} from '@ag-ui/core';
+import type { LangChainMessage } from '@/lib/thread-messages';
 
 import {
   buildToolCallProps,
@@ -13,24 +9,26 @@ import {
   isFirstToolOnlyMessageInGroup,
 } from './grouped-tool-call-model';
 
+type ToolCall = NonNullable<LangChainMessage['tool_calls']>[number] & {
+  id: string;
+  name: string;
+};
+
 function toolCall(id: string, name = 'things_search'): ToolCall {
   return {
     id,
-    function: {
-      arguments: '{}',
-      name,
-    },
-    type: 'function',
+    args: {},
+    name,
   };
 }
 
-function toolOnlyAssistant(id: string, call: ToolCall): AssistantMessage {
+function toolOnlyAssistant(id: string, call: ToolCall) {
   return {
     id,
     content: '',
-    role: 'assistant',
-    toolCalls: [call],
-  };
+    type: 'ai' as const,
+    tool_calls: [call],
+  } satisfies LangChainMessage;
 }
 
 test('groups consecutive tool-only assistant messages into one run', () => {
@@ -43,30 +41,30 @@ test('groups consecutive tool-only assistant messages into one run', () => {
     'assistant-3',
     toolCall('call-3', 'run_code'),
   );
-  const messages: Message[] = [
-    { id: 'user-1', content: 'show temperature', role: 'user' },
+  const messages: LangChainMessage[] = [
+    { id: 'user-1', content: 'show temperature', type: 'human' },
     first,
     {
       id: 'tool-1',
       content: '{}',
-      role: 'tool',
-      toolCallId: 'call-1',
+      type: 'tool',
+      tool_call_id: 'call-1',
     },
     second,
     {
       id: 'tool-2',
       content: '{}',
-      role: 'tool',
-      toolCallId: 'call-2',
+      type: 'tool',
+      tool_call_id: 'call-2',
     },
     third,
     {
       id: 'tool-3',
       content: '{}',
-      role: 'tool',
-      toolCallId: 'call-3',
+      type: 'tool',
+      tool_call_id: 'call-3',
     },
-    { id: 'assistant-final', content: 'done', role: 'assistant' },
+    { id: 'assistant-final', content: 'done', type: 'ai' },
   ];
 
   assert.equal(
@@ -90,7 +88,7 @@ test('groups consecutive tool-only assistant messages into one run', () => {
 
 test('keeps complete tool args and results in renderer props', () => {
   const call = toolCall('call-1');
-  call.function.arguments = '{"query":"temperature"}';
+  call.args = { query: 'temperature' };
 
   const props = buildToolCallProps({
     executingToolCallIds: new Set(),
@@ -98,8 +96,8 @@ test('keeps complete tool args and results in renderer props', () => {
     toolMessage: {
       id: 'tool-1',
       content: '{"result":"22 C"}',
-      role: 'tool',
-      toolCallId: call.id,
+      type: 'tool',
+      tool_call_id: call.id,
     },
   });
 

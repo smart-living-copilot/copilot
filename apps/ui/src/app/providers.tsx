@@ -1,6 +1,5 @@
 'use client';
 
-import '@copilotkit/react-core/v2/styles.css';
 import { Suspense } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { Toaster } from 'sonner';

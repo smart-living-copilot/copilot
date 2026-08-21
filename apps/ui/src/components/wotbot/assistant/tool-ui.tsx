@@ -1,8 +1,6 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
-import { type AssistantMessage, type Message } from '@ag-ui/core';
-import { useCopilotKit, useRenderToolCall } from '@copilotkit/react-core/v2';
+import type { ToolCallMessagePartProps } from '@assistant-ui/react';
 import {
   CheckCircle2,
   ChevronDown,
@@ -10,7 +8,9 @@ import {
   Loader2,
   Wrench,
 } from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
 
+import { GenericToolCallCard } from '@/components/wotbot/chat-tool-calls/generic-tool-call-card';
 import {
   RunCodeArtifacts,
   RunCodeCard,
@@ -23,6 +23,17 @@ import {
   enrichArtifactForPinning,
   normalizeWebInterfaceResult,
 } from '@/components/wotbot/chat-tool-calls/web-interface-model';
+import {
+  createToolStatusCounts,
+  formatToolCount,
+  formatToolStatusSummary,
+} from '@/components/wotbot/chat-tool-calls/grouped-tool-call-model';
+import {
+  hasErrorResult,
+  normalizeRunCodeResult,
+  type CatchAllToolCallRenderProps,
+  type ToolCallStatus,
+} from '@/components/wotbot/chat-tool-call-model';
 import { Button } from '@/components/ui/button';
 import {
   Collapsible,
@@ -30,19 +41,36 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
+import {
+  TOOL_GROUP_NAME,
+  WOT_SUMMARY_NAME,
+  type GroupedToolCall,
+} from '@/lib/thread-messages';
+import { WotInteractionSummaryCard } from '@/components/wotbot/wot-summary/wot-interaction-summary-card';
+import type { WotInteraction } from '@/lib/wot-interactions';
 
-import {
-  hasErrorResult,
-  normalizeRunCodeResult,
-} from '../chat-tool-call-model';
-import {
-  buildToolCallProps,
-  createToolStatusCounts,
-  formatToolCount,
-  formatToolStatusSummary,
-  getGroupedToolCalls,
-  getToolMessageForCall,
-} from './grouped-tool-call-model';
+/**
+ * Renders tool calls through the existing cards.
+ *
+ * assistant-ui's `tools.Override` is the counterpart of the CopilotKit
+ * `defineToolCallRenderer({ name: '*' })` this replaces. The cards are
+ * unchanged -- they already take `{args, name, result, status}`.
+ *
+ * A run of tool calls arrives coalesced into one synthetic part (see
+ * `TOOL_GROUP_NAME`), which is what lets the compact cards sit inside a
+ * collapsible while their artifacts -- plots, generated interfaces -- stay
+ * hoisted above it, always visible.
+ */
+
+function toCardStatus(
+  call: GroupedToolCall,
+  groupStatus: ToolCallMessagePartProps['status'],
+): ToolCallStatus {
+  if (call.result !== undefined) {
+    return 'complete';
+  }
+  return groupStatus?.type === 'running' ? 'executing' : 'inProgress';
+}
 
 function ToolActivityIcon({
   hasError,
@@ -54,30 +82,32 @@ function ToolActivityIcon({
   if (hasError) {
     return <CircleAlert className="size-3.5 text-destructive" />;
   }
-
   if (isComplete) {
     return (
       <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
     );
   }
-
   return <Loader2 className="size-3.5 animate-spin text-primary" />;
 }
 
-export function GroupedToolCallsView({
-  message,
-  messages = [],
+function SingleToolCard(props: CatchAllToolCallRenderProps) {
+  if (props.name === 'run_code') {
+    return <RunCodeCard {...props} showArtifacts={false} />;
+  }
+  if (props.name === 'create_web_interface') {
+    return <WebInterfaceCard {...props} showInterface={false} />;
+  }
+  return <GenericToolCallCard {...props} />;
+}
+
+function ToolCallGroup({
+  calls,
+  groupStatus,
 }: {
-  message: AssistantMessage;
-  messages?: Message[];
+  calls: GroupedToolCall[];
+  groupStatus: ToolCallMessagePartProps['status'];
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const { executingToolCallIds } = useCopilotKit();
-  const renderToolCall = useRenderToolCall();
-  const toolCalls = useMemo(
-    () => getGroupedToolCalls({ message, messages }),
-    [message, messages],
-  );
 
   const { hasError, renderedArtifacts, renderedTools, statusCounts } =
     useMemo(() => {
@@ -86,54 +116,38 @@ export function GroupedToolCallsView({
       const statusCounts = createToolStatusCounts();
       let hasError = false;
 
-      for (const toolCall of toolCalls) {
-        const toolMessage = getToolMessageForCall({ messages, toolCall });
-        const props = buildToolCallProps({
-          executingToolCallIds,
-          toolCall,
-          toolMessage,
-        });
+      for (const call of calls) {
+        const props: CatchAllToolCallRenderProps = {
+          args: call.args,
+          name: call.name,
+          result: call.result,
+          status: toCardStatus(call, groupStatus),
+        };
         statusCounts[props.status] += 1;
+        const isComplete = props.status === 'complete';
 
-        if (toolCall.function.name === 'run_code') {
-          const result =
-            props.status === 'complete'
-              ? normalizeRunCodeResult(props.result)
-              : {};
+        if (call.name === 'run_code') {
+          const result = isComplete ? normalizeRunCodeResult(props.result) : {};
           hasError = hasError || Boolean(result.error);
-          renderedTools.push(
-            <RunCodeCard key={toolCall.id} {...props} showArtifacts={false} />,
-          );
-
-          if (props.status === 'complete' && result.artifacts?.length) {
+          renderedTools.push(<SingleToolCard key={call.id} {...props} />);
+          if (isComplete && result.artifacts?.length) {
             renderedArtifacts.push(
-              <RunCodeArtifacts
-                key={`${toolCall.id}-artifacts`}
-                result={result}
-              />,
+              <RunCodeArtifacts key={`${call.id}-artifacts`} result={result} />,
             );
           }
           continue;
         }
 
-        if (toolCall.function.name === 'create_web_interface') {
-          const parsed =
-            props.status === 'complete'
-              ? normalizeWebInterfaceResult(props.result)
-              : {};
+        if (call.name === 'create_web_interface') {
+          const parsed = isComplete
+            ? normalizeWebInterfaceResult(props.result)
+            : {};
           hasError = hasError || Boolean(parsed.error);
-          renderedTools.push(
-            <WebInterfaceCard
-              key={toolCall.id}
-              {...props}
-              showInterface={false}
-            />,
-          );
-
-          if (props.status === 'complete' && parsed.artifact) {
+          renderedTools.push(<SingleToolCard key={call.id} {...props} />);
+          if (isComplete && parsed.artifact) {
             renderedArtifacts.push(
               <WebInterfaceArtifactView
-                key={`${toolCall.id}-interface`}
+                key={`${call.id}-interface`}
                 artifact={enrichArtifactForPinning(parsed.artifact, props.args)}
               />,
             );
@@ -142,18 +156,13 @@ export function GroupedToolCallsView({
         }
 
         hasError = hasError || hasErrorResult(props.result);
-        renderedTools.push(renderToolCall({ toolCall, toolMessage }) ?? null);
+        renderedTools.push(<SingleToolCard key={call.id} {...props} />);
       }
 
-      return {
-        hasError,
-        renderedArtifacts,
-        renderedTools,
-        statusCounts,
-      };
-    }, [executingToolCallIds, messages, renderToolCall, toolCalls]);
+      return { hasError, renderedArtifacts, renderedTools, statusCounts };
+    }, [calls, groupStatus]);
 
-  const toolCount = toolCalls.length;
+  const toolCount = calls.length;
   if (!toolCount) {
     return null;
   }
@@ -213,5 +222,28 @@ export function GroupedToolCallsView({
         <div className="space-y-2">{renderedArtifacts}</div>
       ) : null}
     </div>
+  );
+}
+
+export function WotbotToolCall(props: ToolCallMessagePartProps) {
+  if (props.toolName === WOT_SUMMARY_NAME) {
+    const interactions =
+      (props.args as { interactions?: WotInteraction[] })?.interactions ?? [];
+    return <WotInteractionSummaryCard interactions={interactions} />;
+  }
+
+  if (props.toolName === TOOL_GROUP_NAME) {
+    const calls = (props.args as { calls?: GroupedToolCall[] })?.calls ?? [];
+    return <ToolCallGroup calls={calls} groupStatus={props.status} />;
+  }
+
+  // Any tool call that reached us ungrouped still renders on its own.
+  return (
+    <SingleToolCard
+      args={props.args}
+      name={props.toolName}
+      result={props.result}
+      status={props.status?.type === 'running' ? 'executing' : 'complete'}
+    />
   );
 }

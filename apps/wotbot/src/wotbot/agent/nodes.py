@@ -7,7 +7,6 @@ import logging
 from collections.abc import Sequence
 from typing import Any, Literal, NotRequired, Optional, cast
 
-from copilotkit import CopilotKitState
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -19,7 +18,7 @@ from langchain_core.messages import (
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from langgraph.graph import END
+from langgraph.graph import END, MessagesState
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
@@ -42,12 +41,10 @@ from wotbot.jobs.enums import JobOutputKind
 
 logger = logging.getLogger(__name__)
 
-_SILENT_AGUI_STREAM_METADATA = {
-    "emit-messages": False,
-    "emit-tool-calls": False,
-    "copilotkit:emit-messages": False,
-    "copilotkit:emit-tool-calls": False,
-}
+# A run tagged "nostream" still executes, but LangGraph omits its tokens from
+# "messages" stream mode. This keeps internal classification calls out of the
+# user-visible answer stream.
+NOSTREAM_TAG = "nostream"
 
 BACKGROUND_JOB_PROMPT = """\
 You are executing one background prompt job run for WoTBot.
@@ -72,16 +69,14 @@ Keep final responses concise and factual.
 """
 
 
-class WotbotState(CopilotKitState):
+class WotbotState(MessagesState):
     intent: str
     # Set by the route_to handoff tool to request continuation in another
     # branch; consumed and cleared by the dispatch node. Absent/None means the
     # turn ends normally. Only used when agent_handoff_enabled is set.
     next: NotRequired[Optional[str]]
-    # Forwarded from the chat UI as AG-UI forwardedProps.reasoningEffort (see
-    # ag_ui_langgraph's camelCase->snake_case normalization). Only honored when
-    # it matches the operator-configured allow-list; see
-    # _resolve_reasoning_effort.
+    # Submitted as plain graph state by the chat UI. Only honored when it
+    # matches the operator-configured allow-list; see _resolve_reasoning_effort.
     reasoning_effort: NotRequired[Optional[str]]
 
 
@@ -393,7 +388,7 @@ def _tool_names(tools: list[Any]) -> list[str]:
 def _resolve_reasoning_effort(
     state: WotbotState, reasoning_effort: ReasoningEffortSettings | None
 ) -> str | None:
-    """Read ``state["reasoning_effort"]`` (set from the chat UI's forwardedProps)
+    """Read ``state["reasoning_effort"]`` (set by the chat UI)
 
     and return it only when it's one of the operator-configured allowed
     levels. Returns ``None`` (provider default) when the feature is disabled
@@ -419,9 +414,7 @@ def _bind_runnable(
         else {}
     )
     if active_tools:
-        return llm.bind_tools(
-            active_tools, parallel_tool_calls=parallel_tool_calls, **bind_kwargs
-        )
+        return llm.bind_tools(active_tools, parallel_tool_calls=parallel_tool_calls, **bind_kwargs)
     return llm.bind(**bind_kwargs) if bind_kwargs else llm
 
 
@@ -454,10 +447,10 @@ def make_router_node(llm: ChatOpenAI, max_tokens: int):
     async def router(state: WotbotState, config: Optional[RunnableConfig] = None):
         tail = _make_router_messages(state["messages"], max_tokens)
         router_config = dict(config or {})
-        router_config["metadata"] = {
-            **dict(router_config.get("metadata") or {}),
-            **_SILENT_AGUI_STREAM_METADATA,
-        }
+        tags = list(router_config.get("tags") or [])
+        if NOSTREAM_TAG not in tags:
+            tags.append(NOSTREAM_TAG)
+        router_config["tags"] = tags
         result = cast(
             IntentClassification,
             await structured_llm.ainvoke(

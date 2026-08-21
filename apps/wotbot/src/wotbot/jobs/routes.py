@@ -18,7 +18,7 @@ from wotbot.jobs.schemas import (
     UpdateJobRequest,
 )
 from wotbot.jobs.stores import JobNotWaitingForInput, JobRunNotCancellable
-from wotbot.threads.messages import checkpoint_thread_messages
+from wotbot.threads.messages import checkpoint_thread_state
 from wotbot.threads.store import get_thread
 
 router = APIRouter()
@@ -140,7 +140,8 @@ async def get_job_thread(job_id: str, request: Request):
     if not messages:
         checkpointer = getattr(request.app.state, "checkpointer", None)
         if checkpointer is not None:
-            messages = await checkpoint_thread_messages(checkpointer, thread_id)
+            state = await checkpoint_thread_state(checkpointer, thread_id)
+            messages = state["values"]["messages"]
     return {
         **record,
         "job": job.model_dump(mode="json", by_alias=True),
@@ -244,7 +245,9 @@ def _messages_from_job_run_events(events: list[JobRunEvent]) -> list[dict[str, A
         messages.append(
             {
                 "id": f"job-event-{event.id}",
-                "role": _message_role_from_event(event.event_type),
+                # LangChain's discriminator, matching what the checkpoint path
+                # returns so the transcript UI reads one shape either way.
+                "type": _message_type_from_event(event.event_type),
                 "content": content,
                 "createdAt": event.created_at.isoformat(),
                 "jobRunId": event.run_id,
@@ -254,14 +257,14 @@ def _messages_from_job_run_events(events: list[JobRunEvent]) -> list[dict[str, A
     return messages
 
 
-def _message_role_from_event(event_type: JobRunEventType) -> str:
+def _message_type_from_event(event_type: JobRunEventType) -> str:
     if event_type == JobRunEventType.USER_REPLY:
-        return "user"
+        return "human"
     if event_type in {
         JobRunEventType.ASSISTANT_MESSAGE,
         JobRunEventType.WAITING_FOR_INPUT,
     }:
-        return "assistant"
+        return "ai"
     return "system"
 
 

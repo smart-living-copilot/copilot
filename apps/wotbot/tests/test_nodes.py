@@ -374,18 +374,14 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
 def _effort_settings(
     levels: frozenset[str], style: ReasoningEffortStyle = "openai"
 ) -> ReasoningEffortSettings:
-    return ReasoningEffortSettings(
-        enabled=True, levels=tuple(levels), default=None, style=style
-    )
+    return ReasoningEffortSettings(enabled=True, levels=tuple(levels), default=None, style=style)
 
 
 class ReasoningEffortBindingTestCase(unittest.IsolatedAsyncioTestCase):
     def test_resolve_reasoning_effort_requires_allow_listed_value(self) -> None:
         allowed = _effort_settings(frozenset({"low", "medium", "high"}))
 
-        self.assertEqual(
-            _resolve_reasoning_effort({"reasoning_effort": "high"}, allowed), "high"
-        )
+        self.assertEqual(_resolve_reasoning_effort({"reasoning_effort": "high"}, allowed), "high")
         self.assertIsNone(_resolve_reasoning_effort({"reasoning_effort": "extreme"}, allowed))
         self.assertIsNone(_resolve_reasoning_effort({}, allowed))
 
@@ -554,13 +550,9 @@ class RouterObservabilityTestCase(unittest.IsolatedAsyncioTestCase):
             [
                 {
                     "configurable": {"thread_id": "thread-router"},
-                    "metadata": {
-                        "existing": "preserved",
-                        "emit-messages": False,
-                        "emit-tool-calls": False,
-                        "copilotkit:emit-messages": False,
-                        "copilotkit:emit-tool-calls": False,
-                    },
+                    "metadata": {"existing": "preserved"},
+                    # LangGraph suppresses tagged runs in "messages" mode.
+                    "tags": ["nostream"],
                 }
             ],
         )

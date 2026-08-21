@@ -605,9 +605,11 @@ class JobRunEventMessageTestCase(unittest.TestCase):
             ]
         )
 
+        # LangChain's discriminator, matching the checkpoint path so the
+        # transcript UI reads one shape regardless of which source it came from.
         self.assertEqual(
-            [message["role"] for message in messages],
-            ["system", "user", "assistant", "system"],
+            [message["type"] for message in messages],
+            ["system", "human", "ai", "system"],
         )
         self.assertEqual(messages[0]["content"], "Run started.")
         self.assertEqual(messages[1]["content"], "21 C")

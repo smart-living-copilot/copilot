@@ -32,16 +32,10 @@ ApplyFn = Callable[[str, dict[str, Any], int], Awaitable[bool]]
 
 # Enrichment is scheduled inside the activate tool, so its LLM call inherits the agent
 # run's streaming context and would otherwise stream the enriched TD back to the chat UI.
-# These flags tell the AG-UI (plain keys) and CopilotKit (copilotkit:-prefixed keys)
-# stream adapters to drop this run's tokens.
+# LangGraph's "nostream" tag keeps this internal call's tokens out of the chat
+# stream while still allowing the enrichment run to execute normally.
 _SILENT_RUN_CONFIG: dict[str, Any] = {
-    "tags": ["virtual-thing-enrichment"],
-    "metadata": {
-        "emit-messages": False,
-        "emit-tool-calls": False,
-        "copilotkit:emit-messages": False,
-        "copilotkit:emit-tool-calls": False,
-    },
+    "tags": ["virtual-thing-enrichment", "nostream"],
 }
 
 
