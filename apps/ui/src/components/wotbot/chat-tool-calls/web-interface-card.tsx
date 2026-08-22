@@ -31,6 +31,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { pinPanel } from '@/lib/panels-api';
+import { cn } from '@/lib/utils';
 
 import {
   formatToolName,
@@ -40,8 +41,10 @@ import {
 /** Self-contained framed interface with a fullscreen + pin affordance. */
 export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
   artifact,
+  fill = false,
 }: {
   artifact: WebInterfaceArtifact;
+  fill?: boolean;
 }) {
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   const [isPinning, setIsPinning] = useState(false);
@@ -77,8 +80,15 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
 
   return (
     <Dialog open={isFullscreenOpen} onOpenChange={setIsFullscreenOpen}>
-      <Card className="gap-0 border border-border/55 bg-background/45 py-0 shadow-none ring-0">
-        <CardContent className="space-y-2 py-2">
+      <Card
+        className={cn(
+          'gap-0 border border-border/55 bg-background/45 py-0 shadow-none ring-0',
+          fill && 'h-full w-full',
+        )}
+      >
+        <CardContent
+          className={cn('space-y-2 py-2', fill && 'flex h-full flex-col')}
+        >
           <div className="flex items-center justify-end gap-1 px-0.5">
             {canPin ? (
               <Tooltip>
@@ -122,6 +132,7 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
           </div>
           <PanelFrame
             capabilities={artifact.capabilities}
+            className={fill ? 'min-h-0 flex-1' : undefined}
             src={src}
             title={`Interface ${artifact.ref}`}
           />

@@ -1,17 +1,28 @@
 """Build LiveKit STT/TTS plugins from the OpenAI-compatible speech settings.
 
 The project points STT/TTS at OpenAI-compatible endpoints (e.g. self-hosted
-transcription and text-to-speech services). These helpers translate the ``Settings``
-speech fields into the kwargs the ``livekit.plugins.openai`` STT/TTS clients
-expect, falling back to the shared OpenAI LLM credentials when no dedicated
-speech endpoint is configured.
+transcription and text-to-speech services, or an aggregator like OpenRouter).
+These helpers translate the ``Settings`` speech fields into the kwargs the
+``livekit.plugins.openai`` STT/TTS clients expect, falling back to the shared
+OpenAI LLM credentials when no dedicated speech endpoint is configured.
+
+``livekit.plugins.openai.TTS`` picks its response decoder from the model name:
+only the literal ``tts-1``/``tts-1-hd`` get the raw-audio reader, everything
+else is assumed to be an OpenAI token-billed model that answers
+``stream_format="sse"`` with ``speech.audio.delta`` events. Third-party
+endpoints keep their own model names, so they land on the SSE reader whether
+or not they speak it: Speaches does, OpenRouter does not -- it ignores
+``stream_format`` and always replies with raw ``audio/pcm``. That body holds no
+``data:`` lines, so the reader pushes no frames and the request dies on
+``APIError: no audio frames were pushed``. ``TTS_STREAM_FORMAT`` picks the
+decoder from configuration instead of guessing from the model name.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from wotbot.core.settings import Settings
+from wotbot.core.settings import Settings, TtsStreamFormat
 
 
 def _base_url_from_openai_endpoint(endpoint: str, *, suffix: str) -> str:
@@ -96,7 +107,52 @@ def make_stt(settings: Settings):
     return openai.STT(**stt_kwargs(settings))
 
 
+def _raw_audio_tts_class():
+    """A TTS that always reads the response body as raw audio bytes."""
+
+    from livekit.agents import APIConnectOptions, tts
+    from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
+    from livekit.plugins import openai
+    from livekit.plugins.openai.tts import AudioChunkedStream
+
+    class RawAudioTTS(openai.TTS):
+        def synthesize(
+            self,
+            text: str,
+            *,
+            conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
+        ) -> tts.ChunkedStream:
+            return AudioChunkedStream(tts=self, input_text=text, conn_options=conn_options)
+
+    return RawAudioTTS
+
+
+def _sse_tts_class():
+    """A TTS that always reads the response body as ``speech.audio.*`` events."""
+
+    from livekit.agents import APIConnectOptions, tts
+    from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
+    from livekit.plugins import openai
+    from livekit.plugins.openai.tts import SSEChunkedStream
+
+    class SseTTS(openai.TTS):
+        def synthesize(
+            self,
+            text: str,
+            *,
+            conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
+        ) -> tts.ChunkedStream:
+            return SSEChunkedStream(tts=self, input_text=text, conn_options=conn_options)
+
+    return SseTTS
+
+
 def make_tts(settings: Settings):
     from livekit.plugins import openai
 
+    stream_format: TtsStreamFormat = settings.tts_stream_format
+    if stream_format == "audio":
+        return _raw_audio_tts_class()(**tts_kwargs(settings))
+    if stream_format == "sse":
+        return _sse_tts_class()(**tts_kwargs(settings))
     return openai.TTS(**tts_kwargs(settings))

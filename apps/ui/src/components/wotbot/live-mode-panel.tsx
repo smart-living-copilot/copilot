@@ -26,19 +26,19 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { MediaIngressSession } from '@/hooks/use-media-ingress-session';
-import type { RunCodeArtifact } from './chat-tool-call-model';
+import type { LiveModeArtifact } from './assistant/artifacts';
 
 export function LiveModePanel({
   artifacts = [],
   session,
 }: {
-  artifacts?: RunCodeArtifact[];
+  artifacts?: LiveModeArtifact[];
   session: MediaIngressSession;
 }) {
   const status = useMemo(() => {
     if (session.state === 'requesting') {
       return {
-        detail: 'Waiting for camera and microphone access',
+        detail: 'Waiting for microphone access',
         icon: <LoaderCircle className="size-5 animate-spin" />,
       };
     }
@@ -66,10 +66,17 @@ export function LiveModePanel({
     };
   }, [session.error, session.isMicrophoneMuted, session.state]);
 
-  const mediaControlsDisabled =
+  // The camera controls need a live room: setCameraEnabled publishes a track
+  // and guards on the connection itself. Muting only flips the enabled flag on
+  // the local stream's audio tracks, so it works as soon as that stream exists
+  // -- including while the room is still connecting, which is exactly when
+  // someone wants to arrive muted.
+  const micControlDisabled =
     !session.localStream ||
     session.state === 'requesting' ||
     session.state === 'error';
+  const cameraControlsDisabled =
+    !session.localStream || session.state !== 'connected';
   const {
     inViewer,
     dismissViewer,
@@ -95,7 +102,8 @@ export function LiveModePanel({
     isCameraEnabled,
     isConnected,
     isMicrophoneMuted,
-    mediaControlsDisabled,
+    cameraControlsDisabled,
+    micControlDisabled,
     setCameraEnabled,
     setMicrophoneMuted,
   });
@@ -157,7 +165,8 @@ export function LiveModePanel({
       ) : null}
 
       <LiveModeControls
-        mediaControlsDisabled={mediaControlsDisabled}
+        cameraControlsDisabled={cameraControlsDisabled}
+        micControlDisabled={micControlDisabled}
         session={session}
       />
     </section>

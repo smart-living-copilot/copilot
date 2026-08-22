@@ -109,19 +109,12 @@ class _FakeBoundLLM:
 
     async def ainvoke(self, messages):
         # The analysis branch is the only one bound with run_code; return a plain
-        # completion there. In the virtual_things branch, hand off to analysis
-        # once, then complete plainly after the handoff has happened.
+        # completion there. The virtual_things branch hands off immediately.
         if "run_code" in self._tool_names:
             self._parent.visited.append("analysis")
             return AIMessage(content="analysis complete")
 
-        already_routed = any(
-            isinstance(m, ToolMessage) and str(m.content).startswith("Continuing in")
-            for m in messages
-        )
         self._parent.visited.append("virtual_things")
-        if already_routed:
-            return AIMessage(content="virtual thing created")
         return AIMessage(
             content="",
             tool_calls=[{"name": "route_to", "args": {"intent": "analysis"}, "id": "call-1"}],
@@ -132,7 +125,7 @@ class _ScriptedStructuredLLM:
     def __init__(self, intent: str) -> None:
         self._intent = intent
 
-    async def ainvoke(self, messages):
+    async def ainvoke(self, messages, config=None):
         return IntentClassification(intent=self._intent)
 
 
@@ -183,10 +176,9 @@ class HandoffExecutionTestCase(unittest.IsolatedAsyncioTestCase):
             {"messages": [HumanMessage(content="create a vt then analyze it")]}
         )
 
-        # Both branches ran, in order, via the handoff.
-        self.assertIn("virtual_things", llm.visited)
-        self.assertIn("analysis", llm.visited)
-        self.assertLess(llm.visited.index("virtual_things"), llm.visited.index("analysis"))
+        # Dispatch runs immediately after route_to; the source branch must not
+        # receive another LLM turn before the target branch starts.
+        self.assertEqual(llm.visited, ["virtual_things", "analysis"])
         # The field was cleared so dispatch did not re-loop.
         self.assertIsNone(result.get("next"))
         contents = [str(m.content) for m in result["messages"]]

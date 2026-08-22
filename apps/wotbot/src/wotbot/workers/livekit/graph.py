@@ -70,6 +70,7 @@ def compile_graph(settings: Settings, checkpointer: Any):
         max_tokens=settings.max_context_tokens,
         checkpointer=checkpointer,
         parallel_tool_calls=settings.parallel_tool_calls,
-        vision_enabled=settings.vision_enabled,
+        camera_frames_enabled=settings.openai_model_supports_vision,
+        voice_mode=True,
     )
     return graph.with_config(recursion_limit=settings.recursion_limit)

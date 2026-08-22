@@ -1,3 +1,4 @@
+import logging
 import os
 import socket
 from dataclasses import dataclass
@@ -7,6 +8,25 @@ from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DisableStreamingMode = bool | Literal["tool_calling"]
+# How a resolved reasoning-effort level gets sent to the model:
+# - "openai": the OpenAI/vLLM-standard ``reasoning_effort`` request field.
+# - "qwen": Qwen's own ``enable_thinking`` chat-template flag via
+#   ``extra_body``. Some vLLM/Qwen deployments don't reliably translate
+#   ``reasoning_effort`` into ``enable_thinking`` themselves (see
+#   https://github.com/vllm-project/vllm/issues/35574), so this talks to the
+#   model natively instead. Qwen's switch is binary, not graduated: the
+#   literal level "none" means thinking off, every other configured level
+#   means on.
+ReasoningEffortStyle = Literal["openai", "qwen"]
+# How ``/audio/speech`` streams synthesized audio back:
+# - "audio": the response body is the raw audio byte stream. Every
+#   OpenAI-compatible server speaks this dialect, and some speak only this one
+#   -- OpenRouter ignores ``stream_format`` and always answers with raw PCM.
+# - "sse": OpenAI's token-billed models (gpt-4o-mini-tts and newer) can wrap
+#   the audio in ``speech.audio.delta`` server-sent events instead.
+# - "auto": let livekit-plugins-openai choose from the model name, which
+#   means SSE for everything except the literal "tts-1"/"tts-1-hd".
+TtsStreamFormat = Literal["audio", "sse", "auto"]
 
 
 def _normalize_database_url(value: str) -> str:
@@ -27,9 +47,18 @@ def _fallback_value(value: str, fallback: str) -> str:
 class LlmSettings:
     openai_api_key: str
     openai_model: str
+    supports_vision: bool
     openai_temperature: float | None
     openai_disable_streaming: DisableStreamingMode
     openai_base_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningEffortSettings:
+    enabled: bool
+    levels: tuple[str, ...]
+    default: str | None
+    style: ReasoningEffortStyle
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,17 +106,6 @@ class SpeechSettings:
 
 
 @dataclass(frozen=True, slots=True)
-class VisionSettings:
-    enabled: bool
-    api_base_url: str
-    api_key: str
-    model: str
-    timeout_seconds: int
-    max_image_dimension: int
-    jpeg_quality: int
-
-
-@dataclass(frozen=True, slots=True)
 class TtsSettings:
     speech_url: str
     model: str
@@ -95,6 +113,7 @@ class TtsSettings:
     api_key: str
     response_format: str
     speed: float
+    stream_format: TtsStreamFormat
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +198,10 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("OPENAI_BASE_URL", "OPENAI_API_BASE_URL"),
     )
+    # OpenAI-compatible endpoints do not expose a portable capability query.
+    # Operators declare image-input support once; every fresh camera frame is
+    # then attached directly to the main model rather than sent to a second LLM.
+    openai_model_supports_vision: bool = False
     openai_embedding_api_base_url: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -193,6 +216,14 @@ class Settings(BaseSettings):
     )
     openai_embedding_model: str = "mxbai-embed-large"
 
+    # Reasoning effort: lets the chat UI ask a reasoning-capable model (o-series,
+    # gpt-5, etc.) how hard to think. Off by default; when disabled, no
+    # reasoning_effort is ever sent and the UI selector stays hidden.
+    reasoning_effort_enabled: bool = False
+    reasoning_effort_levels: str = "low,medium,high"
+    reasoning_effort_default: str = ""
+    reasoning_effort_style: ReasoningEffortStyle = "openai"
+
     # Agent
     max_iterations: int = 20
     recursion_limit: int = 50
@@ -203,7 +234,7 @@ class Settings(BaseSettings):
     # default: the compiled graph is identical to the single-branch graph.
     agent_handoff_enabled: bool = False
     agent_state_database_url: str = ""
-    # Seconds of silence on the AG-UI SSE stream before we emit a keepalive
+    # Seconds of silence on the chat SSE stream before we emit a keepalive
     # comment. Long tool calls (e.g. a slow plot in the code executor) produce
     # no events; without a heartbeat the consuming undici client aborts the
     # stream with UND_ERR_BODY_TIMEOUT before the final answer. <=0 disables it.
@@ -224,21 +255,14 @@ class Settings(BaseSettings):
     livekit_agent_name: str = "wotbot"
     livekit_room_prefix: str = "wotbot"
     livekit_token_ttl_seconds: int = 600
+    camera_frame_max_dimension: int = Field(default=1024, gt=0)
+    camera_frame_jpeg_quality: int = Field(default=85, ge=1, le=100)
 
     # Speech-to-text
     stt_transcriptions_url: str = ""
     stt_model: str = "whisper-large-turbo"
     stt_api_key: str = ""
     stt_language: str = ""
-
-    # Vision (look-at-camera)
-    vision_enabled: bool = False
-    vision_api_base_url: str = ""
-    vision_api_key: str = ""
-    vision_model: str = ""
-    vision_timeout_seconds: int = 30
-    vision_max_image_dimension: int = 1024
-    vision_jpeg_quality: int = 85
 
     # Text-to-speech
     tts_speech_url: str = ""
@@ -247,6 +271,10 @@ class Settings(BaseSettings):
     tts_api_key: str = ""
     tts_response_format: str = "pcm"
     tts_speed: float = 1.0
+    # Raw bytes by default: it is the one dialect every OpenAI-compatible
+    # speech endpoint serves, while the plugin's model-name heuristic sends
+    # anything not called "tts-1" down the SSE path that only some of them have.
+    tts_stream_format: TtsStreamFormat = "audio"
 
     # Code Executor
     code_executor_url: str = "http://localhost:8888"
@@ -330,6 +358,19 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
+    def _validate_reasoning_effort_default(self) -> "Settings":
+        default = self.reasoning_effort_default.strip()
+        if default and default not in self._reasoning_effort_level_tuple():
+            logging.getLogger(__name__).warning(
+                "REASONING_EFFORT_DEFAULT=%r is not in REASONING_EFFORT_LEVELS=%r; "
+                "ignoring the default.",
+                default,
+                self.reasoning_effort_levels,
+            )
+            self.reasoning_effort_default = ""
+        return self
+
+    @model_validator(mode="after")
     def _apply_fallback_settings(self) -> "Settings":
         self.openai_embedding_api_base_url = _fallback_value(
             self.openai_embedding_api_base_url,
@@ -360,9 +401,24 @@ class Settings(BaseSettings):
         return LlmSettings(
             openai_api_key=self.openai_api_key,
             openai_model=self.openai_model,
+            supports_vision=self.openai_model_supports_vision,
             openai_temperature=self.openai_temperature,
             openai_disable_streaming=self.openai_disable_streaming,
             openai_base_url=self.openai_base_url,
+        )
+
+    def _reasoning_effort_level_tuple(self) -> tuple[str, ...]:
+        return tuple(
+            level for raw in self.reasoning_effort_levels.split(",") if (level := raw.strip())
+        )
+
+    @property
+    def reasoning_effort(self) -> ReasoningEffortSettings:
+        return ReasoningEffortSettings(
+            enabled=self.reasoning_effort_enabled,
+            levels=self._reasoning_effort_level_tuple(),
+            default=self.reasoning_effort_default.strip() or None,
+            style=self.reasoning_effort_style,
         )
 
     @property
@@ -415,18 +471,6 @@ class Settings(BaseSettings):
         )
 
     @property
-    def vision(self) -> VisionSettings:
-        return VisionSettings(
-            enabled=self.vision_enabled,
-            api_base_url=self.vision_api_base_url,
-            api_key=self.vision_api_key,
-            model=self.vision_model,
-            timeout_seconds=self.vision_timeout_seconds,
-            max_image_dimension=self.vision_max_image_dimension,
-            jpeg_quality=self.vision_jpeg_quality,
-        )
-
-    @property
     def tts(self) -> TtsSettings:
         return TtsSettings(
             speech_url=self.tts_speech_url,
@@ -435,6 +479,7 @@ class Settings(BaseSettings):
             api_key=self.tts_api_key,
             response_format=self.tts_response_format,
             speed=self.tts_speed,
+            stream_format=self.tts_stream_format,
         )
 
     @property

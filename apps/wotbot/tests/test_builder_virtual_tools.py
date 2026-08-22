@@ -83,6 +83,7 @@ class BuilderVirtualToolsTestCase(unittest.TestCase):
                 "wot_invoke_action",
                 "wot_subscribe_event",
                 "wot_remove_subscription",
+                "get_current_time",
                 "create_virtual_thing",
                 "add_virtual_property",
                 "add_virtual_action",
@@ -95,6 +96,12 @@ class BuilderVirtualToolsTestCase(unittest.TestCase):
         self.assertNotIn("things_upsert", captured["virtual_things"])
         self.assertNotIn("things_delete", captured["virtual_things"])
         self.assertNotIn("wot_write_property", captured["virtual_things"])
+
+        # The action branches carry no Current Time block in their prompt, so the
+        # only way they can learn the date is by calling for it. A branch without
+        # this tool silently invents one instead.
+        for branch in ("jobs", "virtual_things"):
+            self.assertIn("get_current_time", captured[branch], branch)
 
 
 if __name__ == "__main__":

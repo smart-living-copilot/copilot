@@ -1,22 +1,24 @@
 import { useEffect } from 'react';
 
 export function useLiveModeKeyboardShortcuts({
+  cameraControlsDisabled,
   dismissViewer,
   inViewer,
   isCameraEnabled,
   isConnected,
   isMicrophoneMuted,
-  mediaControlsDisabled,
+  micControlDisabled,
   setCameraEnabled,
   setMicrophoneMuted,
 }: {
+  cameraControlsDisabled: boolean;
   dismissViewer: () => void;
   inViewer: boolean;
   isCameraEnabled: boolean;
   isConnected: boolean;
   isMicrophoneMuted: boolean;
-  mediaControlsDisabled: boolean;
-  setCameraEnabled: (enabled: boolean) => void;
+  micControlDisabled: boolean;
+  setCameraEnabled: (enabled: boolean) => Promise<void>;
   setMicrophoneMuted: (muted: boolean) => void;
 }) {
   useEffect(() => {
@@ -37,26 +39,29 @@ export function useLiveModeKeyboardShortcuts({
       }
 
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (!isConnected || mediaControlsDisabled) return;
+      if (!isConnected) return;
 
       const key = event.key.toLowerCase();
       if (key === 'm') {
+        if (micControlDisabled) return;
         event.preventDefault();
         setMicrophoneMuted(!isMicrophoneMuted);
       } else if (key === 'v') {
+        if (cameraControlsDisabled) return;
         event.preventDefault();
-        setCameraEnabled(!isCameraEnabled);
+        void setCameraEnabled(!isCameraEnabled);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
+    cameraControlsDisabled,
     dismissViewer,
     inViewer,
     isCameraEnabled,
     isConnected,
     isMicrophoneMuted,
-    mediaControlsDisabled,
+    micControlDisabled,
     setCameraEnabled,
     setMicrophoneMuted,
   ]);

@@ -2,20 +2,28 @@ import inspect
 import logging
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from wotbot.agent.camera_context import CameraFrameAttachment
 from wotbot.agent.nodes import (
     IntentClassification,
     _latest_run_code_source,
     _make_llm_node,
     _make_router_messages,
     _prior_analysis_block,
+    _resolve_reasoning_effort,
     _sanitize_message_sequence,
     _strip_wot_calls,
+    make_analysis_node,
+    make_control_node,
+    make_jobs_node,
+    make_respond_node,
     make_router_node,
+    make_virtual_things_node,
 )
+from wotbot.core.settings import ReasoningEffortSettings, ReasoningEffortStyle
 
 
 def _tool(name: str) -> SimpleNamespace:
@@ -40,11 +48,16 @@ class _FakeLLM:
     def __init__(self) -> None:
         self.bound_tools: list[list[str]] = []
         self.bound_kwargs: list[dict] = []
+        self.plain_bind_kwargs: list[dict] = []
         self.invocations: list[tuple[str, object]] = []
 
     def bind_tools(self, tools, **kwargs):
         self.bound_tools.append([tool.name for tool in tools])
         self.bound_kwargs.append(kwargs)
+        return _FakeBoundLLM(self)
+
+    def bind(self, **kwargs):
+        self.plain_bind_kwargs.append(kwargs)
         return _FakeBoundLLM(self)
 
     async def ainvoke(self, messages):
@@ -53,13 +66,20 @@ class _FakeLLM:
 
 
 class _FakeStructuredLLM:
-    async def ainvoke(self, _messages):
+    def __init__(self) -> None:
+        self.configs: list[object] = []
+
+    async def ainvoke(self, _messages, config=None):
+        self.configs.append(config)
         return IntentClassification(intent="analysis")
 
 
 class _FakeRouterLLM:
+    def __init__(self) -> None:
+        self.structured = _FakeStructuredLLM()
+
     def with_structured_output(self, _schema):
-        return _FakeStructuredLLM()
+        return self.structured
 
 
 class NodeMessageSanitizationTestCase(unittest.TestCase):
@@ -266,7 +286,7 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
     def test_llm_node_config_annotation_allows_langgraph_injection(self) -> None:
         node = _make_llm_node(
             _FakeLLM(),
-            tools=[_tool("look_at_camera")],
+            tools=[_tool("get_current_time")],
             system_text="system",
             max_tokens=4000,
         )
@@ -275,23 +295,34 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(signature.parameters["config"].annotation, "Optional[RunnableConfig]")
 
-    async def test_llm_node_filters_camera_tool_when_camera_is_inactive(self) -> None:
+    async def test_llm_node_attaches_camera_frame_when_main_model_supports_it(self) -> None:
         llm = _FakeLLM()
+        prepared = [HumanMessage(content=[{"type": "image_url", "image_url": {"url": "frame"}}])]
         node = _make_llm_node(
             llm,
-            tools=[_tool("get_current_time"), _tool("look_at_camera")],
+            tools=[_tool("get_current_time")],
             system_text="system",
             max_tokens=4000,
+            camera_frames_enabled=True,
         )
 
-        with patch("wotbot.agent.nodes.is_look_at_camera_available", return_value=False):
+        attach = AsyncMock(
+            return_value=CameraFrameAttachment(
+                messages=prepared,
+                attached=True,
+                captured_at="now",
+            )
+        )
+        with patch("wotbot.agent.nodes.attach_latest_camera_frame", attach):
             await node(
                 {"messages": [HumanMessage(content="what is this?")]},
                 {"configurable": {"thread_id": "thread-1"}},
             )
 
         self.assertEqual(llm.bound_tools, [["get_current_time"]])
-        self.assertEqual(llm.invocations[0][0], "bound")
+        self.assertEqual(llm.invocations[0], ("bound", prepared))
+        attach.assert_awaited_once()
+        self.assertEqual(attach.await_args.kwargs["thread_id"], "thread-1")
 
     async def test_llm_node_logs_branch_metadata_without_message_content(self) -> None:
         _enable_log_capture("wotbot.agent.nodes")
@@ -319,41 +350,167 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("parallel_tool_calls=True", output)
         self.assertNotIn("secret user text", output)
 
-    async def test_llm_node_keeps_camera_tool_when_camera_is_active(self) -> None:
+    async def test_llm_node_skips_camera_lookup_when_capability_is_disabled(self) -> None:
         llm = _FakeLLM()
         node = _make_llm_node(
             llm,
-            tools=[_tool("get_current_time"), _tool("look_at_camera")],
+            tools=[_tool("get_current_time")],
             system_text="system",
             max_tokens=4000,
         )
 
-        with patch("wotbot.agent.nodes.is_look_at_camera_available", return_value=True):
+        attach = AsyncMock()
+        with patch("wotbot.agent.nodes.attach_latest_camera_frame", attach):
             await node(
-                {"messages": [HumanMessage(content="what is this?")]},
+                {"messages": [HumanMessage(content="list my devices")]},
                 {"configurable": {"thread_id": "thread-1"}},
             )
 
-        self.assertEqual(llm.bound_tools, [["get_current_time", "look_at_camera"]])
+        attach.assert_not_awaited()
+        self.assertEqual(llm.bound_tools, [["get_current_time"]])
         self.assertEqual(llm.invocations[0][0], "bound")
 
-    async def test_llm_node_uses_plain_llm_when_camera_was_the_only_tool(self) -> None:
+
+def _effort_settings(
+    levels: frozenset[str], style: ReasoningEffortStyle = "openai"
+) -> ReasoningEffortSettings:
+    return ReasoningEffortSettings(enabled=True, levels=tuple(levels), default=None, style=style)
+
+
+class ReasoningEffortBindingTestCase(unittest.IsolatedAsyncioTestCase):
+    def test_resolve_reasoning_effort_requires_allow_listed_value(self) -> None:
+        allowed = _effort_settings(frozenset({"low", "medium", "high"}))
+
+        self.assertEqual(_resolve_reasoning_effort({"reasoning_effort": "high"}, allowed), "high")
+        self.assertIsNone(_resolve_reasoning_effort({"reasoning_effort": "extreme"}, allowed))
+        self.assertIsNone(_resolve_reasoning_effort({}, allowed))
+
+    def test_resolve_reasoning_effort_disabled_when_feature_off(self) -> None:
+        self.assertIsNone(_resolve_reasoning_effort({"reasoning_effort": "high"}, None))
+
+    async def test_llm_node_binds_reasoning_effort_when_allowed(self) -> None:
         llm = _FakeLLM()
         node = _make_llm_node(
             llm,
-            tools=[_tool("look_at_camera")],
+            tools=[_tool("get_current_time")],
+            system_text="system",
+            max_tokens=4000,
+            reasoning_effort=_effort_settings(frozenset({"low", "high"})),
+        )
+
+        await node(
+            {
+                "messages": [HumanMessage(content="hi")],
+                "reasoning_effort": "high",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(llm.bound_kwargs[-1]["reasoning_effort"], "high")
+
+    async def test_llm_node_ignores_reasoning_effort_outside_allow_list(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[_tool("get_current_time")],
+            system_text="system",
+            max_tokens=4000,
+            reasoning_effort=_effort_settings(frozenset({"low", "high"})),
+        )
+
+        await node(
+            {
+                "messages": [HumanMessage(content="hi")],
+                "reasoning_effort": "extreme",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertNotIn("reasoning_effort", llm.bound_kwargs[-1])
+
+    async def test_llm_node_binds_reasoning_effort_without_active_tools(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[],
+            system_text="system",
+            max_tokens=4000,
+            reasoning_effort=_effort_settings(frozenset({"high"})),
+        )
+
+        await node(
+            {
+                "messages": [HumanMessage(content="hi")],
+                "reasoning_effort": "high",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(llm.plain_bind_kwargs[-1], {"reasoning_effort": "high"})
+        self.assertEqual(llm.invocations[0][0], "bound")
+
+    async def test_llm_node_stays_unbound_when_feature_disabled(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[],
             system_text="system",
             max_tokens=4000,
         )
 
-        with patch("wotbot.agent.nodes.is_look_at_camera_available", return_value=False):
-            await node(
-                {"messages": [HumanMessage(content="what is this?")]},
-                {"configurable": {"thread_id": "thread-1"}},
-            )
+        await node(
+            {
+                "messages": [HumanMessage(content="hi")],
+                "reasoning_effort": "high",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
 
-        self.assertEqual(llm.bound_tools, [])
+        self.assertEqual(llm.plain_bind_kwargs, [])
         self.assertEqual(llm.invocations[0][0], "plain")
+
+    async def test_llm_node_uses_qwen_style_enable_thinking(self) -> None:
+        llm = _FakeLLM()
+        node = _make_llm_node(
+            llm,
+            tools=[],
+            system_text="system",
+            max_tokens=4000,
+            reasoning_effort=_effort_settings(frozenset({"none", "high"}), style="qwen"),
+        )
+
+        await node(
+            {
+                "messages": [HumanMessage(content="hi")],
+                "reasoning_effort": "none",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertNotIn("reasoning_effort", llm.plain_bind_kwargs[-1])
+        self.assertEqual(
+            llm.plain_bind_kwargs[-1],
+            {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+        )
+
+    async def test_custom_analysis_node_binds_reasoning_effort(self) -> None:
+        llm = _FakeLLM()
+        node = make_analysis_node(
+            llm,
+            [_tool("run_code")],
+            4000,
+            reasoning_effort=_effort_settings(frozenset({"medium"})),
+        )
+
+        await node(
+            {
+                "messages": [HumanMessage(content="analyze")],
+                "reasoning_effort": "medium",
+            },
+            {"configurable": {"thread_id": "thread-1"}},
+        )
+
+        self.assertEqual(llm.bound_kwargs[-1]["reasoning_effort"], "medium")
 
 
 class RouterObservabilityTestCase(unittest.IsolatedAsyncioTestCase):
@@ -374,6 +531,113 @@ class RouterObservabilityTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("thread_id=thread-router", output)
         self.assertIn("intent=analysis", output)
         self.assertNotIn("secret router text", output)
+
+    async def test_router_suppresses_internal_llm_stream_events(self) -> None:
+        llm = _FakeRouterLLM()
+        router = make_router_node(llm, max_tokens=4000)
+        config = {
+            "configurable": {"thread_id": "thread-router"},
+            "metadata": {"existing": "preserved"},
+        }
+
+        await router(
+            {"messages": [HumanMessage(content="route this")]},
+            config,
+        )
+
+        self.assertEqual(
+            llm.structured.configs,
+            [
+                {
+                    "configurable": {"thread_id": "thread-router"},
+                    "metadata": {"existing": "preserved"},
+                    # LangGraph suppresses tagged runs in "messages" mode.
+                    "tags": ["nostream"],
+                }
+            ],
+        )
+        self.assertEqual(config["metadata"], {"existing": "preserved"})
+
+
+class VoiceResponseInstructionsTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_response_instructions_reach_every_foreground_branch(self) -> None:
+        marker = "VOICE RESPONSE MARKER"
+        factories = (
+            make_respond_node,
+            make_control_node,
+            make_analysis_node,
+            make_jobs_node,
+            make_virtual_things_node,
+        )
+
+        for factory in factories:
+            with self.subTest(factory=factory.__name__):
+                llm = _FakeLLM()
+                node = factory(
+                    llm,
+                    [],
+                    4000,
+                    response_instructions=f"\n{marker}\n",
+                )
+
+                await node(
+                    {"messages": [HumanMessage(content="hello")]},
+                    {"configurable": {"thread_id": "thread-voice"}},
+                )
+
+                messages = llm.invocations[0][1]
+                self.assertIn(marker, messages[0].content)
+
+
+class StableSystemPromptTestCase(unittest.IsolatedAsyncioTestCase):
+    """Foreground system prompts must be byte-identical across invocations.
+
+    A value that changes per call (previously the millisecond timestamp) makes
+    the whole prompt prefix -- history and any attached camera frame included --
+    unique every time, so no provider prefix cache can hit. The current time now
+    comes from the get_current_time tool, whose result is appended to history
+    instead of rewriting the prefix.
+    """
+
+    async def test_system_prompt_is_identical_across_calls(self) -> None:
+        factories = (
+            make_respond_node,
+            make_control_node,
+            make_analysis_node,
+            make_jobs_node,
+            make_virtual_things_node,
+        )
+
+        for factory in factories:
+            with self.subTest(factory=factory.__name__):
+                llm = _FakeLLM()
+                node = factory(llm, [], 4000)
+                state = {"messages": [HumanMessage(content="hello")]}
+                config = {"configurable": {"thread_id": "thread-cache"}}
+
+                await node(state, config)
+                await node(state, config)
+
+                first, second = (invocation[1] for invocation in llm.invocations[:2])
+                self.assertEqual(first[0].content, second[0].content)
+                self.assertNotIn("## Current Time", first[0].content)
+                self.assertNotIn("now_ts_ms", first[0].content)
+
+    async def test_prior_analysis_only_changes_when_run_code_output_changes(self) -> None:
+        llm = _FakeLLM()
+        node = make_virtual_things_node(llm, [], 4000)
+        run_code = AIMessage(
+            content="",
+            tool_calls=[{"id": "c1", "name": "run_code", "args": {"code": "x = 1"}}],
+        )
+        state = {"messages": [HumanMessage(content="hi"), run_code]}
+
+        await node(state, None)
+        await node(state, None)
+
+        first, second = (invocation[1] for invocation in llm.invocations[:2])
+        self.assertEqual(first[0].content, second[0].content)
+        self.assertIn("## Prior Analysis Code", first[0].content)
 
 
 class PriorAnalysisBlockTestCase(unittest.TestCase):

@@ -4,9 +4,15 @@ import test from 'node:test';
 import {
   CAMERA_SNAPSHOT_TOPIC,
   handleCameraSnapshotDataEvent,
+  INITIAL_VOICE_MEDIA_CONSTRAINTS,
 } from './livekit-connection';
 
 const encoder = new TextEncoder();
+
+test('voice sessions request microphone access without enabling the camera', () => {
+  assert.equal(INITIAL_VOICE_MEDIA_CONSTRAINTS.video, false);
+  assert.notEqual(INITIAL_VOICE_MEDIA_CONSTRAINTS.audio, false);
+});
 
 function snapshotPayload(value: unknown) {
   return encoder.encode(JSON.stringify(value));

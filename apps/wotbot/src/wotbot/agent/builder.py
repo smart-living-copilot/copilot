@@ -20,17 +20,20 @@ from wotbot.agent.nodes import (
     make_virtual_things_node,
     respond_should_continue,
 )
-from wotbot.agent.prompts import HANDOFF_PROMPT
+from wotbot.agent.prompts import HANDOFF_PROMPT, VOICE_RESPONSE_PROMPT
 from wotbot.agent.tool_groups import group_local_tools, partition_registry_tools
 from wotbot.agent.tools.route_to import make_route_to_tool
+from wotbot.core.settings import ReasoningEffortSettings
 
 
 def _tool_error_message(error: Exception) -> str:
     return f"Tool error: {error}"
 
 
-def _after_tool_node(next_node: str):
-    def route(_state: WotbotState):
+def _after_tool_node(next_node: str, *, handoff_node: str | None = None):
+    def route(state: WotbotState):
+        if handoff_node is not None and state.get("next"):
+            return handoff_node
         return next_node
 
     return route
@@ -46,8 +49,12 @@ def _add_action_branch(
     tools: list[Any],
     max_tokens: int,
     action_branch_end: str,
+    handoff_node: str | None,
     parallel_tool_calls: bool,
     handoff_note: str,
+    reasoning_effort: ReasoningEffortSettings | None,
+    camera_frames_enabled: bool,
+    response_instructions: str,
 ) -> None:
     graph.add_node(
         llm_node,
@@ -57,6 +64,9 @@ def _add_action_branch(
             max_tokens,
             parallel_tool_calls=parallel_tool_calls,
             handoff_note=handoff_note,
+            reasoning_effort=reasoning_effort,
+            camera_frames_enabled=camera_frames_enabled,
+            response_instructions=response_instructions,
         ),
     )
     graph.add_node(
@@ -71,13 +81,13 @@ def _add_action_branch(
             END: action_branch_end,
         },
     )
+    after_tool_targets = {llm_node: llm_node, END: END}
+    if handoff_node is not None:
+        after_tool_targets[handoff_node] = handoff_node
     graph.add_conditional_edges(
         tools_node,
-        _after_tool_node(llm_node),
-        {
-            llm_node: llm_node,
-            END: END,
-        },
+        _after_tool_node(llm_node, handoff_node=handoff_node),
+        after_tool_targets,
     )
 
 
@@ -88,14 +98,16 @@ def build_graph(
     max_tokens: int,
     checkpointer=None,
     parallel_tool_calls: bool = True,
-    vision_enabled: bool = False,
+    camera_frames_enabled: bool = False,
     handoff_enabled: bool = False,
+    reasoning_effort: ReasoningEffortSettings | None = None,
+    voice_mode: bool = False,
 ):
     """Build and compile the wotbot agent StateGraph."""
     registry_tool_groups = partition_registry_tools(registry_tools)
-    local_tool_groups = group_local_tools(local_tools, vision_enabled=vision_enabled)
+    local_tool_groups = group_local_tools(local_tools)
+    response_instructions = VOICE_RESPONSE_PROMPT if voice_mode else ""
 
-    vision_tools = [local_tool_groups.look_at_camera] if local_tool_groups.look_at_camera else []
     web_interface_tools = (
         [local_tool_groups.create_web_interface] if local_tool_groups.create_web_interface else []
     )
@@ -107,33 +119,31 @@ def build_graph(
         )
         if tool
     ]
-    respond_tools = [local_tool_groups.get_current_time, *vision_tools, *job_runtime_tools]
+    respond_tools = [local_tool_groups.get_current_time, *job_runtime_tools]
     control_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime
         + web_interface_tools
-        + vision_tools
         + job_runtime_tools
     )
     analysis_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime_read
-        + [local_tool_groups.run_code]
+        + [local_tool_groups.run_code, local_tool_groups.get_current_time]
         + web_interface_tools
-        + vision_tools
         + job_runtime_tools
     )
     jobs_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime_read
-        + [local_tool_groups.run_code]
-        + vision_tools
+        + [local_tool_groups.run_code, local_tool_groups.get_current_time]
         + job_runtime_tools
         + local_tool_groups.job_tools
     )
     virtual_things_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.virtual_authoring_runtime
+        + [local_tool_groups.get_current_time]
         + local_tool_groups.virtual_thing_tools
     )
     discovery_tools = (
@@ -176,6 +186,9 @@ def build_graph(
             respond_tools,
             max_tokens,
             parallel_tool_calls=parallel_tool_calls,
+            reasoning_effort=reasoning_effort,
+            camera_frames_enabled=camera_frames_enabled,
+            response_instructions=response_instructions,
         ),
     )
     graph.add_node(
@@ -188,8 +201,10 @@ def build_graph(
     # branch or falls through to device_summary) when handoff is enabled,
     # otherwise straight at "device_summary" as in the single-branch graph.
     action_branch_end = "device_summary"
+    handoff_node = None
     if handoff_enabled:
         action_branch_end = "dispatch"
+        handoff_node = "dispatch"
         graph.add_node(
             "dispatch",
             make_dispatch_node(
@@ -248,8 +263,12 @@ def build_graph(
             tools=tools,
             max_tokens=max_tokens,
             action_branch_end=action_branch_end,
+            handoff_node=handoff_node,
             parallel_tool_calls=parallel_tool_calls,
             handoff_note=handoff_note,
+            reasoning_effort=reasoning_effort,
+            camera_frames_enabled=camera_frames_enabled,
+            response_instructions=response_instructions,
         )
 
     graph.add_conditional_edges(
@@ -294,17 +313,14 @@ def build_background_job_graph(
     max_tokens: int,
     checkpointer=None,
     parallel_tool_calls: bool = True,
-    vision_enabled: bool = False,
 ):
     """Build and compile the compact graph used by background prompt jobs."""
     registry_tool_groups = partition_registry_tools(registry_tools)
-    local_tool_groups = group_local_tools(local_tools, vision_enabled=vision_enabled)
-    vision_tools = [local_tool_groups.look_at_camera] if local_tool_groups.look_at_camera else []
+    local_tool_groups = group_local_tools(local_tools)
     job_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime
         + [local_tool_groups.run_code, local_tool_groups.get_current_time]
-        + vision_tools
         + [
             tool
             for tool in (

@@ -6,8 +6,8 @@ The graph is handed two flat lists of LangChain tools (see ``agent.tools``):
   ``wot_runtime`` service (live device reads, writes, action invocations,
   subscriptions).
 * **local tools** are the agent's own first-party tools: ``get_current_time``
-  (in-process), ``run_code`` (code-executor), ``look_at_camera`` (vision model),
-  the worker-only ``ask_job_user`` and ``submit_job_record`` tools, and the job API tools.
+  (in-process), ``run_code`` (code-executor), the worker-only ``ask_job_user``
+  and ``submit_job_record`` tools, and the job API tools.
 
 Each graph node only gets a subset of these (e.g. the chat ``respond`` node has
 no device-write tools). This module is the single place that maps tool *names*
@@ -71,7 +71,6 @@ _DISCOVERY_AUTHORING_NAMES = {
 _GET_CURRENT_TIME = "get_current_time"
 _RUN_CODE = "run_code"
 _CREATE_WEB_INTERFACE = "create_web_interface"
-_LOOK_AT_CAMERA = "look_at_camera"
 _ASK_JOB_USER = "ask_job_user"
 _SUBMIT_JOB_RECORD = "submit_job_record"
 _SET_THING_CREDENTIAL = "set_thing_credential"
@@ -88,7 +87,6 @@ _NAMED_LOCAL_NAMES = {
     _GET_CURRENT_TIME,
     _RUN_CODE,
     _CREATE_WEB_INTERFACE,
-    _LOOK_AT_CAMERA,
     _ASK_JOB_USER,
     _SUBMIT_JOB_RECORD,
     _SET_THING_CREDENTIAL,
@@ -115,7 +113,6 @@ class LocalToolGroups:
     get_current_time: Any
     run_code: Any
     create_web_interface: Any | None
-    look_at_camera: Any | None
     ask_job_user: Any | None
     submit_job_record: Any | None
     virtual_thing_tools: list[Any]
@@ -160,11 +157,7 @@ def partition_registry_tools(registry_tools: list[Any]) -> RegistryToolGroups:
     )
 
 
-def group_local_tools(
-    local_tools: list[Any],
-    *,
-    vision_enabled: bool = False,
-) -> LocalToolGroups:
+def group_local_tools(local_tools: list[Any]) -> LocalToolGroups:
     """Return the local tools required by the graph by their explicit names."""
     tools_by_name = {tool.name: tool for tool in local_tools}
     missing = [name for name in (_GET_CURRENT_TIME, _RUN_CODE) if name not in tools_by_name]
@@ -175,7 +168,6 @@ def group_local_tools(
         get_current_time=tools_by_name[_GET_CURRENT_TIME],
         run_code=tools_by_name[_RUN_CODE],
         create_web_interface=tools_by_name.get(_CREATE_WEB_INTERFACE),
-        look_at_camera=tools_by_name.get(_LOOK_AT_CAMERA) if vision_enabled else None,
         ask_job_user=tools_by_name.get(_ASK_JOB_USER),
         submit_job_record=tools_by_name.get(_SUBMIT_JOB_RECORD),
         virtual_thing_tools=[tool for tool in local_tools if tool.name in _VIRTUAL_THING_NAMES],

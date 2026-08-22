@@ -42,12 +42,7 @@ from wotbot.api.a2a_protocol import (
     make_image_part,
     make_message,
 )
-from wotbot.core.agui_runtime import AguiRuntime
-
-try:
-    from ag_ui.core.types import RunAgentInput
-except Exception:
-    RunAgentInput = None
+from wotbot.threads.runs import RunRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +72,19 @@ class A2AMessage(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _agent_runtime(request: Request) -> AguiRuntime:
-    try:
-        from wotbot.api.main import agui_runtime as _shared_runtime
-        return _shared_runtime
-    except Exception:
-        raise RuntimeError("AG-UI runtime is not available")
+# Fallback for apps that mount this router without the main app's shared
+# registry; a private registry still serializes A2A runs against each other.
+_FALLBACK_RUN_REGISTRY = RunRegistry()
+
+
+def _agent_graph(request: Request) -> Any | None:
+    """Return the compiled LangGraph the app built during startup."""
+    return getattr(request.app.state, "graph", None)
+
+
+def _run_registry(request: Request) -> RunRegistry:
+    registry = getattr(request.app.state, "run_registry", None)
+    return registry if isinstance(registry, RunRegistry) else _FALLBACK_RUN_REGISTRY
 
 
 def _settings(request: Request) -> Any:
@@ -336,77 +338,41 @@ def _as_dict(obj: Any) -> dict | None:
     return None
 
 
-class _RunInputCompat(dict):
-    """Dict subclass that also supports attribute access and pydantic-ish copy methods.
-
-    AG-UI versions disagree on whether the run input is a plain dict or a model;
-    this shim keeps ``proxy.run()`` happy either way.
-    """
-
-    def __init__(self, value):
-        if isinstance(value, dict):
-            super().__init__(value)
-        elif hasattr(value, "dict") and callable(value.dict):
-            super().__init__({k: _wrap_compat(v) for k, v in value.dict().items()})
-        else:
-            super().__init__(value)
-
-    def __getattr__(self, name):
-        if name in self:
-            return self[name]
-        raise AttributeError(name)
-
-    def copy(self, update=None, **kwargs):
-        result = dict(self)
-        if update is not None:
-            result.update(update)
-        result.update(kwargs)
-        return _RunInputCompat({k: _wrap_compat(v) for k, v in result.items()})
-
-    def model_copy(self, update=None, **kwargs):
-        return self.copy(update=update or {}, **kwargs)
-
-    def dict(self):
-        def _unwrap(value):
-            if isinstance(value, _RunInputCompat):
-                return {k: _unwrap(v) for k, v in value.items()}
-            if isinstance(value, list):
-                return [_unwrap(v) for v in value]
-            return value
-
-        return {k: _unwrap(v) for k, v in self.items()}
-
-
-def _wrap_compat(value):
-    if isinstance(value, dict):
-        return _RunInputCompat({k: _wrap_compat(v) for k, v in value.items()})
-    if isinstance(value, list):
-        return [_wrap_compat(v) for v in value]
-    return value
-
-
-def _build_run_input(thread_id: str, run_id: str, content_blocks: list[dict[str, Any]]) -> Any:
-    """Build the AG-UI run input (model if possible, else compat-wrapped dict)."""
-    input_dict = {
-        "threadId": thread_id,
-        "thread_id": thread_id,
-        "runId": run_id,
-        "run_id": run_id,
-        "state": {},
-        "messages": [{"id": f"msg-{uuid4().hex}", "role": "user", "content": content_blocks}],
-        "tools": [],
-        "context": [],
-        "forwardedProps": {},
+def _build_graph_input(content_blocks: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build the LangGraph input for one user turn."""
+    return {
+        "messages": [
+            {
+                "id": f"msg-{uuid4().hex}",
+                "role": "user",
+                "content": content_blocks,
+            }
+        ]
     }
-    if RunAgentInput is not None:
-        try:
-            try:
-                return RunAgentInput.model_validate(input_dict)
-            except Exception:
-                return RunAgentInput(**input_dict)
-        except Exception:
-            pass
-    return _wrap_compat(input_dict)
+
+
+async def _stream_raw_events(
+    graph: Any,
+    registry: RunRegistry,
+    thread_id: str,
+    content_blocks: list[dict[str, Any]],
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Run the graph for one turn, yielding RAW-wrapped LangGraph events.
+
+    The A2A response builders below read ``on_chat_model_end``/``on_tool_end``
+    payloads, so the graph's ``astream_events`` output is wrapped in the same
+    ``{"type": "RAW", "event": ...}`` envelope the AG-UI runtime used to emit.
+    The thread lock is shared with the chat routes so an external agent and the
+    UI cannot drive the same thread at once.
+    """
+    config = {"configurable": {"thread_id": thread_id}}
+    async with registry.thread_lock(thread_id):
+        async for event in graph.astream_events(
+            _build_graph_input(content_blocks),
+            config=config,
+            version="v2",
+        ):
+            yield {"type": "RAW", "event": event}
 
 
 async def _upload_attachments(
@@ -549,7 +515,8 @@ def _parse_a2a_message(params: dict[str, Any]) -> tuple[str, str, list[Attachmen
 
 
 async def _run_agent(
-    runtime: AguiRuntime,
+    graph: Any,
+    registry: RunRegistry,
     message_text: str,
     thread_id: str,
     run_id: str,
@@ -568,12 +535,9 @@ async def _run_agent(
     if attachments:
         content_blocks.extend(await _upload_attachments(attachments, executor_url, api_key, base_url))
 
-    input_data = _build_run_input(thread_id, run_id, content_blocks)
-
     events: list[Any] = []
     try:
-        proxy = runtime.create_agent_proxy()
-        async for event in proxy.run(input_data):
+        async for event in _stream_raw_events(graph, registry, thread_id, content_blocks):
             events.append(event)
     except asyncio.CancelledError:
         raise HTTPException(status_code=499, detail="Request cancelled")
@@ -592,7 +556,8 @@ async def _run_agent(
 
 
 async def _run_agent_streaming(
-    runtime: AguiRuntime,
+    graph: Any,
+    registry: RunRegistry,
     message_text: str,
     thread_id: str,
     run_id: str,
@@ -610,8 +575,6 @@ async def _run_agent_streaming(
     if attachments:
         content_blocks.extend(await _upload_attachments(attachments, executor_url, api_key, base_url))
 
-    input_data = _build_run_input(thread_id, run_id, content_blocks)
-
     def _sse(event: TaskStatusUpdateEvent) -> str:
         return f"data: {event.model_dump_json()}\n\n"
 
@@ -628,8 +591,7 @@ async def _run_agent_streaming(
     latest_text = ""
 
     try:
-        proxy = runtime.create_agent_proxy()
-        async for event in proxy.run(input_data):
+        async for event in _stream_raw_events(graph, registry, thread_id, content_blocks):
             events.append(event)
             ed = _as_dict(event)
             if not ed or ed.get("type") != "RAW":
@@ -698,17 +660,18 @@ async def jsonrpc_endpoint(body: JSONRPCRequest, request: Request):
       - ``sendMessage`` — send a message, get a Task back
       - ``sendMessageStream`` — send a message, get a streaming TaskStatusUpdateEvent
     """
-    runtime = _agent_runtime(request)
-    if runtime is None:
+    graph = _agent_graph(request)
+    if graph is None:
         return JSONResponse(
-            content=JSONRPCResponse(id=body.id, error=JSONRPCError(code=-32000, message="AG-UI runtime not available")).model_dump(),
+            content=JSONRPCResponse(id=body.id, error=JSONRPCError(code=-32000, message="Agent graph not ready")).model_dump(),
             status_code=503,
         )
+    registry = _run_registry(request)
 
     if body.method == "sendMessage":
-        return await _handle_send_message(body, runtime, request)
+        return await _handle_send_message(body, graph, registry, request)
     elif body.method == "sendMessageStream":
-        return await _handle_send_message_stream(body, runtime, request)
+        return await _handle_send_message_stream(body, graph, registry, request)
     else:
         return JSONResponse(
             content=JSONRPCResponse(id=body.id, error=JSONRPCError(code=-32601, message=f"Method not found: {body.method}")).model_dump(),
@@ -716,7 +679,9 @@ async def jsonrpc_endpoint(body: JSONRPCRequest, request: Request):
         )
 
 
-async def _handle_send_message(body: JSONRPCRequest, runtime: AguiRuntime, request: Request) -> JSONResponse:
+async def _handle_send_message(
+    body: JSONRPCRequest, graph: Any, registry: RunRegistry, request: Request
+) -> JSONResponse:
     """Handle a sendMessage JSON-RPC call."""
     executor_url = _code_executor_url(request)
     api_key = _api_key(request)
@@ -733,7 +698,7 @@ async def _handle_send_message(body: JSONRPCRequest, runtime: AguiRuntime, reque
     base_url = str(request.base_url).rstrip("/")
 
     try:
-        task = await _run_agent(runtime, message_text, thread_id, run_id, executor_url, api_key, base_url, attachments)
+        task = await _run_agent(graph, registry, message_text, thread_id, run_id, executor_url, api_key, base_url, attachments)
     except HTTPException as exc:
         task = Task(
             id=run_id,
@@ -747,7 +712,9 @@ async def _handle_send_message(body: JSONRPCRequest, runtime: AguiRuntime, reque
     )
 
 
-async def _handle_send_message_stream(body: JSONRPCRequest, runtime: AguiRuntime, request: Request) -> StreamingResponse:
+async def _handle_send_message_stream(
+    body: JSONRPCRequest, graph: Any, registry: RunRegistry, request: Request
+) -> StreamingResponse:
     """Handle a sendMessageStream call — returns a SSE streaming response.
 
     Yields ``TaskStatusUpdateEvent`` chunks as the agent runs.
@@ -776,7 +743,7 @@ async def _handle_send_message_stream(body: JSONRPCRequest, runtime: AguiRuntime
     base_url = str(request.base_url).rstrip("/")
 
     return StreamingResponse(
-        content=_run_agent_streaming(runtime, message_text, thread_id, run_id, executor_url, api_key, base_url, attachments),
+        content=_run_agent_streaming(graph, registry, message_text, thread_id, run_id, executor_url, api_key, base_url, attachments),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -798,9 +765,10 @@ async def post_message(
     _ok: Any = None,
 ):
     """Legacy simple message endpoint.  Returns the same format as before."""
-    runtime = _agent_runtime(request)
-    if runtime is None:
-        raise HTTPException(status_code=503, detail="AG-UI runtime not available")
+    graph = _agent_graph(request)
+    if graph is None:
+        raise HTTPException(status_code=503, detail="Agent graph not ready")
+    registry = _run_registry(request)
 
     executor_url = _code_executor_url(request)
     api_key = _api_key(request)
@@ -809,7 +777,7 @@ async def post_message(
     run_id = uuid4().hex
 
     try:
-        task = await _run_agent(runtime, body.message, thread_id, run_id, executor_url, api_key, base_url, body.attachments or None)
+        task = await _run_agent(graph, registry, body.message, thread_id, run_id, executor_url, api_key, base_url, body.attachments or None)
     except HTTPException as exc:
         raise exc
 

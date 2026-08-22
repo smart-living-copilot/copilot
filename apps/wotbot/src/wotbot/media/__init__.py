@@ -1,8 +1,7 @@
-"""LiveKit media support for agent vision features.
+"""LiveKit media support for direct camera context.
 
 The media package provides a session registry for camera streams and helpers to
-encode raw frames into JPEG payloads. It is used by vision-facing tools to
-capture and serve recent frame context.
+encode raw frames into JPEG payloads for foreground model prompts.
 """
 
 from wotbot.media.ingress import MediaSessionRegistry, encode_frame_to_jpeg, media_sessions

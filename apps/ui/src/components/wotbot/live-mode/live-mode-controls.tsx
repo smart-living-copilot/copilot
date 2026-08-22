@@ -26,10 +26,12 @@ function ShortcutKey({ children }: { children: string }) {
 }
 
 export function LiveModeControls({
-  mediaControlsDisabled,
+  cameraControlsDisabled,
+  micControlDisabled,
   session,
 }: {
-  mediaControlsDisabled: boolean;
+  cameraControlsDisabled: boolean;
+  micControlDisabled: boolean;
   session: MediaIngressSession;
 }) {
   const nextCameraLabel =
@@ -48,7 +50,7 @@ export function LiveModeControls({
               }
               aria-pressed={session.isMicrophoneMuted}
               className="rounded-full"
-              disabled={mediaControlsDisabled}
+              disabled={micControlDisabled}
               onClick={() =>
                 session.setMicrophoneMuted(!session.isMicrophoneMuted)
               }
@@ -79,13 +81,17 @@ export function LiveModeControls({
               }
               aria-pressed={!session.isCameraEnabled}
               className="rounded-full"
-              disabled={mediaControlsDisabled}
-              onClick={() => session.setCameraEnabled(!session.isCameraEnabled)}
+              disabled={cameraControlsDisabled || session.isSwitchingCamera}
+              onClick={() =>
+                void session.setCameraEnabled(!session.isCameraEnabled)
+              }
               size="icon-lg"
               type="button"
               variant={session.isCameraEnabled ? 'outline' : 'secondary'}
             >
-              {session.isCameraEnabled ? (
+              {session.isSwitchingCamera ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : session.isCameraEnabled ? (
                 <Video className="size-4" />
               ) : (
                 <VideoOff className="size-4" />
@@ -98,13 +104,13 @@ export function LiveModeControls({
           </TooltipContent>
         </Tooltip>
 
-        {session.canSwitchCamera ? (
+        {session.isCameraEnabled && session.canSwitchCamera ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 aria-label={`Switch to ${nextCameraLabel}`}
                 className="rounded-full"
-                disabled={mediaControlsDisabled || session.isSwitchingCamera}
+                disabled={cameraControlsDisabled || session.isSwitchingCamera}
                 onClick={() => void session.switchCamera()}
                 size="icon-lg"
                 type="button"

@@ -1,7 +1,7 @@
-import { ImageIcon, LineChart } from 'lucide-react';
+import { ImageIcon, LineChart, PanelsTopLeft } from 'lucide-react';
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 
-import type { RunCodeArtifact } from '@/components/wotbot/chat-tool-call-model';
+import type { LiveModeArtifact } from '@/components/wotbot/assistant/artifacts';
 
 type ReopenChipInfo = { icon: ReactNode; label: string };
 
@@ -18,7 +18,7 @@ export function useArtifactViewerMode({
   latestAssistantText,
   latestUserTranscript,
 }: {
-  artifacts: RunCodeArtifact[];
+  artifacts: LiveModeArtifact[];
   latestAssistantText: string | null;
   latestUserTranscript: string | null;
 }): ArtifactViewerMode {
@@ -63,16 +63,25 @@ export function useArtifactViewerMode({
   const reopenChipInfo = useMemo<ReopenChipInfo | null>(() => {
     if (artifacts.length === 0) return null;
     const onlyImages = artifacts.every((artifact) => artifact.kind === 'image');
+    const onlyPanels = artifacts.every((artifact) => artifact.kind === 'web');
     const noun = onlyImages
       ? artifacts.length > 1
         ? 'images'
         : 'image'
-      : artifacts.length > 1
-        ? 'charts'
-        : 'chart';
+      : onlyPanels
+        ? artifacts.length > 1
+          ? 'panels'
+          : 'panel'
+        : artifacts.every((artifact) => artifact.kind === 'plotly')
+          ? artifacts.length > 1
+            ? 'charts'
+            : 'chart'
+          : 'results';
     return {
       icon: onlyImages ? (
         <ImageIcon className="size-4" />
+      ) : onlyPanels ? (
+        <PanelsTopLeft className="size-4" />
       ) : (
         <LineChart className="size-4" />
       ),

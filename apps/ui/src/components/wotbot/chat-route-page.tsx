@@ -1,6 +1,5 @@
 'use client';
 
-import { CopilotKit } from '@copilotkit/react-core/v2';
 import { useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -8,12 +7,15 @@ import { createChat } from '@/components/wotbot/chat-route/chat-api';
 import { ChatIndexPage } from '@/components/wotbot/chat-route/chat-index-page';
 import { EmbedChatExperience } from '@/components/wotbot/chat-route/embed-chat-experience';
 import { FullChatExperience } from '@/components/wotbot/chat-route/full-chat-experience';
-import { chatToolCallRenderers } from './chat-tool-call-renderer';
 import {
   createEmbedEphemeralChatId,
   type EmbedChatPrefill,
 } from '@/lib/embed-chat';
 import type { Theme } from '@/components/theme-provider';
+import {
+  DISABLED_REASONING_EFFORT_CONFIG,
+  type ReasoningEffortConfig,
+} from '@/lib/reasoning-effort';
 
 export { ChatIndexPage };
 
@@ -30,6 +32,7 @@ export function ChatRoutePage({
   embedQueryString = '',
   embedTheme = null,
   initialEmbedPrefill = null,
+  reasoningEffortConfig = DISABLED_REASONING_EFFORT_CONFIG,
 }: {
   allowedPrefillOrigins?: string[];
   chatId: string;
@@ -37,9 +40,8 @@ export function ChatRoutePage({
   embedQueryString?: string;
   embedTheme?: Theme | null;
   initialEmbedPrefill?: EmbedChatPrefill | null;
+  reasoningEffortConfig?: ReasoningEffortConfig;
 }) {
-  const enableInspector =
-    process.env.NEXT_PUBLIC_ENABLE_COPILOT_INSPECTOR === 'true';
   const router = useRouter();
   const querySuffix = toQuerySuffix(embedQueryString);
 
@@ -56,26 +58,19 @@ export function ChatRoutePage({
     }
   }, [mode, querySuffix, router]);
 
-  return (
-    <CopilotKit
-      key={chatId}
-      runtimeUrl="/api/copilotkit"
-      agent="wotbot"
-      threadId={chatId}
-      enableInspector={enableInspector}
-      renderToolCalls={chatToolCallRenderers}
-    >
-      {mode === 'embed' ? (
-        <EmbedChatExperience
-          allowedPrefillOrigins={allowedPrefillOrigins}
-          chatId={chatId}
-          embedTheme={embedTheme}
-          initialPrefill={initialEmbedPrefill}
-        />
-      ) : (
-        <FullChatExperience chatId={chatId} handleNewChat={handleNewChat} />
-      )}
-    </CopilotKit>
+  return mode === 'embed' ? (
+    <EmbedChatExperience
+      allowedPrefillOrigins={allowedPrefillOrigins}
+      chatId={chatId}
+      embedTheme={embedTheme}
+      initialPrefill={initialEmbedPrefill}
+    />
+  ) : (
+    <FullChatExperience
+      chatId={chatId}
+      handleNewChat={handleNewChat}
+      reasoningEffortConfig={reasoningEffortConfig}
+    />
   );
 }
 

@@ -270,7 +270,6 @@ export function JobThreadPage({ jobId }: JobThreadPageProps) {
           ) : (
             <JobTranscript
               messages={messages}
-              threadId={threadId}
               jobId={jobId}
               isWaiting={isWaiting}
               waitingQuestion={job.waiting_question}

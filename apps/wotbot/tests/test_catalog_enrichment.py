@@ -595,7 +595,7 @@ async def test_enrich_infers_unit_before_shacl_repair_is_needed():
 
 @pytest.mark.anyio
 async def test_enrich_forwards_runnable_config_to_llm():
-    """runnable_config (e.g. AG-UI stream-suppression metadata) reaches every ainvoke."""
+    """runnable_config (e.g. stream-suppression tags) reaches every ainvoke."""
     config = load_enrichment_config(FIXTURE_CONFIG)
     proposal = EnrichmentProposal(
         thing_types=["http://wotbot.test/dev/TemperatureSensor"],
@@ -609,7 +609,7 @@ async def test_enrich_forwards_runnable_config_to_llm():
         ],
     )
     llm = FakeLlm([proposal])
-    runnable_config = {"metadata": {"emit-messages": False}}
+    runnable_config = {"tags": ["nostream"]}
 
     await enrich_thing_document(
         sample_thing_without_unit(),

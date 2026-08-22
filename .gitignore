@@ -9,6 +9,7 @@ node_modules/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+.playwright-mcp/
 wot_registry.db
 examples/thing-descriptions
 /chat-ui/
