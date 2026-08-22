@@ -41,21 +41,19 @@ function ChatStream({
   chatId,
   initialValues,
   mediaSession,
+  onLevelChange,
   onThreadUpdated,
+  reasoningEffort,
   reasoningEffortConfig,
 }: {
   chatId: string;
   initialValues: ThreadHistory['values'];
   mediaSession: MediaIngressSession;
+  onLevelChange: (level: string | null) => void;
   onThreadUpdated: () => void;
+  reasoningEffort: string | undefined;
   reasoningEffortConfig: ReasoningEffortConfig;
 }) {
-  const [reasoningEffort, setReasoningEffort] = useState<string | undefined>();
-
-  const handleLevelChange = useCallback((level: string | null) => {
-    setReasoningEffort(level ?? undefined);
-  }, []);
-
   const { isRecovering, rerunConfirmation, retryRecovery, runError, runtime } =
     useWotbotRuntime({
       threadId: chatId,
@@ -70,7 +68,7 @@ function ChatStream({
         actionSlot={
           <ReasoningEffortSelect
             config={reasoningEffortConfig}
-            onLevelChange={handleLevelChange}
+            onLevelChange={onLevelChange}
           />
         }
         className="wotbot-chat flex-1"
@@ -95,7 +93,9 @@ function ChatSurface({
   chatId: string;
   mediaSession: MediaIngressSession;
   onHistorySettled: () => void;
+  onLevelChange: (level: string | null) => void;
   onThreadUpdated: () => void;
+  reasoningEffort: string | undefined;
   reasoningEffortConfig: ReasoningEffortConfig;
   settleAfterLive: boolean;
 }) {
@@ -133,6 +133,9 @@ export function FullChatExperience({
 }) {
   const [sidebarRefreshToken, setSidebarRefreshToken] = useState(0);
   const [historyVersion, setHistoryVersion] = useState(0);
+  // Owned here, not in ChatStream: leaving live mode remounts the chat surface,
+  // and state living below that boundary would be discarded on every exit.
+  const [reasoningEffort, setReasoningEffort] = useState<string | undefined>();
   const [settleHistoryChatId, setSettleHistoryChatId] = useState<string | null>(
     null,
   );
@@ -144,6 +147,9 @@ export function FullChatExperience({
 
   const handleSidebarRefresh = useCallback(() => {
     setSidebarRefreshToken((current) => current + 1);
+  }, []);
+  const handleLevelChange = useCallback((level: string | null) => {
+    setReasoningEffort(level ?? undefined);
   }, []);
   const handleHistorySettled = useCallback(() => {
     setSettleHistoryChatId((current) => (current === chatId ? null : current));
@@ -238,7 +244,9 @@ export function FullChatExperience({
               chatId={chatId}
               mediaSession={mediaSession}
               onHistorySettled={handleHistorySettled}
+              onLevelChange={handleLevelChange}
               onThreadUpdated={handleSidebarRefresh}
+              reasoningEffort={reasoningEffort}
               reasoningEffortConfig={reasoningEffortConfig}
               settleAfterLive={settleHistoryChatId === chatId}
             />
