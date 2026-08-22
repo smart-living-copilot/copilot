@@ -144,7 +144,7 @@ function UserMessage() {
           </ActionBarPrimitive.Edit>
         </ActionBarPrimitive.Root>
 
-        <div className="min-w-0 max-w-[80%] rounded-lg bg-muted px-4 py-2 text-foreground">
+        <div className="min-w-0 max-w-[80%] rounded-lg bg-muted px-4 py-2 text-sm leading-6 text-foreground">
           <MessagePrimitive.Parts />
         </div>
       </div>
