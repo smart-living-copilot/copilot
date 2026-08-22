@@ -108,6 +108,9 @@ def test_make_llm_omits_reasoning_effort_when_no_default_set():
         openai_api_key="test-key",
         openai_model="gpt-test",
         reasoning_effort_enabled=True,
+        # Stated rather than inherited: the request shape is style-specific, so
+        # a deployment whose .env selects another style must not steer this.
+        reasoning_effort_style="openai",
     )
 
     with patch("wotbot.core.llm.ChatOpenAI", return_value=object()) as chat_openai:
@@ -122,6 +125,7 @@ def test_make_llm_passes_configured_reasoning_effort_default():
         openai_model="gpt-test",
         reasoning_effort_enabled=True,
         reasoning_effort_default="high",
+        reasoning_effort_style="openai",
     )
 
     with patch("wotbot.core.llm.ChatOpenAI", return_value=object()) as chat_openai:
