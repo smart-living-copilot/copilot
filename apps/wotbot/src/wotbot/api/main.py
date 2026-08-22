@@ -125,6 +125,11 @@ async def lifespan(app: FastAPI):
                 max_tokens=settings.max_context_tokens,
                 checkpointer=checkpointer,
                 parallel_tool_calls=settings.parallel_tool_calls,
+                # Inert in this process: the frame registry is per-process
+                # in-memory state written only by the LiveKit agent worker, so
+                # the lookup here always comes back empty. Kept in step with the
+                # worker's graph so the two stay identical if the registry ever
+                # becomes shared.
                 camera_frames_enabled=settings.openai_model_supports_vision,
                 handoff_enabled=settings.agent_handoff_enabled,
                 reasoning_effort=reasoning_effort if reasoning_effort.enabled else None,

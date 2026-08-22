@@ -66,7 +66,16 @@ export function LiveModePanel({
     };
   }, [session.error, session.isMicrophoneMuted, session.state]);
 
-  const mediaControlsDisabled =
+  // The camera controls need a live room: setCameraEnabled publishes a track
+  // and guards on the connection itself. Muting only flips the enabled flag on
+  // the local stream's audio tracks, so it works as soon as that stream exists
+  // -- including while the room is still connecting, which is exactly when
+  // someone wants to arrive muted.
+  const micControlDisabled =
+    !session.localStream ||
+    session.state === 'requesting' ||
+    session.state === 'error';
+  const cameraControlsDisabled =
     !session.localStream || session.state !== 'connected';
   const {
     inViewer,
@@ -93,7 +102,8 @@ export function LiveModePanel({
     isCameraEnabled,
     isConnected,
     isMicrophoneMuted,
-    mediaControlsDisabled,
+    cameraControlsDisabled,
+    micControlDisabled,
     setCameraEnabled,
     setMicrophoneMuted,
   });
@@ -155,7 +165,8 @@ export function LiveModePanel({
       ) : null}
 
       <LiveModeControls
-        mediaControlsDisabled={mediaControlsDisabled}
+        cameraControlsDisabled={cameraControlsDisabled}
+        micControlDisabled={micControlDisabled}
         session={session}
       />
     </section>
