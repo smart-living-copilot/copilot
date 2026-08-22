@@ -69,6 +69,7 @@ function ChatStream({
           <ReasoningEffortSelect
             config={reasoningEffortConfig}
             onLevelChange={onLevelChange}
+            value={reasoningEffort}
           />
         }
         className="wotbot-chat flex-1"
