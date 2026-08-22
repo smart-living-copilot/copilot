@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Square,
 } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import type { ExtraProps } from 'react-markdown';
 
@@ -295,6 +296,8 @@ export function WotbotThread({
     onConfirm: () => Promise<void>;
   } | null;
 }) {
+  const isEmpty = useAuiState((state) => state.thread.isEmpty);
+  const shouldReduceMotion = useReducedMotion();
   const deviceChangeCount = rerunConfirmation?.deviceChangeCount ?? 0;
   const rerunAction =
     rerunConfirmation?.kind === 'edit'
@@ -302,7 +305,12 @@ export function WotbotThread({
       : 'Regenerating this response';
 
   return (
-    <ThreadPrimitive.Root className={cn('flex min-h-0 flex-col', className)}>
+    <ThreadPrimitive.Root
+      className={cn(
+        'grid min-h-0 grid-cols-1 grid-rows-[minmax(0,1fr)_auto]',
+        className,
+      )}
+    >
       {rerunConfirmation ? (
         <ConfirmDialog
           confirmLabel={
@@ -321,7 +329,7 @@ export function WotbotThread({
         />
       ) : null}
 
-      <ThreadPrimitive.Viewport className="relative flex min-h-0 flex-1 flex-col overflow-y-auto px-3">
+      <ThreadPrimitive.Viewport className="relative col-start-1 row-start-1 flex min-h-0 flex-col overflow-y-auto px-3">
         {emptyState ? (
           <ThreadPrimitive.Empty>{emptyState}</ThreadPrimitive.Empty>
         ) : null}
@@ -349,59 +357,80 @@ export function WotbotThread({
         </ThreadPrimitive.ScrollToBottom>
       </ThreadPrimitive.Viewport>
 
-      {error && onRetry ? (
-        <ThreadErrorNotice
-          className="mx-auto mb-2 w-[calc(100%-1.5rem)] max-w-3xl"
-          message={error}
-          onRetry={onRetry}
-          retrying={isRetrying}
-        />
-      ) : null}
-
-      {footer ?? (
-        <ComposerPrimitive.Root className="mx-auto w-full max-w-3xl px-3 pb-3">
-          <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
-            <ComposerPrimitive.Input
-              autoFocus
-              className="max-h-40 min-h-16 w-full resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              placeholder={placeholder}
-              rows={2}
+      {footer ? (
+        <div className="col-start-1 row-start-2">{footer}</div>
+      ) : (
+        <motion.div
+          initial={false}
+          layout="position"
+          transition={
+            shouldReduceMotion
+              ? { layout: { duration: 0 } }
+              : {
+                  layout: {
+                    duration: 0.55,
+                    ease: [0.22, 1, 0.36, 1],
+                  },
+                }
+          }
+          className={cn(
+            'relative z-10 col-start-1 w-full',
+            isEmpty ? 'row-start-1 self-center' : 'row-start-2 self-end',
+          )}
+        >
+          {error && onRetry ? (
+            <ThreadErrorNotice
+              className="mx-auto mb-2 w-[calc(100%-1.5rem)] max-w-3xl"
+              message={error}
+              onRetry={onRetry}
+              retrying={isRetrying}
             />
-            <div className="flex items-center justify-end gap-2 border-t border-border pt-2">
-              {/* Send and Stop share a slot: the primitives render whichever
-                matches the thread's running state. */}
-              <div className="flex items-center gap-2">
-                <ThreadPrimitive.If running={false}>
-                  {actionSlot}
-                  {emptyComposerSlot ? (
-                    <>
-                      <AuiIf condition={hasDraft}>
-                        <ComposerPrimitive.Send asChild>
-                          <Button type="submit">Send</Button>
-                        </ComposerPrimitive.Send>
-                      </AuiIf>
-                      <AuiIf condition={(state) => !hasDraft(state)}>
-                        {emptyComposerSlot}
-                      </AuiIf>
-                    </>
-                  ) : (
-                    <ComposerPrimitive.Send asChild>
-                      <Button type="submit">Send</Button>
-                    </ComposerPrimitive.Send>
-                  )}
-                </ThreadPrimitive.If>
-                <ThreadPrimitive.If running>
-                  <ComposerPrimitive.Cancel asChild>
-                    <Button variant="secondary" type="button">
-                      <Square className="mr-1 size-3" />
-                      Stop
-                    </Button>
-                  </ComposerPrimitive.Cancel>
-                </ThreadPrimitive.If>
+          ) : null}
+
+          <ComposerPrimitive.Root className="mx-auto w-full max-w-3xl px-3 pb-3">
+            <div className="rounded-2xl border border-border bg-background/95 px-3 py-2 shadow-sm transition-[border-color,box-shadow] focus-within:border-ring/60 focus-within:shadow-md">
+              <ComposerPrimitive.Input
+                autoFocus
+                className="max-h-40 min-h-16 w-full resize-none bg-transparent px-1 py-1 text-sm outline-none placeholder:text-muted-foreground"
+                placeholder={placeholder}
+                rows={2}
+              />
+              <div className="flex items-center justify-end gap-2 border-t border-border/80 pt-2">
+                {/* Send and Stop share a slot: the primitives render whichever
+                  matches the thread's running state. */}
+                <div className="flex items-center gap-2">
+                  <ThreadPrimitive.If running={false}>
+                    {actionSlot}
+                    {emptyComposerSlot ? (
+                      <>
+                        <AuiIf condition={hasDraft}>
+                          <ComposerPrimitive.Send asChild>
+                            <Button type="submit">Send</Button>
+                          </ComposerPrimitive.Send>
+                        </AuiIf>
+                        <AuiIf condition={(state) => !hasDraft(state)}>
+                          {emptyComposerSlot}
+                        </AuiIf>
+                      </>
+                    ) : (
+                      <ComposerPrimitive.Send asChild>
+                        <Button type="submit">Send</Button>
+                      </ComposerPrimitive.Send>
+                    )}
+                  </ThreadPrimitive.If>
+                  <ThreadPrimitive.If running>
+                    <ComposerPrimitive.Cancel asChild>
+                      <Button variant="secondary" type="button">
+                        <Square className="mr-1 size-3" />
+                        Stop
+                      </Button>
+                    </ComposerPrimitive.Cancel>
+                  </ThreadPrimitive.If>
+                </div>
               </div>
             </div>
-          </div>
-        </ComposerPrimitive.Root>
+          </ComposerPrimitive.Root>
+        </motion.div>
       )}
     </ThreadPrimitive.Root>
   );
