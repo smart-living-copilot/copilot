@@ -16,7 +16,6 @@ from wotbot.agent.tools.job_scheduler import (
     list_jobs,
     run_job_now,
 )
-from wotbot.agent.tools.look_at_camera import look_at_camera
 from wotbot.agent.tools.run_code import run_code
 from wotbot.agent.tools.virtual_things import (
     activate_virtual_thing,
@@ -33,7 +32,6 @@ LOCAL_TOOLS = [
     run_code,
     create_web_interface,
     get_current_time,
-    look_at_camera,
     create_prompt_job,
     create_analysis_job,
     list_jobs,
@@ -66,7 +64,6 @@ __all__ = [
     "emit_virtual_thing_event",
     "get_current_time",
     "list_jobs",
-    "look_at_camera",
     "run_code",
     "run_job_now",
 ]

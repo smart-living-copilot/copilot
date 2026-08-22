@@ -14,6 +14,7 @@ try:
 except ImportError:  # pragma: no cover - optional dependency guard.
     AsyncPostgresSaver = None  # type: ignore[assignment]
 
+from wotbot.agent.camera_context import clear_frozen_camera_frame
 from wotbot.core.config import get_settings as get_registry_settings
 from wotbot.core.database import init_db, psycopg_conninfo
 from wotbot.core.settings import Settings
@@ -198,6 +199,7 @@ async def livekit_snapshot_notifications(room: Any, thread_id: str):
         yield
     finally:
         unregister()
+        clear_frozen_camera_frame(thread_id)
 
 
 async def _run_livekit_session(ctx: Any, settings: Settings) -> None:
@@ -214,7 +216,11 @@ async def _run_livekit_session(ctx: Any, settings: Settings) -> None:
             settings=settings,
             registry_database_url=registry_settings.DATABASE_URL,
         ) as saver,
-        livekit_camera_capture(ctx, thread_id),
+        livekit_camera_capture(
+            ctx,
+            thread_id,
+            enabled=settings.openai_model_supports_vision,
+        ),
         livekit_snapshot_notifications(ctx.room, thread_id),
     ):
         graph = compile_graph(settings, saver)
@@ -235,8 +241,8 @@ async def _run_livekit_session(ctx: Any, settings: Settings) -> None:
             room=ctx.room,
             agent=WotbotVoiceAgent.create(),
             room_options=room_io.RoomOptions(
-                # Camera frames for look_at_camera are captured directly by
-                # livekit_camera_capture, so RoomIO's own video input stays off.
+                # Camera frames are captured directly for the graph's main
+                # model prompt, so RoomIO's own video input stays off.
                 text_output=room_io.TextOutputOptions(sync_transcription=False),
             ),
         )

@@ -19,7 +19,7 @@ from wotbot.agent.nodes import (
     make_virtual_things_node,
     respond_should_continue,
 )
-from wotbot.agent.prompts import HANDOFF_PROMPT
+from wotbot.agent.prompts import HANDOFF_PROMPT, VOICE_RESPONSE_PROMPT
 from wotbot.agent.tool_groups import group_local_tools, partition_registry_tools
 from wotbot.agent.tools.route_to import make_route_to_tool
 from wotbot.core.settings import ReasoningEffortSettings
@@ -52,6 +52,8 @@ def _add_action_branch(
     parallel_tool_calls: bool,
     handoff_note: str,
     reasoning_effort: ReasoningEffortSettings | None,
+    camera_frames_enabled: bool,
+    response_instructions: str,
 ) -> None:
     graph.add_node(
         llm_node,
@@ -62,6 +64,8 @@ def _add_action_branch(
             parallel_tool_calls=parallel_tool_calls,
             handoff_note=handoff_note,
             reasoning_effort=reasoning_effort,
+            camera_frames_enabled=camera_frames_enabled,
+            response_instructions=response_instructions,
         ),
     )
     graph.add_node(
@@ -93,15 +97,16 @@ def build_graph(
     max_tokens: int,
     checkpointer=None,
     parallel_tool_calls: bool = True,
-    vision_enabled: bool = False,
+    camera_frames_enabled: bool = False,
     handoff_enabled: bool = False,
     reasoning_effort: ReasoningEffortSettings | None = None,
+    voice_mode: bool = False,
 ):
     """Build and compile the wotbot agent StateGraph."""
     registry_tool_groups = partition_registry_tools(registry_tools)
-    local_tool_groups = group_local_tools(local_tools, vision_enabled=vision_enabled)
+    local_tool_groups = group_local_tools(local_tools)
+    response_instructions = VOICE_RESPONSE_PROMPT if voice_mode else ""
 
-    vision_tools = [local_tool_groups.look_at_camera] if local_tool_groups.look_at_camera else []
     web_interface_tools = (
         [local_tool_groups.create_web_interface] if local_tool_groups.create_web_interface else []
     )
@@ -113,33 +118,31 @@ def build_graph(
         )
         if tool
     ]
-    respond_tools = [local_tool_groups.get_current_time, *vision_tools, *job_runtime_tools]
+    respond_tools = [local_tool_groups.get_current_time, *job_runtime_tools]
     control_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime
         + web_interface_tools
-        + vision_tools
         + job_runtime_tools
     )
     analysis_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime_read
-        + [local_tool_groups.run_code]
+        + [local_tool_groups.run_code, local_tool_groups.get_current_time]
         + web_interface_tools
-        + vision_tools
         + job_runtime_tools
     )
     jobs_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime_read
-        + [local_tool_groups.run_code]
-        + vision_tools
+        + [local_tool_groups.run_code, local_tool_groups.get_current_time]
         + job_runtime_tools
         + local_tool_groups.job_tools
     )
     virtual_things_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.virtual_authoring_runtime
+        + [local_tool_groups.get_current_time]
         + local_tool_groups.virtual_thing_tools
     )
 
@@ -167,6 +170,8 @@ def build_graph(
             max_tokens,
             parallel_tool_calls=parallel_tool_calls,
             reasoning_effort=reasoning_effort,
+            camera_frames_enabled=camera_frames_enabled,
+            response_instructions=response_instructions,
         ),
     )
     graph.add_node(
@@ -238,6 +243,8 @@ def build_graph(
             parallel_tool_calls=parallel_tool_calls,
             handoff_note=handoff_note,
             reasoning_effort=reasoning_effort,
+            camera_frames_enabled=camera_frames_enabled,
+            response_instructions=response_instructions,
         )
 
     graph.add_conditional_edges(
@@ -281,17 +288,14 @@ def build_background_job_graph(
     max_tokens: int,
     checkpointer=None,
     parallel_tool_calls: bool = True,
-    vision_enabled: bool = False,
 ):
     """Build and compile the compact graph used by background prompt jobs."""
     registry_tool_groups = partition_registry_tools(registry_tools)
-    local_tool_groups = group_local_tools(local_tools, vision_enabled=vision_enabled)
-    vision_tools = [local_tool_groups.look_at_camera] if local_tool_groups.look_at_camera else []
+    local_tool_groups = group_local_tools(local_tools)
     job_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime
         + [local_tool_groups.run_code, local_tool_groups.get_current_time]
-        + vision_tools
         + [
             tool
             for tool in (

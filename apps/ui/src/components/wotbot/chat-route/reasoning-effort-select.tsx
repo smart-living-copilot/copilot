@@ -66,6 +66,14 @@ export function ReasoningEffortSelect({
   }, [level, onLevelChange, selectorEnabled]);
 
   const handleChange = useCallback((next: string) => {
+    // The composer's action row unmounts while a run is in flight (see
+    // ThreadPrimitive.If running={false} in assistant/thread.tsx). Radix
+    // reports that teardown as a change to the empty value, which would blank
+    // `level` -- and a blank level renders nothing, so the control silently
+    // disappeared for the rest of the session. Only real picks count.
+    if (!next) {
+      return;
+    }
     setLevel(next);
     try {
       window.localStorage.setItem(REASONING_EFFORT_STORAGE_KEY, next);

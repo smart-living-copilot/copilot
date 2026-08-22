@@ -259,7 +259,6 @@ class BackgroundAgentRunnerTestCase(unittest.IsolatedAsyncioTestCase):
             {
                 "ask_job_user",
                 "get_current_time",
-                "look_at_camera",
                 "run_code",
                 "submit_job_record",
             },

@@ -16,7 +16,7 @@ export function useLiveModeKeyboardShortcuts({
   isConnected: boolean;
   isMicrophoneMuted: boolean;
   mediaControlsDisabled: boolean;
-  setCameraEnabled: (enabled: boolean) => void;
+  setCameraEnabled: (enabled: boolean) => Promise<void>;
   setMicrophoneMuted: (muted: boolean) => void;
 }) {
   useEffect(() => {
@@ -45,7 +45,7 @@ export function useLiveModeKeyboardShortcuts({
         setMicrophoneMuted(!isMicrophoneMuted);
       } else if (key === 'v') {
         event.preventDefault();
-        setCameraEnabled(!isCameraEnabled);
+        void setCameraEnabled(!isCameraEnabled);
       }
     };
     window.addEventListener('keydown', handleKeyDown);

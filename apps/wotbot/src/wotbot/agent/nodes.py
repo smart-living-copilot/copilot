@@ -22,6 +22,7 @@ from langgraph.graph import END, MessagesState
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from wotbot.agent.camera_context import attach_latest_camera_frame
 from wotbot.agent.device_interactions import (
     without_device_interaction_summary_messages,
 )
@@ -33,7 +34,6 @@ from wotbot.agent.prompts import (
     ROUTER_PROMPT,
     VIRTUAL_THINGS_PROMPT,
 )
-from wotbot.agent.tools.look_at_camera import is_look_at_camera_available
 from wotbot.core.reasoning_effort import reasoning_effort_kwargs
 from wotbot.core.settings import ReasoningEffortSettings, ReasoningEffortStyle
 from wotbot.core.time import utc_now
@@ -367,8 +367,7 @@ def _active_tools_for_config(tools: list[Any], config: Optional[RunnableConfig])
     return [
         tool
         for tool in tools
-        if (getattr(tool, "name", None) != "look_at_camera" or is_look_at_camera_available(config))
-        and (
+        if (
             getattr(tool, "name", None) != "submit_job_record"
             or configurable.get("job_output_kind") == JobOutputKind.STRUCTURED_RECORD.value
         )
@@ -379,6 +378,21 @@ def _thread_id_from_config(config: Optional[RunnableConfig]) -> str | None:
     configurable = config.get("configurable", {}) if config else {}
     thread_id = configurable.get("thread_id") or configurable.get("threadId")
     return thread_id if isinstance(thread_id, str) and thread_id else None
+
+
+async def _with_camera_context(
+    messages: list[BaseMessage],
+    *,
+    config: Optional[RunnableConfig],
+    camera_frames_enabled: bool,
+) -> list[BaseMessage]:
+    if not camera_frames_enabled:
+        return messages
+    attachment = await attach_latest_camera_frame(
+        messages,
+        thread_id=_thread_id_from_config(config),
+    )
+    return attachment.messages
 
 
 def _tool_names(tools: list[Any]) -> list[str]:
@@ -511,6 +525,7 @@ def _make_llm_node(
     parallel_tool_calls: bool = True,
     branch_name: str = "llm",
     reasoning_effort: ReasoningEffortSettings | None = None,
+    camera_frames_enabled: bool = False,
 ):
     prompt = _make_node_prompt(system_text, max_tokens)
 
@@ -519,7 +534,7 @@ def _make_llm_node(
     # LangGraph only injects the runtime config when it reads as
     # ``"RunnableConfig"`` or ``"Optional[RunnableConfig]"``. Writing it as
     # ``RunnableConfig | None`` silently disables injection, so ``config`` (and
-    # the ``thread_id`` that look_at_camera needs) arrives as ``None``.
+    # the ``thread_id`` needed for live camera frames) arrives as ``None``.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
         runnable = _prepare_branch_runnable(
             llm,
@@ -530,7 +545,12 @@ def _make_llm_node(
             branch_name=branch_name,
             reasoning_effort=reasoning_effort,
         )
-        response = await runnable.ainvoke(prompt(state))
+        messages = await _with_camera_context(
+            prompt(state),
+            config=config,
+            camera_frames_enabled=camera_frames_enabled,
+        )
+        response = await runnable.ainvoke(messages)
         return {"messages": [response]}
 
     return node
@@ -543,15 +563,18 @@ def make_respond_node(
     *,
     parallel_tool_calls: bool = True,
     reasoning_effort: ReasoningEffortSettings | None = None,
+    camera_frames_enabled: bool = False,
+    response_instructions: str = "",
 ):
     return _make_llm_node(
         llm,
         tools=tools,
-        system_text=RESPOND_PROMPT,
+        system_text=RESPOND_PROMPT + response_instructions,
         max_tokens=max_tokens,
         parallel_tool_calls=parallel_tool_calls,
         branch_name="respond",
         reasoning_effort=reasoning_effort,
+        camera_frames_enabled=camera_frames_enabled,
     )
 
 
@@ -563,15 +586,18 @@ def make_control_node(
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
     reasoning_effort: ReasoningEffortSettings | None = None,
+    camera_frames_enabled: bool = False,
+    response_instructions: str = "",
 ):
     return _make_llm_node(
         llm,
         tools=tools,
-        system_text=CONTROL_PROMPT + handoff_note,
+        system_text=CONTROL_PROMPT + handoff_note + response_instructions,
         max_tokens=max_tokens,
         parallel_tool_calls=parallel_tool_calls,
         branch_name="control",
         reasoning_effort=reasoning_effort,
+        camera_frames_enabled=camera_frames_enabled,
     )
 
 
@@ -583,14 +609,24 @@ def make_analysis_node(
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
     reasoning_effort: ReasoningEffortSettings | None = None,
+    camera_frames_enabled: bool = False,
+    response_instructions: str = "",
 ):
+    # Built once: a system prompt that is byte-identical on every call keeps the
+    # whole prompt prefix -- history and any attached camera frame included --
+    # eligible for provider prefix caching. The current time is deliberately NOT
+    # inlined here; it comes from the get_current_time tool, whose result lands
+    # in history as an append-only message instead of rewriting the prefix.
+    system_message = SystemMessage(content=ANALYSIS_PROMPT + handoff_note + response_instructions)
+
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
-        system_message = SystemMessage(
-            content=ANALYSIS_PROMPT + handoff_note + _current_time_block()
-        )
         trimmed = _trim_conversation(state["messages"], max_tokens)
-        messages = [system_message, *trimmed]
+        messages = await _with_camera_context(
+            [system_message, *trimmed],
+            config=config,
+            camera_frames_enabled=camera_frames_enabled,
+        )
         runnable = _prepare_branch_runnable(
             llm,
             tools,
@@ -614,12 +650,20 @@ def make_jobs_node(
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
     reasoning_effort: ReasoningEffortSettings | None = None,
+    camera_frames_enabled: bool = False,
+    response_instructions: str = "",
 ):
+    # Static system prompt; see make_analysis_node for why the time is a tool.
+    system_message = SystemMessage(content=JOBS_PROMPT + handoff_note + response_instructions)
+
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
-        system_message = SystemMessage(content=JOBS_PROMPT + handoff_note + _current_time_block())
         trimmed = _trim_conversation(state["messages"], max_tokens)
-        messages = [system_message, *trimmed]
+        messages = await _with_camera_context(
+            [system_message, *trimmed],
+            config=config,
+            camera_frames_enabled=camera_frames_enabled,
+        )
         runnable = _prepare_branch_runnable(
             llm,
             tools,
@@ -643,17 +687,25 @@ def make_virtual_things_node(
     parallel_tool_calls: bool = True,
     handoff_note: str = "",
     reasoning_effort: ReasoningEffortSettings | None = None,
+    camera_frames_enabled: bool = False,
+    response_instructions: str = "",
 ):
+    # Static except for the prior-analysis block, which is derived from state and
+    # only changes when new run_code output lands. See make_analysis_node for why
+    # the current time is a tool rather than an inlined block.
+    system_prefix = VIRTUAL_THINGS_PROMPT + handoff_note + response_instructions
+
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(
-            content=VIRTUAL_THINGS_PROMPT
-            + handoff_note
-            + _prior_analysis_block(state["messages"])
-            + _current_time_block()
+            content=system_prefix + _prior_analysis_block(state["messages"])
         )
         trimmed = _trim_conversation(state["messages"], max_tokens)
-        messages = [system_message, *trimmed]
+        messages = await _with_camera_context(
+            [system_message, *trimmed],
+            config=config,
+            camera_frames_enabled=camera_frames_enabled,
+        )
         runnable = _prepare_branch_runnable(
             llm,
             tools,

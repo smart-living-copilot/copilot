@@ -18,6 +18,15 @@ DisableStreamingMode = bool | Literal["tool_calling"]
 #   literal level "none" means thinking off, every other configured level
 #   means on.
 ReasoningEffortStyle = Literal["openai", "qwen"]
+# How ``/audio/speech`` streams synthesized audio back:
+# - "audio": the response body is the raw audio byte stream. Every
+#   OpenAI-compatible server speaks this dialect, and some speak only this one
+#   -- OpenRouter ignores ``stream_format`` and always answers with raw PCM.
+# - "sse": OpenAI's token-billed models (gpt-4o-mini-tts and newer) can wrap
+#   the audio in ``speech.audio.delta`` server-sent events instead.
+# - "auto": let livekit-plugins-openai choose from the model name, which
+#   means SSE for everything except the literal "tts-1"/"tts-1-hd".
+TtsStreamFormat = Literal["audio", "sse", "auto"]
 
 
 def _normalize_database_url(value: str) -> str:
@@ -38,6 +47,7 @@ def _fallback_value(value: str, fallback: str) -> str:
 class LlmSettings:
     openai_api_key: str
     openai_model: str
+    supports_vision: bool
     openai_temperature: float | None
     openai_disable_streaming: DisableStreamingMode
     openai_base_url: str
@@ -96,17 +106,6 @@ class SpeechSettings:
 
 
 @dataclass(frozen=True, slots=True)
-class VisionSettings:
-    enabled: bool
-    api_base_url: str
-    api_key: str
-    model: str
-    timeout_seconds: int
-    max_image_dimension: int
-    jpeg_quality: int
-
-
-@dataclass(frozen=True, slots=True)
 class TtsSettings:
     speech_url: str
     model: str
@@ -114,6 +113,7 @@ class TtsSettings:
     api_key: str
     response_format: str
     speed: float
+    stream_format: TtsStreamFormat
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +198,10 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("OPENAI_BASE_URL", "OPENAI_API_BASE_URL"),
     )
+    # OpenAI-compatible endpoints do not expose a portable capability query.
+    # Operators declare image-input support once; every fresh camera frame is
+    # then attached directly to the main model rather than sent to a second LLM.
+    openai_model_supports_vision: bool = False
     openai_embedding_api_base_url: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -251,21 +255,14 @@ class Settings(BaseSettings):
     livekit_agent_name: str = "wotbot"
     livekit_room_prefix: str = "wotbot"
     livekit_token_ttl_seconds: int = 600
+    camera_frame_max_dimension: int = Field(default=1024, gt=0)
+    camera_frame_jpeg_quality: int = Field(default=85, ge=1, le=100)
 
     # Speech-to-text
     stt_transcriptions_url: str = ""
     stt_model: str = "whisper-large-turbo"
     stt_api_key: str = ""
     stt_language: str = ""
-
-    # Vision (look-at-camera)
-    vision_enabled: bool = False
-    vision_api_base_url: str = ""
-    vision_api_key: str = ""
-    vision_model: str = ""
-    vision_timeout_seconds: int = 30
-    vision_max_image_dimension: int = 1024
-    vision_jpeg_quality: int = 85
 
     # Text-to-speech
     tts_speech_url: str = ""
@@ -274,6 +271,10 @@ class Settings(BaseSettings):
     tts_api_key: str = ""
     tts_response_format: str = "pcm"
     tts_speed: float = 1.0
+    # Raw bytes by default: it is the one dialect every OpenAI-compatible
+    # speech endpoint serves, while the plugin's model-name heuristic sends
+    # anything not called "tts-1" down the SSE path that only some of them have.
+    tts_stream_format: TtsStreamFormat = "audio"
 
     # Code Executor
     code_executor_url: str = "http://localhost:8888"
@@ -400,6 +401,7 @@ class Settings(BaseSettings):
         return LlmSettings(
             openai_api_key=self.openai_api_key,
             openai_model=self.openai_model,
+            supports_vision=self.openai_model_supports_vision,
             openai_temperature=self.openai_temperature,
             openai_disable_streaming=self.openai_disable_streaming,
             openai_base_url=self.openai_base_url,
@@ -469,18 +471,6 @@ class Settings(BaseSettings):
         )
 
     @property
-    def vision(self) -> VisionSettings:
-        return VisionSettings(
-            enabled=self.vision_enabled,
-            api_base_url=self.vision_api_base_url,
-            api_key=self.vision_api_key,
-            model=self.vision_model,
-            timeout_seconds=self.vision_timeout_seconds,
-            max_image_dimension=self.vision_max_image_dimension,
-            jpeg_quality=self.vision_jpeg_quality,
-        )
-
-    @property
     def tts(self) -> TtsSettings:
         return TtsSettings(
             speech_url=self.tts_speech_url,
@@ -489,6 +479,7 @@ class Settings(BaseSettings):
             api_key=self.tts_api_key,
             response_format=self.tts_response_format,
             speed=self.tts_speed,
+            stream_format=self.tts_stream_format,
         )
 
     @property

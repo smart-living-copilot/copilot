@@ -27,7 +27,7 @@ class AnalysisGuidanceTestCase(unittest.TestCase):
             "Use all relevant services",
             ANALYSIS_PROMPT,
         )
-        self.assertIn("Current Time", ANALYSIS_PROMPT)
+        self.assertIn("get_current_time", ANALYSIS_PROMPT)
 
     def test_analysis_prompt_describes_breakdown_workflow(self) -> None:
         self.assertIn("matching analysis services for that household", ANALYSIS_PROMPT)

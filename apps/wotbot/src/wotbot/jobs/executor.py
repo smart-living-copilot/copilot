@@ -14,7 +14,6 @@ except ImportError:  # pragma: no cover - dependency is installed in the app ima
 from wotbot.agent import build_background_job_graph
 from wotbot.agent.tools.ask_job_user import ask_job_user
 from wotbot.agent.tools.get_current_time import get_current_time
-from wotbot.agent.tools.look_at_camera import look_at_camera
 from wotbot.agent.tools.run_code import run_code
 from wotbot.agent.tools.submit_job_record import submit_job_record
 from wotbot.agent.tools.wot_registry import REGISTRY_TOOLS
@@ -91,14 +90,12 @@ class BackgroundAgentRunner:
             local_tools=[
                 run_code,
                 get_current_time,
-                look_at_camera,
                 ask_job_user,
                 submit_job_record,
             ],
             max_tokens=self._settings.max_context_tokens,
             checkpointer=self._checkpointer,
             parallel_tool_calls=self._settings.parallel_tool_calls,
-            vision_enabled=self._settings.vision_enabled,
         )
         self._graph = graph
         return self._graph

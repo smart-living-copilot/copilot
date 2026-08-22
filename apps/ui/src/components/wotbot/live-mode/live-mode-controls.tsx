@@ -79,13 +79,17 @@ export function LiveModeControls({
               }
               aria-pressed={!session.isCameraEnabled}
               className="rounded-full"
-              disabled={mediaControlsDisabled}
-              onClick={() => session.setCameraEnabled(!session.isCameraEnabled)}
+              disabled={mediaControlsDisabled || session.isSwitchingCamera}
+              onClick={() =>
+                void session.setCameraEnabled(!session.isCameraEnabled)
+              }
               size="icon-lg"
               type="button"
               variant={session.isCameraEnabled ? 'outline' : 'secondary'}
             >
-              {session.isCameraEnabled ? (
+              {session.isSwitchingCamera ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : session.isCameraEnabled ? (
                 <Video className="size-4" />
               ) : (
                 <VideoOff className="size-4" />
@@ -98,7 +102,7 @@ export function LiveModeControls({
           </TooltipContent>
         </Tooltip>
 
-        {session.canSwitchCamera ? (
+        {session.isCameraEnabled && session.canSwitchCamera ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
