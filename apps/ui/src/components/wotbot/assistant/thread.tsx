@@ -29,6 +29,7 @@ import {
   hasAssistantResponseActions,
 } from '@/components/wotbot/assistant/message-actions';
 import { markdownRemarkPlugins } from '@/components/wotbot/assistant/markdown';
+import { ReasoningPart } from '@/components/wotbot/assistant/reasoning-ui';
 import { WotbotToolCall } from '@/components/wotbot/assistant/tool-ui';
 import { ThinkingIndicator } from '@/components/elements/thinking-indicator';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -98,6 +99,7 @@ function MarkdownText() {
 
 const assistantComponents = {
   Text: MarkdownText,
+  Reasoning: ReasoningPart,
   tools: { Override: WotbotToolCall },
 } as const;
 
