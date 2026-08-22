@@ -98,6 +98,53 @@ def test_livekit_tts_kwargs_can_fall_back_to_openai_when_no_speech_url() -> None
     assert kwargs["api_key"] == "llm-key"
 
 
+async def _synthesize_stream(settings: Settings):
+    """Build the TTS plugin and return the reader it picks, without calling out."""
+    tts = livekit_speech.make_tts(settings)
+    stream = tts.synthesize("hello")
+    try:
+        return stream
+    finally:
+        await stream.aclose()
+        await tts.aclose()
+
+
+def test_livekit_tts_reads_raw_audio_bytes_by_default() -> None:
+    # OpenAI-compatible endpoints (OpenRouter, Speaches, LocalAI) answer
+    # /audio/speech with raw audio whatever the model is called; the plugin's
+    # SSE reader would find no data: lines in that body and push no frames.
+    settings = Settings(
+        tts_speech_url="https://openrouter.ai/api/v1/audio/speech",
+        tts_api_key="speech-key",
+        tts_model="hexgrad/kokoro-82m",
+        tts_voice="af_alloy",
+    )
+
+    stream = asyncio.run(_synthesize_stream(settings))
+
+    assert type(stream).__name__ == "AudioChunkedStream"
+
+
+def test_livekit_tts_can_read_sse_for_openai_token_billed_voices() -> None:
+    settings = Settings(
+        tts_api_key="speech-key",
+        tts_model="gpt-4o-mini-tts",
+        tts_stream_format="sse",
+    )
+
+    stream = asyncio.run(_synthesize_stream(settings))
+
+    assert type(stream).__name__ == "SSEChunkedStream"
+
+
+def test_livekit_tts_auto_defers_to_the_plugin_model_heuristic() -> None:
+    settings = Settings(tts_api_key="speech-key", tts_model="tts-1", tts_stream_format="auto")
+
+    stream = asyncio.run(_synthesize_stream(settings))
+
+    assert type(stream).__name__ == "AudioChunkedStream"
+
+
 def test_livekit_voice_graph_filters_tool_and_router_output_chunks() -> None:
     class FakeGraph:
         def astream(self, *_args, **_kwargs):

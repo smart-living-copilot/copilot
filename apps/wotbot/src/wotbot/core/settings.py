@@ -18,6 +18,15 @@ DisableStreamingMode = bool | Literal["tool_calling"]
 #   literal level "none" means thinking off, every other configured level
 #   means on.
 ReasoningEffortStyle = Literal["openai", "qwen"]
+# How ``/audio/speech`` streams synthesized audio back:
+# - "audio": the response body is the raw audio byte stream. Every
+#   OpenAI-compatible server speaks this dialect, and some speak only this one
+#   -- OpenRouter ignores ``stream_format`` and always answers with raw PCM.
+# - "sse": OpenAI's token-billed models (gpt-4o-mini-tts and newer) can wrap
+#   the audio in ``speech.audio.delta`` server-sent events instead.
+# - "auto": let livekit-plugins-openai choose from the model name, which
+#   means SSE for everything except the literal "tts-1"/"tts-1-hd".
+TtsStreamFormat = Literal["audio", "sse", "auto"]
 
 
 def _normalize_database_url(value: str) -> str:
@@ -104,6 +113,7 @@ class TtsSettings:
     api_key: str
     response_format: str
     speed: float
+    stream_format: TtsStreamFormat
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +271,10 @@ class Settings(BaseSettings):
     tts_api_key: str = ""
     tts_response_format: str = "pcm"
     tts_speed: float = 1.0
+    # Raw bytes by default: it is the one dialect every OpenAI-compatible
+    # speech endpoint serves, while the plugin's model-name heuristic sends
+    # anything not called "tts-1" down the SSE path that only some of them have.
+    tts_stream_format: TtsStreamFormat = "audio"
 
     # Code Executor
     code_executor_url: str = "http://localhost:8888"
@@ -465,6 +479,7 @@ class Settings(BaseSettings):
             api_key=self.tts_api_key,
             response_format=self.tts_response_format,
             speed=self.tts_speed,
+            stream_format=self.tts_stream_format,
         )
 
     @property
