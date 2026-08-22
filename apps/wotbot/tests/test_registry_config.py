@@ -62,9 +62,8 @@ def test_openai_api_base_url_aliases_are_preserved(monkeypatch):
     assert settings.llm.openai_base_url == "http://legacy-openai-compatible"
 
 
-def test_legacy_vision_flag_enables_camera_frames_on_the_main_model(monkeypatch):
-    monkeypatch.delenv("OPENAI_MODEL_SUPPORTS_VISION", raising=False)
-    monkeypatch.setenv("VISION_ENABLED", "true")
+def test_main_model_vision_capability_is_explicit(monkeypatch):
+    monkeypatch.setenv("OPENAI_MODEL_SUPPORTS_VISION", "true")
 
     settings = Settings(_env_file=None)
 

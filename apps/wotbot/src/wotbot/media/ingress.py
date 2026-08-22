@@ -1,4 +1,4 @@
-"""LiveKit media session helpers for camera-backed tools."""
+"""LiveKit camera-frame registry and JPEG helpers."""
 
 from __future__ import annotations
 

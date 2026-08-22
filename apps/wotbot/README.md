@@ -128,12 +128,13 @@ Common groups:
 ### Live camera context
 
 Set `OPENAI_MODEL_SUPPORTS_VISION=true` when the model behind `OPENAI_MODEL`
-accepts image inputs. While a LiveKit camera feed is active, WoTBot attaches a
-fresh frame directly to the latest user message for each foreground model call.
-The image is prompt-only and is never written to chat history or checkpoints.
-There is no separate vision model or `look_at_camera` tool. The model is told to
-ignore the frame for unrelated requests. `CAMERA_FRAME_MAX_DIMENSION` and
-`CAMERA_FRAME_JPEG_QUALITY` control the pre-encoded frame size.
+accepts image inputs. While a LiveKit camera feed is active, WoTBot freezes one
+current frame at the first foreground model call of a user turn and reuses it
+throughout that turn. The image is prompt-only and is never written to chat
+history or checkpoints. There is no separate vision model or camera-analysis
+tool. The model is told to ignore the frame for unrelated requests.
+`CAMERA_FRAME_MAX_DIMENSION` and `CAMERA_FRAME_JPEG_QUALITY` control the
+pre-encoded frame size.
 
 ### Reasoning effort
 

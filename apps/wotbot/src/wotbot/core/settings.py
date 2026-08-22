@@ -191,10 +191,7 @@ class Settings(BaseSettings):
     # OpenAI-compatible endpoints do not expose a portable capability query.
     # Operators declare image-input support once; every fresh camera frame is
     # then attached directly to the main model rather than sent to a second LLM.
-    openai_model_supports_vision: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("OPENAI_MODEL_SUPPORTS_VISION", "VISION_ENABLED"),
-    )
+    openai_model_supports_vision: bool = False
     openai_embedding_api_base_url: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -248,23 +245,8 @@ class Settings(BaseSettings):
     livekit_agent_name: str = "wotbot"
     livekit_room_prefix: str = "wotbot"
     livekit_token_ttl_seconds: int = 600
-    camera_frame_max_dimension: int = Field(
-        default=1024,
-        gt=0,
-        validation_alias=AliasChoices(
-            "CAMERA_FRAME_MAX_DIMENSION",
-            "VISION_MAX_IMAGE_DIMENSION",
-        ),
-    )
-    camera_frame_jpeg_quality: int = Field(
-        default=85,
-        ge=1,
-        le=100,
-        validation_alias=AliasChoices(
-            "CAMERA_FRAME_JPEG_QUALITY",
-            "VISION_JPEG_QUALITY",
-        ),
-    )
+    camera_frame_max_dimension: int = Field(default=1024, gt=0)
+    camera_frame_jpeg_quality: int = Field(default=85, ge=1, le=100)
 
     # Speech-to-text
     stt_transcriptions_url: str = ""

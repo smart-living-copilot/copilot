@@ -101,6 +101,8 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
   const cameraFacingModeRef = useRef<CameraFacingMode>('user');
   const isCameraEnabledRef = useRef(false);
   const isSwitchingCameraRef = useRef(false);
+  const mediaSessionGenerationRef = useRef(0);
+  const pendingCameraTrackRef = useRef<MediaStreamTrack | null>(null);
   const liveKitRoomRef = useRef<Room | null>(null);
   const liveKitRemoteStreamRef = useRef<MediaStream | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -159,6 +161,11 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
       if (!room || !currentStream) {
         return;
       }
+      const sessionGeneration = mediaSessionGenerationRef.current;
+      const isCurrentSession = () =>
+        mediaSessionGenerationRef.current === sessionGeneration &&
+        liveKitRoomRef.current === room &&
+        streamRef.current === currentStream;
 
       isSwitchingCameraRef.current = true;
       setSwitchingCameraState(true);
@@ -184,9 +191,11 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
             currentStream.removeTrack(track);
             track.stop();
           });
-          setLocalStream(cloneMediaStream(currentStream));
-          isSwitchingCameraRef.current = false;
-          setSwitchingCameraState(false);
+          if (isCurrentSession()) {
+            setLocalStream(cloneMediaStream(currentStream));
+            isSwitchingCameraRef.current = false;
+            setSwitchingCameraState(false);
+          }
         }
         return;
       }
@@ -194,9 +203,30 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
       let videoTrack: MediaStreamTrack | null = null;
       try {
         videoTrack = await captureCameraTrack(cameraFacingModeRef.current);
+        if (!isCurrentSession()) {
+          videoTrack.stop();
+          return;
+        }
+        pendingCameraTrackRef.current = videoTrack;
         await room.localParticipant.publishTrack(videoTrack, {
           source: Track.Source.Camera,
         });
+        if (!isCurrentSession()) {
+          try {
+            await room.localParticipant.unpublishTrack(videoTrack, true);
+          } catch (unpublishError) {
+            console.debug(
+              'Could not unpublish camera from a closed media session',
+              unpublishError,
+            );
+          } finally {
+            videoTrack.stop();
+          }
+          return;
+        }
+        if (pendingCameraTrackRef.current === videoTrack) {
+          pendingCameraTrackRef.current = null;
+        }
 
         const oldVideoTracks = currentStream.getVideoTracks();
         oldVideoTracks.forEach((track) => currentStream.removeTrack(track));
@@ -217,11 +247,18 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
       } catch (enableError) {
         videoTrack?.stop();
         console.debug('Could not enable camera', enableError);
-        isCameraEnabledRef.current = false;
-        setCameraEnabledState(false);
+        if (isCurrentSession()) {
+          isCameraEnabledRef.current = false;
+          setCameraEnabledState(false);
+        }
       } finally {
-        isSwitchingCameraRef.current = false;
-        setSwitchingCameraState(false);
+        if (pendingCameraTrackRef.current === videoTrack) {
+          pendingCameraTrackRef.current = null;
+        }
+        if (isCurrentSession()) {
+          isSwitchingCameraRef.current = false;
+          setSwitchingCameraState(false);
+        }
       }
     },
     [refreshCameraAvailability, setCameraFacingMode, state],
@@ -241,10 +278,15 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     if (!room || !currentStream) {
       return;
     }
+    const sessionGeneration = mediaSessionGenerationRef.current;
+    const isCurrentSession = () =>
+      mediaSessionGenerationRef.current === sessionGeneration &&
+      liveKitRoomRef.current === room &&
+      streamRef.current === currentStream;
 
     const hasMultipleCameras =
       canSwitchCamera || (await refreshCameraAvailability());
-    if (!hasMultipleCameras) {
+    if (!isCurrentSession() || !hasMultipleCameras) {
       return;
     }
 
@@ -259,6 +301,11 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
       );
       try {
         nextVideoTrack = await captureCameraTrack(nextFacingMode);
+        if (!isCurrentSession()) {
+          nextVideoTrack.stop();
+          return;
+        }
+        pendingCameraTrackRef.current = nextVideoTrack;
         nextVideoTrack.enabled = isCameraEnabledRef.current;
 
         if (publication?.videoTrack) {
@@ -271,9 +318,22 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
             source: Track.Source.Camera,
           });
         }
+        if (!isCurrentSession()) {
+          nextVideoTrack.stop();
+          return;
+        }
+        if (pendingCameraTrackRef.current === nextVideoTrack) {
+          pendingCameraTrackRef.current = null;
+        }
       } catch (replaceError) {
         nextVideoTrack?.stop();
+        if (pendingCameraTrackRef.current === nextVideoTrack) {
+          pendingCameraTrackRef.current = null;
+        }
         nextVideoTrack = null;
+        if (!isCurrentSession()) {
+          return;
+        }
         if (!publication?.videoTrack) {
           throw replaceError;
         }
@@ -285,6 +345,10 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
         await publication.videoTrack.restartTrack({
           facingMode: nextFacingMode,
         });
+        if (!isCurrentSession()) {
+          publication.videoTrack.stop();
+          return;
+        }
         nextVideoTrack = publication.videoTrack.mediaStreamTrack;
       }
       nextVideoTrack.enabled = isCameraEnabledRef.current;
@@ -307,12 +371,20 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
       nextVideoTrack?.stop();
       console.debug('Could not switch camera', switchError);
     } finally {
-      isSwitchingCameraRef.current = false;
-      setSwitchingCameraState(false);
+      if (pendingCameraTrackRef.current === nextVideoTrack) {
+        pendingCameraTrackRef.current = null;
+      }
+      if (isCurrentSession()) {
+        isSwitchingCameraRef.current = false;
+        setSwitchingCameraState(false);
+      }
     }
   }, [canSwitchCamera, refreshCameraAvailability, setCameraFacingMode, state]);
 
   const cleanupMedia = useCallback(() => {
+    mediaSessionGenerationRef.current += 1;
+    pendingCameraTrackRef.current?.stop();
+    pendingCameraTrackRef.current = null;
     const liveKitRoom = liveKitRoomRef.current;
     liveKitRoomRef.current = null;
     liveKitRemoteStreamRef.current = null;
