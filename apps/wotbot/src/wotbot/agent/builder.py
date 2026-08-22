@@ -142,6 +142,7 @@ def build_graph(
     virtual_things_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.virtual_authoring_runtime
+        + [local_tool_groups.get_current_time]
         + local_tool_groups.virtual_thing_tools
     )
 
