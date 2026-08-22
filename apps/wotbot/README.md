@@ -136,6 +136,11 @@ tool. The model is told to ignore the frame for unrelated requests.
 `CAMERA_FRAME_MAX_DIMENSION` and `CAMERA_FRAME_JPEG_QUALITY` control the
 pre-encoded frame size.
 
+This applies to voice mode only. Frames live in a per-process in-memory
+registry that only the LiveKit agent worker writes to, so the API process that
+serves text chat never has one to attach — asking about the camera from the
+chat pane reaches a model with no image, even while live mode is running.
+
 ### Reasoning effort
 
 `REASONING_EFFORT_ENABLED`, `REASONING_EFFORT_LEVELS` (comma-separated allow-list), and `REASONING_EFFORT_DEFAULT` let a reasoning-capable model (o-series, gpt-5, etc. — whatever's behind `OPENAI_MODEL`/`OPENAI_API_BASE_URL`) be told how hard to think. The full chat UI reads these same variables from its runtime environment, so the shared root `.env` controls both services without rebuilding the UI image. `REASONING_EFFORT_DEFAULT`, when set, becomes the baseline `reasoning_effort` on every LLM call ([`src/wotbot/core/llm.py`](./src/wotbot/core/llm.py)); the chat UI can additionally request a level per turn as plain LangGraph state. The respond/control/analysis/jobs/virtual_things branches honor it only when the requested level is in `REASONING_EFFORT_LEVELS` (see `_resolve_reasoning_effort` in [`src/wotbot/agent/nodes.py`](./src/wotbot/agent/nodes.py)). Disabled by default. There's no standardized way to query which levels a given model/endpoint actually supports — this allow-list is how an operator declares it.
