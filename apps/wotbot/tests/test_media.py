@@ -49,6 +49,15 @@ class MediaSessionRegistryTestCase(unittest.TestCase):
         registry.close("livekit-a")
         self.assertIsNone(registry.latest_video_frame_for_thread("thread-a"))
 
+    def test_clearing_video_frame_removes_stale_camera_context(self) -> None:
+        registry = MediaSessionRegistry()
+        registry.set_metadata("livekit-a", thread_id="thread-a")
+        registry.store_video_frame_jpeg("livekit-a", jpeg_bytes=b"fresh-frame")
+
+        registry.clear_video_frame("livekit-a")
+
+        self.assertIsNone(registry.latest_video_frame_for_thread("thread-a"))
+
     def test_snapshot_notifier_invokes_and_unregisters_thread_callbacks(self) -> None:
         registry = SnapshotNotifierRegistry()
         events: list[str | None] = []

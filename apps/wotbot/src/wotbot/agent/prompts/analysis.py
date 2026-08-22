@@ -53,11 +53,10 @@ is unsourced.
 
 ## Typical workflow
 1. If the user's request is location-dependent ("what's the temperature here",
-   "is it cold in this room", "how bright is it"), and look_at_camera is
-   available, call it first to determine the scene. Use the returned scene as
-   a filter on things_search (e.g. add the room name to the query) so you read
-   the sensor for the right room instead of guessing or aggregating across the
-   house.
+   "is it cold in this room", "how bright is it") and a live camera frame is
+   attached, use the visible scene as a filter on things_search (e.g. add the
+   room name to the query) so you read the sensor for the right room instead of
+   guessing or aggregating across the house.
    When you used the camera's scene to pick a room, the final answer MUST name
    the room you assumed so the user can correct you if you're wrong. Phrase it
    naturally, e.g. "It's 21°C in the kitchen" or "Looks like you're in the

@@ -38,6 +38,7 @@ def _fallback_value(value: str, fallback: str) -> str:
 class LlmSettings:
     openai_api_key: str
     openai_model: str
+    supports_vision: bool
     openai_temperature: float | None
     openai_disable_streaming: DisableStreamingMode
     openai_base_url: str
@@ -93,17 +94,6 @@ class SpeechSettings:
     model: str
     api_key: str
     language: str
-
-
-@dataclass(frozen=True, slots=True)
-class VisionSettings:
-    enabled: bool
-    api_base_url: str
-    api_key: str
-    model: str
-    timeout_seconds: int
-    max_image_dimension: int
-    jpeg_quality: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +188,13 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("OPENAI_BASE_URL", "OPENAI_API_BASE_URL"),
     )
+    # OpenAI-compatible endpoints do not expose a portable capability query.
+    # Operators declare image-input support once; every fresh camera frame is
+    # then attached directly to the main model rather than sent to a second LLM.
+    openai_model_supports_vision: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("OPENAI_MODEL_SUPPORTS_VISION", "VISION_ENABLED"),
+    )
     openai_embedding_api_base_url: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -251,21 +248,29 @@ class Settings(BaseSettings):
     livekit_agent_name: str = "wotbot"
     livekit_room_prefix: str = "wotbot"
     livekit_token_ttl_seconds: int = 600
+    camera_frame_max_dimension: int = Field(
+        default=1024,
+        gt=0,
+        validation_alias=AliasChoices(
+            "CAMERA_FRAME_MAX_DIMENSION",
+            "VISION_MAX_IMAGE_DIMENSION",
+        ),
+    )
+    camera_frame_jpeg_quality: int = Field(
+        default=85,
+        ge=1,
+        le=100,
+        validation_alias=AliasChoices(
+            "CAMERA_FRAME_JPEG_QUALITY",
+            "VISION_JPEG_QUALITY",
+        ),
+    )
 
     # Speech-to-text
     stt_transcriptions_url: str = ""
     stt_model: str = "whisper-large-turbo"
     stt_api_key: str = ""
     stt_language: str = ""
-
-    # Vision (look-at-camera)
-    vision_enabled: bool = False
-    vision_api_base_url: str = ""
-    vision_api_key: str = ""
-    vision_model: str = ""
-    vision_timeout_seconds: int = 30
-    vision_max_image_dimension: int = 1024
-    vision_jpeg_quality: int = 85
 
     # Text-to-speech
     tts_speech_url: str = ""
@@ -400,6 +405,7 @@ class Settings(BaseSettings):
         return LlmSettings(
             openai_api_key=self.openai_api_key,
             openai_model=self.openai_model,
+            supports_vision=self.openai_model_supports_vision,
             openai_temperature=self.openai_temperature,
             openai_disable_streaming=self.openai_disable_streaming,
             openai_base_url=self.openai_base_url,
@@ -466,18 +472,6 @@ class Settings(BaseSettings):
             model=self.stt_model,
             api_key=self.stt_api_key,
             language=self.stt_language,
-        )
-
-    @property
-    def vision(self) -> VisionSettings:
-        return VisionSettings(
-            enabled=self.vision_enabled,
-            api_base_url=self.vision_api_base_url,
-            api_key=self.vision_api_key,
-            model=self.vision_model,
-            timeout_seconds=self.vision_timeout_seconds,
-            max_image_dimension=self.vision_max_image_dimension,
-            jpeg_quality=self.vision_jpeg_quality,
         )
 
     @property

@@ -117,13 +117,23 @@ The root [`.env.example`](../../.env.example) documents required and optional se
 
 Common groups:
 
-- LLM, embedding, and vision model settings.
+- LLM and embedding settings, including the main model's image-input capability.
 - Shared internal API keys and registry tokens.
 - Postgres, pgvector, and LangGraph checkpoint configuration.
 - Redis, Taskiq jobs, WoT runtime, virtual-servient, RDF service, and event stream settings.
 - LiveKit, speech-to-text, and text-to-speech settings.
 - Code-executor URL, timeout, and retry settings.
 - Reasoning-effort settings (see below).
+
+### Live camera context
+
+Set `OPENAI_MODEL_SUPPORTS_VISION=true` when the model behind `OPENAI_MODEL`
+accepts image inputs. While a LiveKit camera feed is active, WoTBot attaches a
+fresh frame directly to the latest user message for each foreground model call.
+The image is prompt-only and is never written to chat history or checkpoints.
+There is no separate vision model or `look_at_camera` tool. The model is told to
+ignore the frame for unrelated requests. `CAMERA_FRAME_MAX_DIMENSION` and
+`CAMERA_FRAME_JPEG_QUALITY` control the pre-encoded frame size.
 
 ### Reasoning effort
 

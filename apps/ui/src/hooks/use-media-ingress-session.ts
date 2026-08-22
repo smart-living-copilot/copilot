@@ -96,10 +96,10 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     useState<CameraFacingMode>('user');
   const [canSwitchCamera, setCanSwitchCamera] = useState(false);
   const [isMicrophoneMuted, setMicrophoneMutedState] = useState(false);
-  const [isCameraEnabled, setCameraEnabledState] = useState(true);
+  const [isCameraEnabled, setCameraEnabledState] = useState(false);
   const [isSwitchingCamera, setSwitchingCameraState] = useState(false);
   const cameraFacingModeRef = useRef<CameraFacingMode>('user');
-  const isCameraEnabledRef = useRef(true);
+  const isCameraEnabledRef = useRef(false);
   const isSwitchingCameraRef = useRef(false);
   const liveKitRoomRef = useRef<Room | null>(null);
   const liveKitRemoteStreamRef = useRef<MediaStream | null>(null);
@@ -144,16 +144,95 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     });
   }, []);
 
-  const setCameraEnabled = useCallback((enabled: boolean) => {
-    isCameraEnabledRef.current = enabled;
-    setCameraEnabledState(enabled);
-    streamRef.current?.getVideoTracks().forEach((track) => {
-      track.enabled = enabled;
-    });
-  }, []);
+  const setCameraEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (
+        isSwitchingCameraRef.current ||
+        state !== 'connected' ||
+        enabled === isCameraEnabledRef.current
+      ) {
+        return;
+      }
+
+      const room = liveKitRoomRef.current;
+      const currentStream = streamRef.current;
+      if (!room || !currentStream) {
+        return;
+      }
+
+      isSwitchingCameraRef.current = true;
+      setSwitchingCameraState(true);
+
+      if (!enabled) {
+        isCameraEnabledRef.current = false;
+        setCameraEnabledState(false);
+        try {
+          const publication = room.localParticipant.getTrackPublication(
+            Track.Source.Camera,
+          );
+          if (publication?.videoTrack) {
+            await room.localParticipant.unpublishTrack(
+              publication.videoTrack,
+              true,
+            );
+          }
+        } catch (disableError) {
+          console.debug('Could not unpublish camera track', disableError);
+        } finally {
+          const videoTracks = currentStream.getVideoTracks();
+          videoTracks.forEach((track) => {
+            currentStream.removeTrack(track);
+            track.stop();
+          });
+          setLocalStream(cloneMediaStream(currentStream));
+          isSwitchingCameraRef.current = false;
+          setSwitchingCameraState(false);
+        }
+        return;
+      }
+
+      let videoTrack: MediaStreamTrack | null = null;
+      try {
+        videoTrack = await captureCameraTrack(cameraFacingModeRef.current);
+        await room.localParticipant.publishTrack(videoTrack, {
+          source: Track.Source.Camera,
+        });
+
+        const oldVideoTracks = currentStream.getVideoTracks();
+        oldVideoTracks.forEach((track) => currentStream.removeTrack(track));
+        currentStream.addTrack(videoTrack);
+        setLocalStream(cloneMediaStream(currentStream));
+        oldVideoTracks.forEach((track) => {
+          if (track.id !== videoTrack?.id) {
+            track.stop();
+          }
+        });
+
+        setCameraFacingMode(
+          getTrackFacingMode(videoTrack, cameraFacingModeRef.current),
+        );
+        isCameraEnabledRef.current = true;
+        setCameraEnabledState(true);
+        void refreshCameraAvailability();
+      } catch (enableError) {
+        videoTrack?.stop();
+        console.debug('Could not enable camera', enableError);
+        isCameraEnabledRef.current = false;
+        setCameraEnabledState(false);
+      } finally {
+        isSwitchingCameraRef.current = false;
+        setSwitchingCameraState(false);
+      }
+    },
+    [refreshCameraAvailability, setCameraFacingMode, state],
+  );
 
   const switchCamera = useCallback(async () => {
-    if (isSwitchingCameraRef.current || state !== 'connected') {
+    if (
+      isSwitchingCameraRef.current ||
+      !isCameraEnabledRef.current ||
+      state !== 'connected'
+    ) {
       return;
     }
 
@@ -254,8 +333,8 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     setCameraFacingMode('user');
     setCanSwitchCamera(false);
     setMicrophoneMutedState(false);
-    isCameraEnabledRef.current = true;
-    setCameraEnabledState(true);
+    isCameraEnabledRef.current = false;
+    setCameraEnabledState(false);
     isSwitchingCameraRef.current = false;
     setSwitchingCameraState(false);
   }, [setCameraFacingMode]);
@@ -293,8 +372,8 @@ export function useMediaIngressSession(chatId: string): MediaIngressSession {
     setCameraFacingMode('user');
     setCanSwitchCamera(false);
     setMicrophoneMutedState(false);
-    isCameraEnabledRef.current = true;
-    setCameraEnabledState(true);
+    isCameraEnabledRef.current = false;
+    setCameraEnabledState(false);
     isSwitchingCameraRef.current = false;
     setSwitchingCameraState(false);
     const startedAt = performance.now();

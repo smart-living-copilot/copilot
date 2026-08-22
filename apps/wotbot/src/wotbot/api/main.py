@@ -125,7 +125,7 @@ async def lifespan(app: FastAPI):
                 max_tokens=settings.max_context_tokens,
                 checkpointer=checkpointer,
                 parallel_tool_calls=settings.parallel_tool_calls,
-                vision_enabled=settings.vision_enabled,
+                camera_frames_enabled=settings.openai_model_supports_vision,
                 handoff_enabled=settings.agent_handoff_enabled,
                 reasoning_effort=reasoning_effort if reasoning_effort.enabled else None,
             )

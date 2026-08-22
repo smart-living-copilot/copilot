@@ -1,6 +1,7 @@
 import asyncio
 import json
 import pickle
+from unittest.mock import MagicMock, patch
 
 from wotbot.agent.device_interactions import DEVICE_INTERACTION_SUMMARY_TYPE
 from wotbot.agent.voice import assistant_text_from_graph_result
@@ -9,7 +10,7 @@ from wotbot.media import SNAPSHOT_EVENT_TYPE, SNAPSHOT_TOPIC
 from wotbot.workers import livekit
 from wotbot.workers.livekit import worker as livekit_worker
 from wotbot.workers.livekit import speech as livekit_speech
-from wotbot.workers.livekit.graph import VoiceSafeGraphStream
+from wotbot.workers.livekit.graph import VoiceSafeGraphStream, compile_graph
 from langchain_core.messages import AIMessage, AIMessageChunk
 
 
@@ -127,6 +128,14 @@ def test_livekit_voice_graph_filters_tool_and_router_output_chunks() -> None:
                     AIMessageChunk(content="The light is on."),
                     {"langgraph_node": "respond"},
                 )
+                yield (
+                    AIMessageChunk(content="The morning check-in is scheduled."),
+                    {"langgraph_node": "jobs_llm"},
+                )
+                yield (
+                    AIMessageChunk(content="The virtual sensor is active."),
+                    {"langgraph_node": "virtual_things_llm"},
+                )
 
             return events()
 
@@ -142,10 +151,37 @@ def test_livekit_voice_graph_filters_tool_and_router_output_chunks() -> None:
 
     events = asyncio.run(collect_events())
 
-    assert len(events) == 1
-    message, metadata = events[0]
-    assert message.content == "The light is on."
-    assert metadata == {"langgraph_node": "respond"}
+    assert [(message.content, metadata) for message, metadata in events] == [
+        ("The light is on.", {"langgraph_node": "respond"}),
+        (
+            "The morning check-in is scheduled.",
+            {"langgraph_node": "jobs_llm"},
+        ),
+        (
+            "The virtual sensor is active.",
+            {"langgraph_node": "virtual_things_llm"},
+        ),
+    ]
+
+
+def test_livekit_graph_enables_voice_response_mode() -> None:
+    settings = Settings(openai_api_key="test-key")
+    checkpointer = object()
+    compiled_graph = MagicMock()
+    configured_graph = object()
+    compiled_graph.with_config.return_value = configured_graph
+
+    with (
+        patch("wotbot.workers.livekit.graph.make_llm", return_value=object()),
+        patch(
+            "wotbot.workers.livekit.graph.build_graph",
+            return_value=compiled_graph,
+        ) as build_graph,
+    ):
+        result = compile_graph(settings, checkpointer)
+
+    assert result is configured_graph
+    assert build_graph.call_args.kwargs["voice_mode"] is True
 
 
 def test_voice_final_text_skips_device_summary_marker() -> None:

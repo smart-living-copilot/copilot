@@ -1,9 +1,9 @@
 """Capture LiveKit camera frames into the in-process media registry.
 
 The voice worker subscribes to a participant's camera track and stores the
-latest JPEG frame so the ``look_at_camera`` tool can describe what the user is
-showing. LiveKit imports stay local to the functions so non-worker roles do not
-need the ``livekit`` packages installed.
+latest JPEG frame so the main model can receive current visual context without
+an extra tool or model call. LiveKit imports stay local to the functions so
+non-worker roles do not need the ``livekit`` packages installed.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from wotbot.media.ingress import encode_frame_to_jpeg, media_sessions
 
 logger = logging.getLogger(__name__)
 
-# Throttle JPEG encoding to ~3 fps; look_at_camera only needs a recent frame.
+# Throttle JPEG encoding to ~3 fps; the model only needs a recent frame.
 _MIN_ENCODE_INTERVAL_SECONDS = 0.33
 
 
@@ -83,7 +83,7 @@ async def _capture_video_track(
             try:
                 jpeg_bytes = encode_frame_to_jpeg(_frame_to_bgr_array(frame))
             except Exception:
-                logger.debug("Failed to capture LiveKit video frame for vision", exc_info=True)
+                logger.debug("Failed to capture LiveKit camera frame", exc_info=True)
                 continue
             if jpeg_bytes is None:
                 continue
@@ -192,6 +192,8 @@ class _LiveKitCameraCapture:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+        if not self._capture_tasks_by_track_sid:
+            media_sessions.clear_video_frame(self._session_id)
 
     def _on_track_published(self, publication: Any, _participant: Any) -> None:
         self._ensure_subscribed(publication)
@@ -228,8 +230,12 @@ class _LiveKitCameraCapture:
 
 
 @asynccontextmanager
-async def livekit_camera_capture(ctx: Any, thread_id: str):
+async def livekit_camera_capture(ctx: Any, thread_id: str, *, enabled: bool = True):
     """Subscribe to remote camera tracks and capture frames while active."""
+    if not enabled:
+        yield
+        return
+
     from livekit import rtc
 
     room = getattr(ctx, "room", None)

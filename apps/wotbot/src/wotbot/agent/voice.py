@@ -8,7 +8,15 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 
 from wotbot.agent.device_interactions import is_device_interaction_summary_message
 
-VOICE_STREAM_NODES = frozenset({"respond", "control_llm", "analysis_llm"})
+VOICE_STREAM_NODES = frozenset(
+    {
+        "respond",
+        "control_llm",
+        "analysis_llm",
+        "jobs_llm",
+        "virtual_things_llm",
+    }
+)
 
 
 def text_from_message_content(content: Any) -> str:

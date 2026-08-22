@@ -2,10 +2,11 @@ import inspect
 import logging
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from wotbot.agent.camera_context import CameraFrameAttachment
 from wotbot.agent.nodes import (
     IntentClassification,
     _latest_run_code_source,
@@ -16,7 +17,11 @@ from wotbot.agent.nodes import (
     _sanitize_message_sequence,
     _strip_wot_calls,
     make_analysis_node,
+    make_control_node,
+    make_jobs_node,
+    make_respond_node,
     make_router_node,
+    make_virtual_things_node,
 )
 from wotbot.core.settings import ReasoningEffortSettings, ReasoningEffortStyle
 
@@ -281,7 +286,7 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
     def test_llm_node_config_annotation_allows_langgraph_injection(self) -> None:
         node = _make_llm_node(
             _FakeLLM(),
-            tools=[_tool("look_at_camera")],
+            tools=[_tool("get_current_time")],
             system_text="system",
             max_tokens=4000,
         )
@@ -290,23 +295,34 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(signature.parameters["config"].annotation, "Optional[RunnableConfig]")
 
-    async def test_llm_node_filters_camera_tool_when_camera_is_inactive(self) -> None:
+    async def test_llm_node_attaches_camera_frame_when_main_model_supports_it(self) -> None:
         llm = _FakeLLM()
+        prepared = [HumanMessage(content=[{"type": "image_url", "image_url": {"url": "frame"}}])]
         node = _make_llm_node(
             llm,
-            tools=[_tool("get_current_time"), _tool("look_at_camera")],
+            tools=[_tool("get_current_time")],
             system_text="system",
             max_tokens=4000,
+            camera_frames_enabled=True,
         )
 
-        with patch("wotbot.agent.nodes.is_look_at_camera_available", return_value=False):
+        attach = AsyncMock(
+            return_value=CameraFrameAttachment(
+                messages=prepared,
+                attached=True,
+                captured_at="now",
+            )
+        )
+        with patch("wotbot.agent.nodes.attach_latest_camera_frame", attach):
             await node(
                 {"messages": [HumanMessage(content="what is this?")]},
                 {"configurable": {"thread_id": "thread-1"}},
             )
 
         self.assertEqual(llm.bound_tools, [["get_current_time"]])
-        self.assertEqual(llm.invocations[0][0], "bound")
+        self.assertEqual(llm.invocations[0], ("bound", prepared))
+        attach.assert_awaited_once()
+        self.assertEqual(attach.await_args.kwargs["thread_id"], "thread-1")
 
     async def test_llm_node_logs_branch_metadata_without_message_content(self) -> None:
         _enable_log_capture("wotbot.agent.nodes")
@@ -334,41 +350,25 @@ class DynamicToolBindingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("parallel_tool_calls=True", output)
         self.assertNotIn("secret user text", output)
 
-    async def test_llm_node_keeps_camera_tool_when_camera_is_active(self) -> None:
+    async def test_llm_node_skips_camera_lookup_when_capability_is_disabled(self) -> None:
         llm = _FakeLLM()
         node = _make_llm_node(
             llm,
-            tools=[_tool("get_current_time"), _tool("look_at_camera")],
+            tools=[_tool("get_current_time")],
             system_text="system",
             max_tokens=4000,
         )
 
-        with patch("wotbot.agent.nodes.is_look_at_camera_available", return_value=True):
+        attach = AsyncMock()
+        with patch("wotbot.agent.nodes.attach_latest_camera_frame", attach):
             await node(
-                {"messages": [HumanMessage(content="what is this?")]},
+                {"messages": [HumanMessage(content="list my devices")]},
                 {"configurable": {"thread_id": "thread-1"}},
             )
 
-        self.assertEqual(llm.bound_tools, [["get_current_time", "look_at_camera"]])
+        attach.assert_not_awaited()
+        self.assertEqual(llm.bound_tools, [["get_current_time"]])
         self.assertEqual(llm.invocations[0][0], "bound")
-
-    async def test_llm_node_uses_plain_llm_when_camera_was_the_only_tool(self) -> None:
-        llm = _FakeLLM()
-        node = _make_llm_node(
-            llm,
-            tools=[_tool("look_at_camera")],
-            system_text="system",
-            max_tokens=4000,
-        )
-
-        with patch("wotbot.agent.nodes.is_look_at_camera_available", return_value=False):
-            await node(
-                {"messages": [HumanMessage(content="what is this?")]},
-                {"configurable": {"thread_id": "thread-1"}},
-            )
-
-        self.assertEqual(llm.bound_tools, [])
-        self.assertEqual(llm.invocations[0][0], "plain")
 
 
 def _effort_settings(
@@ -557,6 +557,36 @@ class RouterObservabilityTestCase(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(config["metadata"], {"existing": "preserved"})
+
+
+class VoiceResponseInstructionsTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_response_instructions_reach_every_foreground_branch(self) -> None:
+        marker = "VOICE RESPONSE MARKER"
+        factories = (
+            make_respond_node,
+            make_control_node,
+            make_analysis_node,
+            make_jobs_node,
+            make_virtual_things_node,
+        )
+
+        for factory in factories:
+            with self.subTest(factory=factory.__name__):
+                llm = _FakeLLM()
+                node = factory(
+                    llm,
+                    [],
+                    4000,
+                    response_instructions=f"\n{marker}\n",
+                )
+
+                await node(
+                    {"messages": [HumanMessage(content="hello")]},
+                    {"configurable": {"thread_id": "thread-voice"}},
+                )
+
+                messages = llm.invocations[0][1]
+                self.assertIn(marker, messages[0].content)
 
 
 class PriorAnalysisBlockTestCase(unittest.TestCase):

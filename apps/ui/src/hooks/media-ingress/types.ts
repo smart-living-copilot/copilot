@@ -22,7 +22,7 @@ export interface MediaIngressSession {
   isCameraEnabled: boolean;
   isSwitchingCamera: boolean;
   setMicrophoneMuted: (muted: boolean) => void;
-  setCameraEnabled: (enabled: boolean) => void;
+  setCameraEnabled: (enabled: boolean) => Promise<void>;
   switchCamera: () => Promise<void>;
   start: () => Promise<void>;
   stop: () => void;

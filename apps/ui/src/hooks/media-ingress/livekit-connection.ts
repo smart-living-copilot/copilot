@@ -17,6 +17,15 @@ import {
 export const CAMERA_SNAPSHOT_TOPIC = 'wotbot.camera.snapshot';
 const CAMERA_SNAPSHOT_EVENT_TYPE = 'camera_snapshot_sent';
 
+export const INITIAL_VOICE_MEDIA_CONSTRAINTS = {
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  },
+  video: false,
+} satisfies MediaStreamConstraints;
+
 type MutableRef<T> = {
   current: T;
 };
@@ -100,22 +109,10 @@ export async function startLiveKitConnection({
     throw new Error('Media capture is not available in this browser');
   }
 
-  const capturedStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
-    video: {
-      width: { ideal: 640 },
-      height: { ideal: 360 },
-      frameRate: { ideal: 15, max: 30 },
-    },
-  });
+  const capturedStream = await navigator.mediaDevices.getUserMedia(
+    INITIAL_VOICE_MEDIA_CONSTRAINTS,
+  );
   capturedStream.getAudioTracks().forEach((track) => {
-    track.enabled = true;
-  });
-  capturedStream.getVideoTracks().forEach((track) => {
     track.enabled = true;
   });
   streamRef.current = capturedStream;

@@ -26,19 +26,19 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { MediaIngressSession } from '@/hooks/use-media-ingress-session';
-import type { RunCodeArtifact } from './chat-tool-call-model';
+import type { LiveModeArtifact } from './assistant/artifacts';
 
 export function LiveModePanel({
   artifacts = [],
   session,
 }: {
-  artifacts?: RunCodeArtifact[];
+  artifacts?: LiveModeArtifact[];
   session: MediaIngressSession;
 }) {
   const status = useMemo(() => {
     if (session.state === 'requesting') {
       return {
-        detail: 'Waiting for camera and microphone access',
+        detail: 'Waiting for microphone access',
         icon: <LoaderCircle className="size-5 animate-spin" />,
       };
     }
@@ -67,9 +67,7 @@ export function LiveModePanel({
   }, [session.error, session.isMicrophoneMuted, session.state]);
 
   const mediaControlsDisabled =
-    !session.localStream ||
-    session.state === 'requesting' ||
-    session.state === 'error';
+    !session.localStream || session.state !== 'connected';
   const {
     inViewer,
     dismissViewer,

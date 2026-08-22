@@ -13,6 +13,7 @@ from wotbot.agent.prompts.jobs import JOBS_PROMPT
 from wotbot.agent.prompts.respond import RESPOND_PROMPT
 from wotbot.agent.prompts.router import ROUTER_PROMPT
 from wotbot.agent.prompts.virtual_things import VIRTUAL_THINGS_PROMPT
+from wotbot.agent.prompts.voice import VOICE_RESPONSE_PROMPT
 
 __all__ = [
     "ANALYSIS_PROMPT",
@@ -22,4 +23,5 @@ __all__ = [
     "RESPOND_PROMPT",
     "ROUTER_PROMPT",
     "VIRTUAL_THINGS_PROMPT",
+    "VOICE_RESPONSE_PROMPT",
 ]

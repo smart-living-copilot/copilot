@@ -25,6 +25,7 @@ def test_grouped_settings_mirror_flat_fields():
         _env_file=None,
         openai_api_key="llm-key",
         openai_model="gpt-test",
+        openai_model_supports_vision=True,
         openai_base_url="http://openai-compatible",
         openai_embedding_api_base_url="",
         openai_embedding_api_key="",
@@ -39,6 +40,7 @@ def test_grouped_settings_mirror_flat_fields():
 
     assert settings.llm.openai_model == settings.openai_model
     assert settings.llm.openai_api_key == settings.openai_api_key
+    assert settings.llm.supports_vision is True
     assert settings.embeddings.api_base_url == settings.openai_base_url
     assert settings.embeddings.api_key == settings.openai_api_key
     assert settings.registry.database_url == settings.registry_database_url
@@ -58,6 +60,16 @@ def test_openai_api_base_url_aliases_are_preserved(monkeypatch):
 
     assert settings.openai_base_url == "http://legacy-openai-compatible"
     assert settings.llm.openai_base_url == "http://legacy-openai-compatible"
+
+
+def test_legacy_vision_flag_enables_camera_frames_on_the_main_model(monkeypatch):
+    monkeypatch.delenv("OPENAI_MODEL_SUPPORTS_VISION", raising=False)
+    monkeypatch.setenv("VISION_ENABLED", "true")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.openai_model_supports_vision is True
+    assert settings.llm.supports_vision is True
 
 
 def test_embedding_settings_fall_back_to_openai_settings(monkeypatch):

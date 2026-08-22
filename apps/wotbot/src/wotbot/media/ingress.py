@@ -33,7 +33,7 @@ def encode_frame_to_jpeg(frame: Any) -> bytes | None:
         import numpy as np
         from PIL import Image
     except Exception:  # pragma: no cover - PIL/numpy missing at import time.
-        logger.warning("Pillow/numpy unavailable; vision frame capture disabled")
+        logger.warning("Pillow/numpy unavailable; camera frame capture disabled")
         return None
 
     try:
@@ -47,10 +47,10 @@ def encode_frame_to_jpeg(frame: Any) -> bytes | None:
         image = Image.fromarray(array)
         if image.mode not in ("RGB", "L"):
             image = image.convert("RGB")
-        max_dimension = _settings.vision_max_image_dimension
+        max_dimension = _settings.camera_frame_max_dimension
         image.thumbnail((max_dimension, max_dimension))
         buffer = BytesIO()
-        image.save(buffer, format="JPEG", quality=_settings.vision_jpeg_quality)
+        image.save(buffer, format="JPEG", quality=_settings.camera_frame_jpeg_quality)
         return buffer.getvalue()
     except Exception:
         logger.debug("Failed to encode video frame to JPEG", exc_info=True)
@@ -142,12 +142,24 @@ class MediaSessionRegistry:
                 return stats.last_video_frame_jpeg, stats.last_video_frame_at
             return None
 
+    def clear_video_frame(self, session_id: str) -> None:
+        """Discard the last encoded frame when a camera track stops."""
+        with self._lock:
+            stats = self._sessions.get(session_id)
+            if stats is None:
+                return
+            stats.last_video_frame_jpeg = None
+            stats.last_video_frame_at = None
+            stats.updated_at = _utc_now()
+
     def close(self, session_id: str) -> None:
         with self._lock:
             stats = self._sessions.get(session_id)
             if stats is None:
                 return
             stats.status = "closed"
+            stats.last_video_frame_jpeg = None
+            stats.last_video_frame_at = None
             stats.updated_at = _utc_now()
 
     def get(self, session_id: str) -> dict[str, Any] | None:
