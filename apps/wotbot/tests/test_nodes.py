@@ -589,6 +589,57 @@ class VoiceResponseInstructionsTestCase(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(marker, messages[0].content)
 
 
+class StableSystemPromptTestCase(unittest.IsolatedAsyncioTestCase):
+    """Foreground system prompts must be byte-identical across invocations.
+
+    A value that changes per call (previously the millisecond timestamp) makes
+    the whole prompt prefix -- history and any attached camera frame included --
+    unique every time, so no provider prefix cache can hit. The current time now
+    comes from the get_current_time tool, whose result is appended to history
+    instead of rewriting the prefix.
+    """
+
+    async def test_system_prompt_is_identical_across_calls(self) -> None:
+        factories = (
+            make_respond_node,
+            make_control_node,
+            make_analysis_node,
+            make_jobs_node,
+            make_virtual_things_node,
+        )
+
+        for factory in factories:
+            with self.subTest(factory=factory.__name__):
+                llm = _FakeLLM()
+                node = factory(llm, [], 4000)
+                state = {"messages": [HumanMessage(content="hello")]}
+                config = {"configurable": {"thread_id": "thread-cache"}}
+
+                await node(state, config)
+                await node(state, config)
+
+                first, second = (invocation[1] for invocation in llm.invocations[:2])
+                self.assertEqual(first[0].content, second[0].content)
+                self.assertNotIn("## Current Time", first[0].content)
+                self.assertNotIn("now_ts_ms", first[0].content)
+
+    async def test_prior_analysis_only_changes_when_run_code_output_changes(self) -> None:
+        llm = _FakeLLM()
+        node = make_virtual_things_node(llm, [], 4000)
+        run_code = AIMessage(
+            content="",
+            tool_calls=[{"id": "c1", "name": "run_code", "args": {"code": "x = 1"}}],
+        )
+        state = {"messages": [HumanMessage(content="hi"), run_code]}
+
+        await node(state, None)
+        await node(state, None)
+
+        first, second = (invocation[1] for invocation in llm.invocations[:2])
+        self.assertEqual(first[0].content, second[0].content)
+        self.assertIn("## Prior Analysis Code", first[0].content)
+
+
 class PriorAnalysisBlockTestCase(unittest.TestCase):
     def _run_code_message(self, code: str) -> AIMessage:
         return AIMessage(

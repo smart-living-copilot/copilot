@@ -612,11 +612,15 @@ def make_analysis_node(
     camera_frames_enabled: bool = False,
     response_instructions: str = "",
 ):
+    # Built once: a system prompt that is byte-identical on every call keeps the
+    # whole prompt prefix -- history and any attached camera frame included --
+    # eligible for provider prefix caching. The current time is deliberately NOT
+    # inlined here; it comes from the get_current_time tool, whose result lands
+    # in history as an append-only message instead of rewriting the prefix.
+    system_message = SystemMessage(content=ANALYSIS_PROMPT + handoff_note + response_instructions)
+
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
-        system_message = SystemMessage(
-            content=ANALYSIS_PROMPT + handoff_note + response_instructions + _current_time_block()
-        )
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = await _with_camera_context(
             [system_message, *trimmed],
@@ -649,11 +653,11 @@ def make_jobs_node(
     camera_frames_enabled: bool = False,
     response_instructions: str = "",
 ):
+    # Static system prompt; see make_analysis_node for why the time is a tool.
+    system_message = SystemMessage(content=JOBS_PROMPT + handoff_note + response_instructions)
+
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
-        system_message = SystemMessage(
-            content=JOBS_PROMPT + handoff_note + response_instructions + _current_time_block()
-        )
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = await _with_camera_context(
             [system_message, *trimmed],
@@ -686,14 +690,15 @@ def make_virtual_things_node(
     camera_frames_enabled: bool = False,
     response_instructions: str = "",
 ):
+    # Static except for the prior-analysis block, which is derived from state and
+    # only changes when new run_code output lands. See make_analysis_node for why
+    # the current time is a tool rather than an inlined block.
+    system_prefix = VIRTUAL_THINGS_PROMPT + handoff_note + response_instructions
+
     # ``config`` typing must stay ``Optional[RunnableConfig]``; see _make_llm_node.
     async def node(state: WotbotState, config: Optional[RunnableConfig] = None):
         system_message = SystemMessage(
-            content=VIRTUAL_THINGS_PROMPT
-            + handoff_note
-            + response_instructions
-            + _prior_analysis_block(state["messages"])
-            + _current_time_block()
+            content=system_prefix + _prior_analysis_block(state["messages"])
         )
         trimmed = _trim_conversation(state["messages"], max_tokens)
         messages = await _with_camera_context(

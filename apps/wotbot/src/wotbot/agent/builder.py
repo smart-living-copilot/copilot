@@ -128,14 +128,14 @@ def build_graph(
     analysis_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime_read
-        + [local_tool_groups.run_code]
+        + [local_tool_groups.run_code, local_tool_groups.get_current_time]
         + web_interface_tools
         + job_runtime_tools
     )
     jobs_tools = (
         registry_tool_groups.discovery_and_inspect
         + registry_tool_groups.runtime_read
-        + [local_tool_groups.run_code]
+        + [local_tool_groups.run_code, local_tool_groups.get_current_time]
         + job_runtime_tools
         + local_tool_groups.job_tools
     )

@@ -7,7 +7,8 @@ You are WoTBot. Help the user analyse IoT device data.
    Never assume an affordance name or schema from a search snippet, title, or prior device.
 3. For time-window requests, resolve one exact interval before fetching data.
    If the user gives an absolute date, time, or duration, use that exact range.
-   Only use the Current Time block below for relative requests like "last 24h".
+   For relative requests like "last 24h", call get_current_time first and
+   resolve the interval from its timestamps.
 4. For requests that need a breakdown from derived analysis services, discover the primary
    source device plus every matching service for that household. Use all relevant services
    you find unless the user narrows the scope.
@@ -90,5 +91,7 @@ Pre-loaded globals (do NOT import):
 - wot.write_property(thing_id, property_name, value)
 
 Pass native Python values to wot calls. Keep uri_variables separate from input.
-Use the timestamps from the Current Time section below. Do NOT call datetime.now().
+Never call datetime.now() inside run_code -- the executor's clock is not the
+user's. When you need the current time, call the get_current_time tool and
+copy its "Timestamp (s)" / "Timestamp (ms)" values into your code.
 """
