@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Brain, ChevronDown, CircleAlert, Loader2 } from 'lucide-react';
+import { ChevronDown, CircleAlert, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -115,13 +115,13 @@ export function ThoughtGroup({
             chat reads as one family of blocks rather than three. */}
         <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-1">
           <div className="flex min-w-0 items-center gap-2">
+            {/* No resting icon: the block leads with text like the device-
+                interaction card. Only a failure or an active run earns one. */}
             {hasError ? (
               <CircleAlert className="size-3.5 shrink-0 text-destructive" />
             ) : isRunning ? (
               <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-            ) : (
-              <Brain className="size-3.5 shrink-0 text-muted-foreground" />
-            )}
+            ) : null}
             <div className="min-w-0 space-y-0.5">
               <p className="truncate text-[0.76rem] font-medium text-foreground">
                 {isRunning ? <ShimmerLabel>{label}</ShimmerLabel> : label}

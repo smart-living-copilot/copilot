@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useAuiState } from '@assistant-ui/react';
 import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown';
-import { ChevronDown } from 'lucide-react';
+import { Brain, ChevronDown } from 'lucide-react';
 
 import { markdownRemarkPlugins } from '@/components/wotbot/assistant/markdown';
 import { Button } from '@/components/ui/button';
@@ -62,15 +62,23 @@ export function ReasoningPart() {
   return (
     <Collapsible className="space-y-2" open={open} onOpenChange={setOpen}>
       <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-1">
-        <div className="min-w-0 space-y-0.5">
-          <p className="truncate text-[0.76rem] font-medium text-foreground">
-            {isRunning ? <ShimmerLabel>Thinking</ShimmerLabel> : 'Thought'}
-          </p>
-          {summary ? (
-            <div className="truncate text-[0.7rem] text-muted-foreground">
-              {summary}
-            </div>
-          ) : null}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Brain
+            className={cn(
+              'size-3.5 shrink-0',
+              isRunning ? 'text-primary' : 'text-muted-foreground',
+            )}
+          />
+          <div className="min-w-0 space-y-0.5">
+            <p className="truncate text-[0.76rem] font-medium text-foreground">
+              {isRunning ? <ShimmerLabel>Thinking</ShimmerLabel> : 'Thought'}
+            </p>
+            {summary ? (
+              <div className="truncate text-[0.7rem] text-muted-foreground">
+                {summary}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <CollapsibleTrigger asChild>
