@@ -58,7 +58,15 @@ function retryUserMessageIndex(
   return -1;
 }
 
-/** Only settled assistant responses with visible text and no tool calls get actions. */
+/**
+ * Only settled assistant responses with visible text get actions.
+ *
+ * Tool calls used to veto this, back when a turn's tool run was a message of
+ * its own and copying it made no sense. A turn is now a single message holding
+ * its tool calls and its answer, so vetoing on tool calls would strip copy and
+ * regenerate from every answer that used a tool. Visible text is the real test:
+ * it is what Copy puts on the clipboard.
+ */
 export function hasAssistantResponseActions(
   state: AssistantMessageActionState,
 ): boolean {
@@ -68,9 +76,6 @@ export function hasAssistantResponseActions(
 
   let hasVisibleText = false;
   for (const part of state.message.content) {
-    if (part.type === 'tool-call') {
-      return false;
-    }
     if (part.type === 'text' && part.text?.trim()) {
       hasVisibleText = true;
     }

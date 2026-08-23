@@ -49,6 +49,7 @@ import {
 } from '@/components/ui/popover';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { getPanelOrigin } from '@/lib/panel-origin';
 
 type SourceTab = 'html' | 'capabilities';
 
@@ -322,7 +323,7 @@ export function PanelDrawer({
       key={version}
       capabilities={panel.capabilities}
       className="h-full min-h-[20rem] w-full rounded-lg"
-      src={`/api/panels/${encodeURIComponent(panel.id)}/render?v=${version}`}
+      src={`${getPanelOrigin(panel.id)}/api/panels/${encodeURIComponent(panel.id)}/render?v=${version}`}
       title={panel.title}
     />
   );

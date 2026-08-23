@@ -17,7 +17,12 @@ DisableStreamingMode = bool | Literal["tool_calling"]
 #   model natively instead. Qwen's switch is binary, not graduated: the
 #   literal level "none" means thinking off, every other configured level
 #   means on.
-ReasoningEffortStyle = Literal["openai", "qwen"]
+# - "openrouter": OpenRouter's own ``reasoning`` object via ``extra_body``.
+#   Needed to see the reasoning at all: given a plain ``reasoning_effort``
+#   OpenRouter bills the reasoning tokens and reports them in
+#   ``output_token_details.reasoning``, but returns the ``reasoning`` field
+#   empty. Only the object form makes it send the text back.
+ReasoningEffortStyle = Literal["openai", "qwen", "openrouter"]
 # How ``/audio/speech`` streams synthesized audio back:
 # - "audio": the response body is the raw audio byte stream. Every
 #   OpenAI-compatible server speaks this dialect, and some speak only this one
