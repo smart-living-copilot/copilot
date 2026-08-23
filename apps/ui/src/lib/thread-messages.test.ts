@@ -283,3 +283,55 @@ test('detached reasoning does not split a coalesced tool run', () => {
 
   assert.equal(messages.length, 1);
 });
+
+test('every step of a tool loop keeps its reasoning', () => {
+  // Each step is its own LangChain message; only the last used to survive.
+  const messages = toThreadMessages([
+    {
+      type: 'ai',
+      content: '',
+      additional_kwargs: { reasoning: 'step one' },
+      tool_calls: [{ id: 'a', name: 'one', args: {} }],
+    },
+    {
+      type: 'ai',
+      content: '',
+      additional_kwargs: { reasoning: 'step two' },
+      tool_calls: [{ id: 'b', name: 'two', args: {} }],
+    },
+    {
+      type: 'ai',
+      content: '',
+      additional_kwargs: { reasoning: 'step three' },
+      tool_calls: [{ id: 'c', name: 'three', args: {} }],
+    },
+  ]);
+
+  const reasoning = messages
+    .flatMap((message) => message.content as Array<{ type: string; text?: string }>)
+    .filter((part) => part.type === 'reasoning')
+    .map((part) => part.text);
+
+  assert.deepEqual(reasoning, ['step one', 'step two', 'step three']);
+  assert.equal(messages.length, 1);
+});
+
+test('reasoning after a run closes is not appended to the closed run', () => {
+  const messages = toThreadMessages([
+    {
+      type: 'ai',
+      content: '',
+      additional_kwargs: { reasoning: 'during' },
+      tool_calls: [{ id: 'a', name: 'one', args: {} }],
+    },
+    { type: 'ai', content: 'Done.' },
+    { type: 'human', content: 'again' },
+    { type: 'ai', content: 'Second answer.', additional_kwargs: { reasoning: 'after' } },
+  ]);
+
+  const last = messages[messages.length - 1];
+  assert.deepEqual(last.content, [
+    { type: 'reasoning', text: 'after' },
+    { type: 'text', text: 'Second answer.' },
+  ]);
+});

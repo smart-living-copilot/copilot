@@ -186,6 +186,11 @@ export function toThreadMessages(
   // The run currently being coalesced, so a following tool-only assistant
   // message extends it rather than starting a second collapsible block.
   let openGroup: GroupedToolCall[] | null = null;
+  // The parts array of the message carrying the open run. Each step of a tool
+  // loop is its own LangChain message, so reasoning from a folded-in step has
+  // to land somewhere; appending it here keeps every step's reasoning visible
+  // as the run progresses, and keeps it put once the run ends.
+  let openGroupParts: ContentPart[] | null = null;
 
   for (const message of messages) {
     const type = message.type;
@@ -207,6 +212,7 @@ export function toThreadMessages(
 
     if (type === 'human' || type === 'user') {
       openGroup = null;
+      openGroupParts = null;
       const content = toContentParts(message.content);
       if (content.length) {
         result.push({
@@ -224,6 +230,7 @@ export function toThreadMessages(
       );
       if (interactions.length > 0) {
         openGroup = null;
+        openGroupParts = null;
         result.push({
           role: 'assistant',
           content: [
@@ -241,6 +248,7 @@ export function toThreadMessages(
       if (looksLikeDeviceInteractionSummaryContent(message.content)) {
         // Unparseable summary: hide it rather than render the raw payload.
         openGroup = null;
+        openGroupParts = null;
         continue;
       }
 
@@ -252,12 +260,12 @@ export function toThreadMessages(
       }
 
       // Tool-only turn: extend the open run instead of emitting a message.
-      // Detached reasoning deliberately does not count as text here -- letting
-      // it close the run would split one tool run into several cards. The cost
-      // is that reasoning on a coalesced turn is not shown; the turn that ends
-      // the run carries its own.
+      // Reasoning deliberately does not count as text here -- letting it close
+      // the run would split one tool run into several cards -- so it is parked
+      // and re-attached to whichever message ends up carrying the run.
       if (!textParts.length && calls.length && openGroup) {
         openGroup.push(...calls);
+        openGroupParts?.push(...reasoningParts);
         continue;
       }
 
@@ -266,9 +274,12 @@ export function toThreadMessages(
         // Text in the same turn closes the run: anything after it is a new
         // block, matching how the thread reads top to bottom.
         openGroup = textParts.length ? null : calls;
+        openGroupParts = openGroup ? parts : null;
         parts.push(makeGroupPart(calls));
       } else {
         openGroup = null;
+        openGroupParts = null;
+        openGroupParts = null;
       }
 
       // An assistant turn with neither text nor a tool call would render as an
@@ -287,6 +298,7 @@ export function toThreadMessages(
       // Job transcripts carry run-lifecycle lines as system messages; the chat
       // checkpoint never contains any, so emitting them here is safe.
       openGroup = null;
+      openGroupParts = null;
       const content = toContentParts(message.content);
       if (content.length) {
         result.push({
@@ -300,6 +312,7 @@ export function toThreadMessages(
 
     // Unknown types are not rendered in the thread.
     openGroup = null;
+    openGroupParts = null;
   }
 
   return result;
