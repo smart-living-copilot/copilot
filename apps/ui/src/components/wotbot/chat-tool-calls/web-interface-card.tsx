@@ -2,10 +2,18 @@
 
 import { memo, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { CircleAlert, Expand, Pin, PinOff, X } from 'lucide-react';
+import {
+  CircleAlert,
+  ExternalLink,
+  Expand,
+  Pin,
+  PinOff,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { PanelFrame } from '@/components/wotbot/chat-tool-calls/panel-frame';
+import { usePanelPopup } from '@/components/wotbot/chat-tool-calls/use-panel-popup';
 import {
   DetailsToggle,
   ToolCardHeader,
@@ -16,6 +24,7 @@ import {
   type WebInterfaceArtifact,
 } from '@/components/wotbot/chat-tool-calls/web-interface-model';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
@@ -55,6 +64,15 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
   const pathname = usePathname();
   const src = `${getPanelOrigin(artifact.filename)}/api/artifacts/${encodeURIComponent(artifact.filename)}`;
   const canPin = typeof artifact.html === 'string' && artifact.html.length > 0;
+  const popup = usePanelPopup(src, artifact.capabilities);
+
+  const handleOpenExternally = () => {
+    if (!popup.open()) {
+      toast.error(
+        'The browser blocked the new tab. Allow pop-ups for this site.',
+      );
+    }
+  };
 
   const handlePin = async () => {
     if (!artifact.html) {
@@ -101,46 +119,74 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
         <CardContent
           className={cn('space-y-2 py-2', fill && 'flex h-full flex-col')}
         >
-          <div className="flex items-center justify-end gap-1 px-0.5">
-            {canPin ? (
+          {/* Same identity line as a plot artifact: a ref badge and what the
+              thing is, so the two kinds of generated output read alike. */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2 px-0.5">
+              <Badge className="h-5 font-mono text-[0.66rem]" variant="outline">
+                {artifact.ref}
+              </Badge>
+              <span className="truncate text-[0.7rem] text-muted-foreground">
+                {artifact.title || 'Interactive interface'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1">
+              {canPin ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      aria-label="Pin to Panels"
+                      className="text-muted-foreground hover:text-foreground"
+                      disabled={isPinning || pinned}
+                      onClick={() => void handlePin()}
+                      size="icon-xs"
+                      type="button"
+                      variant="ghost"
+                    >
+                      {pinned ? (
+                        <PinOff className="size-3.5" />
+                      ) : (
+                        <Pin className="size-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {pinned ? 'Pinned' : 'Pin to Panels'}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    aria-label="Pin to Panels"
+                    aria-label="Open in a new tab"
                     className="text-muted-foreground hover:text-foreground"
-                    disabled={isPinning || pinned}
-                    onClick={() => void handlePin()}
+                    onClick={handleOpenExternally}
                     size="icon-xs"
                     type="button"
                     variant="ghost"
                   >
-                    {pinned ? (
-                      <PinOff className="size-3.5" />
-                    ) : (
-                      <Pin className="size-3.5" />
-                    )}
+                    <ExternalLink className="size-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="top">
-                  {pinned ? 'Pinned' : 'Pin to Panels'}
-                </TooltipContent>
+                <TooltipContent side="top">Open in a new tab</TooltipContent>
               </Tooltip>
-            ) : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  aria-label="Open fullscreen interface"
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={() => setIsFullscreenOpen(true)}
-                  size="icon-xs"
-                  type="button"
-                  variant="ghost"
-                >
-                  <Expand className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Open fullscreen</TooltipContent>
-            </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    aria-label="Open fullscreen interface"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => setIsFullscreenOpen(true)}
+                    size="icon-xs"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Expand className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Open fullscreen</TooltipContent>
+              </Tooltip>
+            </div>
           </div>
           <PanelFrame
             capabilities={artifact.capabilities}
@@ -166,10 +212,10 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
             <div className="flex shrink-0 items-center gap-1.5">
               {canPin ? (
                 <Button
-                  aria-label="Pin to Panels"
+                  aria-label={pinned ? 'Pinned to Panels' : 'Pin to Panels'}
                   disabled={isPinning || pinned}
                   onClick={() => void handlePin()}
-                  size="sm"
+                  size="icon-sm"
                   type="button"
                   variant="ghost"
                 >
@@ -178,11 +224,17 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
                   ) : (
                     <Pin className="size-3.5" />
                   )}
-                  <span className="hidden sm:inline">
-                    {pinned ? 'Pinned' : 'Pin'}
-                  </span>
                 </Button>
               ) : null}
+              <Button
+                aria-label="Open in a new tab"
+                onClick={handleOpenExternally}
+                size="icon-sm"
+                type="button"
+                variant="ghost"
+              >
+                <ExternalLink className="size-3.5" />
+              </Button>
               <DrawerClose asChild>
                 <Button aria-label="Close" size="icon-sm" variant="ghost">
                   <X className="size-3.5" />

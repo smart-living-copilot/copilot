@@ -217,13 +217,33 @@ function extractSubscriptionId(result: unknown): string | undefined {
     : undefined;
 }
 
-/** The origin a frame is currently serving, or null if it has no usable src. */
-function frameOrigin(frame: HTMLIFrameElement | null): string | null {
-  if (!frame?.src) {
+/**
+ * What the bridge is talking to: a framed panel, or one opened as its own page.
+ *
+ * A popup's origin cannot be read back cross-origin, so callers that open one
+ * pass the origin they navigated it to. For an iframe it is read from `src`.
+ */
+export type BridgeTarget = HTMLIFrameElement | Window | null;
+
+function targetWindow(target: BridgeTarget): Window | null {
+  if (!target) {
+    return null;
+  }
+  return target instanceof HTMLIFrameElement ? target.contentWindow : target;
+}
+
+function targetOrigin(
+  target: BridgeTarget,
+  expectedOrigin?: string,
+): string | null {
+  if (expectedOrigin) {
+    return expectedOrigin;
+  }
+  if (!(target instanceof HTMLIFrameElement) || !target.src) {
     return null;
   }
   try {
-    return new URL(frame.src, window.location.href).origin;
+    return new URL(target.src, window.location.href).origin;
   } catch {
     return null;
   }
@@ -238,11 +258,13 @@ function frameOrigin(frame: HTMLIFrameElement | null): string | null {
  * the iframe.
  */
 export function useWotBridge(
-  iframeRef: RefObject<HTMLIFrameElement | null>,
+  iframeRef: RefObject<BridgeTarget>,
   capabilities: WotCapability[],
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; origin?: string } = {},
 ) {
   const enabled = options.enabled ?? true;
+  // A popup's origin is not readable cross-origin, so its opener supplies it.
+  const expectedOrigin = options.origin;
   const capsRef = useRef(capabilities);
 
   useEffect(() => {
@@ -259,17 +281,15 @@ export function useWotBridge(
     let closed = false;
 
     function postToFrame(message: Record<string, unknown>) {
-      const frame = iframeRef.current;
-      const targetOrigin = frameOrigin(frame);
-      if (!frame || !targetOrigin) {
+      const target = iframeRef.current;
+      const origin = targetOrigin(target, expectedOrigin);
+      const win = targetWindow(target);
+      if (!win || !origin) {
         return;
       }
-      // Addressed rather than broadcast: the frame has a real origin now, so
+      // Addressed rather than broadcast: the panel has a real origin now, so
       // there is no reason to hand these messages to whatever is loaded.
-      frame.contentWindow?.postMessage(
-        { source: HOST_SOURCE, ...message },
-        targetOrigin,
-      );
+      win.postMessage({ source: HOST_SOURCE, ...message }, origin);
     }
 
     function syncEventSource() {
@@ -405,14 +425,15 @@ export function useWotBridge(
     }
 
     function onMessage(event: MessageEvent) {
-      const frame = iframeRef.current;
-      // Trust only this specific iframe, and only when it still is what it was:
-      // the window identity check alone would survive the frame navigating
-      // somewhere else, so the origin is checked too now that it is a real one.
-      if (!frame || event.source !== frame.contentWindow) {
+      const target = iframeRef.current;
+      // Trust only this specific panel, and only while it still is what it was:
+      // the window identity check alone would survive it navigating elsewhere,
+      // so the origin is checked too now that it is a real one.
+      const win = targetWindow(target);
+      if (!win || event.source !== win) {
         return;
       }
-      if (event.origin !== frameOrigin(frame)) {
+      if (event.origin !== targetOrigin(target, expectedOrigin)) {
         return;
       }
       const data = event.data as BridgeRequest | undefined;
@@ -446,5 +467,5 @@ export function useWotBridge(
       }
       activeSubscriptions.clear();
     };
-  }, [iframeRef, enabled]);
+  }, [iframeRef, enabled, expectedOrigin]);
 }

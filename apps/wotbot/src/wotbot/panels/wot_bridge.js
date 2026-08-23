@@ -25,6 +25,18 @@
 (function () {
   'use strict';
 
+
+  /**
+   * The window hosting this panel.
+   *
+   * Normally the parent frame. When the panel is opened as a page of its own,
+   * `window.parent` is this window, and the host is whichever tab opened it --
+   * so fall back to the opener. Without this a standalone panel renders fine
+   * and then waits forever for a handshake nobody is listening for.
+   */
+  function hostWindow() {
+    return window.parent !== window ? window.parent : window.opener;
+  }
   var REQUEST_SOURCE = 'wot-bridge';
   var HOST_SOURCE = 'wot-bridge-host';
 
@@ -41,7 +53,8 @@
     return new Promise(function (resolve, reject) {
       pending[id] = { resolve: resolve, reject: reject };
       try {
-        window.parent.postMessage(message, '*');
+        var host = hostWindow();
+        if (host) host.postMessage(message, '*');
       } catch (err) {
         delete pending[id];
         reject(err);
@@ -52,7 +65,7 @@
   window.addEventListener('message', function (event) {
     // Only trust the parent frame. Origin is opaque ("null") for a sandboxed
     // document, so match on the source window instead of the origin string.
-    if (event.source !== window.parent) {
+    if (event.source !== hostWindow()) {
       return;
     }
     var data = event.data;
@@ -221,7 +234,7 @@
     callbacks = {};
     for (var i = 0; i < ids.length; i++) {
       try {
-        window.parent.postMessage(
+        (hostWindow() || window).postMessage(
           {
             source: REQUEST_SOURCE,
             id: REQUEST_SOURCE + ':cleanup',

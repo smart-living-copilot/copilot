@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useState } from 'react';
-import { Expand } from 'lucide-react';
+import { Expand, X } from 'lucide-react';
 
 import { ArtifactPreview } from '@/components/wotbot/chat-tool-calls/artifact-preview';
 import { DetailsToggle } from '@/components/wotbot/chat-tool-calls/tool-card-shell';
@@ -10,12 +10,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
 import {
   Tooltip,
   TooltipContent,
@@ -35,7 +36,12 @@ export const RunCodeArtifactCard = memo(function RunCodeArtifactCard({
     artifact.kind === 'plotly' ? 'Interactive chart' : 'Generated image';
 
   return (
-    <Dialog open={isFullscreenOpen} onOpenChange={setIsFullscreenOpen}>
+    <Drawer
+      direction="right"
+      handleOnly
+      onOpenChange={setIsFullscreenOpen}
+      open={isFullscreenOpen}
+    >
       <Collapsible open={showPreview} onOpenChange={setShowPreview}>
         <Card className="gap-0 border border-border/55 bg-background/45 py-0 shadow-none ring-0">
           <CardContent className="space-y-2 py-2">
@@ -80,31 +86,36 @@ export const RunCodeArtifactCard = memo(function RunCodeArtifactCard({
         </Card>
 
         {isFullscreenOpen ? (
-          <DialogContent
-            className="max-w-[min(96vw,90rem)] gap-0 p-0 sm:max-w-[min(96vw,90rem)]"
-            showCloseButton
+          <DrawerContent
+            className="h-full gap-0 overflow-hidden p-0"
+            style={{ width: 'min(100vw, 88rem)', maxWidth: 'none' }}
           >
-            <DialogHeader className="border-b border-border/55 px-4 py-3 pr-12">
-              <DialogTitle className="flex items-center gap-2 text-sm">
+            <DrawerHeader className="flex-row items-center justify-between gap-3 border-b border-border/55 px-4 py-2.5">
+              <DrawerTitle className="flex min-w-0 items-center gap-2 text-sm">
                 <Badge
                   className="h-5 font-mono text-[0.66rem]"
                   variant="outline"
                 >
                   {artifact.ref}
                 </Badge>
-                <span>{artifactType}</span>
-              </DialogTitle>
-              <DialogDescription className="text-[0.72rem]">
-                Fullscreen preview for {artifact.filename}
-              </DialogDescription>
-            </DialogHeader>
+                <span className="truncate">{artifactType}</span>
+              </DrawerTitle>
+              <DrawerDescription className="sr-only">
+                Full-size preview for {artifact.filename}
+              </DrawerDescription>
+              <DrawerClose asChild>
+                <Button aria-label="Close" size="icon-sm" variant="ghost">
+                  <X className="size-3.5" />
+                </Button>
+              </DrawerClose>
+            </DrawerHeader>
 
-            <div className="overflow-auto p-4">
-              <ArtifactPreview artifact={artifact} fullscreen />
+            <div className="min-h-0 flex-1 overflow-auto p-2 sm:p-3">
+              <ArtifactPreview artifact={artifact} fill />
             </div>
-          </DialogContent>
+          </DrawerContent>
         ) : null}
       </Collapsible>
-    </Dialog>
+    </Drawer>
   );
 });
