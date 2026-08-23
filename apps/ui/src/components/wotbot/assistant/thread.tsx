@@ -109,11 +109,7 @@ function AssistantParts() {
       {({ part, children }) => {
         switch (part.type) {
           case GROUP_THOUGHT:
-            return (
-              <ThoughtGroup isRunning={part.status?.type === 'running'}>
-                {children}
-              </ThoughtGroup>
-            );
+            return <ThoughtGroup>{children}</ThoughtGroup>;
           // The runs inside the block need no chrome of their own; the rows
           // they hold are already uniform and the block owns the spacing.
           case GROUP_REASONING:

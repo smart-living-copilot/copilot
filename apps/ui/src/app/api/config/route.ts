@@ -23,8 +23,21 @@ export async function GET() {
     });
   }
 
+  let backend: unknown;
+  try {
+    backend = JSON.parse(body);
+  } catch {
+    // A 200 that is not JSON means something answered for the backend -- a
+    // proxy error page, a truncated body. Report it as the panel's own error
+    // rather than throwing and returning an opaque 500.
+    return Response.json(
+      { detail: 'The backend returned a malformed configuration response.' },
+      { status: 502 },
+    );
+  }
+
   return Response.json({
-    backend: JSON.parse(body),
+    backend,
     ui: {
       reasoningEffort: getReasoningEffortRuntimeConfig(),
     },

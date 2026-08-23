@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { ChevronDown, CircleAlert, Loader2 } from 'lucide-react';
+import { ChevronDown, CircleAlert } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -17,7 +17,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { ShimmerLabel } from '@/lib/surfaces';
 import { cn } from '@/lib/utils';
 
 /**
@@ -30,8 +29,8 @@ import { cn } from '@/lib/utils';
  */
 
 type ThoughtGroupReport = {
-  reportError: () => void;
-  reportTool: (toolCallId: string) => void;
+  setTool: (toolCallId: string, present: boolean) => void;
+  setError: (toolCallId: string, failed: boolean) => void;
 };
 
 const ThoughtGroupContext = createContext<ThoughtGroupReport | null>(null);
@@ -40,52 +39,71 @@ function useThoughtGroupReport(): ThoughtGroupReport | null {
   return useContext(ThoughtGroupContext);
 }
 
-/** Registers a tool call with the enclosing block for the duration it is shown. */
+/**
+ * Registers a tool call with the enclosing block for as long as it is shown.
+ *
+ * Deregistering on unmount matters: messages render by index, so regenerating a
+ * response or switching branches reuses this block instance. Without the
+ * cleanup it would keep the previous run's count and stay auto-expanded over a
+ * failure that is no longer on screen.
+ */
 export function useReportToolCall(toolCallId: string, hasError: boolean) {
   const report = useThoughtGroupReport();
 
   useEffect(() => {
-    report?.reportTool(toolCallId);
+    report?.setTool(toolCallId, true);
+    return () => report?.setTool(toolCallId, false);
   }, [report, toolCallId]);
 
   useEffect(() => {
-    if (hasError) {
-      report?.reportError();
-    }
-  }, [hasError, report]);
+    report?.setError(toolCallId, hasError);
+    return () => report?.setError(toolCallId, false);
+  }, [hasError, report, toolCallId]);
 }
 
 /** Mirrors the device-interaction card: a fixed title over a counts line. */
-function formatDetail(toolCount: number, hasError: boolean): string {
+function formatDetail(toolCount: number, errorCount: number): string {
   const parts = [`${toolCount} tool${toolCount === 1 ? '' : 's'}`];
-  if (hasError) {
-    parts.push('1 failed');
+  if (errorCount) {
+    parts.push(`${errorCount} failed`);
   }
   return parts.join(' · ');
 }
 
-export function ThoughtGroup({
-  children,
-  isRunning,
-}: {
-  children: ReactNode;
-  isRunning: boolean;
-}) {
+/** Add or remove an id without churning the set when nothing changed. */
+function toggleId(
+  current: ReadonlySet<string>,
+  id: string,
+  present: boolean,
+): ReadonlySet<string> {
+  if (present === current.has(id)) {
+    return current;
+  }
+  const next = new Set(current);
+  if (present) {
+    next.add(id);
+  } else {
+    next.delete(id);
+  }
+  return next;
+}
+
+export function ThoughtGroup({ children }: { children: ReactNode }) {
   const [isManuallyExpanded, setIsManuallyExpanded] = useState(false);
   const [shouldAutoExpandError, setShouldAutoExpandError] = useState(true);
-  const [hasError, setHasError] = useState(false);
+  const [errorIds, setErrorIds] = useState<ReadonlySet<string>>(new Set());
   const [toolIds, setToolIds] = useState<ReadonlySet<string>>(new Set());
 
   const report = useMemo<ThoughtGroupReport>(
     () => ({
-      reportError: () => setHasError(true),
-      reportTool: (toolCallId: string) =>
-        setToolIds((current) =>
-          current.has(toolCallId) ? current : new Set(current).add(toolCallId),
-        ),
+      setTool: (toolCallId, present) =>
+        setToolIds((current) => toggleId(current, toolCallId, present)),
+      setError: (toolCallId, failed) =>
+        setErrorIds((current) => toggleId(current, toolCallId, failed)),
     }),
     [],
   );
+  const hasError = errorIds.size > 0;
 
   // A failure opens the block as soon as it arrives. Once the user explicitly
   // collapses it, keep respecting that choice instead of forcing it back open.
@@ -100,8 +118,7 @@ export function ThoughtGroup({
     [],
   );
 
-  const label = isRunning ? 'Thinking' : 'Thought process';
-  const detail = formatDetail(toolIds.size, hasError);
+  const detail = formatDetail(toolIds.size, errorIds.size);
 
   return (
     <ThoughtGroupContext.Provider value={report}>
@@ -115,15 +132,15 @@ export function ThoughtGroup({
         <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-1">
           <div className="flex min-w-0 items-center gap-2">
             {/* No resting icon: the block leads with text like the device-
-                interaction card. Only a failure or an active run earns one. */}
+                interaction card. Only a failure earns one -- the turn's single
+                activity animation is the standalone indicator that
+                `GroupedParts` emits below, so the block never animates too. */}
             {hasError ? (
               <CircleAlert className="size-3.5 shrink-0 text-destructive" />
-            ) : isRunning ? (
-              <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
             ) : null}
             <div className="min-w-0 space-y-0.5">
               <p className="truncate text-[0.76rem] font-medium text-foreground">
-                {isRunning ? <ShimmerLabel>{label}</ShimmerLabel> : label}
+                Thought process
               </p>
               {toolIds.size > 0 ? (
                 <div className="truncate text-[0.7rem] text-muted-foreground">

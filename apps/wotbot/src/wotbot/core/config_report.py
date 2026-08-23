@@ -31,6 +31,7 @@ from wotbot.core.settings import Settings
 SECRET_PLACEHOLDER = "•••••••• (set)"
 SECRET_MISSING = "not set"
 CREDENTIALS_PLACEHOLDER = "***"
+QUERY_PLACEHOLDER = "(query removed)"
 
 
 class Render(Enum):
@@ -40,8 +41,8 @@ class Render(Enum):
     PLAIN = "plain"
     # Reported only as set/not set.
     SECRET = "secret"
-    # Reported with any ``user:password@`` userinfo stripped. Host, port and
-    # path are the useful half for debugging and carry no credential.
+    # Reported with the userinfo and the query string stripped. Host, port and
+    # path are the useful half for debugging.
     URL = "url"
 
 
@@ -203,11 +204,18 @@ CONFIG_SECTIONS: tuple[SectionSpec, ...] = (
 
 
 def strip_url_credentials(value: str) -> str:
-    """Replace a URL's ``user:password@`` userinfo with a placeholder.
+    """Remove anything credential-shaped from a URL before reporting it.
 
-    ``REGISTRY_DATABASE_URL`` and friends carry the Postgres password inline, so
-    they cannot be reported verbatim -- but their host, port and database name
-    are exactly what someone reads this page to check.
+    ``REGISTRY_DATABASE_URL`` and friends carry the Postgres password in the
+    ``user:password@`` userinfo, so they cannot be reported verbatim -- but
+    their host, port and database name are exactly what someone reads this page
+    to check.
+
+    The query string goes too, and is not inspected: provider endpoints are
+    routinely deployed with the key in a parameter (``?api-key=...``), and this
+    page promises secrets are never shown by value. A key embedded in the path
+    (LiteLLM/Azure-style ``/v1/<key>``) is indistinguishable from a route and
+    survives -- worth knowing before putting a key there.
     """
     if not value:
         return value
@@ -218,8 +226,11 @@ def strip_url_credentials(value: str) -> str:
         # Unparseable means we cannot prove it is credential-free.
         return CREDENTIALS_PLACEHOLDER
 
+    if parts.query:
+        parts = parts._replace(query=QUERY_PLACEHOLDER)
+
     if not parts.netloc or "@" not in parts.netloc:
-        return value
+        return urlunsplit(parts)
 
     userinfo, _, host = parts.netloc.rpartition("@")
     user, separator, _ = userinfo.partition(":")

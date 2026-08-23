@@ -89,6 +89,19 @@ class StripUrlCredentialsTestCase(unittest.TestCase):
             strip_url_credentials("redis://token@valkey:6379"), "redis://***@valkey:6379"
         )
 
+    def test_query_string_is_removed_wholesale(self) -> None:
+        """Provider endpoints are routinely deployed with the key in a param."""
+        self.assertEqual(
+            strip_url_credentials("https://api.example.com/v1?api-key=sk-secret"),
+            "https://api.example.com/v1?(query removed)",
+        )
+
+    def test_query_is_removed_even_without_userinfo(self) -> None:
+        self.assertNotIn(
+            "sk-secret",
+            strip_url_credentials("https://api.example.com/v1/audio?token=sk-secret"),
+        )
+
     def test_empty_value_stays_empty(self) -> None:
         self.assertEqual(strip_url_credentials(""), "")
 
@@ -106,6 +119,8 @@ class BuildConfigReportTestCase(unittest.TestCase):
     def test_no_secret_value_appears_anywhere_in_the_report(self) -> None:
         secret = "sk-do-not-leak-me"
         settings = _settings(
+            # A key in the query string is as much a secret as the userinfo one.
+            stt_transcriptions_url=f"https://stt.example.com/v1?api-key={secret}",
             openai_api_key=secret,
             livekit_api_secret=secret,
             init_admin_token=secret,

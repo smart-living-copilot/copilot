@@ -402,3 +402,55 @@ test('the summary does not push artifacts past the answer', () => {
     ['create_web_interface', ARTIFACT_VIEW_NAME, 'text', WOT_SUMMARY_NAME],
   );
 });
+
+test('each artifact sits with the run that produced it', () => {
+  // Two artifacts with prose between them: stacking both after the last call
+  // would put the first below the sentence that says it is above.
+  const out = toThreadMessages([
+    {
+      type: 'ai',
+      content: '',
+      tool_calls: [{ id: 'a', name: 'create_web_interface', args: {} }],
+    },
+    { type: 'tool', tool_call_id: 'a', content: '{"artifact":{"id":"art-a"}}' },
+    {
+      type: 'ai',
+      content: 'The panel above shows the lamp.',
+      tool_calls: [{ id: 'b', name: 'create_web_interface', args: {} }],
+    },
+    { type: 'tool', tool_call_id: 'b', content: '{"artifact":{"id":"art-b"}}' },
+    { type: 'ai', content: 'And this one shows the fan.' },
+  ]);
+
+  assert.deepEqual(
+    parts(out[0]).map((part) => part.toolName ?? part.type),
+    [
+      'create_web_interface',
+      ARTIFACT_VIEW_NAME,
+      'text',
+      'create_web_interface',
+      ARTIFACT_VIEW_NAME,
+      'text',
+    ],
+  );
+});
+
+test('a tool call with no id is skipped rather than left unanswerable', () => {
+  // Its result arrives keyed by the provider's id, so a synthesized one would
+  // never match and the card would sit at "executing" forever.
+  const out = toThreadMessages([
+    {
+      type: 'ai',
+      content: 'working',
+      tool_calls: [
+        { name: 'no_id_tool', args: {} },
+        { id: 'b', name: 'real_tool', args: {} },
+      ],
+    },
+  ]);
+
+  assert.deepEqual(
+    groupCalls(out[0]).map((call) => call.id),
+    ['b'],
+  );
+});

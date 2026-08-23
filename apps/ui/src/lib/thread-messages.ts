@@ -159,16 +159,19 @@ function toToolCallParts(message: LangChainMessage): ToolCallPart[] {
     return [];
   }
   const calls: ToolCallPart[] = [];
-  message.tool_calls.forEach((call, index) => {
-    if (!call?.name) return;
+  for (const call of message.tool_calls) {
+    // A call with no id cannot be joined to the `tool` message carrying its
+    // result, so a card for it would sit at "executing" forever. Synthesizing
+    // an id only hides that: the result arrives keyed by the provider's own id
+    // and never matches.
+    if (!call?.id || !call.name) continue;
     calls.push({
       type: 'tool-call',
-      // Stable across streaming updates so the part keeps its identity.
-      toolCallId: call.id ?? `${message.id ?? 'call'}:${index}`,
+      toolCallId: call.id,
       toolName: call.name,
       args: isRecord(call.args) ? call.args : ({} as Json),
     });
-  });
+  }
   return calls;
 }
 
@@ -191,17 +194,27 @@ export function toThreadMessages(
 
   const closeTurn = () => {
     if (turn) {
-      const artifacts: ContentPart[] = [];
-      let lastCall = -1;
-      turn.parts.forEach((part, index) => {
-        // The summary is a synthetic part that trails the answer, so it must
-        // not count as the turn's last call and drag the artifacts past the text.
-        if (part.type !== 'tool-call' || part.toolName === WOT_SUMMARY_NAME) {
-          return;
+      // Each artifact goes at the end of the run of calls it belongs to, not
+      // at the end of the turn: a turn that produces two artifacts with prose
+      // between them would otherwise stack both after the second one, putting
+      // the first below the sentence that says it is above.
+      const placed: ContentPart[] = [];
+      let pending: ContentPart[] = [];
+
+      for (const part of turn.parts) {
+        const isCall =
+          part.type === 'tool-call' && part.toolName !== WOT_SUMMARY_NAME;
+        if (!isCall && pending.length) {
+          placed.push(...pending);
+          pending = [];
         }
-        lastCall = index;
-        if (ARTIFACT_TOOLS.has(part.toolName) && part.result !== undefined) {
-          artifacts.push({
+        placed.push(part);
+        if (
+          isCall &&
+          ARTIFACT_TOOLS.has(part.toolName) &&
+          part.result !== undefined
+        ) {
+          pending.push({
             type: 'tool-call',
             toolCallId: `artifact:${part.toolCallId}`,
             toolName: ARTIFACT_VIEW_NAME,
@@ -209,11 +222,9 @@ export function toThreadMessages(
             result: part.result,
           });
         }
-      });
-      // Straight after the work and before the answer that refers to it: the
-      // model writes "the panel above", and an artifact pushed past the text
-      // would make that false.
-      turn.parts.splice(lastCall + 1, 0, ...artifacts);
+      }
+      placed.push(...pending);
+      turn.parts = placed;
     }
     // A turn with no parts would render as an empty bubble.
     if (turn && turn.parts.length) {
