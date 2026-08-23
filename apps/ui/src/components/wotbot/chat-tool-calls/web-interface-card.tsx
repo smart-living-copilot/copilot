@@ -140,18 +140,21 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
         </CardContent>
       </Card>
 
+      {/* Maximised means maximised: flex column rather than the base grid so
+          the frame takes every pixel the header does not, and no width cap so a
+          wide panel is not letterboxed on a large display. */}
       {isFullscreenOpen ? (
         <DialogContent
-          className="max-w-[min(96vw,90rem)] gap-0 p-0 sm:max-w-[min(96vw,90rem)]"
+          className="flex h-[96vh] w-[97vw] max-w-none flex-col gap-0 p-0 sm:max-w-none"
           showCloseButton
         >
-          <DialogHeader className="border-b border-border/55 px-4 py-3 pr-12">
+          <DialogHeader className="shrink-0 border-b border-border/55 px-4 py-3 pr-12">
             <DialogTitle className="text-sm">Interactive interface</DialogTitle>
           </DialogHeader>
-          <div className="overflow-auto p-4">
+          <div className="min-h-0 flex-1 overflow-auto p-2">
             <PanelFrame
               capabilities={artifact.capabilities}
-              className="h-[78vh] rounded-xl"
+              className="h-full w-full rounded-lg"
               src={src}
               title={`Interface ${artifact.ref}`}
             />
