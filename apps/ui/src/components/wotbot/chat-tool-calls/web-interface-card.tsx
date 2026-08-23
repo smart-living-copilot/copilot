@@ -156,10 +156,14 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
           className="h-full gap-0 overflow-hidden p-0"
           style={{ width: 'min(100vw, 88rem)', maxWidth: 'none' }}
         >
-          <DrawerHeader className="flex-row items-center justify-between gap-3 border-b border-border/55 px-4 py-2.5">
-            <DrawerTitle className="truncate text-sm font-medium">
-              Interactive interface
-            </DrawerTitle>
+          {/* No visible title: "Interactive interface" said nothing the panel
+              does not say better itself, and it competed with the panel's own
+              heading. The bar stays for the close button -- without it the only
+              way out is Esc or an overlay click, which is nothing at all on
+              touch -- and the title stays for assistive tech, which Radix
+              requires anyway. */}
+          <DrawerHeader className="flex-row items-center justify-end gap-3 border-b border-border/55 px-2 py-1.5">
+            <DrawerTitle className="sr-only">Interactive interface</DrawerTitle>
             <DrawerDescription className="sr-only">
               The generated interface, opened at full size.
             </DrawerDescription>
