@@ -2,10 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  TOOL_GROUP_NAME,
+  ARTIFACT_VIEW_NAME,
   WOT_SUMMARY_NAME,
   toThreadMessages,
-  type GroupedToolCall,
   type LangChainMessage,
 } from './thread-messages';
 
@@ -15,13 +14,21 @@ function parts(message: unknown): AnyPart[] {
   return (message as { content: AnyPart[] }).content;
 }
 
-/** The coalesced calls carried by a message's tool-group part. */
-function groupCalls(message: unknown): GroupedToolCall[] {
-  const part = parts(message).find(
-    (p) => p.type === 'tool-call' && p.toolName === TOOL_GROUP_NAME,
-  );
-  assert.ok(part, 'expected a tool-group part');
-  return (part.args as { calls: GroupedToolCall[] }).calls;
+/**
+ * A message's tool calls, in order.
+ *
+ * They are ordinary parts now rather than one synthetic group part; grouping
+ * happens structurally at render time via `wotbotGroupBy`.
+ */
+function groupCalls(
+  message: unknown,
+): Array<{ id: string; name: string } & Record<string, unknown>> {
+  return parts(message)
+    .filter((part) => part.type === 'tool-call')
+    .map((part) => {
+      const { toolCallId, toolName, ...rest } = part;
+      return { id: toolCallId as string, name: toolName as string, ...rest };
+    });
 }
 
 test('maps a human message to a user message with a text part', () => {
@@ -70,26 +77,19 @@ test('marks an errored tool result', () => {
   assert.equal(groupCalls(out[0])[0].isError, true);
 });
 
-test('coalesces consecutive tool-only turns into one group', () => {
+test('a whole turn becomes one message with its parts in order', () => {
   const out = toThreadMessages([
     { type: 'human', content: 'go' },
-    {
-      type: 'ai',
-      content: '',
-      tool_calls: [{ id: 'a', name: 't1', args: {} }],
-    },
+    { type: 'ai', content: '', tool_calls: [{ id: 'a', name: 't1', args: {} }] },
     { type: 'tool', tool_call_id: 'a', content: '{"ok":1}' },
-    {
-      type: 'ai',
-      content: '',
-      tool_calls: [{ id: 'b', name: 't2', args: {} }],
-    },
+    { type: 'ai', content: '', tool_calls: [{ id: 'b', name: 't2', args: {} }] },
     { type: 'tool', tool_call_id: 'b', content: '{"ok":2}' },
     { type: 'ai', content: 'all done' },
   ]);
 
-  // user, one grouped tool block, final answer.
-  assert.equal(out.length, 3);
+  // Each agent step is its own LangChain message but one turn on screen, so
+  // the run's shape is decided at render time by grouping, not here.
+  assert.equal(out.length, 2);
   const calls = groupCalls(out[1]);
   assert.deepEqual(
     calls.map((c) => c.id),
@@ -99,31 +99,31 @@ test('coalesces consecutive tool-only turns into one group', () => {
     calls.map((c) => c.result),
     [{ ok: 1 }, { ok: 2 }],
   );
-  assert.deepEqual(parts(out[2]), [{ type: 'text', text: 'all done' }]);
+  assert.deepEqual(
+    parts(out[1]).map((part) => part.type),
+    ['tool-call', 'tool-call', 'text'],
+  );
 });
 
-test('text in a turn closes the run so the next block is separate', () => {
+test("text keeps its position among the turn's tool calls", () => {
   const out = toThreadMessages([
     {
       type: 'ai',
       content: 'thinking',
       tool_calls: [{ id: 'a', name: 't1', args: {} }],
     },
-    {
-      type: 'ai',
-      content: '',
-      tool_calls: [{ id: 'b', name: 't2', args: {} }],
-    },
+    { type: 'ai', content: '', tool_calls: [{ id: 'b', name: 't2', args: {} }] },
   ]);
 
-  assert.equal(out.length, 2);
+  assert.equal(out.length, 1);
+  assert.deepEqual(parts(out[0]).map((part) => part.type), [
+    'text',
+    'tool-call',
+    'tool-call',
+  ]);
   assert.deepEqual(
     groupCalls(out[0]).map((c) => c.id),
-    ['a'],
-  );
-  assert.deepEqual(
-    groupCalls(out[1]).map((c) => c.id),
-    ['b'],
+    ['a', 'b'],
   );
 });
 
@@ -334,4 +334,71 @@ test('reasoning after a run closes is not appended to the closed run', () => {
     { type: 'reasoning', text: 'after' },
     { type: 'text', text: 'Second answer.' },
   ]);
+});
+
+test('an artifact is split off so the card can stay grouped', () => {
+  const out = toThreadMessages([
+    {
+      type: 'ai',
+      content: '',
+      tool_calls: [{ id: 'a', name: 'create_web_interface', args: { x: 1 } }],
+    },
+    { type: 'tool', tool_call_id: 'a', content: '{"artifact":{"id":"art-1"}}' },
+    { type: 'ai', content: 'Panel is above.' },
+  ]);
+
+  const kinds = parts(out[0]).map((part) => [part.type, part.toolName]);
+  // The artifact sits between the work and the answer that refers to it.
+  assert.deepEqual(kinds, [
+    ['tool-call', 'create_web_interface'],
+    ['tool-call', ARTIFACT_VIEW_NAME],
+    ['text', undefined],
+  ]);
+
+  const artifact = parts(out[0])[1];
+  assert.deepEqual(artifact.args, {
+    source: 'create_web_interface',
+    sourceArgs: { x: 1 },
+  });
+});
+
+test('a call still awaiting its result produces no artifact part', () => {
+  const out = toThreadMessages([
+    {
+      type: 'ai',
+      content: '',
+      tool_calls: [{ id: 'a', name: 'run_code', args: {} }],
+    },
+  ]);
+
+  assert.equal(
+    parts(out[0]).some((part) => part.toolName === ARTIFACT_VIEW_NAME),
+    false,
+  );
+});
+
+test('the summary does not push artifacts past the answer', () => {
+  const out = toThreadMessages([
+    {
+      type: 'ai',
+      content: '',
+      tool_calls: [{ id: 'a', name: 'create_web_interface', args: {} }],
+    },
+    { type: 'tool', tool_call_id: 'a', content: '{"artifact":{"id":"art-1"}}' },
+    { type: 'ai', content: 'The panel is above.' },
+    {
+      type: 'ai',
+      content: JSON.stringify({
+        type: 'wotbot_device_interactions',
+        interactions: [
+          { affordanceName: 'on', ok: true, thingId: 'lamp', type: 'property' },
+        ],
+      }),
+    },
+  ]);
+
+  assert.deepEqual(
+    parts(out[0]).map((part) => part.toolName ?? part.type),
+    ['create_web_interface', ARTIFACT_VIEW_NAME, 'text', WOT_SUMMARY_NAME],
+  );
 });

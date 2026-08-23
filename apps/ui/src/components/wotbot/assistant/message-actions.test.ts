@@ -6,7 +6,6 @@ import {
   findRetryTarget,
   hasAssistantReloadAction,
   hasAssistantResponseActions,
-  hasVisibleReasoning,
 } from './message-actions';
 import { WOT_SUMMARY_NAME } from '@/lib/thread-messages';
 
@@ -22,22 +21,24 @@ test('shows actions for a completed textual response', () => {
   );
 });
 
-test('hides actions for tool groups and interaction summaries', () => {
+test('hides actions for a turn that produced no text', () => {
   assert.equal(
     hasAssistantResponseActions(state([{ type: 'tool-call' }])),
     false,
   );
 });
 
-test('hides actions for a preamble that also starts a tool call', () => {
+test('shows actions for an answer that used tools', () => {
+  // A turn is one message now, so its tool calls sit alongside its answer.
   assert.equal(
     hasAssistantResponseActions(
       state([
-        { type: 'text', text: 'Let me look that up.' },
+        { type: 'reasoning', text: 'checking' },
         { type: 'tool-call' },
+        { type: 'text', text: 'The light is on.' },
       ]),
     ),
-    false,
+    true,
   );
 });
 
@@ -219,24 +220,3 @@ test('retry does not warn for a read-only turn', () => {
   );
 });
 
-test('a streaming reasoning part suppresses the plain thinking indicator', () => {
-  assert.equal(
-    hasVisibleReasoning(
-      state([{ type: 'reasoning', text: 'working on it' }], 'running'),
-    ),
-    true,
-  );
-});
-
-test('a turn with no reasoning keeps the plain thinking indicator', () => {
-  assert.equal(
-    hasVisibleReasoning(state([{ type: 'text', text: '' }], 'running')),
-    false,
-  );
-});
-
-test('a reasoning part with no text yet does not suppress the indicator', () => {
-  for (const part of [{ type: 'reasoning', text: '' }, { type: 'reasoning' }]) {
-    assert.equal(hasVisibleReasoning(state([part], 'running')), false);
-  }
-});

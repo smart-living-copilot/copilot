@@ -28,11 +28,24 @@ import type { ExtraProps } from 'react-markdown';
 import {
   hasAssistantReloadAction,
   hasAssistantResponseActions,
-  hasVisibleReasoning,
 } from '@/components/wotbot/assistant/message-actions';
 import { markdownRemarkPlugins } from '@/components/wotbot/assistant/markdown';
 import { ReasoningPart } from '@/components/wotbot/assistant/reasoning-ui';
-import { WotbotToolCall } from '@/components/wotbot/assistant/tool-ui';
+import {
+  GROUP_REASONING,
+  GROUP_THOUGHT,
+  GROUP_TOOL,
+  isStandalonePart,
+  wotbotGroupBy,
+} from '@/components/wotbot/assistant/part-grouping';
+import {
+  ThoughtGroup,
+  ThoughtSubGroup,
+} from '@/components/wotbot/assistant/thought-group';
+import {
+  GroupedToolCall,
+  StandaloneToolCall,
+} from '@/components/wotbot/assistant/tool-ui';
 import { ThinkingIndicator } from '@/components/elements/thinking-indicator';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
@@ -73,23 +86,6 @@ function MarkdownTable({
 }
 
 function MarkdownText() {
-  const isEmptyRunningPart = useAuiState(
-    (state) =>
-      state.part.type === 'text' &&
-      state.part.status.type === 'running' &&
-      state.part.text.length === 0,
-  );
-
-  // Suppressed while reasoning is on screen: that block animates too, and both
-  // at once reads as two separate things happening.
-  const reasoningIsShowing = useAuiState(hasVisibleReasoning);
-
-  if (isEmptyRunningPart && !reasoningIsShowing) {
-    return (
-      <ThinkingIndicator aria-live="polite" label="Thinking" role="status" />
-    );
-  }
-
   return (
     <MarkdownTextPrimitive
       remarkPlugins={markdownRemarkPlugins}
@@ -103,11 +99,52 @@ function MarkdownText() {
   );
 }
 
-const assistantComponents = {
-  Text: MarkdownText,
-  Reasoning: ReasoningPart,
-  tools: { Override: WotbotToolCall },
-} as const;
+/**
+ * Renders one node of the grouped part tree.
+ *
+ * `group-thought` is the single collapsed block per turn; the answer text sits
+ * outside it, and artifact-producing tools are pulled out by `wotbotGroupBy` so
+ * their output stays visible.
+ */
+function AssistantParts() {
+  return (
+    <MessagePrimitive.GroupedParts groupBy={wotbotGroupBy}>
+      {({ part, children }) => {
+        switch (part.type) {
+          case GROUP_THOUGHT:
+            return (
+              <ThoughtGroup isRunning={part.status?.type === 'running'}>
+                {children}
+              </ThoughtGroup>
+            );
+          case GROUP_REASONING:
+          case GROUP_TOOL:
+            return <ThoughtSubGroup>{children}</ThoughtSubGroup>;
+          case 'reasoning':
+            return <ReasoningPart />;
+          case 'tool-call':
+            return isStandalonePart(part.toolName) ? (
+              <StandaloneToolCall {...part} />
+            ) : (
+              <GroupedToolCall {...part} />
+            );
+          case 'text':
+            return <MarkdownText />;
+          case 'indicator':
+            return (
+              <ThinkingIndicator
+                aria-live="polite"
+                label="Thinking"
+                role="status"
+              />
+            );
+          default:
+            return null;
+        }
+      }}
+    </MessagePrimitive.GroupedParts>
+  );
+}
 
 function BranchPicker({ className }: { className?: string }) {
   return (
@@ -197,7 +234,7 @@ function AssistantMessage() {
   return (
     <MessagePrimitive.Root className="wotbot-message flex w-full flex-col items-start py-2">
       <div className="w-full min-w-0 text-foreground">
-        <MessagePrimitive.Parts components={assistantComponents} />
+        <AssistantParts />
       </div>
       <div className="mt-1 flex items-center gap-1">
         <AuiIf condition={hasAssistantResponseActions}>

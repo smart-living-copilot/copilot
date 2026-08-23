@@ -59,23 +59,14 @@ function retryUserMessageIndex(
 }
 
 /**
- * Whether the message already shows reasoning, which carries its own activity
- * animation.
+ * Only settled assistant responses with visible text get actions.
  *
- * The empty running text part that precedes an answer and a streaming reasoning
- * part overlap in time, so without this check a reasoning turn renders two
- * "Thinking" animations at once. Reasoning wins because it can be expanded; a
- * turn with no reasoning still falls back to the plain indicator.
+ * Tool calls used to veto this, back when a turn's tool run was a message of
+ * its own and copying it made no sense. A turn is now a single message holding
+ * its tool calls and its answer, so vetoing on tool calls would strip copy and
+ * regenerate from every answer that used a tool. Visible text is the real test:
+ * it is what Copy puts on the clipboard.
  */
-export function hasVisibleReasoning(
-  state: AssistantMessageActionState,
-): boolean {
-  return state.message.content.some(
-    (part) => part.type === 'reasoning' && Boolean(part.text?.trim()),
-  );
-}
-
-/** Only settled assistant responses with visible text and no tool calls get actions. */
 export function hasAssistantResponseActions(
   state: AssistantMessageActionState,
 ): boolean {
@@ -85,9 +76,6 @@ export function hasAssistantResponseActions(
 
   let hasVisibleText = false;
   for (const part of state.message.content) {
-    if (part.type === 'tool-call') {
-      return false;
-    }
     if (part.type === 'text' && part.text?.trim()) {
       hasVisibleText = true;
     }
