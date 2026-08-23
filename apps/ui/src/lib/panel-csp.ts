@@ -52,13 +52,21 @@ const TILE_HOSTS = [
 
 export const PANEL_CSP = [
   "default-src 'none'",
-  `script-src 'unsafe-inline' ${SCRIPT_CDNS.join(' ')}`,
+  // 'unsafe-eval' alongside 'unsafe-inline' costs nothing here. Blocking eval
+  // protects a page whose own script you control from running injected code --
+  // but a panel's whole document is generated code, and it may already write
+  // any script it likes inline. What script-src still does usefully is bound
+  // which *hosts* may serve code, and that is untouched. It also covers
+  // WebAssembly compilation, which vision/ML libraries need.
+  `script-src 'unsafe-inline' 'unsafe-eval' ${SCRIPT_CDNS.join(' ')}`,
   `style-src 'unsafe-inline' ${STYLE_CDNS.join(' ')}`,
   `font-src ${FONT_CDNS.join(' ')}`,
   `img-src 'self' data: blob: ${[...SCRIPT_CDNS, ...TILE_HOSTS].join(' ')}`,
   // Captured media is a blob: URL. Note `connect-src` still has no 'self':
   // panels share the app's server, so 'self' would let one call the app's API.
   "media-src 'self' blob: data:",
+  // Vision and ML libraries run their models in a worker started from a blob.
+  "worker-src 'self' blob:",
   `connect-src ${CDN_HOSTS.join(' ')}`,
   "form-action 'none'",
   "base-uri 'none'",
