@@ -36,8 +36,7 @@ type ThoughtGroupReport = {
 
 const ThoughtGroupContext = createContext<ThoughtGroupReport | null>(null);
 
-/** Lets a tool card inside the block tell the shell it exists, and if it failed. */
-export function useThoughtGroupReport(): ThoughtGroupReport | null {
+function useThoughtGroupReport(): ThoughtGroupReport | null {
   return useContext(ThoughtGroupContext);
 }
 
@@ -163,9 +162,4 @@ export function ThoughtGroup({
       </Collapsible>
     </ThoughtGroupContext.Provider>
   );
-}
-
-/** Consecutive runs inside the block; the shell owns the chrome. */
-export function ThoughtSubGroup({ children }: { children: ReactNode }) {
-  return <div className="space-y-2">{children}</div>;
 }

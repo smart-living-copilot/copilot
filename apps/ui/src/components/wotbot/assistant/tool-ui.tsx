@@ -29,11 +29,10 @@ import type { WotInteraction } from '@/lib/wot-interactions';
 /**
  * Renders one tool call through the existing cards.
  *
- * Runs of tool calls are no longer coalesced here: `MessagePrimitive.Grouped-
- * Parts` groups adjacent parts structurally, so each call arrives as its own
- * part and this only has to render it. Where a call lands -- inside the
- * collapsed thought block or standing on its own -- is decided by
- * `wotbotGroupBy`, not here.
+ * Runs of tool calls are not coalesced here: `MessagePrimitive.GroupedParts`
+ * groups adjacent parts structurally, so each call arrives as its own part and
+ * this only has to render it. Where a call lands -- inside the collapsed
+ * thought block or standing on its own -- is decided by `wotbotGroupBy`.
  */
 
 function toCardStatus(
@@ -101,6 +100,10 @@ export function StandaloneToolCall(props: ToolCallMessagePartProps) {
           <RunCodeArtifacts result={result} />
         </div>
       ) : null;
+    }
+
+    if (source !== 'create_web_interface') {
+      return null;
     }
 
     const parsed = normalizeWebInterfaceResult(props.result);
