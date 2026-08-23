@@ -4,7 +4,7 @@ import { memo, useState } from 'react';
 import { Expand, X } from 'lucide-react';
 
 import { ArtifactPreview } from '@/components/wotbot/chat-tool-calls/artifact-preview';
-import { DetailsToggle } from '@/components/wotbot/chat-tool-calls/tool-card-shell';
+import { VisibilityToggle } from '@/components/wotbot/chat-tool-calls/tool-card-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -59,7 +59,7 @@ export const RunCodeArtifactCard = memo(function RunCodeArtifactCard({
               </div>
 
               <div className="flex items-center gap-1">
-                <DetailsToggle expanded={showPreview} />
+                <VisibilityToggle expanded={showPreview} />
 
                 <Tooltip>
                   <TooltipTrigger asChild>
