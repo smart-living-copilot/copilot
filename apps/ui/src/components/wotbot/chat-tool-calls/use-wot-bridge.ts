@@ -217,6 +217,18 @@ function extractSubscriptionId(result: unknown): string | undefined {
     : undefined;
 }
 
+/** The origin a frame is currently serving, or null if it has no usable src. */
+function frameOrigin(frame: HTMLIFrameElement | null): string | null {
+  if (!frame?.src) {
+    return null;
+  }
+  try {
+    return new URL(frame.src, window.location.href).origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Wires the trusted parent side of the WoT bridge for a generated interface.
  *
@@ -247,9 +259,16 @@ export function useWotBridge(
     let closed = false;
 
     function postToFrame(message: Record<string, unknown>) {
-      iframeRef.current?.contentWindow?.postMessage(
+      const frame = iframeRef.current;
+      const targetOrigin = frameOrigin(frame);
+      if (!frame || !targetOrigin) {
+        return;
+      }
+      // Addressed rather than broadcast: the frame has a real origin now, so
+      // there is no reason to hand these messages to whatever is loaded.
+      frame.contentWindow?.postMessage(
         { source: HOST_SOURCE, ...message },
-        '*',
+        targetOrigin,
       );
     }
 
@@ -387,9 +406,13 @@ export function useWotBridge(
 
     function onMessage(event: MessageEvent) {
       const frame = iframeRef.current;
-      // Trust only this specific iframe. Sandboxed docs have a "null" origin,
-      // so match the source window rather than the origin string.
+      // Trust only this specific iframe, and only when it still is what it was:
+      // the window identity check alone would survive the frame navigating
+      // somewhere else, so the origin is checked too now that it is a real one.
       if (!frame || event.source !== frame.contentWindow) {
+        return;
+      }
+      if (event.origin !== frameOrigin(frame)) {
         return;
       }
       const data = event.data as BridgeRequest | undefined;

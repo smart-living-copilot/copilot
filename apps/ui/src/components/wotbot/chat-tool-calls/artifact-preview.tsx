@@ -3,6 +3,7 @@
 import { memo } from 'react';
 
 import { cn } from '@/lib/utils';
+import { getPanelOrigin } from '@/lib/panel-origin';
 
 import { type RunCodeArtifact } from '../chat-tool-call-model';
 
@@ -23,7 +24,7 @@ const PlotlyChart = memo(function PlotlyChart({
       )}
       loading="lazy"
       sandbox="allow-scripts allow-same-origin"
-      src={`/api/artifacts/${encodeURIComponent(filename)}`}
+      src={`${getPanelOrigin(filename)}/api/artifacts/${encodeURIComponent(filename)}`}
       title={title}
     />
   );
@@ -51,7 +52,7 @@ export function ArtifactPreview({
               ? 'mx-auto max-h-full max-w-full object-contain'
               : 'w-full max-w-full',
         )}
-        src={`/api/artifacts/${encodeURIComponent(artifact.filename)}`}
+        src={`${getPanelOrigin(artifact.filename)}/api/artifacts/${encodeURIComponent(artifact.filename)}`}
       />
     );
   }

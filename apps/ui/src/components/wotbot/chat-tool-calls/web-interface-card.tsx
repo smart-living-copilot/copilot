@@ -37,6 +37,7 @@ import {
   formatToolName,
   type CatchAllToolCallRenderProps,
 } from '../chat-tool-call-model';
+import { getPanelOrigin } from '@/lib/panel-origin';
 
 /** Self-contained framed interface with a fullscreen + pin affordance. */
 export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
@@ -50,7 +51,7 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
   const [isPinning, setIsPinning] = useState(false);
   const [pinned, setPinned] = useState(false);
   const pathname = usePathname();
-  const src = `/api/artifacts/${encodeURIComponent(artifact.filename)}`;
+  const src = `${getPanelOrigin(artifact.filename)}/api/artifacts/${encodeURIComponent(artifact.filename)}`;
   const canPin = typeof artifact.html === 'string' && artifact.html.length > 0;
 
   const handlePin = async () => {

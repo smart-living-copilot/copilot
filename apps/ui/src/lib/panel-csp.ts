@@ -55,7 +55,10 @@ export const PANEL_CSP = [
   `script-src 'unsafe-inline' ${SCRIPT_CDNS.join(' ')}`,
   `style-src 'unsafe-inline' ${STYLE_CDNS.join(' ')}`,
   `font-src ${FONT_CDNS.join(' ')}`,
-  `img-src 'self' data: ${[...SCRIPT_CDNS, ...TILE_HOSTS].join(' ')}`,
+  `img-src 'self' data: blob: ${[...SCRIPT_CDNS, ...TILE_HOSTS].join(' ')}`,
+  // Captured media is a blob: URL. Note `connect-src` still has no 'self':
+  // panels share the app's server, so 'self' would let one call the app's API.
+  "media-src 'self' blob: data:",
   `connect-src ${CDN_HOSTS.join(' ')}`,
   "form-action 'none'",
   "base-uri 'none'",

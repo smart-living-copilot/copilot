@@ -34,9 +34,13 @@ export const PanelFrame = memo(function PanelFrame({
         'w-full rounded-lg border border-border/55 bg-background',
         className ?? 'h-[26rem]',
       )}
-      // Untrusted, LLM-authored content: interactive frames get scripts only,
-      // never allow-same-origin. Preview frames keep scripts disabled entirely.
-      sandbox={interactive ? 'allow-scripts' : ''}
+      // Untrusted, LLM-authored content. `allow-same-origin` is safe here only
+      // because `src` points at the panel's own origin (see `panel-origin.ts`):
+      // it means "your own origin", which is cross-origin to the app. Without
+      // it the frame would be opaque-origin and denied every permission-gated
+      // API. Preview frames keep scripts disabled entirely.
+      allow={interactive ? 'camera; microphone' : ''}
+      sandbox={interactive ? 'allow-scripts allow-same-origin' : ''}
       src={src}
       title={title}
     />

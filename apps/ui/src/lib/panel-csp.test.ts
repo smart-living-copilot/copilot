@@ -49,6 +49,8 @@ test('images are restricted to named hosts', () => {
     assert.ok(
       source === "'self'" ||
         source === 'data:' ||
+        // Captured camera stills are blob: URLs, which never leave the page.
+        source === 'blob:' ||
         source.startsWith('https://'),
       `unexpected img-src source: ${source}`,
     );
