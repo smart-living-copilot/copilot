@@ -45,6 +45,7 @@ import {
 } from '@/components/wotbot/assistant/tool-ui';
 import { ThinkingIndicator } from '@/components/elements/thinking-indicator';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorBoundary } from '@/components/error-boundary';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -229,7 +230,16 @@ function AssistantMessage() {
   return (
     <MessagePrimitive.Root className="wotbot-message flex w-full flex-col items-start py-2">
       <div className="w-full min-w-0 text-foreground">
-        <AssistantParts />
+        <ErrorBoundary
+          label="AssistantMessage"
+          fallback={
+            <p className="text-sm text-muted-foreground italic">
+              This message could not be displayed.
+            </p>
+          }
+        >
+          <AssistantParts />
+        </ErrorBoundary>
       </div>
       <div className="mt-1 flex items-center gap-1">
         <AuiIf condition={hasAssistantResponseActions}>
