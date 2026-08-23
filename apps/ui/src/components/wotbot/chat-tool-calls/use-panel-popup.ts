@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useWotBridge } from '@/components/wotbot/chat-tool-calls/use-wot-bridge';
 import { type WotCapability } from '@/components/wotbot/chat-tool-calls/web-interface-model';
@@ -21,13 +21,19 @@ export function usePanelPopup(src: string, capabilities: WotCapability[]) {
   const popupRef = useRef<Window | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
-  const origin = (() => {
+  // Explicitly client-only. The catch below would swallow the server's
+  // ReferenceError too, but relying on that leaves the reason invisible: there
+  // is no location to resolve against until hydration, and no popup either.
+  const origin = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
     try {
       return new URL(src, window.location.href).origin;
     } catch {
       return undefined;
     }
-  })();
+  }, [src]);
 
   useWotBridge(popupRef, capabilities, { enabled: isOpen, origin });
 
