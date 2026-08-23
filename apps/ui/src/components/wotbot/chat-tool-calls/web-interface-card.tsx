@@ -2,13 +2,14 @@
 
 import { memo, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { CircleAlert, Expand, Pin, PinOff } from 'lucide-react';
+import { CircleAlert, Expand, Pin, PinOff, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { PanelFrame } from '@/components/wotbot/chat-tool-calls/panel-frame';
 import {
   DetailsToggle,
   ToolCardHeader,
+  VisibilityToggle,
 } from '@/components/wotbot/chat-tool-calls/tool-card-shell';
 import {
   enrichArtifactForPinning,
@@ -16,15 +17,18 @@ import {
   type WebInterfaceArtifact,
 } from '@/components/wotbot/chat-tool-calls/web-interface-model';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
 import {
   Tooltip,
   TooltipContent,
@@ -37,6 +41,7 @@ import {
   formatToolName,
   type CatchAllToolCallRenderProps,
 } from '../chat-tool-call-model';
+import { getPanelOrigin } from '@/lib/panel-origin';
 
 /** Self-contained framed interface with a fullscreen + pin affordance. */
 export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
@@ -47,10 +52,14 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
   fill?: boolean;
 }) {
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
+  // Shown by default, collapsible like a plot. Collapsing unmounts the frame,
+  // which also drops its device subscription -- worth more here than for a
+  // chart, since a panel holds a live SSE stream open for as long as it renders.
+  const [showPanel, setShowPanel] = useState(true);
   const [isPinning, setIsPinning] = useState(false);
   const [pinned, setPinned] = useState(false);
   const pathname = usePathname();
-  const src = `/api/artifacts/${encodeURIComponent(artifact.filename)}`;
+  const src = `${getPanelOrigin(artifact.filename)}/api/artifacts/${encodeURIComponent(artifact.filename)}`;
   const canPin = typeof artifact.html === 'string' && artifact.html.length > 0;
 
   const handlePin = async () => {
@@ -79,85 +88,151 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
   };
 
   return (
-    <Dialog open={isFullscreenOpen} onOpenChange={setIsFullscreenOpen}>
-      <Card
-        className={cn(
-          'gap-0 border border-border/55 bg-background/45 py-0 shadow-none ring-0',
-          fill && 'h-full w-full',
-        )}
-      >
-        <CardContent
-          className={cn('space-y-2 py-2', fill && 'flex h-full flex-col')}
+    // A drawer rather than a modal, matching how a pinned panel opens from the
+    // Panels page: the same content should not arrive in two different
+    // containers, and keeping the conversation on screen is the point -- a
+    // maximised panel is usually the thing you are about to ask about.
+    <Drawer
+      direction="right"
+      handleOnly
+      onOpenChange={setIsFullscreenOpen}
+      open={isFullscreenOpen}
+    >
+      <Collapsible onOpenChange={setShowPanel} open={fill ? true : showPanel}>
+        <Card
+          className={cn(
+            'gap-0 border border-border/55 bg-background/45 py-0 shadow-none ring-0',
+            fill && 'h-full w-full',
+          )}
         >
-          <div className="flex items-center justify-end gap-1 px-0.5">
-            {canPin ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    aria-label="Pin to Panels"
-                    className="text-muted-foreground hover:text-foreground"
-                    disabled={isPinning || pinned}
-                    onClick={() => void handlePin()}
-                    size="icon-xs"
-                    type="button"
-                    variant="ghost"
-                  >
-                    {pinned ? (
-                      <PinOff className="size-3.5" />
-                    ) : (
-                      <Pin className="size-3.5" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {pinned ? 'Pinned' : 'Pin to Panels'}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
+          <CardContent
+            className={cn('space-y-2 py-2', fill && 'flex h-full flex-col')}
+          >
+            {/* Same identity line as a plot artifact: a ref badge and what the
+              thing is, so the two kinds of generated output read alike. */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2 px-0.5">
+                <Badge
+                  className="h-5 font-mono text-[0.66rem]"
+                  variant="outline"
+                >
+                  {artifact.ref}
+                </Badge>
+                <span className="truncate text-[0.7rem] text-muted-foreground">
+                  {artifact.title || 'Interactive interface'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1">
+                {fill ? null : <VisibilityToggle expanded={showPanel} />}
+                {canPin ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        aria-label="Pin to Panels"
+                        className="text-muted-foreground hover:text-foreground"
+                        disabled={isPinning || pinned}
+                        onClick={() => void handlePin()}
+                        size="icon-xs"
+                        type="button"
+                        variant="ghost"
+                      >
+                        {pinned ? (
+                          <PinOff className="size-3.5" />
+                        ) : (
+                          <Pin className="size-3.5" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {pinned ? 'Pinned' : 'Pin to Panels'}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      aria-label="Open fullscreen interface"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setIsFullscreenOpen(true)}
+                      size="icon-xs"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Expand className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Open fullscreen</TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
+            {fill ? (
+              <PanelFrame
+                capabilities={artifact.capabilities}
+                className="min-h-0 flex-1"
+                src={src}
+                title={`Interface ${artifact.ref}`}
+              />
+            ) : (
+              <CollapsibleContent>
+                <PanelFrame
+                  capabilities={artifact.capabilities}
+                  src={src}
+                  title={`Interface ${artifact.ref}`}
+                />
+              </CollapsibleContent>
+            )}
+          </CardContent>
+        </Card>
+      </Collapsible>
+
+      {isFullscreenOpen ? (
+        <DrawerContent
+          className="h-full gap-0 overflow-hidden p-0"
+          style={{ width: 'min(100vw, 88rem)', maxWidth: 'none' }}
+        >
+          <DrawerHeader className="flex-row items-center justify-between gap-3 border-b border-border/55 px-4 py-2.5">
+            <DrawerTitle className="truncate text-sm font-medium">
+              {artifact.title || 'Interactive interface'}
+            </DrawerTitle>
+            <DrawerDescription className="sr-only">
+              The generated interface, opened at full size.
+            </DrawerDescription>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {canPin ? (
                 <Button
-                  aria-label="Open fullscreen interface"
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={() => setIsFullscreenOpen(true)}
-                  size="icon-xs"
+                  aria-label={pinned ? 'Pinned to Panels' : 'Pin to Panels'}
+                  disabled={isPinning || pinned}
+                  onClick={() => void handlePin()}
+                  size="icon-sm"
                   type="button"
                   variant="ghost"
                 >
-                  <Expand className="size-3.5" />
+                  {pinned ? (
+                    <PinOff className="size-3.5" />
+                  ) : (
+                    <Pin className="size-3.5" />
+                  )}
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Open fullscreen</TooltipContent>
-            </Tooltip>
-          </div>
-          <PanelFrame
-            capabilities={artifact.capabilities}
-            className={fill ? 'min-h-0 flex-1' : undefined}
-            src={src}
-            title={`Interface ${artifact.ref}`}
-          />
-        </CardContent>
-      </Card>
-
-      {isFullscreenOpen ? (
-        <DialogContent
-          className="max-w-[min(96vw,90rem)] gap-0 p-0 sm:max-w-[min(96vw,90rem)]"
-          showCloseButton
-        >
-          <DialogHeader className="border-b border-border/55 px-4 py-3 pr-12">
-            <DialogTitle className="text-sm">Interactive interface</DialogTitle>
-          </DialogHeader>
-          <div className="overflow-auto p-4">
+              ) : null}
+              <DrawerClose asChild>
+                <Button aria-label="Close" size="icon-sm" variant="ghost">
+                  <X className="size-3.5" />
+                </Button>
+              </DrawerClose>
+            </div>
+          </DrawerHeader>
+          <div className="min-h-0 flex-1 p-2 sm:p-3">
             <PanelFrame
               capabilities={artifact.capabilities}
-              className="h-[78vh] rounded-xl"
+              className="h-full w-full rounded-lg"
               src={src}
               title={`Interface ${artifact.ref}`}
             />
           </div>
-        </DialogContent>
+        </DrawerContent>
       ) : null}
-    </Dialog>
+    </Drawer>
   );
 });
 

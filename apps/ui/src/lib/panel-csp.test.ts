@@ -4,7 +4,9 @@ import test from 'node:test';
 import { PANEL_CSP } from './panel-csp';
 
 function directive(name: string): string {
-  const found = PANEL_CSP.split('; ').find((part) => part.startsWith(`${name} `));
+  const found = PANEL_CSP.split('; ').find((part) =>
+    part.startsWith(`${name} `),
+  );
   assert.ok(found, `expected a ${name} directive`);
   return found;
 }
@@ -21,6 +23,20 @@ test('no directive opens up to any host', () => {
     assert.ok(!/\shttps:(\s|$)/.test(part), `scheme-wide source in: ${part}`);
   }
   assert.ok(!directive('script-src').includes('data:'));
+});
+
+test('script-src still bounds which hosts may serve code', () => {
+  // 'unsafe-eval' is allowed deliberately -- the document is generated code and
+  // already has 'unsafe-inline'. The host allowlist is the part that matters.
+  const scriptSrc = directive('script-src');
+
+  assert.ok(scriptSrc.includes("'unsafe-eval'"));
+  for (const source of scriptSrc.replace('script-src ', '').split(' ')) {
+    assert.ok(
+      source.startsWith("'") || source.startsWith('https://'),
+      `unexpected script-src source: ${source}`,
+    );
+  }
 });
 
 test('styles and fonts may come from every host scripts may', () => {
@@ -49,6 +65,8 @@ test('images are restricted to named hosts', () => {
     assert.ok(
       source === "'self'" ||
         source === 'data:' ||
+        // Captured camera stills are blob: URLs, which never leave the page.
+        source === 'blob:' ||
         source.startsWith('https://'),
       `unexpected img-src source: ${source}`,
     );

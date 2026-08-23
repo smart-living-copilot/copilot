@@ -70,6 +70,34 @@ export function ToolCardHeader({
   );
 }
 
+/**
+ * Show/hide for content that is already on screen.
+ *
+ * Distinct from `DetailsToggle`, which reveals something extra (a panel's
+ * generated source). Calling both "Details" made one label mean two opposite
+ * things depending on the card.
+ */
+export function VisibilityToggle({ expanded }: { expanded: boolean }) {
+  return (
+    <CollapsibleTrigger asChild>
+      <Button
+        className="text-[0.66rem] font-medium text-muted-foreground hover:text-foreground"
+        size="xs"
+        type="button"
+        variant="ghost"
+      >
+        <span>{expanded ? 'Hide' : 'Show'}</span>
+        <ChevronDown
+          className={cn(
+            'size-3 transition-transform',
+            expanded && 'rotate-180',
+          )}
+        />
+      </Button>
+    </CollapsibleTrigger>
+  );
+}
+
 export function DetailsToggle({
   expanded,
   label = 'Details',
