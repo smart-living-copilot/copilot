@@ -32,6 +32,7 @@ SECRET_PLACEHOLDER = "•••••••• (set)"
 SECRET_MISSING = "not set"
 CREDENTIALS_PLACEHOLDER = "***"
 QUERY_PLACEHOLDER = "(query removed)"
+FRAGMENT_PLACEHOLDER = "(fragment removed)"
 
 
 class Render(Enum):
@@ -211,7 +212,7 @@ def strip_url_credentials(value: str) -> str:
     their host, port and database name are exactly what someone reads this page
     to check.
 
-    The query string goes too, and is not inspected: provider endpoints are
+    The query string and fragment go too, uninspected: provider endpoints are
     routinely deployed with the key in a parameter (``?api-key=...``), and this
     page promises secrets are never shown by value. A key embedded in the path
     (LiteLLM/Azure-style ``/v1/<key>``) is indistinguishable from a route and
@@ -226,8 +227,16 @@ def strip_url_credentials(value: str) -> str:
         # Unparseable means we cannot prove it is credential-free.
         return CREDENTIALS_PLACEHOLDER
 
+    # An unescaped ``#`` or ``?`` in a password ends the netloc early, so the
+    # rest of the credential lands in the fragment or query and the userinfo
+    # check below never sees an "@". The whole value is then suspect.
+    if "@" in value and "@" not in parts.netloc:
+        return CREDENTIALS_PLACEHOLDER
+
     if parts.query:
         parts = parts._replace(query=QUERY_PLACEHOLDER)
+    if parts.fragment:
+        parts = parts._replace(fragment=FRAGMENT_PLACEHOLDER)
 
     if not parts.netloc or "@" not in parts.netloc:
         return urlunsplit(parts)

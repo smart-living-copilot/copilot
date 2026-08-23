@@ -106,7 +106,11 @@ function MarkdownText() {
  */
 function AssistantParts() {
   return (
-    <MessagePrimitive.GroupedParts groupBy={wotbotGroupBy}>
+    // indicator="always": the thought block deliberately never animates, so this
+    // is the turn's single activity signal. The default "no-text" mode hides it
+    // while the last part is text *or reasoning* -- which left a long
+    // reasoning-only phase looking idle with the reasoning collapsed out of view.
+    <MessagePrimitive.GroupedParts groupBy={wotbotGroupBy} indicator="always">
       {({ part, children }) => {
         switch (part.type) {
           case GROUP_THOUGHT:
@@ -227,10 +231,17 @@ function SystemMessage() {
 }
 
 function AssistantMessage() {
+  // `ThreadPrimitive.Messages` renders by index, so the boundary instance is
+  // reused for whatever message later occupies the slot. Keyed by message id it
+  // remounts instead of leaving one bad part's failure stuck to position N --
+  // the same reuse hazard `ThoughtGroup` deregisters for.
+  const messageId = useAuiState((state) => state.message.id ?? '');
+
   return (
     <MessagePrimitive.Root className="wotbot-message flex w-full flex-col items-start py-2">
       <div className="w-full min-w-0 text-foreground">
         <ErrorBoundary
+          key={messageId}
           label="AssistantMessage"
           fallback={
             <p className="text-sm text-muted-foreground italic">

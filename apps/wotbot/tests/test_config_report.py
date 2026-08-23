@@ -102,6 +102,22 @@ class StripUrlCredentialsTestCase(unittest.TestCase):
             strip_url_credentials("https://api.example.com/v1/audio?token=sk-secret"),
         )
 
+    def test_a_password_with_a_hash_does_not_slip_through(self) -> None:
+        # urlsplit ends the netloc at '#', so the userinfo check never sees the
+        # '@' and the whole password was printed verbatim.
+        redacted = strip_url_credentials("postgresql://wotbot:se#cret@db:5432/x")
+        self.assertNotIn("cret", redacted)
+
+    def test_a_password_with_a_question_mark_does_not_slip_through(self) -> None:
+        redacted = strip_url_credentials("postgresql://wotbot:se?cret@db:5432/x")
+        self.assertNotIn("se", redacted)
+
+    def test_a_fragment_is_removed_like_a_query(self) -> None:
+        self.assertNotIn(
+            "tok",
+            strip_url_credentials("https://api.example.com/v1#tok"),
+        )
+
     def test_empty_value_stays_empty(self) -> None:
         self.assertEqual(strip_url_credentials(""), "")
 
@@ -121,6 +137,8 @@ class BuildConfigReportTestCase(unittest.TestCase):
         settings = _settings(
             # A key in the query string is as much a secret as the userinfo one.
             stt_transcriptions_url=f"https://stt.example.com/v1?api-key={secret}",
+            # A password whose special character truncates the netloc.
+            agent_state_database_url=f"postgresql://user:{secret}#x@db:5432/s",
             openai_api_key=secret,
             livekit_api_secret=secret,
             init_admin_token=secret,

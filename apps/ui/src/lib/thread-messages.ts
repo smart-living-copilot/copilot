@@ -204,7 +204,13 @@ export function toThreadMessages(
       for (const part of turn.parts) {
         const isCall =
           part.type === 'tool-call' && part.toolName !== WOT_SUMMARY_NAME;
-        if (!isCall && pending.length) {
+        // Only a part that ends the run flushes. Reasoning stays inside the
+        // thought block, so flushing there would wedge the artifact between two
+        // halves of what should read as one block.
+        const endsRun =
+          part.type === 'text' ||
+          (part.type === 'tool-call' && part.toolName === WOT_SUMMARY_NAME);
+        if (endsRun && pending.length) {
           placed.push(...pending);
           pending = [];
         }

@@ -31,7 +31,7 @@ export function ErrorState({
   return (
     <div
       className={cn(
-        'flex min-h-svh flex-col items-center justify-center gap-4 px-6 text-center',
+        'flex h-full min-h-svh flex-col items-center justify-center gap-4 overflow-y-auto px-6 py-10 text-center',
         className,
       )}
     >
@@ -40,8 +40,10 @@ export function ErrorState({
       <div className="max-w-md space-y-2">
         <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
         <p className="text-sm text-muted-foreground">{description}</p>
+        {/* Clamped: an unbounded message would push the actions out of a
+            viewport that cannot scroll to reach them. */}
         {detail ? (
-          <p className="font-mono text-xs break-all text-muted-foreground/80">
+          <p className="line-clamp-6 font-mono text-xs break-all text-muted-foreground/80">
             {detail}
           </p>
         ) : null}
