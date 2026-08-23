@@ -156,22 +156,39 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
           className="h-full gap-0 overflow-hidden p-0"
           style={{ width: 'min(100vw, 88rem)', maxWidth: 'none' }}
         >
-          {/* No visible title: "Interactive interface" said nothing the panel
-              does not say better itself, and it competed with the panel's own
-              heading. The bar stays for the close button -- without it the only
-              way out is Esc or an overlay click, which is nothing at all on
-              touch -- and the title stays for assistive tech, which Radix
-              requires anyway. */}
-          <DrawerHeader className="flex-row items-center justify-end gap-3 border-b border-border/55 px-2 py-1.5">
-            <DrawerTitle className="sr-only">Interactive interface</DrawerTitle>
+          <DrawerHeader className="flex-row items-center justify-between gap-3 border-b border-border/55 px-4 py-2.5">
+            <DrawerTitle className="truncate text-sm font-medium">
+              {artifact.title || 'Interactive interface'}
+            </DrawerTitle>
             <DrawerDescription className="sr-only">
               The generated interface, opened at full size.
             </DrawerDescription>
-            <DrawerClose asChild>
-              <Button aria-label="Close" size="icon-sm" variant="ghost">
-                <X className="size-3.5" />
-              </Button>
-            </DrawerClose>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {canPin ? (
+                <Button
+                  aria-label="Pin to Panels"
+                  disabled={isPinning || pinned}
+                  onClick={() => void handlePin()}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {pinned ? (
+                    <PinOff className="size-3.5" />
+                  ) : (
+                    <Pin className="size-3.5" />
+                  )}
+                  <span className="hidden sm:inline">
+                    {pinned ? 'Pinned' : 'Pin'}
+                  </span>
+                </Button>
+              ) : null}
+              <DrawerClose asChild>
+                <Button aria-label="Close" size="icon-sm" variant="ghost">
+                  <X className="size-3.5" />
+                </Button>
+              </DrawerClose>
+            </div>
           </DrawerHeader>
           <div className="min-h-0 flex-1 p-2 sm:p-3">
             <PanelFrame
