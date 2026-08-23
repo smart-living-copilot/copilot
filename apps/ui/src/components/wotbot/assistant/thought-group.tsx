@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Brain, ChevronDown, CircleAlert, Loader2, Wrench } from 'lucide-react';
+import { Brain, ChevronDown, CircleAlert, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -56,12 +56,13 @@ export function useReportToolCall(toolCallId: string, hasError: boolean) {
   }, [hasError, report]);
 }
 
-function formatSummary(toolCount: number, isRunning: boolean): string {
-  if (toolCount === 0) {
-    return isRunning ? 'Thinking' : 'Thought process';
+/** Mirrors the device-interaction card: a fixed title over a counts line. */
+function formatDetail(toolCount: number, hasError: boolean): string {
+  const parts = [`${toolCount} tool${toolCount === 1 ? '' : 's'}`];
+  if (hasError) {
+    parts.push('1 failed');
   }
-  const tools = `${toolCount} tool${toolCount === 1 ? '' : 's'}`;
-  return isRunning ? `Working with ${tools}` : `Thought and used ${tools}`;
+  return parts.join(' · ');
 }
 
 export function ThoughtGroup({
@@ -100,56 +101,66 @@ export function ThoughtGroup({
     [],
   );
 
-  const label = formatSummary(toolIds.size, isRunning);
+  const label = isRunning ? 'Thinking' : 'Thought process';
+  const detail = formatDetail(toolIds.size, hasError);
 
   return (
     <ThoughtGroupContext.Provider value={report}>
-      <div className="my-1">
-        <Collapsible open={isExpanded} onOpenChange={handleExpandedChange}>
-          <div className="rounded-md border border-border/50 bg-muted/20">
-            <CollapsibleTrigger asChild>
-              <Button
-                className="h-auto w-full justify-between gap-3 px-3 py-2 text-left hover:bg-muted/40"
-                type="button"
-                variant="ghost"
-              >
-                <span className="flex min-w-0 items-center gap-2.5">
-                  {hasError ? (
-                    <CircleAlert className="size-3.5 shrink-0 text-destructive" />
-                  ) : isRunning ? (
-                    <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-                  ) : (
-                    <Brain className="size-3.5 shrink-0 text-muted-foreground" />
-                  )}
-                  <span className="min-w-0 truncate text-[0.76rem] font-medium text-foreground">
-                    {isRunning ? <ShimmerLabel>{label}</ShimmerLabel> : label}
-                  </span>
-                </span>
-
-                <span className="flex shrink-0 items-center gap-1.5 text-[0.68rem] font-medium text-muted-foreground">
-                  {toolIds.size > 0 ? <Wrench className="size-3.5" /> : null}
-                  <span>{isExpanded ? 'Hide' : 'Show'}</span>
-                  <ChevronDown
-                    className={cn(
-                      'size-3 transition-transform',
-                      isExpanded && 'rotate-180',
-                    )}
-                  />
-                </span>
-              </Button>
-            </CollapsibleTrigger>
-
-            {/* forceMount: the parts inside report themselves upward, and a
-                collapsed block that unmounted them would title itself "Thought
-                process" until first opened, then change once it could count. */}
-            <CollapsibleContent forceMount className="data-[state=closed]:hidden">
-              <div className="space-y-2 border-t border-border/45 p-2">
-                {children}
-              </div>
-            </CollapsibleContent>
+      <Collapsible
+        className="wotbot-tool-call my-1 space-y-2"
+        open={isExpanded}
+        onOpenChange={handleExpandedChange}
+      >
+        {/* Same header shape as the tool and device-interaction cards, so the
+            chat reads as one family of blocks rather than three. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-1">
+          <div className="flex min-w-0 items-center gap-2">
+            {hasError ? (
+              <CircleAlert className="size-3.5 shrink-0 text-destructive" />
+            ) : isRunning ? (
+              <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
+            ) : (
+              <Brain className="size-3.5 shrink-0 text-muted-foreground" />
+            )}
+            <div className="min-w-0 space-y-0.5">
+              <p className="truncate text-[0.76rem] font-medium text-foreground">
+                {isRunning ? <ShimmerLabel>{label}</ShimmerLabel> : label}
+              </p>
+              {toolIds.size > 0 ? (
+                <div className="truncate text-[0.7rem] text-muted-foreground">
+                  {detail}
+                </div>
+              ) : null}
+            </div>
           </div>
-        </Collapsible>
-      </div>
+
+          <CollapsibleTrigger asChild>
+            <Button
+              className="text-[0.66rem] font-medium text-muted-foreground hover:text-foreground"
+              size="xs"
+              type="button"
+              variant="ghost"
+            >
+              <span>{isExpanded ? 'Hide details' : 'Details'}</span>
+              <ChevronDown
+                className={cn(
+                  'size-3 transition-transform',
+                  isExpanded && 'rotate-180',
+                )}
+              />
+            </Button>
+          </CollapsibleTrigger>
+        </div>
+
+        {/* forceMount: the parts inside report themselves upward, and a
+            collapsed block that unmounted them would title itself "Thought
+            process" until first opened, then change once it could count. */}
+        <CollapsibleContent forceMount className="data-[state=closed]:hidden">
+          <div className="space-y-1 border-l border-border/60 pl-3">
+            {children}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </ThoughtGroupContext.Provider>
   );
 }
