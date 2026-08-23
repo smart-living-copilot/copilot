@@ -2,7 +2,7 @@
 
 import { memo, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { CircleAlert, Expand, Pin, PinOff } from 'lucide-react';
+import { CircleAlert, Expand, Pin, PinOff, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { PanelFrame } from '@/components/wotbot/chat-tool-calls/panel-frame';
@@ -20,11 +20,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
 import {
   Tooltip,
   TooltipContent,
@@ -80,7 +82,16 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
   };
 
   return (
-    <Dialog open={isFullscreenOpen} onOpenChange={setIsFullscreenOpen}>
+    // A drawer rather than a modal, matching how a pinned panel opens from the
+    // Panels page: the same content should not arrive in two different
+    // containers, and keeping the conversation on screen is the point -- a
+    // maximised panel is usually the thing you are about to ask about.
+    <Drawer
+      direction="right"
+      handleOnly
+      onOpenChange={setIsFullscreenOpen}
+      open={isFullscreenOpen}
+    >
       <Card
         className={cn(
           'gap-0 border border-border/55 bg-background/45 py-0 shadow-none ring-0',
@@ -140,18 +151,25 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
         </CardContent>
       </Card>
 
-      {/* Maximised means maximised: flex column rather than the base grid so
-          the frame takes every pixel the header does not, and no width cap so a
-          wide panel is not letterboxed on a large display. */}
       {isFullscreenOpen ? (
-        <DialogContent
-          className="flex h-[96vh] w-[97vw] max-w-none flex-col gap-0 p-0 sm:max-w-none"
-          showCloseButton
+        <DrawerContent
+          className="h-full gap-0 overflow-hidden p-0"
+          style={{ width: 'min(100vw, 88rem)', maxWidth: 'none' }}
         >
-          <DialogHeader className="shrink-0 border-b border-border/55 px-4 py-3 pr-12">
-            <DialogTitle className="text-sm">Interactive interface</DialogTitle>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-auto p-2">
+          <DrawerHeader className="flex-row items-center justify-between gap-3 border-b border-border/55 px-4 py-2.5">
+            <DrawerTitle className="truncate text-sm font-medium">
+              Interactive interface
+            </DrawerTitle>
+            <DrawerDescription className="sr-only">
+              The generated interface, opened at full size.
+            </DrawerDescription>
+            <DrawerClose asChild>
+              <Button aria-label="Close" size="icon-sm" variant="ghost">
+                <X className="size-3.5" />
+              </Button>
+            </DrawerClose>
+          </DrawerHeader>
+          <div className="min-h-0 flex-1 p-2 sm:p-3">
             <PanelFrame
               capabilities={artifact.capabilities}
               className="h-full w-full rounded-lg"
@@ -159,9 +177,9 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
               title={`Interface ${artifact.ref}`}
             />
           </div>
-        </DialogContent>
+        </DrawerContent>
       ) : null}
-    </Dialog>
+    </Drawer>
   );
 });
 
