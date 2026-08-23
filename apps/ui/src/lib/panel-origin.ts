@@ -14,11 +14,28 @@
  *
  * Locally this needs no configuration: Chrome resolves any `*.localhost` to
  * loopback and treats it as a secure context. In production it needs a wildcard
- * host, hence `NEXT_PUBLIC_PANEL_HOST_TEMPLATE`.
+ * host, hence `PANEL_HOST_TEMPLATE`.
+ *
+ * That value is read at *runtime*, not build time. A `NEXT_PUBLIC_` variable is
+ * inlined into the client bundle when the image is built, so setting one in a
+ * deployment's `.env` would change nothing while looking like it had -- panels
+ * would quietly fall back to a derived host with no wildcard DNS behind it. The
+ * server therefore publishes it on the document (see `app/layout.tsx`) and the
+ * browser reads it back from there.
  */
 
 /** Placeholder replaced with the panel's own label. */
 const KEY_TOKEN = '{key}';
+
+/** Where the server publishes the template for the browser to read back. */
+export const PANEL_HOST_TEMPLATE_ATTRIBUTE = 'data-panel-host-template';
+
+function configuredTemplate(): string | undefined {
+  if (typeof document !== 'undefined') {
+    return document.documentElement.dataset.panelHostTemplate || undefined;
+  }
+  return process.env.PANEL_HOST_TEMPLATE || undefined;
+}
 
 /**
  * Reduce an id or filename to a single DNS label.
@@ -62,7 +79,7 @@ export function getPanelOrigin(
   location:
     | { protocol: string; hostname: string; port: string }
     | undefined = typeof window === 'undefined' ? undefined : window.location,
-  template: string | undefined = process.env.NEXT_PUBLIC_PANEL_HOST_TEMPLATE,
+  template: string | undefined = configuredTemplate(),
 ): string {
   if (!location) {
     return '';
@@ -83,7 +100,7 @@ export function getPanelOrigin(
 /** Whether a request arrived on a panel host rather than the app's own. */
 export function isPanelHostname(
   hostname: string,
-  template: string | undefined = process.env.NEXT_PUBLIC_PANEL_HOST_TEMPLATE,
+  template: string | undefined = configuredTemplate(),
 ): boolean {
   if (isUsableTemplate(template)) {
     const suffix = template.slice(KEY_TOKEN.length);
