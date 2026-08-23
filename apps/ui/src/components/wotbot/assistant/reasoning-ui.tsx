@@ -30,25 +30,25 @@ import { cn } from '@/lib/utils';
 export function ReasoningPart() {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Selectors run inside useSyncExternalStore's getSnapshot, where a throw
-  // tears down the React root -- so narrow, and never assume the part type.
-  const state = useAuiState((auiState) => {
-    if (auiState.part.type !== 'reasoning') {
-      return null;
-    }
-    return {
-      isRunning: auiState.part.status.type === 'running',
-      isEmpty: auiState.part.text.length === 0,
-    };
-  });
+  // These selectors run inside useSyncExternalStore's getSnapshot, so each must
+  // return a primitive: a fresh object every call reads as a changed snapshot
+  // and spins React forever. Narrow rather than assume the part type, too --
+  // a throw here tears down the React root.
+  const hasText = useAuiState(
+    (auiState) => auiState.part.type === 'reasoning' && auiState.part.text.length > 0,
+  );
+  const isRunning = useAuiState(
+    (auiState) =>
+      auiState.part.type === 'reasoning' && auiState.part.status.type === 'running',
+  );
 
-  // An empty part is the gap between the run starting and the first token;
+  // No text yet is the gap between the run starting and the first token;
   // rendering the shell there would flash an empty box before every answer.
-  if (!state || state.isEmpty) {
+  if (!hasText) {
     return null;
   }
 
-  const label = state.isRunning ? 'Thinking' : 'Thought process';
+  const label = isRunning ? 'Thinking' : 'Thought process';
 
   return (
     <div className="my-1">
@@ -64,13 +64,11 @@ export function ReasoningPart() {
                 <Brain
                   className={cn(
                     'size-3.5 shrink-0',
-                    state.isRunning
-                      ? 'text-primary'
-                      : 'text-muted-foreground',
+                    isRunning ? 'text-primary' : 'text-muted-foreground',
                   )}
                 />
                 <span className="min-w-0 truncate text-[0.76rem] font-medium text-foreground">
-                  {state.isRunning ? (
+                  {isRunning ? (
                     <ShimmerLabel>{label}</ShimmerLabel>
                   ) : (
                     label

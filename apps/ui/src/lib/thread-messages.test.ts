@@ -244,3 +244,42 @@ test('renders a device-interaction summary as its own part', () => {
     ((part.args as { interactions: unknown[] }).interactions ?? []).length > 0,
   );
 });
+
+test('reasoning reported beside content becomes a reasoning part', () => {
+  const [message] = toThreadMessages([
+    {
+      type: 'ai',
+      content: 'The answer is 391.',
+      additional_kwargs: { reasoning: '17 x 23 = 391' },
+    },
+  ]);
+
+  assert.equal(message.role, 'assistant');
+  assert.deepEqual(message.content, [
+    { type: 'reasoning', text: '17 x 23 = 391' },
+    { type: 'text', text: 'The answer is 391.' },
+  ]);
+});
+
+test('blank or absent detached reasoning adds no part', () => {
+  for (const additional_kwargs of [{ reasoning: '   ' }, { reasoning: 42 }, {}]) {
+    const [message] = toThreadMessages([
+      { type: 'ai', content: 'Hi.', additional_kwargs },
+    ]);
+    assert.deepEqual(message.content, [{ type: 'text', text: 'Hi.' }]);
+  }
+});
+
+test('detached reasoning does not split a coalesced tool run', () => {
+  const messages = toThreadMessages([
+    { type: 'ai', content: '', tool_calls: [{ id: 'a', name: 'one', args: {} }] },
+    {
+      type: 'ai',
+      content: '',
+      additional_kwargs: { reasoning: 'still working' },
+      tool_calls: [{ id: 'b', name: 'two', args: {} }],
+    },
+  ]);
+
+  assert.equal(messages.length, 1);
+});

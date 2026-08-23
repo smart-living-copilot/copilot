@@ -1,11 +1,13 @@
 from unittest.mock import patch
 
 from wotbot.core.llm import make_llm
+from wotbot.core.openrouter import ChatOpenRouter
 from wotbot.core.settings import Settings
 
 
 def test_make_llm_omits_temperature_when_unset():
     settings = Settings(
+        _env_file=None,
         openai_api_key="test-key",
         openai_model="gpt-test",
         openai_temperature=None,
@@ -32,6 +34,7 @@ def test_make_llm_disables_streaming_for_tool_calling_by_default():
 
 def test_make_llm_passes_configured_disable_streaming_mode():
     settings = Settings(
+        _env_file=None,
         openai_api_key="test-key",
         openai_model="gpt-test",
         openai_disable_streaming=True,
@@ -78,6 +81,7 @@ def test_settings_treats_empty_temperature_as_provider_default(monkeypatch):
 
 def test_make_llm_passes_configured_temperature():
     settings = Settings(
+        _env_file=None,
         openai_api_key="test-key",
         openai_model="gpt-test",
         openai_temperature=0,
@@ -91,6 +95,7 @@ def test_make_llm_passes_configured_temperature():
 
 def test_make_llm_omits_reasoning_effort_when_disabled():
     settings = Settings(
+        _env_file=None,
         openai_api_key="test-key",
         openai_model="gpt-test",
         reasoning_effort_enabled=False,
@@ -105,6 +110,7 @@ def test_make_llm_omits_reasoning_effort_when_disabled():
 
 def test_make_llm_omits_reasoning_effort_when_no_default_set():
     settings = Settings(
+        _env_file=None,
         openai_api_key="test-key",
         openai_model="gpt-test",
         reasoning_effort_enabled=True,
@@ -121,6 +127,7 @@ def test_make_llm_omits_reasoning_effort_when_no_default_set():
 
 def test_make_llm_passes_configured_reasoning_effort_default():
     settings = Settings(
+        _env_file=None,
         openai_api_key="test-key",
         openai_model="gpt-test",
         reasoning_effort_enabled=True,
@@ -136,6 +143,7 @@ def test_make_llm_passes_configured_reasoning_effort_default():
 
 def test_make_llm_uses_qwen_style_enable_thinking():
     settings = Settings(
+        _env_file=None,
         openai_api_key="test-key",
         openai_model="qwen-test",
         reasoning_effort_enabled=True,
@@ -161,6 +169,7 @@ def test_settings_reasoning_effort_defaults_to_openai_style():
 
 def test_settings_reasoning_effort_parses_and_trims_levels():
     settings = Settings(
+        _env_file=None,
         openai_api_key="test-key",
         reasoning_effort_enabled=True,
         reasoning_effort_levels=" low, medium ,high ",
@@ -173,6 +182,7 @@ def test_settings_reasoning_effort_parses_and_trims_levels():
 
 def test_settings_reasoning_effort_drops_default_outside_levels():
     settings = Settings(
+        _env_file=None,
         openai_api_key="test-key",
         reasoning_effort_enabled=True,
         reasoning_effort_levels="low,medium",
@@ -188,3 +198,35 @@ def test_settings_reasoning_effort_defaults_to_disabled():
     assert settings.reasoning_effort.enabled is False
     assert settings.reasoning_effort.levels == ("low", "medium", "high")
     assert settings.reasoning_effort.default is None
+
+
+def test_make_llm_uses_the_openrouter_subclass_for_that_style():
+    """The stock parser drops OpenRouter's reasoning field, so the style has to
+    change the client class, not just the request kwargs."""
+    settings = Settings(
+        _env_file=None,
+        openai_api_key="test-key",
+        openai_model="gpt-test",
+        reasoning_effort_enabled=True,
+        reasoning_effort_default="high",
+        reasoning_effort_style="openrouter",
+    )
+
+    llm = make_llm(settings)
+
+    assert isinstance(llm, ChatOpenRouter)
+
+
+def test_make_llm_uses_the_stock_client_for_other_styles():
+    settings = Settings(
+        _env_file=None,
+        openai_api_key="test-key",
+        openai_model="gpt-test",
+        reasoning_effort_enabled=True,
+        reasoning_effort_default="high",
+        reasoning_effort_style="openai",
+    )
+
+    llm = make_llm(settings)
+
+    assert not isinstance(llm, ChatOpenRouter)

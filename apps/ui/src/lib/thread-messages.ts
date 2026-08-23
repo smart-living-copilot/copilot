@@ -19,6 +19,10 @@ import {
  * 2. `content` is either a plain string or an array of typed blocks, and
  *    reasoning blocks have to survive as reasoning rather than be flattened
  *    into the visible answer.
+ * 3. Some providers report reasoning outside `content` entirely. OpenRouter
+ *    returns it in its own field, which `ChatOpenRouter` keeps in
+ *    `additional_kwargs.reasoning`; it becomes a reasoning part here so both
+ *    shapes render through the same component.
  */
 
 type Json = Record<string, unknown>;
@@ -34,6 +38,7 @@ export type LangChainMessage = {
   }> | null;
   tool_call_id?: string | null;
   status?: string | null;
+  additional_kwargs?: Json | null;
 };
 
 type ToolCallPart = {
@@ -130,6 +135,15 @@ function toContentParts(content: unknown): ContentPart[] {
     }
   }
   return parts;
+}
+
+/** Reasoning a provider reported beside `content` rather than inside it. */
+function toDetachedReasoningParts(message: LangChainMessage): ContentPart[] {
+  const reasoning = message.additional_kwargs?.reasoning;
+  if (typeof reasoning !== 'string' || !reasoning.trim()) {
+    return [];
+  }
+  return [{ type: 'reasoning', text: reasoning }];
 }
 
 function toGroupedCalls(message: LangChainMessage): GroupedToolCall[] {
@@ -231,18 +245,23 @@ export function toThreadMessages(
       }
 
       const textParts = toContentParts(message.content);
+      const reasoningParts = toDetachedReasoningParts(message);
       const calls = toGroupedCalls(message);
       for (const call of calls) {
         callsById.set(call.id, call);
       }
 
       // Tool-only turn: extend the open run instead of emitting a message.
+      // Detached reasoning deliberately does not count as text here -- letting
+      // it close the run would split one tool run into several cards. The cost
+      // is that reasoning on a coalesced turn is not shown; the turn that ends
+      // the run carries its own.
       if (!textParts.length && calls.length && openGroup) {
         openGroup.push(...calls);
         continue;
       }
 
-      const parts: ContentPart[] = [...textParts];
+      const parts: ContentPart[] = [...reasoningParts, ...textParts];
       if (calls.length) {
         // Text in the same turn closes the run: anything after it is a new
         // block, matching how the thread reads top to bottom.
