@@ -5,12 +5,12 @@ import { ARTIFACT_VIEW_NAME, WOT_SUMMARY_NAME } from '@/lib/thread-messages';
  *
  * `MessagePrimitive.GroupedParts` walks the parts in order and keeps a group
  * open while consecutive parts share its path prefix. Reasoning and tool calls
- * therefore fold into one `group-thought` block spanning the whole working
+ * therefore fold into one `group-chainOfThought` block spanning the whole working
  * phase, with the answer -- whose path is empty -- closing it. This replaces
  * the coalescing that `toThreadMessages` used to do by hand, which could only
  * group within a message and so lost the true interleaving of a tool loop.
  */
-export const GROUP_THOUGHT = 'group-thought' as const;
+export const GROUP_THOUGHT = 'group-chainOfThought' as const;
 export const GROUP_REASONING = 'group-reasoning' as const;
 export const GROUP_TOOL = 'group-tool' as const;
 
@@ -31,6 +31,14 @@ const UNGROUPED: readonly GroupKey[] = Object.freeze([]);
 
 type GroupablePart = { type: string; toolName?: string };
 
+/**
+ * Hand-written rather than built with the documented `groupPartByType` helper:
+ * that helper's `standalone-tool-call` opt-out is resolved from the tool-UI
+ * registry (`toolUIs[name].standalone`), which this app does not use -- its
+ * tools render through cards keyed by name. The group keys match the ones in
+ * assistant-ui's docs so the two read the same. Module-level so `GroupedParts`
+ * can memoize its tree on the function's identity.
+ */
 export function wotbotGroupBy(part: GroupablePart): readonly GroupKey[] {
   if (part.type === 'reasoning') {
     return REASONING_PATH;
