@@ -99,10 +99,14 @@ async def create_web_interface(
 
     You MAY load external libraries (charting, icons, fonts) from these CDNs to
     make a richer UI: cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com, and
-    fonts.googleapis.com / fonts.gstatic.com. You must NOT use fetch/XHR/
-    WebSocket/sendBeacon — all network egress is blocked by CSP; the only way to
-    reach devices is `window.wot`. Inline your own CSS/JS; keep images to
-    `data:` URIs or none.
+    fonts.googleapis.com / fonts.gstatic.com — scripts, stylesheets, fonts and
+    images all load from them, so a library that ships CSS or icon sprites
+    alongside its JS (Leaflet, for one) works. Maps work too: tiles may come
+    from tile.openstreetmap.org. Any other image must be a `data:` URI — an
+    arbitrary image URL is blocked by CSP because it would be a way to leak
+    device data off the page. You must NOT use fetch/XHR/WebSocket/sendBeacon —
+    all network egress is blocked by CSP; the only way to reach devices is
+    `window.wot`. Inline your own CSS/JS.
 
     Declare every Thing affordance the interface uses in `capabilities`; the UI
     rejects any interaction outside this allowlist. Inspect affordance schemas
