@@ -2,18 +2,10 @@
 
 import { memo, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import {
-  CircleAlert,
-  ExternalLink,
-  Expand,
-  Pin,
-  PinOff,
-  X,
-} from 'lucide-react';
+import { CircleAlert, Expand, Pin, PinOff, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { PanelFrame } from '@/components/wotbot/chat-tool-calls/panel-frame';
-import { usePanelPopup } from '@/components/wotbot/chat-tool-calls/use-panel-popup';
 import {
   DetailsToggle,
   ToolCardHeader,
@@ -69,15 +61,6 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
   const pathname = usePathname();
   const src = `${getPanelOrigin(artifact.filename)}/api/artifacts/${encodeURIComponent(artifact.filename)}`;
   const canPin = typeof artifact.html === 'string' && artifact.html.length > 0;
-  const popup = usePanelPopup(src, artifact.capabilities);
-
-  const handleOpenExternally = () => {
-    if (!popup.open()) {
-      toast.error(
-        'The browser blocked the new tab. Allow pop-ups for this site.',
-      );
-    }
-  };
 
   const handlePin = async () => {
     if (!artifact.html) {
@@ -169,21 +152,6 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      aria-label="Open in a new tab"
-                      className="text-muted-foreground hover:text-foreground"
-                      onClick={handleOpenExternally}
-                      size="icon-xs"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <ExternalLink className="size-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Open in a new tab</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
                       aria-label="Open fullscreen interface"
                       className="text-muted-foreground hover:text-foreground"
                       onClick={() => setIsFullscreenOpen(true)}
@@ -247,15 +215,6 @@ export const WebInterfaceArtifactView = memo(function WebInterfaceArtifactView({
                   )}
                 </Button>
               ) : null}
-              <Button
-                aria-label="Open in a new tab"
-                onClick={handleOpenExternally}
-                size="icon-sm"
-                type="button"
-                variant="ghost"
-              >
-                <ExternalLink className="size-3.5" />
-              </Button>
               <DrawerClose asChild>
                 <Button aria-label="Close" size="icon-sm" variant="ghost">
                   <X className="size-3.5" />

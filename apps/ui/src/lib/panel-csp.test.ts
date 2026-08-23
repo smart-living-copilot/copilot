@@ -4,7 +4,9 @@ import test from 'node:test';
 import { PANEL_CSP } from './panel-csp';
 
 function directive(name: string): string {
-  const found = PANEL_CSP.split('; ').find((part) => part.startsWith(`${name} `));
+  const found = PANEL_CSP.split('; ').find((part) =>
+    part.startsWith(`${name} `),
+  );
   assert.ok(found, `expected a ${name} directive`);
   return found;
 }

@@ -25,7 +25,19 @@ export const PanelFrame = memo(function PanelFrame({
   interactive?: boolean;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  useWotBridge(iframeRef, capabilities, { enabled: interactive });
+
+  // `allow-same-origin` is only safe while `src` is genuinely another origin.
+  // `getPanelOrigin` yields '' before hydration, and a misconfigured host
+  // template could collapse to the app's own origin -- either would grant
+  // untrusted panel code this origin's cookies, storage and API. Refuse rather
+  // than silently downgrade.
+  const isCrossOrigin =
+    typeof window !== 'undefined' &&
+    /^https?:\/\//.test(src) &&
+    !src.startsWith(`${window.location.origin}/`);
+  const canRunScripts = interactive && isCrossOrigin;
+
+  useWotBridge(iframeRef, capabilities, { enabled: canRunScripts });
 
   return (
     <iframe
@@ -39,8 +51,8 @@ export const PanelFrame = memo(function PanelFrame({
       // it means "your own origin", which is cross-origin to the app. Without
       // it the frame would be opaque-origin and denied every permission-gated
       // API. Preview frames keep scripts disabled entirely.
-      allow={interactive ? 'camera; microphone' : ''}
-      sandbox={interactive ? 'allow-scripts allow-same-origin' : ''}
+      allow={canRunScripts ? 'camera; microphone' : ''}
+      sandbox={canRunScripts ? 'allow-scripts allow-same-origin' : ''}
       src={src}
       title={title}
     />

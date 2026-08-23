@@ -27,13 +27,28 @@ const KEY_TOKEN = '{key}';
  * matches one label only, so a dotted filename must not become `a.b.panels…`.
  */
 export function toPanelLabel(key: string): string {
-  const label = key
+  // The suffix keeps the mapping injective. Normalisation is lossy --
+  // `chart_1.html` and `chart-1.html` both reduce to `chart-1`, as does any pair
+  // differing only in punctuation or beyond 63 characters -- and two panels
+  // sharing a label would share an origin, and therefore one camera grant.
+  const suffix = fingerprint(key);
+  const base = key
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 63)
+    .slice(0, 63 - suffix.length - 1)
     .replace(/-+$/g, '');
-  return label || 'panel';
+  return base ? `${base}-${suffix}` : `panel-${suffix}`;
+}
+
+/** Short, stable, non-cryptographic digest; only collision resistance matters. */
+function fingerprint(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 /**
@@ -44,8 +59,9 @@ export function toPanelLabel(key: string): string {
  */
 export function getPanelOrigin(
   key: string,
-  location: { protocol: string; hostname: string; port: string } | undefined =
-    typeof window === 'undefined' ? undefined : window.location,
+  location:
+    | { protocol: string; hostname: string; port: string }
+    | undefined = typeof window === 'undefined' ? undefined : window.location,
   template: string | undefined = process.env.NEXT_PUBLIC_PANEL_HOST_TEMPLATE,
 ): string {
   if (!location) {
@@ -55,8 +71,10 @@ export function getPanelOrigin(
   const label = toPanelLabel(key);
   const port = location.port ? `:${location.port}` : '';
 
-  if (template) {
-    return `${location.protocol}//${template.replace(KEY_TOKEN, label)}${port}`;
+  if (isUsableTemplate(template)) {
+    // No port appended: a template names a host of its own, which need not be
+    // served on the port the app happens to be reached at.
+    return `${location.protocol}//${template.replace(KEY_TOKEN, label)}`;
   }
 
   return `${location.protocol}//${label}.panels.${location.hostname}${port}`;
@@ -67,9 +85,21 @@ export function isPanelHostname(
   hostname: string,
   template: string | undefined = process.env.NEXT_PUBLIC_PANEL_HOST_TEMPLATE,
 ): boolean {
-  if (template) {
-    const suffix = template.slice(template.indexOf(KEY_TOKEN) + KEY_TOKEN.length);
+  if (isUsableTemplate(template)) {
+    const suffix = template.slice(KEY_TOKEN.length);
     return hostname !== suffix && hostname.endsWith(suffix);
   }
   return /^[a-z0-9-]+\.panels\./.test(hostname);
+}
+
+/**
+ * A template is only usable when `{key}` is its leading label.
+ *
+ * Anything else makes the suffix ambiguous: `panel-{key}.example.com` would
+ * leave `.example.com`, so the app's own host matches too and `proxy.ts` would
+ * 404 the entire application. Falling back to the derived host is safe and
+ * visibly wrong, which is what an operator needs.
+ */
+function isUsableTemplate(template: string | undefined): template is string {
+  return Boolean(template) && template!.startsWith(KEY_TOKEN);
 }

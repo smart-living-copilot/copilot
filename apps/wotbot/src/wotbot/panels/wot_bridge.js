@@ -27,15 +27,16 @@
 
 
   /**
-   * The window hosting this panel.
+   * The window hosting this panel, or null when there is none.
    *
-   * Normally the parent frame. When the panel is opened as a page of its own,
-   * `window.parent` is this window, and the host is whichever tab opened it --
-   * so fall back to the opener. Without this a standalone panel renders fine
-   * and then waits forever for a handshake nobody is listening for.
+   * Only the parent frame. A panel opened as a top-level page is deliberately
+   * not hosted: as a top-level document it could navigate itself to any URL,
+   * and navigation is not governed by CSP -- so the egress containment the rest
+   * of this file relies on would not hold. Such a panel gets a clear failure
+   * from `send` rather than a device connection.
    */
   function hostWindow() {
-    return window.parent !== window ? window.parent : window.opener;
+    return window.parent !== window ? window.parent : null;
   }
   var REQUEST_SOURCE = 'wot-bridge';
   var HOST_SOURCE = 'wot-bridge-host';
@@ -54,7 +55,18 @@
       pending[id] = { resolve: resolve, reject: reject };
       try {
         var host = hostWindow();
-        if (host) host.postMessage(message, '*');
+        if (!host) {
+          // Silently dropping the message would leave this promise pending and
+          // the panel spinning with nothing to explain it.
+          delete pending[id];
+          reject(
+            new Error(
+              'This panel has no host. Open it from the chat rather than directly.',
+            ),
+          );
+          return;
+        }
+        host.postMessage(message, '*');
       } catch (err) {
         delete pending[id];
         reject(err);
@@ -234,7 +246,7 @@
     callbacks = {};
     for (var i = 0; i < ids.length; i++) {
       try {
-        (hostWindow() || window).postMessage(
+        if (hostWindow()) hostWindow().postMessage(
           {
             source: REQUEST_SOURCE,
             id: REQUEST_SOURCE + ':cleanup',

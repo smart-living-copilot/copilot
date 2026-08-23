@@ -7,23 +7,40 @@ const local = { protocol: 'http:', hostname: 'localhost', port: '3000' };
 const prod = { protocol: 'https:', hostname: 'wotbot.example.com', port: '' };
 
 test('a panel id becomes its own subdomain', () => {
+  const origin = getPanelOrigin('39ecb1f12b2146ffb42783f71d5e144a', local, '');
+  assert.match(
+    origin,
+    /^http:\/\/39ecb1f12b2146ffb42783f71d5e144a-[a-z0-9]+\.panels\.localhost:3000$/,
+  );
+});
+
+test('keys that normalize alike still get separate origins', () => {
+  // They would otherwise share an origin, and so share one camera grant.
+  assert.notEqual(
+    getPanelOrigin('chart_1.html', local, ''),
+    getPanelOrigin('chart-1.html', local, ''),
+  );
+});
+
+test('a template not led by {key} is refused rather than trusted', () => {
+  // Its suffix would match the app's own host and 404 the whole application.
   assert.equal(
-    getPanelOrigin('39ecb1f12b2146ffb42783f71d5e144a', local, undefined),
-    'http://39ecb1f12b2146ffb42783f71d5e144a.panels.localhost:3000',
+    isPanelHostname('app.example.com', 'panel-{key}.example.com'),
+    false,
   );
 });
 
 test('each panel gets a different origin', () => {
   // The point of per-panel origins: a camera grant for one must not arm another.
   assert.notEqual(
-    getPanelOrigin('panel-a', local, undefined),
-    getPanelOrigin('panel-b', local, undefined),
+    getPanelOrigin('panel-a', local, ''),
+    getPanelOrigin('panel-b', local, ''),
   );
 });
 
 test('a filename collapses to a single DNS label', () => {
   // A wildcard certificate matches one label, so dots must not survive.
-  const origin = getPanelOrigin('wot_interface.abc.html', prod, undefined);
+  const origin = getPanelOrigin('wot_interface.abc.html', prod, '');
   const label = origin.replace('https://', '').split('.panels.')[0];
 
   assert.ok(!label.includes('.'), `label still dotted: ${label}`);
@@ -33,32 +50,35 @@ test('a filename collapses to a single DNS label', () => {
 test('labels stay within the 63-character DNS limit', () => {
   assert.ok(toPanelLabel('x'.repeat(200)).length <= 63);
   assert.ok(!toPanelLabel(`${'x'.repeat(62)}-.html`).endsWith('-'));
+  // Truncation must not reintroduce collisions.
+  assert.notEqual(toPanelLabel('x'.repeat(200)), toPanelLabel('x'.repeat(201)));
 });
 
 test('an unusable key still yields a valid label', () => {
-  assert.equal(toPanelLabel('...'), 'panel');
-  assert.equal(toPanelLabel(''), 'panel');
+  assert.match(toPanelLabel('...'), /^panel-[a-z0-9]+$/);
+  assert.match(toPanelLabel(''), /^panel-[a-z0-9]+$/);
 });
 
 test('a configured template places the key and keeps the port', () => {
-  assert.equal(
+  assert.match(
     getPanelOrigin('abc', prod, '{key}.panels.example.com'),
-    'https://abc.panels.example.com',
+    /^https:\/\/abc-[a-z0-9]+\.panels\.example\.com$/,
   );
-  assert.equal(
+  // No app port appended: the template names a host that serves its own.
+  assert.match(
     getPanelOrigin('abc', local, '{key}.sandbox.test'),
-    'http://abc.sandbox.test:3000',
+    /^http:\/\/abc-[a-z0-9]+\.sandbox\.test$/,
   );
 });
 
 test('server rendering yields no origin rather than a wrong one', () => {
-  assert.equal(getPanelOrigin('abc', undefined, undefined), '');
+  assert.equal(getPanelOrigin('abc', undefined, ''), '');
 });
 
 test('panel hosts are told apart from the app host', () => {
-  assert.equal(isPanelHostname('abc.panels.localhost', undefined), true);
-  assert.equal(isPanelHostname('localhost', undefined), false);
-  assert.equal(isPanelHostname('wotbot.example.com', undefined), false);
+  assert.equal(isPanelHostname('abc.panels.localhost', ''), true);
+  assert.equal(isPanelHostname('localhost', ''), false);
+  assert.equal(isPanelHostname('wotbot.example.com', ''), false);
   // The bare suffix is not itself a panel host.
   assert.equal(
     isPanelHostname('panels.example.com', '{key}.panels.example.com'),

@@ -52,7 +52,10 @@ export function ArtifactPreview({
               ? 'mx-auto max-h-full max-w-full object-contain'
               : 'w-full max-w-full',
         )}
-        src={`${getPanelOrigin(artifact.filename)}/api/artifacts/${encodeURIComponent(artifact.filename)}`}
+        // Plain image, on the app's origin: it executes nothing, so a separate
+        // origin isolates nothing while costing a DNS lookup and TLS handshake
+        // per image -- and breaking wherever wildcard resolution is absent.
+        src={`/api/artifacts/${encodeURIComponent(artifact.filename)}`}
       />
     );
   }

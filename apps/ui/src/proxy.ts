@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
-import { isPanelHostname } from '@/lib/panel-origin';
+import { isPanelHostname, toPanelLabel } from '@/lib/panel-origin';
 
 /**
  * Keeps the app off the panel origins.
@@ -16,7 +16,10 @@ import { isPanelHostname } from '@/lib/panel-origin';
  * belongs: the capability-checked `window.wot` bridge, which is postMessage and
  * therefore governed by neither CSP nor this.
  */
-const PANEL_DOCUMENT_ROUTES = [/^\/api\/panels\/[^/]+\/render$/, /^\/api\/artifacts\//];
+const PANEL_DOCUMENT_ROUTES = [
+  /^\/api\/panels\/([^/]+)\/render$/,
+  /^\/api\/artifacts\/(.+)$/,
+];
 
 export function proxy(request: NextRequest) {
   // The Host header, not `nextUrl.hostname`: the latter comes from the server's
@@ -29,11 +32,16 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const isPanelDocument = PANEL_DOCUMENT_ROUTES.some((route) =>
-    route.test(request.nextUrl.pathname),
-  );
+  // The host must match the document it is asking for. Without this every panel
+  // host serves every artifact, so one panel could load another's output as a
+  // same-origin image and read the pixels back off a canvas.
+  const label = hostname.split('.')[0];
+  const isOwnDocument = PANEL_DOCUMENT_ROUTES.some((route) => {
+    const match = route.exec(request.nextUrl.pathname);
+    return match ? toPanelLabel(decodeURIComponent(match[1])) === label : false;
+  });
 
-  return isPanelDocument
+  return isOwnDocument
     ? NextResponse.next()
     : new NextResponse('Not found', { status: 404 });
 }
