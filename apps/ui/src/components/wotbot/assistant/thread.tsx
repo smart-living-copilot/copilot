@@ -28,6 +28,7 @@ import type { ExtraProps } from 'react-markdown';
 import {
   hasAssistantReloadAction,
   hasAssistantResponseActions,
+  hasVisibleReasoning,
 } from '@/components/wotbot/assistant/message-actions';
 import { markdownRemarkPlugins } from '@/components/wotbot/assistant/markdown';
 import { ReasoningPart } from '@/components/wotbot/assistant/reasoning-ui';
@@ -79,7 +80,11 @@ function MarkdownText() {
       state.part.text.length === 0,
   );
 
-  if (isEmptyRunningPart) {
+  // Suppressed while reasoning is on screen: that block animates too, and both
+  // at once reads as two separate things happening.
+  const reasoningIsShowing = useAuiState(hasVisibleReasoning);
+
+  if (isEmptyRunningPart && !reasoningIsShowing) {
     return (
       <ThinkingIndicator aria-live="polite" label="Thinking" role="status" />
     );

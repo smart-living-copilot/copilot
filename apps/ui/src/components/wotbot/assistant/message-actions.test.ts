@@ -6,6 +6,7 @@ import {
   findRetryTarget,
   hasAssistantReloadAction,
   hasAssistantResponseActions,
+  hasVisibleReasoning,
 } from './message-actions';
 import { WOT_SUMMARY_NAME } from '@/lib/thread-messages';
 
@@ -216,4 +217,26 @@ test('retry does not warn for a read-only turn', () => {
     ),
     0,
   );
+});
+
+test('a streaming reasoning part suppresses the plain thinking indicator', () => {
+  assert.equal(
+    hasVisibleReasoning(
+      state([{ type: 'reasoning', text: 'working on it' }], 'running'),
+    ),
+    true,
+  );
+});
+
+test('a turn with no reasoning keeps the plain thinking indicator', () => {
+  assert.equal(
+    hasVisibleReasoning(state([{ type: 'text', text: '' }], 'running')),
+    false,
+  );
+});
+
+test('a reasoning part with no text yet does not suppress the indicator', () => {
+  for (const part of [{ type: 'reasoning', text: '' }, { type: 'reasoning' }]) {
+    assert.equal(hasVisibleReasoning(state([part], 'running')), false);
+  }
 });
