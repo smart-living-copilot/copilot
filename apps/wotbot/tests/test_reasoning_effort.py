@@ -21,6 +21,21 @@ class ReasoningEffortKwargsTestCase(unittest.TestCase):
                     {"extra_body": {"chat_template_kwargs": {"enable_thinking": True}}},
                 )
 
+    def test_openrouter_style_sends_the_reasoning_object(self) -> None:
+        """The plain reasoning_effort field makes OpenRouter bill for reasoning
+        it never returns; only the object form sends the text back."""
+        self.assertEqual(
+            reasoning_effort_kwargs("medium", "openrouter"),
+            {"extra_body": {"reasoning": {"effort": "medium"}}},
+        )
+
+    def test_openrouter_style_maps_none_to_disabled(self) -> None:
+        """OpenRouter's effort scale has no "none", so that level turns it off."""
+        self.assertEqual(
+            reasoning_effort_kwargs("none", "openrouter"),
+            {"extra_body": {"reasoning": {"enabled": False}}},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

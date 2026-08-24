@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { getPanelOrigin } from '@/lib/panel-origin';
 
 const PANEL_PREVIEW_VIEWPORT = {
   width: 1024,
@@ -123,7 +124,7 @@ function PanelPreview({ panel }: { panel: PanelRecord }) {
             capabilities={panel.capabilities}
             className="h-full w-full rounded-none border-0"
             interactive={false}
-            src={`/api/panels/${encodeURIComponent(panel.id)}/render`}
+            src={`${getPanelOrigin(panel.id)}/api/panels/${encodeURIComponent(panel.id)}/render`}
             title={panel.title}
           />
         </WhenVisible>

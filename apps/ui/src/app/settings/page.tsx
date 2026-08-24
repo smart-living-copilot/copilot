@@ -3,6 +3,7 @@
 import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
+  Info,
   KeyRound,
   MessageSquareWarning,
   Settings,
@@ -12,13 +13,14 @@ import {
 import { AppShell } from '@/components/app-shell';
 import { ApiKeysPanel } from '@/components/settings/api-keys-panel';
 import { ChatCleanupPanel } from '@/components/settings/chat-cleanup-panel';
+import { SystemInfoPanel } from '@/components/settings/system-info-panel';
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 
-const SETTINGS_TABS = ['chat-data', 'api-keys'] as const;
+const SETTINGS_TABS = ['chat-data', 'api-keys', 'system-info'] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
@@ -43,6 +45,12 @@ const settingsNavItems: Array<{
     icon: KeyRound,
     label: 'API keys',
     tab: 'api-keys',
+  },
+  {
+    description: 'Inspect the resolved runtime configuration',
+    icon: Info,
+    label: 'System info',
+    tab: 'system-info',
   },
 ];
 
@@ -130,8 +138,10 @@ function SettingsTabLayout({
           <p className="text-sm text-muted-foreground">Loading settings...</p>
         ) : activeTab === 'chat-data' ? (
           <ChatCleanupPanel />
-        ) : (
+        ) : activeTab === 'api-keys' ? (
           <ApiKeysPanel />
+        ) : (
+          <SystemInfoPanel />
         )}
       </div>
     </div>

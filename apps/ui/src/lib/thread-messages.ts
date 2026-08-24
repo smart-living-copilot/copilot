@@ -19,6 +19,10 @@ import {
  * 2. `content` is either a plain string or an array of typed blocks, and
  *    reasoning blocks have to survive as reasoning rather than be flattened
  *    into the visible answer.
+ * 3. Some providers report reasoning outside `content` entirely. OpenRouter
+ *    returns it in its own field, which `ChatOpenRouter` keeps in
+ *    `additional_kwargs.reasoning`; it becomes a reasoning part here so both
+ *    shapes render through the same component.
  */
 
 type Json = Record<string, unknown>;
@@ -34,6 +38,7 @@ export type LangChainMessage = {
   }> | null;
   tool_call_id?: string | null;
   status?: string | null;
+  additional_kwargs?: Json | null;
 };
 
 type ToolCallPart = {
@@ -46,16 +51,6 @@ type ToolCallPart = {
 };
 
 /**
- * Synthetic tool name for a coalesced run of tool calls.
- *
- * The UI renders a run of tool calls as one collapsible block with any
- * artifacts hoisted out of it. Coalescing here -- where the whole run and all
- * its results are in hand -- lets a single component render that, instead of
- * reconstructing the grouping from individually-rendered parts downstream.
- */
-export const TOOL_GROUP_NAME = '__wotbot_tool_group__';
-
-/**
  * Synthetic tool name for a device-interaction summary turn.
  *
  * The agent emits a machine-readable summary of the WoT calls it made as an
@@ -64,6 +59,24 @@ export const TOOL_GROUP_NAME = '__wotbot_tool_group__';
  * looks like one but does not parse is dropped rather than shown raw.
  */
 export const WOT_SUMMARY_NAME = '__wotbot_wot_summary__';
+
+/**
+ * Tools whose result carries something to show: a plot, a generated interface.
+ */
+const ARTIFACT_TOOLS: ReadonlySet<string> = new Set([
+  'run_code',
+  'create_web_interface',
+]);
+
+/**
+ * Synthetic part that renders an artifact-producing tool's output on its own.
+ *
+ * The tool's card belongs with the others inside the collapsed thought block,
+ * but its artifact is the answer and must stay visible. A part renders where
+ * the group tree puts it, so the artifact is split off into an ungrouped part
+ * of its own, emitted once the turn's calls are known.
+ */
+export const ARTIFACT_VIEW_NAME = '__wotbot_artifact__';
 
 export type GroupedToolCall = {
   id: string;
@@ -132,30 +145,34 @@ function toContentParts(content: unknown): ContentPart[] {
   return parts;
 }
 
-function toGroupedCalls(message: LangChainMessage): GroupedToolCall[] {
+/** Reasoning a provider reported beside `content` rather than inside it. */
+function toDetachedReasoningParts(message: LangChainMessage): ContentPart[] {
+  const reasoning = message.additional_kwargs?.reasoning;
+  if (typeof reasoning !== 'string' || !reasoning.trim()) {
+    return [];
+  }
+  return [{ type: 'reasoning', text: reasoning }];
+}
+
+function toToolCallParts(message: LangChainMessage): ToolCallPart[] {
   if (!Array.isArray(message.tool_calls)) {
     return [];
   }
-  const calls: GroupedToolCall[] = [];
+  const calls: ToolCallPart[] = [];
   for (const call of message.tool_calls) {
+    // A call with no id cannot be joined to the `tool` message carrying its
+    // result, so a card for it would sit at "executing" forever. Synthesizing
+    // an id only hides that: the result arrives keyed by the provider's own id
+    // and never matches.
     if (!call?.id || !call.name) continue;
     calls.push({
-      id: call.id,
-      name: call.name,
-      args: isRecord(call.args) ? call.args : {},
+      type: 'tool-call',
+      toolCallId: call.id,
+      toolName: call.name,
+      args: isRecord(call.args) ? call.args : ({} as Json),
     });
   }
   return calls;
-}
-
-function makeGroupPart(calls: GroupedToolCall[]): ToolCallPart {
-  return {
-    type: 'tool-call',
-    // Stable across streaming updates so the part keeps its identity.
-    toolCallId: `group:${calls[0].id}`,
-    toolName: TOOL_GROUP_NAME,
-    args: { calls } as unknown as Json,
-  };
 }
 
 export function toThreadMessages(
@@ -168,10 +185,70 @@ export function toThreadMessages(
   const result: ThreadMessageLike[] = [];
   // Lets a `tool` message find the call it answers, however many assistant
   // messages back that was.
-  const callsById = new Map<string, GroupedToolCall>();
-  // The run currently being coalesced, so a following tool-only assistant
-  // message extends it rather than starting a second collapsible block.
-  let openGroup: GroupedToolCall[] | null = null;
+  const callsById = new Map<string, ToolCallPart>();
+  // The assistant turn being assembled. A turn arrives as several LangChain
+  // messages -- one per agent step -- but becomes a single message here, so
+  // reasoning, tool calls and the final answer keep their true order and
+  // `MessagePrimitive.GroupedParts` can coalesce adjacent runs of them.
+  let turn: { id?: string; parts: ContentPart[] } | null = null;
+
+  const closeTurn = () => {
+    if (turn) {
+      // Each artifact goes at the end of the run of calls it belongs to, not
+      // at the end of the turn: a turn that produces two artifacts with prose
+      // between them would otherwise stack both after the second one, putting
+      // the first below the sentence that says it is above.
+      const placed: ContentPart[] = [];
+      let pending: ContentPart[] = [];
+
+      for (const part of turn.parts) {
+        const isCall =
+          part.type === 'tool-call' && part.toolName !== WOT_SUMMARY_NAME;
+        // Only a part that ends the run flushes. Reasoning stays inside the
+        // thought block, so flushing there would wedge the artifact between two
+        // halves of what should read as one block.
+        const endsRun =
+          part.type === 'text' ||
+          (part.type === 'tool-call' && part.toolName === WOT_SUMMARY_NAME);
+        if (endsRun && pending.length) {
+          placed.push(...pending);
+          pending = [];
+        }
+        placed.push(part);
+        if (
+          isCall &&
+          ARTIFACT_TOOLS.has(part.toolName) &&
+          part.result !== undefined
+        ) {
+          pending.push({
+            type: 'tool-call',
+            toolCallId: `artifact:${part.toolCallId}`,
+            toolName: ARTIFACT_VIEW_NAME,
+            args: { source: part.toolName, sourceArgs: part.args },
+            result: part.result,
+          });
+        }
+      }
+      placed.push(...pending);
+      turn.parts = placed;
+    }
+    // A turn with no parts would render as an empty bubble.
+    if (turn && turn.parts.length) {
+      result.push({
+        role: 'assistant',
+        content: turn.parts as ThreadMessageLike['content'],
+        ...(turn.id ? { id: turn.id } : {}),
+      });
+    }
+    turn = null;
+  };
+
+  const turnParts = (id?: string | null): ContentPart[] => {
+    // The first step's id names the turn and stays put, so the message keeps
+    // its identity while later steps stream in and append to it.
+    turn ??= { parts: [], ...(id ? { id } : {}) };
+    return turn.parts;
+  };
 
   for (const message of messages) {
     const type = message.type;
@@ -186,13 +263,12 @@ export function toThreadMessages(
           call.isError = true;
         }
       }
-      // A tool result does not break the run: the assistant's next tool-only
-      // turn still belongs to the same block.
+      // A tool result is not a part of its own: it lands on the call it answers.
       continue;
     }
 
     if (type === 'human' || type === 'user') {
-      openGroup = null;
+      closeTurn();
       const content = toContentParts(message.content);
       if (content.length) {
         result.push({
@@ -209,57 +285,25 @@ export function toThreadMessages(
         message.content,
       );
       if (interactions.length > 0) {
-        openGroup = null;
-        result.push({
-          role: 'assistant',
-          content: [
-            {
-              type: 'tool-call',
-              toolCallId: `wot:${message.id ?? result.length}`,
-              toolName: WOT_SUMMARY_NAME,
-              args: { interactions },
-            },
-          ] as ThreadMessageLike['content'],
-          ...(message.id ? { id: message.id } : {}),
+        turnParts(message.id).push({
+          type: 'tool-call',
+          toolCallId: `wot:${message.id ?? result.length}`,
+          toolName: WOT_SUMMARY_NAME,
+          args: { interactions },
         });
         continue;
       }
       if (looksLikeDeviceInteractionSummaryContent(message.content)) {
         // Unparseable summary: hide it rather than render the raw payload.
-        openGroup = null;
         continue;
       }
 
-      const textParts = toContentParts(message.content);
-      const calls = toGroupedCalls(message);
-      for (const call of calls) {
-        callsById.set(call.id, call);
-      }
-
-      // Tool-only turn: extend the open run instead of emitting a message.
-      if (!textParts.length && calls.length && openGroup) {
-        openGroup.push(...calls);
-        continue;
-      }
-
-      const parts: ContentPart[] = [...textParts];
-      if (calls.length) {
-        // Text in the same turn closes the run: anything after it is a new
-        // block, matching how the thread reads top to bottom.
-        openGroup = textParts.length ? null : calls;
-        parts.push(makeGroupPart(calls));
-      } else {
-        openGroup = null;
-      }
-
-      // An assistant turn with neither text nor a tool call would render as an
-      // empty bubble; skip until it has something to show.
-      if (parts.length) {
-        result.push({
-          role: 'assistant',
-          content: parts as ThreadMessageLike['content'],
-          ...(message.id ? { id: message.id } : {}),
-        });
+      const parts = turnParts(message.id);
+      parts.push(...toDetachedReasoningParts(message));
+      parts.push(...toContentParts(message.content));
+      for (const call of toToolCallParts(message)) {
+        callsById.set(call.toolCallId, call);
+        parts.push(call);
       }
       continue;
     }
@@ -267,7 +311,7 @@ export function toThreadMessages(
     if (type === 'system') {
       // Job transcripts carry run-lifecycle lines as system messages; the chat
       // checkpoint never contains any, so emitting them here is safe.
-      openGroup = null;
+      closeTurn();
       const content = toContentParts(message.content);
       if (content.length) {
         result.push({
@@ -278,10 +322,8 @@ export function toThreadMessages(
       }
       continue;
     }
-
-    // Unknown types are not rendered in the thread.
-    openGroup = null;
   }
 
+  closeTurn();
   return result;
 }

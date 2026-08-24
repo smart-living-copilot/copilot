@@ -21,6 +21,7 @@ from wotbot.catalog.router import router as things_router
 from wotbot.api.a2a import router as a2a_router
 from wotbot.core.api_dependencies import verify_internal_api_key
 from wotbot.core.config import get_settings as get_registry_settings
+from wotbot.core.config_router import router as config_router
 from wotbot.core.database import get_connection_pool, init_db, psycopg_conninfo
 from wotbot.core.health import router as registry_health_router
 from wotbot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
@@ -166,6 +167,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="WoTBot", lifespan=lifespan)
 app.include_router(registry_health_router)
+app.include_router(config_router)
 app.include_router(me_router)
 app.include_router(search_router)
 app.include_router(things_router)

@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Square,
 } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import type { ExtraProps } from 'react-markdown';
 
@@ -29,9 +30,22 @@ import {
   hasAssistantResponseActions,
 } from '@/components/wotbot/assistant/message-actions';
 import { markdownRemarkPlugins } from '@/components/wotbot/assistant/markdown';
-import { WotbotToolCall } from '@/components/wotbot/assistant/tool-ui';
+import { ReasoningPart } from '@/components/wotbot/assistant/reasoning-ui';
+import {
+  GROUP_REASONING,
+  GROUP_THOUGHT,
+  GROUP_TOOL,
+  isStandalonePart,
+  wotbotGroupBy,
+} from '@/components/wotbot/assistant/part-grouping';
+import { ThoughtGroup } from '@/components/wotbot/assistant/thought-group';
+import {
+  GroupedToolCall,
+  StandaloneToolCall,
+} from '@/components/wotbot/assistant/tool-ui';
 import { ThinkingIndicator } from '@/components/elements/thinking-indicator';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorBoundary } from '@/components/error-boundary';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -70,19 +84,6 @@ function MarkdownTable({
 }
 
 function MarkdownText() {
-  const isEmptyRunningPart = useAuiState(
-    (state) =>
-      state.part.type === 'text' &&
-      state.part.status.type === 'running' &&
-      state.part.text.length === 0,
-  );
-
-  if (isEmptyRunningPart) {
-    return (
-      <ThinkingIndicator aria-live="polite" label="Thinking" role="status" />
-    );
-  }
-
   return (
     <MarkdownTextPrimitive
       remarkPlugins={markdownRemarkPlugins}
@@ -96,10 +97,54 @@ function MarkdownText() {
   );
 }
 
-const assistantComponents = {
-  Text: MarkdownText,
-  tools: { Override: WotbotToolCall },
-} as const;
+/**
+ * Renders one node of the grouped part tree.
+ *
+ * `group-thought` is the single collapsed block per turn; the answer text sits
+ * outside it, and artifact-producing tools are pulled out by `wotbotGroupBy` so
+ * their output stays visible.
+ */
+function AssistantParts() {
+  return (
+    // indicator="always": the thought block deliberately never animates, so this
+    // is the turn's single activity signal. The default "no-text" mode hides it
+    // while the last part is text *or reasoning* -- which left a long
+    // reasoning-only phase looking idle with the reasoning collapsed out of view.
+    <MessagePrimitive.GroupedParts groupBy={wotbotGroupBy} indicator="always">
+      {({ part, children }) => {
+        switch (part.type) {
+          case GROUP_THOUGHT:
+            return <ThoughtGroup>{children}</ThoughtGroup>;
+          // The runs inside the block need no chrome of their own; the rows
+          // they hold are already uniform and the block owns the spacing.
+          case GROUP_REASONING:
+          case GROUP_TOOL:
+            return children;
+          case 'reasoning':
+            return <ReasoningPart />;
+          case 'tool-call':
+            return isStandalonePart(part.toolName) ? (
+              <StandaloneToolCall {...part} />
+            ) : (
+              <GroupedToolCall {...part} />
+            );
+          case 'text':
+            return <MarkdownText />;
+          case 'indicator':
+            return (
+              <ThinkingIndicator
+                aria-live="polite"
+                label="Thinking"
+                role="status"
+              />
+            );
+          default:
+            return null;
+        }
+      }}
+    </MessagePrimitive.GroupedParts>
+  );
+}
 
 function BranchPicker({ className }: { className?: string }) {
   return (
@@ -144,7 +189,7 @@ function UserMessage() {
           </ActionBarPrimitive.Edit>
         </ActionBarPrimitive.Root>
 
-        <div className="min-w-0 max-w-[80%] rounded-lg bg-muted px-4 py-2 text-foreground">
+        <div className="min-w-0 max-w-[80%] rounded-lg bg-muted px-4 py-2 text-sm leading-6 text-foreground">
           <MessagePrimitive.Parts />
         </div>
       </div>
@@ -186,10 +231,26 @@ function SystemMessage() {
 }
 
 function AssistantMessage() {
+  // `ThreadPrimitive.Messages` renders by index, so the boundary instance is
+  // reused for whatever message later occupies the slot. Keyed by message id it
+  // remounts instead of leaving one bad part's failure stuck to position N --
+  // the same reuse hazard `ThoughtGroup` deregisters for.
+  const messageId = useAuiState((state) => state.message.id ?? '');
+
   return (
     <MessagePrimitive.Root className="wotbot-message flex w-full flex-col items-start py-2">
       <div className="w-full min-w-0 text-foreground">
-        <MessagePrimitive.Parts components={assistantComponents} />
+        <ErrorBoundary
+          key={messageId}
+          label="AssistantMessage"
+          fallback={
+            <p className="text-sm text-muted-foreground italic">
+              This message could not be displayed.
+            </p>
+          }
+        >
+          <AssistantParts />
+        </ErrorBoundary>
       </div>
       <div className="mt-1 flex items-center gap-1">
         <AuiIf condition={hasAssistantResponseActions}>
@@ -293,6 +354,8 @@ export function WotbotThread({
     onConfirm: () => Promise<void>;
   } | null;
 }) {
+  const isEmpty = useAuiState((state) => state.thread.isEmpty);
+  const shouldReduceMotion = useReducedMotion();
   const deviceChangeCount = rerunConfirmation?.deviceChangeCount ?? 0;
   const rerunAction =
     rerunConfirmation?.kind === 'edit'
@@ -300,7 +363,12 @@ export function WotbotThread({
       : 'Regenerating this response';
 
   return (
-    <ThreadPrimitive.Root className={cn('flex min-h-0 flex-col', className)}>
+    <ThreadPrimitive.Root
+      className={cn(
+        'grid min-h-0 grid-cols-1 grid-rows-[minmax(0,1fr)_auto]',
+        className,
+      )}
+    >
       {rerunConfirmation ? (
         <ConfirmDialog
           confirmLabel={
@@ -319,7 +387,7 @@ export function WotbotThread({
         />
       ) : null}
 
-      <ThreadPrimitive.Viewport className="relative flex min-h-0 flex-1 flex-col overflow-y-auto px-3">
+      <ThreadPrimitive.Viewport className="relative col-start-1 row-start-1 flex min-h-0 flex-col overflow-y-auto px-3">
         {emptyState ? (
           <ThreadPrimitive.Empty>{emptyState}</ThreadPrimitive.Empty>
         ) : null}
@@ -347,59 +415,80 @@ export function WotbotThread({
         </ThreadPrimitive.ScrollToBottom>
       </ThreadPrimitive.Viewport>
 
-      {error && onRetry ? (
-        <ThreadErrorNotice
-          className="mx-auto mb-2 w-[calc(100%-1.5rem)] max-w-3xl"
-          message={error}
-          onRetry={onRetry}
-          retrying={isRetrying}
-        />
-      ) : null}
-
-      {footer ?? (
-        <ComposerPrimitive.Root className="mx-auto w-full max-w-3xl px-3 pb-3">
-          <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
-            <ComposerPrimitive.Input
-              autoFocus
-              className="max-h-40 min-h-16 w-full resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              placeholder={placeholder}
-              rows={2}
+      {footer ? (
+        <div className="col-start-1 row-start-2">{footer}</div>
+      ) : (
+        <motion.div
+          initial={false}
+          layout="position"
+          transition={
+            shouldReduceMotion
+              ? { layout: { duration: 0 } }
+              : {
+                  layout: {
+                    duration: 0.55,
+                    ease: [0.22, 1, 0.36, 1],
+                  },
+                }
+          }
+          className={cn(
+            'relative z-10 col-start-1 w-full',
+            isEmpty ? 'row-start-1 self-center' : 'row-start-2 self-end',
+          )}
+        >
+          {error && onRetry ? (
+            <ThreadErrorNotice
+              className="mx-auto mb-2 w-[calc(100%-1.5rem)] max-w-3xl"
+              message={error}
+              onRetry={onRetry}
+              retrying={isRetrying}
             />
-            <div className="flex items-center justify-end gap-2 border-t border-border pt-2">
-              {/* Send and Stop share a slot: the primitives render whichever
-                matches the thread's running state. */}
-              <div className="flex items-center gap-2">
-                <ThreadPrimitive.If running={false}>
-                  {actionSlot}
-                  {emptyComposerSlot ? (
-                    <>
-                      <AuiIf condition={hasDraft}>
-                        <ComposerPrimitive.Send asChild>
-                          <Button type="submit">Send</Button>
-                        </ComposerPrimitive.Send>
-                      </AuiIf>
-                      <AuiIf condition={(state) => !hasDraft(state)}>
-                        {emptyComposerSlot}
-                      </AuiIf>
-                    </>
-                  ) : (
-                    <ComposerPrimitive.Send asChild>
-                      <Button type="submit">Send</Button>
-                    </ComposerPrimitive.Send>
-                  )}
-                </ThreadPrimitive.If>
-                <ThreadPrimitive.If running>
-                  <ComposerPrimitive.Cancel asChild>
-                    <Button variant="secondary" type="button">
-                      <Square className="mr-1 size-3" />
-                      Stop
-                    </Button>
-                  </ComposerPrimitive.Cancel>
-                </ThreadPrimitive.If>
+          ) : null}
+
+          <ComposerPrimitive.Root className="mx-auto w-full max-w-3xl px-3 pb-3">
+            <div className="rounded-2xl border border-border bg-background/95 px-3 py-2 shadow-sm transition-[border-color,box-shadow] focus-within:border-ring/60 focus-within:shadow-md">
+              <ComposerPrimitive.Input
+                autoFocus
+                className="max-h-40 min-h-16 w-full resize-none bg-transparent px-1 py-1 text-sm outline-none placeholder:text-muted-foreground"
+                placeholder={placeholder}
+                rows={2}
+              />
+              <div className="flex items-center justify-end gap-2 border-t border-border/80 pt-2">
+                {/* Send and Stop share a slot: the primitives render whichever
+                  matches the thread's running state. */}
+                <div className="flex items-center gap-2">
+                  <ThreadPrimitive.If running={false}>
+                    {actionSlot}
+                    {emptyComposerSlot ? (
+                      <>
+                        <AuiIf condition={hasDraft}>
+                          <ComposerPrimitive.Send asChild>
+                            <Button type="submit">Send</Button>
+                          </ComposerPrimitive.Send>
+                        </AuiIf>
+                        <AuiIf condition={(state) => !hasDraft(state)}>
+                          {emptyComposerSlot}
+                        </AuiIf>
+                      </>
+                    ) : (
+                      <ComposerPrimitive.Send asChild>
+                        <Button type="submit">Send</Button>
+                      </ComposerPrimitive.Send>
+                    )}
+                  </ThreadPrimitive.If>
+                  <ThreadPrimitive.If running>
+                    <ComposerPrimitive.Cancel asChild>
+                      <Button variant="secondary" type="button">
+                        <Square className="mr-1 size-3" />
+                        Stop
+                      </Button>
+                    </ComposerPrimitive.Cancel>
+                  </ThreadPrimitive.If>
+                </div>
               </div>
             </div>
-          </div>
-        </ComposerPrimitive.Root>
+          </ComposerPrimitive.Root>
+        </motion.div>
       )}
     </ThreadPrimitive.Root>
   );
