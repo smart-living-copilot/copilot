@@ -73,6 +73,23 @@ test('images are restricted to named hosts', () => {
   }
 });
 
+test('tile hosts are reachable by fetch, not just by <img>', () => {
+  // WebGL map renderers (maplibre, and so Plotly's map traces) fetch() their
+  // tiles, so an img-src-only allowance renders a blank map.
+  const connectSrc = directive('connect-src');
+
+  for (const host of [
+    'https://tile.openstreetmap.org',
+    'https://*.tile.openstreetmap.org',
+  ]) {
+    assert.ok(directive('img-src').includes(host), `img-src ${host}`);
+    assert.ok(connectSrc.includes(host), `connect-src ${host}`);
+  }
+  // Still no 'self': panels share the app's server, so 'self' would let a panel
+  // call the app's own API.
+  assert.ok(!connectSrc.includes("'self'"));
+});
+
 test('panels cannot navigate, post, or nest frames', () => {
   assert.ok(PANEL_CSP.includes("form-action 'none'"));
   assert.ok(PANEL_CSP.includes("base-uri 'none'"));
