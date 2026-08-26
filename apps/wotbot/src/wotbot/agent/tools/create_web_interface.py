@@ -108,6 +108,11 @@ async def create_web_interface(
     all network egress is blocked by CSP; the only way to reach devices is
     `window.wot`. Inline your own CSS/JS.
 
+    WebGL and WebXR both work in the panel frame: `navigator.xr` is available
+    for immersive-vr and immersive-ar sessions (entering one still needs a user
+    gesture, e.g. a button in your markup). Load three.js or similar from the
+    CDNs above; any model or texture must come from those CDNs or a `data:` URI.
+
     Declare every Thing affordance the interface uses in `capabilities`; the UI
     rejects any interaction outside this allowlist. Inspect affordance schemas
     with wot_get_property/wot_get_action first so names and value shapes are
