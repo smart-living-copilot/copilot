@@ -4,11 +4,6 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# Patch node-wot's HTTP client to include response body in error messages.
-# The default implementation only uses response.statusText which is often empty.
-COPY patch-node-wot.cjs ./
-RUN node patch-node-wot.cjs
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
