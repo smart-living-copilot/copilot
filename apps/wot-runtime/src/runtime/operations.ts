@@ -349,12 +349,28 @@ function resolveMcpEndpoint(document: ThingDescription, actionName: string, form
   if (typeof href !== 'string' || !href) {
     throw createRuntimeError('invalid_argument', `Form href is missing for action '${actionName}'`);
   }
-  // Resolve relative href against the document's base URL
+  // Resolve relative href against the document's base URL.
+  //
+  // NOTE: `new URL(href, '')` THROWS "Invalid URL" in Node.js even when `href`
+  // is already absolute, so we must not pass an empty base. If the href is
+  // already an absolute URL we can use it directly; only relative hrefs need a
+  // base, and if none is available we report a clear error instead of throwing.
   const base = typeof document.base === 'string' ? document.base : '';
+  if (base !== '') {
+    try {
+      return new URL(href, base).href;
+    } catch {
+      throw createRuntimeError('invalid_argument', `Cannot resolve MCP endpoint href='${href}' base='${base}'`);
+    }
+  }
+  // No base available: the href must be absolute for us to resolve it.
   try {
-    return new URL(href, base).href;
+    return new URL(href).href;
   } catch {
-    throw createRuntimeError('invalid_argument', `Cannot resolve MCP endpoint href='${href}' base='${base}'`);
+    throw createRuntimeError(
+      'invalid_argument',
+      `Cannot resolve MCP endpoint href='${href}': no document base and href is not an absolute URL`,
+    );
   }
 }
 

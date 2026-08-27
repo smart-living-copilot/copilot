@@ -38,18 +38,55 @@ You can create TDs from:
 4. Confirm the creation and explain the affordances.
 
 ### From OpenAPI / Swagger
-1. Ask the user to provide the OpenAPI spec as either:
-   - A URL to fetch it from (you can use run_code with `httpx` or `requests` to
-     fetch it).
-   - The raw JSON/YAML document pasted into the chat.
-2. Parse the spec and map OpenAPI paths to WoT affordances:
-   - GET endpoints that return a value -> properties
-   - POST/PUT/DELETE endpoints with side effects -> actions
-   - Webhooks or event subscriptions -> events
-   Include the full URL patterns, input schemas, response schemas, and protocol
-   bindings (forms with "application/json" content type and the method).
-3. Build a complete TD JSON document with `"source": "auto-discovered"`.
-4. Use things_upsert(thing_id, document) to store the TD.
+1. **Fetch the spec** — the `run_code` sandbox has NO internet access. Use
+   the WoT runtime instead:
+   a. Create a **temporary Thing** with `nosec` security and a single
+      `fetchSpec` action that GETs the spec URL. Use `urllib` inside the
+      runtime to fetch it:
+      ```python
+      things_upsert("urn:temp:fetch-spec", {
+        "@context": "https://www.w3.org/2022/wot/td/v1.1",
+        "id": "urn:temp:fetch-spec",
+        "title": "Spec Fetcher",
+        "security": ["nosec"],
+        "securityDefinitions": { "nosec_sc": { "scheme": "nosec" } },
+        "actions": {
+          "fetchSpec": {
+            "forms": [{
+              "href": "<spec-url>",
+              "contentType": "application/json",
+              "op": ["invokeaction"],
+              "htv:methodName": "GET"
+            }]
+          }
+        }
+      })
+      ```
+   b. Invoke it: `wot_invoke_action("urn:temp:fetch-spec", "fetchSpec")`
+   c. **Delete the temporary Thing**: `things_delete("urn:temp:fetch-spec")`
+
+2. **Parse the spec in run_code** — pass the raw spec JSON string to
+   `run_code` as a Python variable. The code-executor has no size limit
+   and does NOT go through the LLM API, so large specs are fine.
+   Inside run_code, parse the OpenAPI spec and build the complete TD JSON.
+   Print only the final TD JSON as output.
+
+   The code should:
+   - Parse the JSON spec
+   - Extract `servers[0].url` as `base`
+   - Map each path to properties (GET) or actions (POST/PUT/DELETE/PATCH)
+   - Use `nosec` security for public APIs
+   - Print the final TD JSON
+
+3. **Security**: ALWAYS use `"nosec"` for public APIs. The runtime
+   **caches** Thing Descriptions — changing security on an existing ID
+   will NOT take effect. If you make a mistake, create a NEW Thing with
+   a different ID. Never use OAuth2 or bearer unless the user explicitly
+   provides credentials.
+
+4. Read the printed TD from run_code, validate with `things_validate`,
+   then store with `things_upsert` using a unique id.
+
 5. Confirm the creation and explain what was mapped.
 
 ### From an external dataspace / EDC connector / federated catalogue
