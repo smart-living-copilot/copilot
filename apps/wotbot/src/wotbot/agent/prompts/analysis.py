@@ -91,6 +91,9 @@ Pre-loaded globals (do NOT import):
 - wot.write_property(thing_id, property_name, value)
 
 Pass native Python values to wot calls. Keep uri_variables separate from input.
+Binary action results are native ``bytes`` in run_code. Pass archive bytes to
+``io.BytesIO`` before opening them with zipfile or a dataframe reader; do not
+construct or fetch a separate download URL.
 Never call datetime.now() inside run_code -- the executor's clock is not the
 user's. When you need the current time, call the get_current_time tool and
 copy its "Timestamp (s)" / "Timestamp (ms)" values into your code.

@@ -8,6 +8,9 @@ import wotModbus from '@node-wot/binding-modbus';
 import wotMqtt from '@node-wot/binding-mqtt';
 import wotCore from '@node-wot/core';
 
+import { McpClient } from '../bindings/mcp/client.js';
+import { createMcpClientFactories } from '../bindings/mcp/factory.js';
+import { ProviderClientFactory } from '../bindings/provider/factory.js';
 import { config } from '../config/env.js';
 import log from '../logger/index.js';
 import { formatError } from '../services/errors.js';
@@ -35,6 +38,9 @@ const supportedProtocols = [
   'modbus+tcp',
   'mqtt',
   'mqtts',
+  'mcp+http',
+  'mcp+https',
+  'wotbot+provider',
 ] as const;
 
 let wotInstancePromise: Promise<any> | null = null;
@@ -153,6 +159,7 @@ function installCredentialPatches(): void {
   installClientCredentialPatch(HttpClient);
   installClientCredentialPatch(CoapsClient);
   installClientCredentialPatch(MqttClient);
+  installClientCredentialPatch(McpClient);
 }
 
 /**
@@ -167,8 +174,12 @@ function registerClientFactories(servient: any): void {
   servient.addClientFactory(new MBusClientFactory());
   servient.addClientFactory(new ModbusClientFactory());
   servient.addClientFactory(new MqttClientFactory());
-  servient.addClientFactory(new HttpsClientFactory());
   servient.addClientFactory(new MqttsClientFactory());
+
+  for (const factory of createMcpClientFactories()) {
+    servient.addClientFactory(factory);
+  }
+  servient.addClientFactory(new ProviderClientFactory());
 }
 
 /**
@@ -216,6 +227,14 @@ export async function getWotClient(): Promise<any> {
   }
 
   return wotInstancePromise;
+}
+
+/**
+ * Returns the running servient, for operations that need a protocol client
+ * directly rather than a consumed Thing.
+ */
+export function getServient(): any {
+  return servientInstance;
 }
 
 /**

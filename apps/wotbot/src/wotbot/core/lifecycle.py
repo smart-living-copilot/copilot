@@ -15,6 +15,7 @@ from wotbot.catalog.events import (
 from wotbot.core.bootstrap import BackendBootstrapService
 from wotbot.core.config import Settings
 from wotbot.core.database import DatabaseConnection, get_session_factory
+from wotbot.discovery.store import reset_clients as reset_discovery_clients
 from wotbot.search import ThingSearchService, set_active_search_service
 
 
@@ -145,4 +146,5 @@ async def start_backend_runtime(
 async def shutdown_backend_runtime(app: FastAPI) -> None:
     await stop_search_service(app)
     await stop_thing_event_outbox(app)
+    await reset_discovery_clients()
     app.state.event_publisher.close()

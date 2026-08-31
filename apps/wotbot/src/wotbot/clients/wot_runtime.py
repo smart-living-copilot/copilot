@@ -40,9 +40,20 @@ class WotRuntimeClient:
                 default=20,
             )
         )
+        self._action_timeout = aiohttp.ClientTimeout(
+            total=_setting_value(
+                settings,
+                "WOT_RUNTIME_ACTION_TIMEOUT_SECONDS",
+                "wot_runtime_action_timeout_seconds",
+                default=135,
+            )
+        )
 
     async def get_runtime_health(self) -> dict[str, Any]:
         return await self._request("GET", "/health")
+
+    async def describe_endpoint(self, *, url: str) -> dict[str, Any]:
+        return await self._request("POST", "/runtime/describe-endpoint", {"url": url})
 
     async def read_property(
         self,
@@ -113,6 +124,7 @@ class WotRuntimeClient:
                 "form_index": form_index,
                 "idempotency_key": idempotency_key,
             },
+            timeout=self._action_timeout,
         )
 
     async def observe_property(
@@ -210,5 +222,5 @@ class WotRuntimeClient:
                     detail or f"wot_runtime request failed with status {response.status}"
                 )
             if not isinstance(data, dict):
-                raise ValueError("wot_runtime returned a non-object response")
+                raise TypeError("wot_runtime returned a non-object response")
             return data

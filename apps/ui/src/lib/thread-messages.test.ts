@@ -80,9 +80,17 @@ test('marks an errored tool result', () => {
 test('a whole turn becomes one message with its parts in order', () => {
   const out = toThreadMessages([
     { type: 'human', content: 'go' },
-    { type: 'ai', content: '', tool_calls: [{ id: 'a', name: 't1', args: {} }] },
+    {
+      type: 'ai',
+      content: '',
+      tool_calls: [{ id: 'a', name: 't1', args: {} }],
+    },
     { type: 'tool', tool_call_id: 'a', content: '{"ok":1}' },
-    { type: 'ai', content: '', tool_calls: [{ id: 'b', name: 't2', args: {} }] },
+    {
+      type: 'ai',
+      content: '',
+      tool_calls: [{ id: 'b', name: 't2', args: {} }],
+    },
     { type: 'tool', tool_call_id: 'b', content: '{"ok":2}' },
     { type: 'ai', content: 'all done' },
   ]);
@@ -112,15 +120,18 @@ test("text keeps its position among the turn's tool calls", () => {
       content: 'thinking',
       tool_calls: [{ id: 'a', name: 't1', args: {} }],
     },
-    { type: 'ai', content: '', tool_calls: [{ id: 'b', name: 't2', args: {} }] },
+    {
+      type: 'ai',
+      content: '',
+      tool_calls: [{ id: 'b', name: 't2', args: {} }],
+    },
   ]);
 
   assert.equal(out.length, 1);
-  assert.deepEqual(parts(out[0]).map((part) => part.type), [
-    'text',
-    'tool-call',
-    'tool-call',
-  ]);
+  assert.deepEqual(
+    parts(out[0]).map((part) => part.type),
+    ['text', 'tool-call', 'tool-call'],
+  );
   assert.deepEqual(
     groupCalls(out[0]).map((c) => c.id),
     ['a', 'b'],
@@ -262,7 +273,11 @@ test('reasoning reported beside content becomes a reasoning part', () => {
 });
 
 test('blank or absent detached reasoning adds no part', () => {
-  for (const additional_kwargs of [{ reasoning: '   ' }, { reasoning: 42 }, {}]) {
+  for (const additional_kwargs of [
+    { reasoning: '   ' },
+    { reasoning: 42 },
+    {},
+  ]) {
     const [message] = toThreadMessages([
       { type: 'ai', content: 'Hi.', additional_kwargs },
     ]);
@@ -272,7 +287,11 @@ test('blank or absent detached reasoning adds no part', () => {
 
 test('detached reasoning does not split a coalesced tool run', () => {
   const messages = toThreadMessages([
-    { type: 'ai', content: '', tool_calls: [{ id: 'a', name: 'one', args: {} }] },
+    {
+      type: 'ai',
+      content: '',
+      tool_calls: [{ id: 'a', name: 'one', args: {} }],
+    },
     {
       type: 'ai',
       content: '',
@@ -308,7 +327,9 @@ test('every step of a tool loop keeps its reasoning', () => {
   ]);
 
   const reasoning = messages
-    .flatMap((message) => message.content as Array<{ type: string; text?: string }>)
+    .flatMap(
+      (message) => message.content as Array<{ type: string; text?: string }>,
+    )
     .filter((part) => part.type === 'reasoning')
     .map((part) => part.text);
 
@@ -326,7 +347,11 @@ test('reasoning after a run closes is not appended to the closed run', () => {
     },
     { type: 'ai', content: 'Done.' },
     { type: 'human', content: 'again' },
-    { type: 'ai', content: 'Second answer.', additional_kwargs: { reasoning: 'after' } },
+    {
+      type: 'ai',
+      content: 'Second answer.',
+      additional_kwargs: { reasoning: 'after' },
+    },
   ]);
 
   const last = messages[messages.length - 1];

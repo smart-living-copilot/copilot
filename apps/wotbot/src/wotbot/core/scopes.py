@@ -7,6 +7,7 @@ API_KEY_SCOPES: tuple[str, ...] = (
     "search:read",
     "credentials:read",
     "credentials:write",
+    "sources:manage",
     "keys:manage",
 )
 

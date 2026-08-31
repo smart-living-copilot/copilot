@@ -7,19 +7,19 @@ from typing import Any
 
 from fastapi import HTTPException
 from langchain_core.tools import tool
+from langgraph.types import interrupt
 from sqlalchemy.orm import Session
 
 from wotbot.catalog import serialize_thing, validate_document
 from wotbot.catalog.ids import decode_thing_id
 from wotbot.catalog.service import ThingCatalogQueryService, ThingCatalogWriteService
+from wotbot.catalog.store import get_thing as get_thing_record
 from wotbot.clients.rdf_service import RdfServiceClient
 from wotbot.clients.wot_runtime import WotRuntimeClient
 from wotbot.core.config import get_settings as get_registry_settings
 from wotbot.core.database import get_session_factory
 from wotbot.rdf.schema import CLASSES_QUERY, PREDICATES_QUERY, summarize_schema
 from wotbot.search import get_active_search_service
-
-from .set_thing_credential import _get_thing_record
 
 
 def _tool_error(exc: HTTPException) -> ValueError:
@@ -55,6 +55,15 @@ async def _run_with_session(operation: Callable[[Session], dict[str, Any]]) -> d
                 raise _tool_error(exc) from exc
 
     return await asyncio.to_thread(run)
+
+
+async def _get_thing_record(thing_id: str):
+    def fetch():
+        session_factory = get_session_factory()
+        with session_factory() as session:
+            return get_thing_record(session, thing_id)
+
+    return await asyncio.to_thread(fetch)
 
 
 def _runtime_client() -> WotRuntimeClient:
@@ -143,20 +152,20 @@ async def things_list(
     query: str = "",
     page: int = 1,
     per_page: int = 25,
-    source: str = "",
+    origin_kind: str = "",
 ) -> dict[str, Any]:
     """List stored Thing Descriptions from the registry catalog. Optionally
-    filter by source (e.g. "manual" or "auto-discovered")."""
+    filter by origin kind ("manual" or "discovery")."""
     normalized_page = _bounded_int(page, default=1, minimum=1, maximum=1_000_000)
     normalized_per_page = _bounded_int(per_page, default=25, minimum=1, maximum=200)
-    normalized_source = source.strip() or None
+    normalized_origin_kind = origin_kind.strip() or None
 
     return await _run_with_session(
         lambda session: ThingCatalogQueryService(session).list_owned_things(
             query=query,
             page=normalized_page,
             per_page=normalized_per_page,
-            source=normalized_source,
+            origin_kind=normalized_origin_kind,
         )
     )
 
@@ -317,27 +326,29 @@ def _looks_like_abstract_virtual_thing(document: dict[str, Any]) -> bool:
 
 @tool
 async def things_delete(thing_id: str) -> dict[str, str]:
-    """Delete a Thing Description by id. Only auto-discovered Things
-    (source='auto-discovered') can be deleted through this tool. Manually
-    created Things must be deleted by the user through the UI."""
+    """Delete a discovered Thing by id. Manually created Things must be
+    deleted by the user through the UI."""
     decoded_thing_id = decode_thing_id(thing_id)
 
-    # Only allow deletion of auto-discovered Things
+    # Only allow deletion of provider-discovered Things.
     thing_record = await _get_thing_record(decoded_thing_id)
     if thing_record is None:
-        return {"id": decoded_thing_id, "status": "error", "message": f"Thing '{thing_id}' not found in catalog"}
-    if thing_record.source != "auto-discovered":
+        return {
+            "id": decoded_thing_id,
+            "status": "error",
+            "message": f"Thing '{thing_id}' not found in catalog",
+        }
+    if thing_record.origin_kind != "discovery":
         return {
             "id": decoded_thing_id,
             "status": "error",
             "message": (
-                f"Thing '{thing_id}' has source='{thing_record.source}'. "
-                "Only auto-discovered Things (source='auto-discovered') can be "
+                f"Thing '{thing_id}' has origin kind '{thing_record.origin_kind}'. "
+                "Only discovered Things can be "
                 "deleted through this tool. Manually created Things must be "
                 "deleted by the user through the UI."
             ),
         }
-
     await _run_with_session(
         lambda session: (
             ThingCatalogWriteService(session).delete(decoded_thing_id)
@@ -412,10 +423,7 @@ async def wot_invoke_action(
     ``input`` field. The runtime automatically injects stored credentials
     (bearer tokens, API keys, etc.) from the credential store when it
     invokes the action. Tokens must be stored in advance via the
-    credentials API (PUT /api/credentials/{thing_id}/{security_name})
-    with the scheme and credential payload. Use things_get first to
-    discover which security definitions the Thing requires, then store
-    the matching credentials before invoking.
+    secure credential UI. Never ask the user to paste a secret into chat.
 
     IMPORTANT — input format: Pass ``input`` as a Python dict/object, NOT
     as a JSON string. If you pass a JSON string, the runtime will send it
@@ -425,18 +433,38 @@ async def wot_invoke_action(
     # Auto-parse JSON string inputs to dict — the agent sometimes passes
     # a JSON string instead of a proper Python dict, which causes 400 errors.
     parsed_input = _maybe_parse_json_string(input)
-    return _decoded_runtime_value(
-        await _runtime_client().invoke_action(
-            thing_id=thing_id,
-            action_name=action_name,
-            input=parsed_input,
-            input_content_type=input_content_type,
-            input_base64=input_base64,
-            uri_variables=uri_variables,
-            form_index=form_index,
-            idempotency_key=idempotency_key,
+
+    async def invoke() -> Any:
+        return _decoded_runtime_value(
+            await _runtime_client().invoke_action(
+                thing_id=thing_id,
+                action_name=action_name,
+                input=parsed_input,
+                input_content_type=input_content_type,
+                input_base64=input_base64,
+                uri_variables=uri_variables,
+                form_index=form_index,
+                idempotency_key=idempotency_key,
+            )
         )
-    )
+
+    result = await invoke()
+    if _is_credential_challenge(result):
+        answer = interrupt({"kind": "credential", **result})
+        if not isinstance(answer, dict) or answer.get("status") != "credential_saved":
+            return {**result, "status": "credential_cancelled"}
+        # LangGraph restarts this tool from the beginning when the interrupt is
+        # resumed. The invocation above is therefore already the one allowed
+        # retry. Reaching this line means that retry was rejected again.
+        return {**result, "retry_exhausted": True}
+    return result
+
+
+def _is_credential_challenge(value: Any) -> bool:
+    return isinstance(value, dict) and value.get("status") in {
+        "credential_required",
+        "credential_rejected",
+    }
 
 
 @tool

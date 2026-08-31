@@ -83,6 +83,11 @@ def _build_command(raw: Any) -> Command | None:
     return Command(**kwargs) if kwargs else None
 
 
+def _is_interrupt_resume(raw: Any) -> bool:
+    """Return whether this request is resuming a deliberate graph interrupt."""
+    return isinstance(raw, dict) and raw.get("resume") is not None
+
+
 @dataclass(slots=True)
 class _ThreadLockEntry:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -347,6 +352,7 @@ async def stream_run(
     config = {"configurable": configurable}
 
     graph_input = _build_command(command) or input_data
+    resumes_interrupt = _is_interrupt_resume(command)
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     partial = _PartialAssistantText()
 
@@ -357,7 +363,11 @@ async def stream_run(
             async with registry.thread_lock(thread_id):
                 # Heal a prior cancellation that may still be finalizing in a
                 # background task before this run appends another user turn.
-                await _finalize_interrupted_run(graph, thread_id)
+                # A LangGraph interrupt intentionally leaves the turn open;
+                # repairing it here would replace the pending tool result and
+                # make the resume command a no-op.
+                if not resumes_interrupt:
+                    await _finalize_interrupted_run(graph, thread_id)
                 async for namespace, mode, payload in graph.astream(
                     graph_input,
                     config=config,

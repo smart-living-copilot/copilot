@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -139,6 +139,10 @@ def delete_credential(
     session.delete(credential)
     session.flush()
     return True
+
+
+def delete_credentials_for_thing(session: Session, thing_id: str) -> None:
+    session.execute(delete(ThingCredential).where(ThingCredential.thing_id == thing_id))
 
 
 def get_runtime_secrets(session: Session) -> dict[str, Any]:

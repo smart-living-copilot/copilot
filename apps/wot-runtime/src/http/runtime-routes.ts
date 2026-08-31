@@ -1,7 +1,7 @@
-import axios from 'axios';
 import { Router } from 'express';
 
 import {
+  handleDescribeEndpoint,
   handleGetRuntimeHealth,
   handleInvokeAction,
   handleReadProperty,
@@ -108,40 +108,9 @@ function buildUriVariables(body: JsonRecord): JsonRecord[] | undefined {
 }
 
 /**
- * Fetches payload content from a URL and returns it as a payload envelope.
+ * Builds a WoT payload envelope from inline or base64-encoded request fields.
  */
-async function fetchUrlPayload(
-  url: string,
-  contentTypeOverride?: string,
-): Promise<{ body: Buffer; contentType: string }> {
-  try {
-    const response = await axios.get(url, {
-      responseType: 'arraybuffer',
-      timeout: 30_000,
-      maxContentLength: 50 * 1024 * 1024,
-    });
-    const contentType =
-      contentTypeOverride ||
-      String(response.headers['content-type'] || 'application/octet-stream')
-        .split(';')[0]
-        .trim();
-    return {
-      body: Buffer.from(response.data),
-      contentType,
-    };
-  } catch (error: any) {
-    const status = error?.response?.status;
-    const message = status
-      ? `URL fetch failed with HTTP ${status}: ${url}`
-      : `URL fetch failed: ${error?.message || 'unknown error'} for ${url}`;
-    throw new Error(message, { cause: error });
-  }
-}
-
-/**
- * Builds a WoT payload envelope from request body fields, supporting inline values, base64-encoded binary data, and URL-based input.
- */
-async function buildPayloadEnvelope(
+function buildPayloadEnvelope(
   body: JsonRecord,
   valueKey: string,
   base64Key: string,
@@ -149,30 +118,9 @@ async function buildPayloadEnvelope(
   snakeValueKey: string,
   snakeBase64Key: string,
   snakeContentTypeKey: string,
-  options?: {
-    allowNull?: boolean;
-    urlKey?: string;
-    snakeUrlKey?: string;
-  },
-): Promise<JsonRecord | undefined> {
+  options?: { allowNull?: boolean },
+): JsonRecord | undefined {
   const contentType = getOptionalStringField(body, contentTypeKey, snakeContentTypeKey) || undefined;
-
-  const urlValue =
-    options?.urlKey && options?.snakeUrlKey
-      ? getOptionalStringField(body, options.urlKey, options.snakeUrlKey)
-      : undefined;
-
-  if (urlValue) {
-    const base64Value = getOptionalStringField(body, base64Key, snakeBase64Key);
-    const inlineValue = body[valueKey] ?? body[snakeValueKey];
-    if (base64Value || inlineValue !== undefined) {
-      throw new Error(
-        `Cannot combine ${options!.snakeUrlKey} with inline value or base64; provide exactly one input source`,
-      );
-    }
-    const fetched = await fetchUrlPayload(urlValue, contentType);
-    return encodePayloadEnvelope(fetched.body, fetched.contentType);
-  }
 
   const base64Value = getOptionalStringField(body, base64Key, snakeBase64Key);
   if (base64Value) {
@@ -268,6 +216,18 @@ export function createRuntimeRouter(): Router {
     }
   });
 
+  router.post('/describe-endpoint', async (request, response) => {
+    const body = isPlainObject(request.body) ? request.body : {};
+    try {
+      const url = getStringField(body, 'url', 'url');
+      const result = await handleDescribeEndpoint({ url });
+
+      response.json({ url, document: result.document });
+    } catch (error) {
+      sendError(response, error);
+    }
+  });
+
   router.post('/read-property', async (request, response) => {
     const body = isPlainObject(request.body) ? request.body : {};
     try {
@@ -302,7 +262,7 @@ export function createRuntimeRouter(): Router {
 
       const result = await handleWriteProperty({
         target: buildTarget(thingId, propertyName, 'OPERATION_TYPE_WRITE_PROPERTY'),
-        input: await buildPayloadEnvelope(
+        input: buildPayloadEnvelope(
           body,
           'value',
           'valueBase64',
@@ -310,7 +270,7 @@ export function createRuntimeRouter(): Router {
           'value',
           'value_base64',
           'value_content_type',
-          { allowNull: true, urlKey: 'valueUrl', snakeUrlKey: 'value_url' },
+          { allowNull: true },
         ),
         uriVariables: buildUriVariables(body),
         formSelector: buildFormSelector(body),
@@ -335,7 +295,7 @@ export function createRuntimeRouter(): Router {
 
       const result = await handleInvokeAction({
         target: buildTarget(thingId, actionName, 'OPERATION_TYPE_INVOKE_ACTION'),
-        input: await buildPayloadEnvelope(
+        input: buildPayloadEnvelope(
           body,
           'input',
           'inputBase64',
@@ -343,7 +303,6 @@ export function createRuntimeRouter(): Router {
           'input',
           'input_base64',
           'input_content_type',
-          { urlKey: 'inputUrl', snakeUrlKey: 'input_url' },
         ),
         uriVariables: buildUriVariables(body),
         formSelector: buildFormSelector(body),
@@ -402,7 +361,7 @@ export function createRuntimeRouter(): Router {
         await ensureEventSubscription({
           target: buildTarget(thingId, eventName, 'OPERATION_TYPE_SUBSCRIBE_EVENT'),
           uriVariables: buildUriVariables(body),
-          subscriptionInput: await buildPayloadEnvelope(
+          subscriptionInput: buildPayloadEnvelope(
             body,
             'subscriptionInput',
             'subscriptionInputBase64',
@@ -410,7 +369,6 @@ export function createRuntimeRouter(): Router {
             'subscription_input',
             'subscription_input_base64',
             'subscription_input_content_type',
-            { urlKey: 'subscriptionInputUrl', snakeUrlKey: 'subscription_input_url' },
           ),
           formSelector: buildFormSelector(body),
         }),
@@ -426,7 +384,7 @@ export function createRuntimeRouter(): Router {
       response.json(
         await removeSubscription({
           subscriptionId: getStringField(body, 'subscriptionId', 'subscription_id'),
-          cancellationInput: await buildPayloadEnvelope(
+          cancellationInput: buildPayloadEnvelope(
             body,
             'cancellationInput',
             'cancellationInputBase64',

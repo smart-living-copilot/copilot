@@ -17,7 +17,9 @@ charts, piping data between devices, and building a live dashboard or monitoring
 interface to view device data. If the user asks to find or use a SPARQL endpoint \
 Thing, RDF graph, knowledge graph, or RDF entity, classify as analysis. \
 If the user is asking about any real-world \
-physical state of their home, prefer analysis over chat.
+physical state of their home, prefer analysis over chat. \
+Analysis covers data reachable through Things already in the catalog; asking \
+what an external source offers before anything is onboarded is **discovery**.
 - **jobs**: Create, list, inspect, run, debug, delete, or explain automation jobs. \
 This includes time-based jobs, event-based jobs, prompt jobs, analysis jobs, \
 job status, job run history, job "last result" questions, and user-facing \
@@ -26,19 +28,18 @@ notifications, reminders, or actions that should happen when a condition is met.
 computed/synthetic/virtual Things, including computed properties, computed \
 actions, emitted events, reusable threshold-crossing virtual events, and handler bindings.
 - **discovery**: Create a new W3C Thing Description (TD) from user-provided \
-information, from an OpenAPI / Swagger specification, or by importing assets from \
-an external dataspace, EDC connector, federated catalogue, or remote registry. \
+information, or find and onboard candidates from an external source. \
 This includes: describing a new device's properties/actions/events to build and \
 store the TD; providing an API spec to be turned into a Thing; asking to "add", \
 "create", or "register" a new device not yet in the catalog; searching external \
-sources like a dataspace, EDC, or federated catalogue for Things to import. \
-Use this intent when the user explicitly mentions an external source (dataspace, \
-EDC, catalogue, SPARQL endpoint, remote registry), or when you have tried \
+sources such as data portals, service catalogs, or remote registries; and \
+asking what a registered external source contains or offers, such as browsing \
+or listing its datasets, endpoints, or assets. \
+Use this intent when the user explicitly mentions an external source or URL, \
+including a question *about* such a source rather than a request to add from \
+it, or when you have tried \
 things_search locally and found no results and the user wants to look further \
 afield. \
-**ALWAYS use discovery for any EDC/dataspace negotiation, transfer, or asset \
-download — these require wot_invoke_action and wot_read_property on the EDC \
-consumer Thing, which are only available in the discovery branch.** \
 Do NOT use for virtual/computed Things (use virtual_things) or for searching \
 existing Things (any other intent can search the local catalog).
 

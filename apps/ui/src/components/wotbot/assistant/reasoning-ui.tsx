@@ -33,7 +33,10 @@ import { cn } from '@/lib/utils';
 /** The model writes a bolded title on its first line; use it as the summary. */
 function toStepSummary(text: string): string {
   const firstLine = text.trim().split('\n', 1)[0] ?? '';
-  const heading = firstLine.replace(/^#+\s*/, '').replace(/\*\*/g, '').trim();
+  const heading = firstLine
+    .replace(/^#+\s*/, '')
+    .replace(/\*\*/g, '')
+    .trim();
   return heading.length > 90 ? `${heading.slice(0, 89)}…` : heading;
 }
 
@@ -90,7 +93,10 @@ export function ReasoningPart() {
           >
             <span>{open ? 'Hide details' : 'Details'}</span>
             <ChevronDown
-              className={cn('size-3 transition-transform', open && 'rotate-180')}
+              className={cn(
+                'size-3 transition-transform',
+                open && 'rotate-180',
+              )}
             />
           </Button>
         </CollapsibleTrigger>

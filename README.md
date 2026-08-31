@@ -66,91 +66,47 @@ Note: `POST /api/a2a/message` is a convenience endpoint that runs the message
 via the AG-UI runtime and returns the run events. For richer streaming (SSE)
 use the `/ag-ui` endpoint.
 
-## EDC Dataspace Integration
+## External discovery
 
-WoTBot can interact with Eclipse Dataspace Components (EDC) connectors to
-discover, negotiate, and download datasets from a dataspace. The integration
-is driven by Thing Descriptions — an EDC consumer portal is registered as a
-Thing whose actions (queryCatalog, negotiateContract, initiateTransfer, etc.)
-map to the EDC Management API.
+External catalogs live in a dedicated persistent source registry, separate from
+the Thing catalog. The agent first uses `sources_search`, then searches exactly
+one selected source with `discover_external`, and finally uses
+`onboard_candidate` to create a resource Thing.
 
-### Thing Description structure
+Built-in providers cover ToolHive, uData, bounded DCAT catalogs, the EDC v3
+Management API, and direct OpenAPI 3.0/3.1 or Swagger 2.0 documents. A portal
+such as `https://data.public.lu/en/` is detected through
+the generic uData probe; there is no portal-specific handler. ToolHive, EDC,
+private endpoints, and sources that cannot be detected are registered explicitly
+through the dedicated Sources page or API. Chat-initiated registration always
+opens the same confirmation form before probing or persistence.
 
-The EDC consumer portal Thing (`urn:smart-living:dataspace:edc-consumer`)
-exposes the full dataspace lifecycle:
+The source record contains provider configuration, network policy, semantic
+metadata, and the required security scheme. Secret values are entered in the
+source credential dialog and stored separately; they never pass through chat or
+action inputs. Sources are not Thing Descriptions, are not semantically indexed
+as Things, and are never created at startup.
 
-1. **Discover** — `searchFederatedCatalog` / `queryCatalog` to find datasets
-2. **Negotiate** — `negotiateContract` with an ODRL policy, poll `contractNegotiation`
-3. **Transfer** — `initiateTransfer` (HttpData-PULL), get EDR via `edrDataAddress`
-4. **Download** — `downloadAsset` with the EDR endpoint and authorization token
+Source search results are temporary and scoped to the conversation. Onboarding
+one selected result creates one resource Thing linked to its trusted source record:
+a dataset Thing for uData/DCAT, an MCP-backed Thing for ToolHive, or an asset
+Thing for EDC. An OpenAPI source deterministically groups supported operations
+and compiles the selected group into ordinary HTTP-backed TD actions; the raw
+specification never enters model context. Generated OpenAPI Things can be
+regenerated explicitly from their detail page after reviewing a bounded diff.
+Each downloadable dataset distribution becomes a descriptive,
+metadata-rich TD action; an EDC asset exposes the same action-based interaction
+shape. Invoking one through the normal WoT runtime returns its binary content.
+Resource selection, negotiation, transfer, temporary capabilities, and upstream
+credentials remain inside the provider binding.
 
-The `downloadAsset` action is special-cased in the wot-runtime: it makes a
-direct HTTP GET request with the EDR bearer token, bypassing node-wot's
-GET-without-body limitation. The authorization value is the raw JWT from the
-EDR (without a `"Bearer "` prefix).
+The opt-in live smoke exercises the complete Luxembourg lifecycle against the
+public portal and the integration Postgres/Valkey services:
 
-
-## MCP (Model Context Protocol) Integration
-
-WoTBot supports MCP servers as first-class Things. Any MCP server with a
-Streamable HTTP transport can be registered as a Thing Description whose
-actions have `mcp:tool` form bindings. The wot-runtime transparently routes
-`wot_invoke_action` calls through JSON-RPC 2.0 to the MCP server.
-
-### Architecture
-
-```
-Agent: wot_invoke_action("urn:edc:mcp:tx-consumer-portal", "get_catalog", {...})
-  │
-  ▼
-wot-runtime → detects "mcp:tool" in the form → JSON-RPC 2.0 call
-  │
-  ├─ POST {jsonrpc:"2.0", method:"tools/call", params:{name:"<tool>", arguments:{...}}}
-  │   to the MCP server endpoint
-  │
-  ▼
-MCP Server → returns SSE response → runtime extracts content → agent
-```
-
-### Session management
-
-The wot-runtime automatically manages MCP sessions:
-
-1. **`ensureMcpSession()`** — sends `initialize` JSON-RPC call, caches the
-   `mcp-session-id` header value per endpoint
-2. **`mcpCall()`** — sends `tools/call` with the session ID, handles SSE
-   (`event: message` / `data: {...}`) responses
-3. **202 Accepted** — if the server returns 202 (Streamable HTTP), the
-   runtime polls via GET to retrieve the result
-4. Sessions are reused across multiple tool calls within the same runtime
-   lifetime
-
-### Thing Description format
-
-Add an MCP server to the catalog by creating a Thing Description with
-`mcp:tool` on each action form:
-
-```json
-{
-  "@context": [
-    "https://www.w3.org/2022/wot/td/v1.1",
-    { "mcp": "https://modelcontextprotocol.io/specification/2025-03-26#" }
-  ],
-  "id": "urn:mcp:my-server",
-  "title": "My MCP Server",
-  "actions": {
-    "my_tool": {
-      "title": "My Tool",
-      "input": { "type": "object", "properties": { ... } },
-      "forms": [{
-        "href": "http://mcp-server:8081/mcp",
-        "contentType": "application/json",
-        "op": ["invokeaction"],
-        "mcp:tool": "my_tool"
-      }]
-    }
-  }
-}
+```bash
+cd apps/wotbot
+RUN_EXTERNAL_DISCOVERY_TESTS=1 .venv/bin/pytest -q \
+  tests/integration/test_external_discovery_live.py
 ```
 
 

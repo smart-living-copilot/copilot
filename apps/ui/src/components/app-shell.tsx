@@ -122,6 +122,8 @@ function useBreadcrumbs(): BreadcrumbSegment[] {
     } else if (pathname !== '/things') {
       segments.push({ label: 'Detail' });
     }
+  } else if (pathname.startsWith('/sources')) {
+    segments.push({ label: 'Sources', href: '/sources' });
   } else if (pathname.startsWith('/jobs')) {
     segments.push({ label: 'Jobs', href: '/jobs' });
 

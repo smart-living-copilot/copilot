@@ -332,6 +332,7 @@ export function WotbotThread({
   footer,
   isRetrying,
   onRetry,
+  pendingSlot,
   placeholder = 'Type your message...',
   rerunConfirmation,
 }: {
@@ -346,6 +347,13 @@ export function WotbotThread({
   footer?: ReactNode;
   isRetrying?: boolean;
   onRetry?: () => void;
+  /**
+   * Rendered as the last item of the transcript, after the messages.
+   *
+   * A suspended run's prompt belongs where the turn that raised it ended, so
+   * it scrolls with the conversation instead of floating above it.
+   */
+  pendingSlot?: ReactNode;
   placeholder?: string;
   rerunConfirmation?: {
     deviceChangeCount: number;
@@ -401,6 +409,7 @@ export function WotbotThread({
               EditComposer,
             }}
           />
+          {pendingSlot}
         </div>
 
         <ThreadPrimitive.ScrollToBottom asChild>

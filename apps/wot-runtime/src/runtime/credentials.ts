@@ -34,7 +34,11 @@ type RuntimeSecretsTarget = {
  */
 type ClientSecurityPatchTarget = {
   prototype: {
-    setSecurity?: (metadata: unknown, credentials: unknown) => unknown;
+    // Deliberately `any` rather than `unknown`: the patch is generic over client
+    // classes whose setSecurity signatures differ (node-wot's bindings arrive
+    // untyped, McpClient declares the precise ProtocolClient signature), and
+    // `unknown` parameters are contravariant against every concrete one.
+    setSecurity?: (metadata: any, credentials: any) => unknown;
   };
 };
 

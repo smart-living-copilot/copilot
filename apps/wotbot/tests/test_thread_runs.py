@@ -23,11 +23,12 @@ from langchain_core.messages import (
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import START, StateGraph
 from langgraph.graph.message import add_messages
+from langgraph.types import interrupt
 
 from wotbot.threads.runs import (
     RunRegistry,
-    _interrupted_turn_updates,
     _event_name,
+    _interrupted_turn_updates,
     fork_before_message,
     stream_run,
 )
@@ -304,6 +305,61 @@ async def test_completed_run_syncs_thread_title():
 
     assert frames
     assert synced == [("t-title", "Name this thread")]
+
+
+@pytest.mark.anyio
+async def test_resume_command_preserves_pending_interrupt():
+    async def approve(_state: _State) -> dict[str, Any]:
+        answer = interrupt({"kind": "source_registration"})
+        return {"messages": [AIMessage(content=f"registered {answer['source_id']}")]}
+
+    builder = StateGraph(_State)
+    builder.add_node("approve", approve)
+    builder.add_edge(START, "approve")
+    graph = builder.compile(checkpointer=InMemorySaver())
+    registry = RunRegistry()
+    thread_id = "t-source-registration"
+
+    first_events = [
+        event
+        async for frame in stream_run(
+            graph=graph,
+            registry=registry,
+            thread_id=thread_id,
+            input_data={"messages": [("human", "register it")]},
+            context=None,
+            command=None,
+            sync_thread=_noop_sync,
+        )
+        for event in _parse_sse([frame])
+    ]
+    assert any(name == "updates" for name, _ in first_events)
+
+    second_events = [
+        event
+        async for frame in stream_run(
+            graph=graph,
+            registry=registry,
+            thread_id=thread_id,
+            input_data=None,
+            context=None,
+            command={
+                "resume": {
+                    "status": "source_registered",
+                    "source_id": "source-openapi",
+                }
+            },
+            sync_thread=_noop_sync,
+        )
+        for event in _parse_sse([frame])
+    ]
+
+    assert not any(name == "error" for name, _ in second_events)
+    messages = (await graph.aget_state({"configurable": {"thread_id": thread_id}})).values[
+        "messages"
+    ]
+    assert messages[-1].content == "registered source-openapi"
+    assert all("interrupted before it finished" not in message.content for message in messages)
 
 
 def test_cancel_is_false_when_no_run_is_active():

@@ -27,12 +27,14 @@ export function CredentialDialog({
   open,
   onOpenChange,
   thingId,
+  sourceId,
   secDef,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  thingId: string;
+  thingId?: string;
+  sourceId?: string;
   secDef: SecurityDefinition;
   onSaved: () => void;
 }) {
@@ -61,17 +63,17 @@ export function CredentialDialog({
     setSaving(true);
 
     try {
-      await httpClient(
-        `/credentials/${encodeURIComponent(thingId)}/${encodeURIComponent(secDef.name)}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            scheme: secDef.scheme,
-            credentials,
-          }),
-        },
-      );
+      const credentialPath = sourceId
+        ? `/discovery/sources/${encodeURIComponent(sourceId)}/credentials/${encodeURIComponent(secDef.name)}`
+        : `/credentials/${encodeURIComponent(thingId || '')}/${encodeURIComponent(secDef.name)}`;
+      await httpClient(credentialPath, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scheme: secDef.scheme,
+          credentials,
+        }),
+      });
       toast.success(`Credentials saved for ${secDef.name}`);
       onSaved();
       onOpenChange(false);

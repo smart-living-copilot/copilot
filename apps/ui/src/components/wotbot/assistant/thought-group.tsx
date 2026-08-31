@@ -108,15 +108,12 @@ export function ThoughtGroup({ children }: { children: ReactNode }) {
   // A failure opens the block as soon as it arrives. Once the user explicitly
   // collapses it, keep respecting that choice instead of forcing it back open.
   const isExpanded = isManuallyExpanded || (hasError && shouldAutoExpandError);
-  const handleExpandedChange = useCallback(
-    (open: boolean) => {
-      setIsManuallyExpanded(open);
-      if (!open) {
-        setShouldAutoExpandError(false);
-      }
-    },
-    [],
-  );
+  const handleExpandedChange = useCallback((open: boolean) => {
+    setIsManuallyExpanded(open);
+    if (!open) {
+      setShouldAutoExpandError(false);
+    }
+  }, []);
 
   const detail = formatDetail(toolIds.size, errorIds.size);
 

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   Bot,
   Clock3,
+  DatabaseZap,
   LayoutDashboard,
   LayoutPanelTop,
   MessageSquarePlus,
@@ -283,6 +284,18 @@ export function AppSidebar({
           <SidebarGroupLabel>Catalog</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith('/sources')}
+                  tooltip="Sources"
+                >
+                  <Link href="/sources">
+                    <DatabaseZap />
+                    <span>Sources</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild

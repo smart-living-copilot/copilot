@@ -1,0 +1,99 @@
+# Corpus for measuring public source detection against the real internet.
+#
+# `expect` is what detection SHOULD return:
+#   openapi | udata | dcat | none   -> a specific verdict
+#   unknown                         -> genuinely open question, record what happens
+#
+# Nothing here is verified live. Public portals move, retire, and change their
+# API surface, so treat a miss as "check the URL" before "fix the provider" --
+# the runner prints the evidence trail so the two are easy to tell apart.
+#
+# `note` explains why the entry earns its place; entries marked "unsure" are
+# plausible but unconfirmed and exist to be checked, not trusted.
+
+- url: https://petstore3.swagger.io/api/v3/openapi.json
+  expect: openapi
+  note: The OpenAPI 3 reference document. If this fails, the compiler is broken.
+
+- url: https://petstore.swagger.io/v2/swagger.json
+  expect: openapi
+  note: Swagger 2.0 path, including host/basePath/schemes server resolution.
+
+- url: https://api.apis.guru/v2/specs/1password.com/events/1.0.0/openapi.json
+  expect: openapi
+  note: Real third-party spec served from the APIs.guru mirror. Verified live.
+
+- url: https://api.apis.guru/v2/specs/1password.com/events/1.0.0/openapi.yaml
+  expect: openapi
+  note: The same document as YAML; exercises the YAML parsing path. Verified live.
+
+- url: https://api.apis.guru/v2/specs/googleapis.com/compute/v1/openapi.json
+  expect: openapi
+  note: >
+    Measured 2026-08-30: refused with "Source response is too large" -- it is
+    over the 4 MiB spec bound. Correct per the documented limit, but it means
+    large vendor specs (Google, AWS) are out of reach. Keep as the regression
+    case if that bound is ever revisited.
+
+- url: https://www.data.gouv.fr/
+  expect: udata
+  note: The reference uData deployment.
+
+- url: https://data.public.lu/en/
+  expect: udata
+  note: Already covered by the opt-in live test; keep as the known-good anchor.
+
+- url: https://transport.data.gouv.fr/
+  expect: udata
+  note: >
+    Measured 2026-08-30: homepage 200 but /api/1/datasets/ answered HTTP 500,
+    so no uData API here. Recheck before treating as a provider bug.
+
+- url: https://open.canada.ca/data/en/
+  expect: unknown
+  note: >
+    Measured 2026-08-30: refused with "Public source redirects must remain on
+    the same origin". The portal redirects at detection time, and public mode
+    forbids any origin change even without a credential attached. Keep as the
+    regression case for that policy.
+
+- url: https://data.europa.eu/
+  expect: unknown
+  note: >
+    EU data portal. Publishes DCAT-AP but behind its own API rather than a
+    static document, so this is a real test of whether DCAT detection guesses
+    a usable catalog URL or gives up honestly.
+
+- url: https://www.govdata.de/
+  expect: unknown
+  note: DCAT-AP.de. Likely no static catalog document at a guessable path.
+
+- url: https://catalog.data.gov/
+  expect: unknown
+  note: >
+    Measured 2026-08-30: MISS. CKAN, and /catalog.rdf did not answer. The
+    largest uncovered ecosystem in this corpus.
+
+- url: https://data.overheid.nl/
+  expect: unknown
+  note: CKAN, Dutch. Third CKAN sample to see whether the answer is consistent.
+
+- url: https://demo.ckan.org/
+  expect: unknown
+  note: >
+    Stock CKAN with nothing customised. If /catalog.rdf works anywhere it
+    works here, which makes this the cleanest read on CKAN support.
+
+- url: https://example.com
+  expect: none
+  note: The canonical nothing. Must not be claimed by any provider.
+
+- url: https://en.wikipedia.org/wiki/Open_data
+  expect: none
+  note: >
+    A content page dense with the words "data", "catalog" and "open data".
+    This is the false-positive trap: it should be refused, not detected.
+
+- url: https://www.iana.org/
+  expect: none
+  note: Plain institutional site with many links; another false-positive probe.

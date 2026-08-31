@@ -57,10 +57,10 @@ _VIRTUAL_AUTHORING_RUNTIME_NAMES = {
     "wot_subscribe_event",
     "wot_remove_subscription",
 }
-# Discovery authoring tools: tools that can be shared with other groups
+# Tools the discovery branch needs on top of the runtime group it already receives.
+# ``things_upsert`` and ``things_delete`` are deliberately absent: they live in
+# _RUNTIME_WRITE_NAMES, and listing them here too would send each to the model twice.
 _DISCOVERY_AUTHORING_NAMES = {
-    "things_upsert",
-    "things_delete",
     "things_validate",
     "things_get",
 }
@@ -73,7 +73,12 @@ _RUN_CODE = "run_code"
 _CREATE_WEB_INTERFACE = "create_web_interface"
 _ASK_JOB_USER = "ask_job_user"
 _SUBMIT_JOB_RECORD = "submit_job_record"
-_SET_THING_CREDENTIAL = "set_thing_credential"
+_EXTERNAL_DISCOVERY_NAMES = {
+    "sources_search",
+    "discover_external",
+    "onboard_candidate",
+    "register_external_source",
+}
 _VIRTUAL_THING_NAMES = {
     "create_virtual_thing",
     "add_virtual_property",
@@ -89,7 +94,7 @@ _NAMED_LOCAL_NAMES = {
     _CREATE_WEB_INTERFACE,
     _ASK_JOB_USER,
     _SUBMIT_JOB_RECORD,
-    _SET_THING_CREDENTIAL,
+    *_EXTERNAL_DISCOVERY_NAMES,
     *_VIRTUAL_THING_NAMES,
 }
 
@@ -115,6 +120,7 @@ class LocalToolGroups:
     create_web_interface: Any | None
     ask_job_user: Any | None
     submit_job_record: Any | None
+    external_discovery_tools: list[Any]
     virtual_thing_tools: list[Any]
     job_tools: list[Any]
 
@@ -143,8 +149,12 @@ def partition_registry_tools(registry_tools: list[Any]) -> RegistryToolGroups:
         if name in _DISCOVERY_AUTHORING_NAMES:
             discovery_authoring.append(tool)
             # If already in runtime, also pull into discovery_authoring
-        if name not in _DISCOVERY_NAMES and name not in _INSPECT_NAMES \
-                and name not in _RUNTIME_NAMES and name not in _DISCOVERY_AUTHORING_NAMES:
+        if (
+            name not in _DISCOVERY_NAMES
+            and name not in _INSPECT_NAMES
+            and name not in _RUNTIME_NAMES
+            and name not in _DISCOVERY_AUTHORING_NAMES
+        ):
             logger.debug("Registry tool %r not assigned to any partition group", name)
 
     return RegistryToolGroups(
@@ -170,6 +180,9 @@ def group_local_tools(local_tools: list[Any]) -> LocalToolGroups:
         create_web_interface=tools_by_name.get(_CREATE_WEB_INTERFACE),
         ask_job_user=tools_by_name.get(_ASK_JOB_USER),
         submit_job_record=tools_by_name.get(_SUBMIT_JOB_RECORD),
+        external_discovery_tools=[
+            tool for tool in local_tools if tool.name in _EXTERNAL_DISCOVERY_NAMES
+        ],
         virtual_thing_tools=[tool for tool in local_tools if tool.name in _VIRTUAL_THING_NAMES],
         job_tools=[tool for tool in local_tools if tool.name not in _NAMED_LOCAL_NAMES],
     )

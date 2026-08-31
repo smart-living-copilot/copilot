@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { httpClient, httpJson } from '@/lib/http-client';
 import { type ThingRecord, deleteThing, fetchThing } from '@/lib/things-api';
+import { fetchSource } from '@/lib/sources-api';
 import { isVirtualThingId } from '@/lib/virtual-things';
 import { type RuntimeAffordanceType } from '@/lib/wot-runtime-api';
 import {
@@ -141,6 +142,7 @@ export function ThingDetail({
   const [activeBindingKey, setActiveBindingKey] = useState<string | null>(null);
   const [runTarget, setRunTarget] = useState<RunAffordanceTarget | null>(null);
   const [runOpen, setRunOpen] = useState(false);
+  const [refreshSupported, setRefreshSupported] = useState(false);
 
   const isVirtual = isVirtualThingId(thingId);
 
@@ -173,6 +175,27 @@ export function ThingDetail({
       cancelled = true;
     };
   }, [thingId]);
+
+  useEffect(() => {
+    const sourceId = thing?.origin.source_id;
+    if (!sourceId) {
+      setRefreshSupported(false);
+      return;
+    }
+    let cancelled = false;
+    fetchSource(sourceId)
+      .then((source) => {
+        if (!cancelled) {
+          setRefreshSupported(source.capabilities.includes('refresh'));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setRefreshSupported(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [thing]);
 
   useEffect(() => {
     if (!thing?.id) return;
@@ -372,6 +395,11 @@ export function ThingDetail({
     setCredDialogOpen(true);
   }, []);
 
+  const handleRefreshed = useCallback(async () => {
+    const [data] = await Promise.all([fetchThing(thingId), fetchCredentials()]);
+    setThing(data);
+  }, [fetchCredentials, thingId]);
+
   if (isPending) {
     return (
       <div className="space-y-5">
@@ -411,6 +439,8 @@ export function ThingDetail({
     onDelete: handleDelete,
     onDeleteCredential: handleDeleteCredential,
     onOpenCredential: handleOpenCredential,
+    refreshSupported,
+    onRefreshed: handleRefreshed,
     isVirtual,
     openHref:
       variant === 'drawer'

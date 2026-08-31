@@ -17,7 +17,9 @@ from wotbot.core.time import utc_now
 
 
 def sanitize_document(document: ThingDocument) -> ThingDocument:
-    return {key: value for key, value in document.items() if key != "hash"}
+    return {
+        key: value for key, value in document.items() if key not in {"hash", "source", "origin"}
+    }
 
 
 def _normalize_tags(value: Any) -> list[str]:
@@ -47,13 +49,6 @@ def summarize_document(document: ThingDocument) -> tuple[str, str, list[str], st
     return thing_id, title, _normalize_tags(document.get("tags")), description
 
 
-def _get_source(document: ThingDocument) -> str:
-    source = document.get("source")
-    if isinstance(source, str) and source.strip():
-        return source.strip()
-    return "manual"
-
-
 def hash_document(document: ThingDocument) -> str:
     payload = json.dumps(document, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -65,7 +60,10 @@ def to_record(thing: Thing) -> ThingRecord:
         title=thing.title,
         description=thing.description,
         tags=list(thing.tags or []),
-        source=thing.source,
+        origin_kind=thing.origin_kind,
+        origin_provider=thing.origin_provider,
+        origin_external_id=thing.origin_external_id,
+        origin_source_id=thing.origin_source_id,
         document=dict(thing.document),
         document_hash=thing.document_hash,
     )
@@ -81,7 +79,7 @@ def list_things(
     query: str = "",
     page: int = 1,
     per_page: int = 25,
-    source: str | None = None,
+    origin_kind: str | None = None,
 ) -> tuple[list[ThingRecord], int]:
     normalized_query = query.strip().lower()
     offset = (page - 1) * per_page
@@ -98,9 +96,8 @@ def list_things(
             )
         )
 
-    if source is not None:
-        filters.append(Thing.source == source)
-
+    if origin_kind is not None:
+        filters.append(Thing.origin_kind == origin_kind)
     count_query = select(func.count()).select_from(Thing).where(*filters)
     total = int(session.scalar(count_query) or 0)
 
@@ -120,29 +117,14 @@ def get_thing(session: Session, thing_id: str) -> ThingRecord | None:
     return to_record(thing) if thing is not None else None
 
 
-def _make_thing(document: ThingDocument) -> Thing:
-    return Thing(**_thing_values(document, include_created_at=True))
-
-
-def _update_thing(thing: Thing, document: ThingDocument) -> None:
-    values = _thing_values(document, include_created_at=False)
-    document_id = str(values["id"])
-    if document_id != thing.id:
-        raise ValueError("Thing id in path and document body must match")
-
-    thing.title = str(values["title"])
-    thing.description = str(values["description"])
-    thing.tags = list(values["tags"])
-    thing.source = str(values["source"])
-    thing.document = dict(values["document"])
-    thing.document_hash = str(values["document_hash"])
-    thing.updated_at = values["updated_at"]
-
-
 def _thing_values(
     document: ThingDocument,
     *,
     include_created_at: bool,
+    origin_kind: str = "manual",
+    origin_provider: str | None = None,
+    origin_external_id: str | None = None,
+    origin_source_id: str | None = None,
 ) -> dict[str, Any]:
     thing_id, title, tags, description = summarize_document(document)
     now = utc_now()
@@ -151,7 +133,10 @@ def _thing_values(
         "title": title,
         "description": description,
         "tags": tags,
-        "source": _get_source(document),
+        "origin_kind": origin_kind,
+        "origin_provider": origin_provider,
+        "origin_external_id": origin_external_id,
+        "origin_source_id": origin_source_id,
         "document": document,
         "document_hash": hash_document(document),
         "updated_at": now,
@@ -161,9 +146,26 @@ def _thing_values(
     return values
 
 
-def create_thing(session: Session, document: ThingDocument) -> ThingRecord:
+def create_thing(
+    session: Session,
+    document: ThingDocument,
+    *,
+    origin_kind: str = "manual",
+    origin_provider: str | None = None,
+    origin_external_id: str | None = None,
+    origin_source_id: str | None = None,
+) -> ThingRecord:
     sanitized = sanitize_document(document)
-    thing = _make_thing(sanitized)
+    thing = Thing(
+        **_thing_values(
+            sanitized,
+            include_created_at=True,
+            origin_kind=origin_kind,
+            origin_provider=origin_provider,
+            origin_external_id=origin_external_id,
+            origin_source_id=origin_source_id,
+        )
+    )
     session.add(thing)
     try:
         session.flush()
@@ -186,7 +188,6 @@ def put_thing(session: Session, thing_id: str, document: ThingDocument) -> tuple
             "title": stmt.excluded.title,
             "description": stmt.excluded.description,
             "tags": stmt.excluded.tags,
-            "source": stmt.excluded.source,
             "document": stmt.excluded.document,
             "document_hash": stmt.excluded.document_hash,
             "updated_at": stmt.excluded.updated_at,
@@ -199,6 +200,38 @@ def put_thing(session: Session, thing_id: str, document: ThingDocument) -> tuple
     ).one()
     thing = row[0]
     return to_record(thing), bool(row.inserted)
+
+
+def get_thing_by_origin(
+    session: Session,
+    *,
+    provider: str,
+    external_id: str,
+    source_id: str,
+) -> ThingRecord | None:
+    thing = session.scalar(
+        select(Thing).where(
+            Thing.origin_kind == "discovery",
+            Thing.origin_provider == provider,
+            Thing.origin_external_id == external_id,
+            Thing.origin_source_id == source_id,
+        )
+    )
+    return to_record(thing) if thing is not None else None
+
+
+def count_source_dependents(session: Session, source_id: str) -> int:
+    return int(
+        session.scalar(
+            select(func.count())
+            .select_from(Thing)
+            .where(
+                Thing.origin_kind == "discovery",
+                Thing.origin_source_id == source_id,
+            )
+        )
+        or 0
+    )
 
 
 def delete_thing(session: Session, thing_id: str) -> bool:

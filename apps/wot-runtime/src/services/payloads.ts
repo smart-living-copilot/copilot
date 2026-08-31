@@ -167,6 +167,15 @@ export async function encodeInteractionOutputPayload(
   const form = output?.form;
   const contentType = extractContentType(form);
   const sourceProtocol = extractProtocol(isPlainObject(form) ? form.href : '');
+  const rawOutput = async () => ({
+    body: Buffer.from(await output.arrayBuffer()),
+    contentType,
+    sourceProtocol,
+  });
+
+  if (output?.schema == null && typeof output?.arrayBuffer === 'function') {
+    return rawOutput();
+  }
 
   try {
     const value = await output.value();
@@ -187,11 +196,6 @@ export async function encodeInteractionOutputPayload(
       };
     }
 
-    const buffer = Buffer.from(await output.arrayBuffer());
-    return {
-      body: buffer,
-      contentType,
-      sourceProtocol,
-    };
+    return rawOutput();
   }
 }

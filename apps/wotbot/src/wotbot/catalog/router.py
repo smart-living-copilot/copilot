@@ -106,14 +106,14 @@ def list_owned_things(
     q: str = Query(default=""),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=25, ge=1, le=200),
-    source: str = Query(default=""),
+    origin_kind: str = Query(default=""),
     _user: User = Depends(require_scopes(["things:read"])),
 ) -> dict[str, Any]:
     return ThingCatalogQueryService(session).list_owned_things(
         query=q,
         page=page,
         per_page=per_page,
-        source=source.strip() or None,
+        origin_kind=origin_kind.strip() or None,
     )
 
 

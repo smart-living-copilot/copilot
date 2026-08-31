@@ -179,6 +179,7 @@ class WotRuntimeSettings:
     stream: str
     timeout_seconds: int
     subscription_timeout_seconds: int
+    action_timeout_seconds: int
     virtual_servient_registry_token: str
 
 
@@ -252,6 +253,11 @@ class Settings(BaseSettings):
     registry_database_url: str = "postgresql://wotbot:wotbot@localhost:5432/wotbot"
     registry_public_url: str = "http://localhost:8000"
 
+    # External discovery candidates and downloads are short-lived capabilities.
+    discovery_candidate_ttl_seconds: int = Field(default=1800, ge=60, le=86400)
+    discovery_download_ttl_seconds: int = Field(default=300, ge=30, le=3600)
+    discovery_refresh_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+
     # LiveKit media ingress
     livekit_url: str = ""
     livekit_public_url: str = ""
@@ -324,6 +330,7 @@ class Settings(BaseSettings):
     wot_runtime_stream: str = "wot_runtime_events"
     wot_runtime_timeout_seconds: int = 15
     wot_runtime_subscription_timeout_seconds: int = 5
+    wot_runtime_action_timeout_seconds: int = 135
     virtual_servient_registry_token: str = ""
     jobs_events_group: str = "job_runner"
     jobs_events_consumer: str = Field(
@@ -550,6 +557,7 @@ class Settings(BaseSettings):
             stream=self.wot_runtime_stream,
             timeout_seconds=self.wot_runtime_timeout_seconds,
             subscription_timeout_seconds=self.wot_runtime_subscription_timeout_seconds,
+            action_timeout_seconds=self.wot_runtime_action_timeout_seconds,
             virtual_servient_registry_token=(
                 self.virtual_servient_registry_token or self.wot_runtime_registry_token
             ),
@@ -698,6 +706,10 @@ class Settings(BaseSettings):
     @property
     def WOT_RUNTIME_SUBSCRIPTION_TIMEOUT_SECONDS(self) -> int:
         return self.wot_runtime_subscription_timeout_seconds
+
+    @property
+    def WOT_RUNTIME_ACTION_TIMEOUT_SECONDS(self) -> int:
+        return self.wot_runtime_action_timeout_seconds
 
     @property
     def REGISTRY_PUBLIC_URL(self) -> str:

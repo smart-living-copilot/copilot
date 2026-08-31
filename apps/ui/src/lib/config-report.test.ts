@@ -10,7 +10,9 @@ import {
 } from './config-report';
 import type { ReasoningEffortConfig } from './reasoning-effort';
 
-function field(overrides: Partial<ConfigField> & { name: string }): ConfigField {
+function field(
+  overrides: Partial<ConfigField> & { name: string },
+): ConfigField {
   return {
     value: null,
     configured: false,
@@ -31,7 +33,12 @@ function report(fields: ConfigField[]): ConfigReport {
 function uiConfig(
   overrides: Partial<ReasoningEffortConfig> = {},
 ): ReasoningEffortConfig {
-  return { enabled: true, levels: ['low', 'high'], defaultLevel: 'low', ...overrides };
+  return {
+    enabled: true,
+    levels: ['low', 'high'],
+    defaultLevel: 'low',
+    ...overrides,
+  };
 }
 
 test('findField locates a field across sections', () => {

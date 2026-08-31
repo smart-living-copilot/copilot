@@ -6,12 +6,7 @@ import { Info, RefreshCw, TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { APP_VERSION } from '@/lib/app-version';
 import {
@@ -130,7 +125,9 @@ export function SystemInfoPanel() {
       ) : null}
 
       {loading && !data ? (
-        <p className="text-sm text-muted-foreground">Loading configuration...</p>
+        <p className="text-sm text-muted-foreground">
+          Loading configuration...
+        </p>
       ) : null}
 
       {data?.backend.sections.map((section) => (

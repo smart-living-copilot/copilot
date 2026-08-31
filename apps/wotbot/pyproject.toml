@@ -32,6 +32,8 @@ dependencies = [
     "pycron>=3.2,<4",
     "python-dotenv>=1.0",
     "pyshacl>=0.31,<1",
+    "pyyaml>=6,<7",
+    "rdflib>=7.3,<8",
 ]
 
 [project.optional-dependencies]
@@ -75,4 +77,5 @@ line-length = 100
 pythonpath = ["src"]
 markers = [
     "integration: tests that start containerized service dependencies",
+    "external: opt-in tests that contact public internet services",
 ]

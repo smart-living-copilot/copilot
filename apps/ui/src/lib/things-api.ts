@@ -5,7 +5,12 @@ export interface ThingRecord {
   title: string;
   description: string;
   tags: string[];
-  source?: string;
+  origin: {
+    kind: 'manual' | 'discovery';
+    provider?: string;
+    source_id?: string;
+    external_id?: string;
+  };
   document?: Record<string, unknown>;
   json?: string;
 }
@@ -59,14 +64,14 @@ export async function fetchThings(
   page: number,
   perPage: number,
   search: string,
-  source?: string,
+  originKind?: string,
 ): Promise<{ data: ThingRecord[]; total: number }> {
   const query = new URLSearchParams({
     page: String(page),
     per_page: String(perPage),
   });
   if (search.trim()) query.set('q', search.trim());
-  if (source) query.set('source', source);
+  if (originKind) query.set('origin_kind', originKind);
 
   const json = await httpJson<ThingListResponse>(`/things?${query.toString()}`);
   return {

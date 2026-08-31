@@ -7,6 +7,12 @@ discovered WoT tools.
 """
 
 from wotbot.agent.tools.create_web_interface import create_web_interface
+from wotbot.agent.tools.external_discovery import (
+    discover_external,
+    onboard_candidate,
+    register_external_source,
+    sources_search,
+)
 from wotbot.agent.tools.get_current_time import get_current_time
 from wotbot.agent.tools.job_scheduler import (
     create_analysis_job,
@@ -17,7 +23,6 @@ from wotbot.agent.tools.job_scheduler import (
     run_job_now,
 )
 from wotbot.agent.tools.run_code import run_code
-from wotbot.agent.tools.set_thing_credential import set_thing_credential
 from wotbot.agent.tools.virtual_things import (
     activate_virtual_thing,
     add_virtual_action,
@@ -33,7 +38,10 @@ LOCAL_TOOLS = [
     run_code,
     create_web_interface,
     get_current_time,
-    set_thing_credential,
+    sources_search,
+    discover_external,
+    onboard_candidate,
+    register_external_source,
     create_prompt_job,
     create_analysis_job,
     list_jobs,
@@ -63,10 +71,13 @@ __all__ = [
     "create_web_interface",
     "delete_job",
     "delete_virtual_thing",
+    "discover_external",
     "emit_virtual_thing_event",
     "get_current_time",
     "list_jobs",
+    "onboard_candidate",
+    "register_external_source",
     "run_code",
     "run_job_now",
-    "set_thing_credential",
+    "sources_search",
 ]

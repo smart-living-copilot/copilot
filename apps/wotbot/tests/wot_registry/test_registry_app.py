@@ -1,3 +1,5 @@
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from wotbot.api.main import app
@@ -7,6 +9,7 @@ from wotbot.catalog.enrichment.models import (
     ShaclFinding,
 )
 from wotbot.catalog.events import publish_pending_thing_events
+from wotbot.catalog.service import ThingCatalogWriteService
 
 
 class RecordingPublisher:
@@ -107,6 +110,7 @@ def test_api_things_crud_and_events(authenticated_headers):
         assert create_response.status_code == 201
         flush_outbox(client, publisher)
         assert create_response.json()["id"] == thing["id"]
+        assert create_response.json()["origin"] == {"kind": "manual"}
         assert publisher.events[-1]["eventType"] == "create"
 
         list_response = client.get(
@@ -116,6 +120,13 @@ def test_api_things_crud_and_events(authenticated_headers):
         assert list_response.status_code == 200
         assert list_response.json()["total"] == 1
         assert list_response.json()["items"][0]["id"] == thing["id"]
+
+        discovered_only = client.get(
+            "/api/things?origin_kind=discovery",
+            headers=authenticated_headers,
+        )
+        assert discovered_only.status_code == 200
+        assert discovered_only.json()["total"] == 0
 
         get_response = client.get(
             f"/api/things/{thing['id']}",
@@ -150,6 +161,54 @@ def test_api_things_crud_and_events(authenticated_headers):
             "eventType": "remove",
             "id": thing["id"],
         }
+
+
+def test_discovered_origin_is_structured_idempotent_and_collision_safe(authenticated_headers):
+    discovered = sample_thing("urn:thing:provider")
+    manual = sample_thing("urn:thing:manual")
+
+    with TestClient(app) as client:
+        with client.app.state.session_factory() as session:
+            service = ThingCatalogWriteService(session)
+            first, first_created = service.create_discovered(
+                discovered,
+                provider="toolhive",
+                source_id="local",
+                external_id="weather",
+            )
+            second, second_created = service.create_discovered(
+                discovered,
+                provider="toolhive",
+                source_id="local",
+                external_id="weather",
+            )
+            assert first.id == second.id
+            assert first_created is True
+            assert second_created is False
+
+            service.create(manual)
+            with pytest.raises(HTTPException) as collision:
+                service.create_discovered(
+                    manual,
+                    provider="toolhive",
+                    source_id="local",
+                    external_id="different",
+                )
+            assert collision.value.status_code == 409
+
+        response = client.get(
+            f"/api/things/{discovered['id']}",
+            headers=authenticated_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["origin"] == {
+            "kind": "discovery",
+            "provider": "toolhive",
+            "source_id": "local",
+            "external_id": "weather",
+        }
+        assert "origin" not in response.json()["document"]
+        assert "source" not in response.json()["document"]
 
 
 def test_api_things_rejects_invalid_document(authenticated_headers):

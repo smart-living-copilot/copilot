@@ -14,7 +14,6 @@ calls these routes.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 import json
@@ -148,7 +147,7 @@ async def invoke_action(
     request: Request,
     _user: User = Depends(require_scopes(["things:write"])),
 ) -> dict[str, Any]:
-    return await _call(
+    result = await _call(
         _runtime_client(request).invoke_action(
             thing_id=body.thing_id,
             action_name=body.action_name,
@@ -160,6 +159,38 @@ async def invoke_action(
             idempotency_key=body.idempotency_key,
         )
     )
+    challenge = _credential_challenge(result)
+    if challenge is not None:
+        raise HTTPException(status_code=428, detail=challenge)
+    return result
+
+
+def _credential_challenge(result: dict[str, Any]) -> dict[str, str] | None:
+    candidate = result.get("result") or result.get("completed_result")
+    if not isinstance(candidate, dict):
+        return None
+    payload = candidate.get("payload")
+    value = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(value, dict) or value.get("status") not in {
+        "credential_required",
+        "credential_rejected",
+    }:
+        return None
+    safe: dict[str, str] = {}
+    for key in (
+        "status",
+        "owner_kind",
+        "thing_id",
+        "source_id",
+        "security_name",
+        "scheme",
+        "message",
+    ):
+        if isinstance(value.get(key), str):
+            safe[key] = value[key]
+    required = {"status", "security_name", "scheme"}
+    has_owner = "thing_id" in safe or (safe.get("owner_kind") == "source" and "source_id" in safe)
+    return safe if required.issubset(safe) and has_owner else None
 
 
 @router.post("/observe-property")
@@ -288,8 +319,6 @@ async def _event_stream(
                         "value": _decode_payload(event["payload_base64"], event["content_type"]),
                     }
                     yield f"data: {json.dumps(message)}\n\n"
-    except asyncio.CancelledError:
-        raise
     finally:
         await client.aclose()
 

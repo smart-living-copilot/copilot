@@ -27,12 +27,17 @@ class BuilderVirtualToolsTestCase(unittest.TestCase):
             captured["virtual_things"] = [tool.name for tool in tools]
             return lambda state: state
 
+        def fake_make_discovery_node(_llm, tools, _max_tokens, **_kwargs):
+            captured["discovery"] = [tool.name for tool in tools]
+            return lambda state: state
+
         with (
             patch("wotbot.agent.builder.make_router_node", return_value=lambda state: state),
             patch("wotbot.agent.builder.make_respond_node", return_value=lambda state: state),
             patch("wotbot.agent.builder.make_jobs_node", side_effect=fake_make_jobs_node),
             patch("wotbot.agent.builder.make_analysis_node", return_value=lambda state: state),
             patch("wotbot.agent.builder.make_control_node", side_effect=fake_make_control_node),
+            patch("wotbot.agent.builder.make_discovery_node", side_effect=fake_make_discovery_node),
             patch(
                 "wotbot.agent.builder.make_virtual_things_node",
                 side_effect=fake_make_virtual_things_node,
@@ -56,6 +61,8 @@ class BuilderVirtualToolsTestCase(unittest.TestCase):
                 local_tools=[
                     _tool("run_code"),
                     _tool("get_current_time"),
+                    _tool("discover_external"),
+                    _tool("onboard_candidate"),
                     _tool("create_prompt_job"),
                     _tool("create_analysis_job"),
                     _tool("create_virtual_thing"),
@@ -96,6 +103,9 @@ class BuilderVirtualToolsTestCase(unittest.TestCase):
         self.assertNotIn("things_upsert", captured["virtual_things"])
         self.assertNotIn("things_delete", captured["virtual_things"])
         self.assertNotIn("wot_write_property", captured["virtual_things"])
+        self.assertIn("discover_external", captured["discovery"])
+        self.assertIn("onboard_candidate", captured["discovery"])
+        self.assertNotIn("run_code", captured["discovery"])
 
         # The action branches carry no Current Time block in their prompt, so the
         # only way they can learn the date is by calling for it. A branch without

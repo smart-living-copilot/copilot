@@ -59,6 +59,9 @@ export const config = {
   cacheEnabled: (process.env.WOT_CACHE_ENABLED || 'true').toLowerCase() === 'true',
   cacheTtlSeconds: parseNonNegativeIntEnv('WOT_CACHE_TTL_SECONDS', 300),
   cacheMaxBytes: parseNonNegativeIntEnv('WOT_CACHE_MAX_BYTES', 10 * 1024 * 1024),
+  mcpMaxSessions: parseNonNegativeIntEnv('MCP_MAX_SESSIONS', 32),
+  mcpRequestTimeoutMs: parseIntEnv('MCP_REQUEST_TIMEOUT_MS', 60000),
+  providerActionTimeoutMs: parseIntEnv('WOT_PROVIDER_ACTION_TIMEOUT_MS', 135000),
 } as const;
 
 /**

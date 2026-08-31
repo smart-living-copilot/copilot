@@ -14,6 +14,12 @@ import {
   useThreadHistory,
   useWotbotRuntime,
 } from '@/components/wotbot/assistant/use-wotbot-runtime';
+import { parseCredentialChallenge } from '@/components/wotbot/assistant/credential-interrupt-card';
+import {
+  CredentialPrompt,
+  SourceRegistrationPrompt,
+} from '@/components/wotbot/assistant/interrupt-prompt';
+import { parseSourceRegistrationInterrupt } from '@/components/wotbot/assistant/source-registration-interrupt-card';
 import { ReasoningEffortSelect } from '@/components/wotbot/chat-route/reasoning-effort-select';
 import { LiveModePanel } from '@/components/wotbot/live-mode-panel';
 import { MediaIngressControl } from '@/components/wotbot/media-ingress-control';
@@ -54,17 +60,70 @@ function ChatStream({
   reasoningEffort: string | undefined;
   reasoningEffortConfig: ReasoningEffortConfig;
 }) {
-  const { isRecovering, rerunConfirmation, retryRecovery, runError, runtime } =
-    useWotbotRuntime({
-      threadId: chatId,
-      initialValues,
-      reasoningEffort,
-      onThreadUpdated,
-    });
+  const {
+    isRecovering,
+    rerunConfirmation,
+    retryRecovery,
+    runError,
+    runtime,
+    stream,
+  } = useWotbotRuntime({
+    threadId: chatId,
+    initialValues,
+    reasoningEffort,
+    onThreadUpdated,
+  });
+  const credentialChallenge = useMemo(
+    () =>
+      stream.interrupts
+        .map((item) => parseCredentialChallenge(item.value))
+        .find((item) => item !== null) ?? null,
+    [stream.interrupts],
+  );
+  const sourceRegistration = useMemo(
+    () =>
+      stream.interrupts
+        .map((item) => parseSourceRegistrationInterrupt(item.value))
+        .find((item) => item !== null) ?? null,
+    [stream.interrupts],
+  );
+  const resumeCredential = useCallback(
+    async (status: 'credential_saved' | 'credential_cancelled') => {
+      await stream.submit(null, { command: { resume: { status } } });
+    },
+    [stream],
+  );
+
+  // The run is suspended until one of these is answered, so the prompt sits at
+  // the end of the transcript rather than above it.
+  const pendingSlot = credentialChallenge ? (
+    <CredentialPrompt
+      challenge={credentialChallenge}
+      onCancel={() => resumeCredential('credential_cancelled')}
+      onSaved={() => resumeCredential('credential_saved')}
+    />
+  ) : sourceRegistration ? (
+    <SourceRegistrationPrompt
+      draft={sourceRegistration.draft}
+      onCancel={() =>
+        stream.submit(null, {
+          command: { resume: { status: 'source_registration_cancelled' } },
+        })
+      }
+      onRegistered={(sourceId) =>
+        stream.submit(null, {
+          command: {
+            resume: { status: 'source_registered', source_id: sourceId },
+          },
+        })
+      }
+    />
+  ) : null;
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <WotbotThread
+        pendingSlot={pendingSlot}
         actionSlot={
           <ReasoningEffortSelect
             config={reasoningEffortConfig}
@@ -78,7 +137,11 @@ function ChatStream({
         error={runError}
         isRetrying={isRecovering}
         onRetry={() => void retryRecovery()}
-        placeholder="Ask about your devices, routines, or home..."
+        placeholder={
+          pendingSlot
+            ? 'Answer the request above to continue...'
+            : 'Ask about your devices, routines, or home...'
+        }
         rerunConfirmation={rerunConfirmation}
       />
     </AssistantRuntimeProvider>

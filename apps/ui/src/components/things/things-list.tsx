@@ -12,7 +12,7 @@ import { Eye, Plus, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { type ThingRecord, fetchThings } from '@/lib/things-api';
-import { isAutoDiscoveredSource, isVirtualThingId } from '@/lib/virtual-things';
+import { isDiscoveredOrigin, isVirtualThingId } from '@/lib/virtual-things';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -43,7 +43,7 @@ const PER_PAGE = 12;
 export function ThingsList() {
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
-  const [sourceFilter, setSourceFilter] = useState<string>('');
+  const [originFilter, setOriginFilter] = useState<string>('');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<ThingRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -65,12 +65,17 @@ export function ThingsList() {
 
   useEffect(() => {
     setPage(1);
-  }, [deferredSearch, sourceFilter]);
+  }, [deferredSearch, originFilter]);
 
   const loadData = useCallback(async () => {
     setIsPending(true);
     try {
-      const result = await fetchThings(page, PER_PAGE, deferredSearch, sourceFilter);
+      const result = await fetchThings(
+        page,
+        PER_PAGE,
+        deferredSearch,
+        originFilter,
+      );
       setData(result.data);
       setTotal(result.total);
     } catch (error) {
@@ -80,7 +85,7 @@ export function ThingsList() {
     } finally {
       setIsPending(false);
     }
-  }, [page, deferredSearch, sourceFilter]);
+  }, [page, deferredSearch, originFilter]);
 
   useEffect(() => {
     void loadData();
@@ -201,18 +206,24 @@ export function ThingsList() {
             </div>
             <div className="flex min-h-8 items-center gap-2 text-sm text-muted-foreground">
               <Badge
-                variant={sourceFilter === '' ? 'default' : 'outline'}
+                variant={originFilter === '' ? 'default' : 'outline'}
                 className="cursor-pointer"
-                onClick={() => setSourceFilter('')}
+                onClick={() => {
+                  setOriginFilter('');
+                }}
               >
                 All
               </Badge>
               <Badge
-                variant={sourceFilter === 'auto-discovered' ? 'default' : 'outline'}
+                variant={originFilter === 'discovery' ? 'default' : 'outline'}
                 className="cursor-pointer"
-                onClick={() => setSourceFilter(sourceFilter === 'auto-discovered' ? '' : 'auto-discovered')}
+                onClick={() => {
+                  setOriginFilter(
+                    originFilter === 'discovery' ? '' : 'discovery',
+                  );
+                }}
               >
-                Auto-Discovered
+                Discovered
               </Badge>
               <Badge variant="secondary">{total} total</Badge>
               <Badge variant="outline">
@@ -255,9 +266,13 @@ export function ThingsList() {
                               {isVirtualThingId(record.id) ? (
                                 <Badge variant="secondary">Virtual</Badge>
                               ) : null}
-                              {isAutoDiscoveredSource(record.source) ? (
-                                <Badge variant="outline" className="border-blue-300 text-blue-600">
-                                  Auto-Discovered
+                              {isDiscoveredOrigin(record.origin) ? (
+                                <Badge
+                                  variant="outline"
+                                  className="border-blue-300 text-blue-600"
+                                >
+                                  Resource ·{' '}
+                                  {record.origin.provider || 'Discovered'}
                                 </Badge>
                               ) : null}
                             </div>

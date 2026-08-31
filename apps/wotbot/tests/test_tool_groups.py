@@ -70,6 +70,29 @@ class ToolGroupsTestCase(unittest.TestCase):
             ],
         )
 
+    def test_discovery_branch_sends_no_tool_to_the_model_twice(self) -> None:
+        # The discovery branch is built from discovery + discovery_authoring + runtime.
+        # A name listed in two of those groups reaches bind_tools twice, which some
+        # providers reject outright as a duplicate function name.
+        grouped = partition_registry_tools(
+            [
+                _tool("registry_health"),
+                _tool("things_search"),
+                _tool("things_get"),
+                _tool("things_validate"),
+                _tool("things_upsert"),
+                _tool("things_delete"),
+                _tool("wot_read_property"),
+                _tool("wot_invoke_action"),
+            ]
+        )
+
+        names = [
+            tool.name for tool in grouped.discovery + grouped.discovery_authoring + grouped.runtime
+        ]
+
+        self.assertCountEqual(names, set(names))
+
     def test_group_local_tools_requires_expected_tools(self) -> None:
         grouped = group_local_tools(
             [
@@ -77,6 +100,8 @@ class ToolGroupsTestCase(unittest.TestCase):
                 _tool("get_current_time"),
                 _tool("ask_job_user"),
                 _tool("submit_job_record"),
+                _tool("discover_external"),
+                _tool("onboard_candidate"),
                 _tool("create_prompt_job"),
                 _tool("create_analysis_job"),
                 _tool("list_jobs"),
@@ -95,6 +120,10 @@ class ToolGroupsTestCase(unittest.TestCase):
         self.assertEqual(grouped.get_current_time.name, "get_current_time")
         self.assertEqual(grouped.ask_job_user.name, "ask_job_user")
         self.assertEqual(grouped.submit_job_record.name, "submit_job_record")
+        self.assertEqual(
+            [tool.name for tool in grouped.external_discovery_tools],
+            ["discover_external", "onboard_candidate"],
+        )
         self.assertEqual(
             [tool.name for tool in grouped.virtual_thing_tools],
             [

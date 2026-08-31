@@ -14,7 +14,18 @@ def serialize_thing(
         "title": record.title,
         "description": record.description,
         "tags": record.tags,
-        "source": record.source,
+        "origin": {
+            "kind": record.origin_kind,
+            **(
+                {
+                    "provider": record.origin_provider,
+                    "external_id": record.origin_external_id,
+                    **({"source_id": record.origin_source_id} if record.origin_source_id else {}),
+                }
+                if record.origin_kind == "discovery"
+                else {}
+            ),
+        },
     }
 
     if include_document:

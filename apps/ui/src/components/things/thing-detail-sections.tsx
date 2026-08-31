@@ -12,7 +12,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { type ThingRecord } from '@/lib/things-api';
 import { type RuntimeAffordanceType } from '@/lib/wot-runtime-api';
-import { isAutoDiscoveredSource, isVirtualThingId } from '@/lib/virtual-things';
+import { isDiscoveredOrigin } from '@/lib/virtual-things';
 import { type VirtualThingBinding } from '@/lib/virtual-things-api';
 import { withReturnTo } from '@/lib/return-to';
 
@@ -33,6 +33,7 @@ import {
 } from './thing-detail-tables';
 import { ThingIndexStatusBadge } from './thing-index-status-badge';
 import { VirtualThingStatusToggle } from './virtual-thing-status-toggle';
+import { ThingRefreshDialog } from './thing-refresh-dialog';
 
 const DETAIL_TABS_TRIGGER_CLASSNAME =
   'flex-none rounded-none border-b-2 border-transparent px-4 py-2.5 font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-active:border-primary data-active:bg-transparent data-active:text-foreground data-active:shadow-none';
@@ -54,6 +55,8 @@ export interface ThingDetailLayoutProps {
   onDelete: () => Promise<void> | void;
   onDeleteCredential: (securityName: string) => Promise<void> | void;
   onOpenCredential: (definition: SecurityDefinition) => void;
+  refreshSupported?: boolean;
+  onRefreshed?: () => Promise<void> | void;
   isVirtual?: boolean;
   /** When set (drawer context), shows an "Open" button linking to the page. */
   openHref?: string;
@@ -83,6 +86,8 @@ export function ThingDetailPageLayout({
   onDelete,
   onDeleteCredential,
   onOpenCredential,
+  refreshSupported = false,
+  onRefreshed,
   isVirtual = false,
   openHref,
   bindings,
@@ -112,9 +117,12 @@ export function ThingDetailPageLayout({
           <div className="flex flex-wrap items-center gap-2">
             <ThingIndexStatusBadge status={indexStatus} />
             {isVirtual ? <Badge variant="secondary">Virtual</Badge> : null}
-            {isAutoDiscoveredSource(thing.source) ? (
-              <Badge variant="outline" className="border-blue-300 text-blue-600">
-                Auto-Discovered
+            {isDiscoveredOrigin(thing.origin) ? (
+              <Badge
+                variant="outline"
+                className="border-blue-300 text-blue-600"
+              >
+                Resource · {thing.origin.provider || 'Discovered'}
               </Badge>
             ) : null}
             <Badge variant="outline">
@@ -138,6 +146,19 @@ export function ThingDetailPageLayout({
             </Button>
           ) : null}
           {isVirtual ? <VirtualThingStatusToggle thingId={thing.id} /> : null}
+          {isDiscoveredOrigin(thing.origin) && thing.origin.source_id ? (
+            <Button asChild variant="outline">
+              <Link
+                href={`/sources?source=${encodeURIComponent(thing.origin.source_id)}`}
+              >
+                <ExternalLink className="h-4 w-4" />
+                View source
+              </Link>
+            </Button>
+          ) : null}
+          {refreshSupported && onRefreshed ? (
+            <ThingRefreshDialog thingId={thing.id} onRefreshed={onRefreshed} />
+          ) : null}
           {!isVirtual ? (
             <Button asChild variant="outline">
               <Link href={editHref}>

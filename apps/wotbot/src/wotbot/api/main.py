@@ -14,11 +14,11 @@ except ImportError:  # pragma: no cover - exercised when optional dep is absent 
 
 from wotbot.agent import build_graph
 from wotbot.agent.tools import LOCAL_TOOLS, REGISTRY_TOOLS
+from wotbot.api.a2a import router as a2a_router
 from wotbot.api.wot_runtime import router as wot_runtime_router
 from wotbot.api_keys.router import router as api_keys_router
 from wotbot.auth.router import router as me_router
 from wotbot.catalog.router import router as things_router
-from wotbot.api.a2a import router as a2a_router
 from wotbot.core.api_dependencies import verify_internal_api_key
 from wotbot.core.config import get_settings as get_registry_settings
 from wotbot.core.config_router import router as config_router
@@ -27,6 +27,7 @@ from wotbot.core.health import router as registry_health_router
 from wotbot.core.lifecycle import shutdown_backend_runtime, start_backend_runtime
 from wotbot.core.llm import make_llm
 from wotbot.core.settings import Settings as AgentSettings
+from wotbot.discovery.routes import router as discovery_router
 from wotbot.jobs.active import set_active_job_service
 from wotbot.jobs.routes import router as jobs_router
 from wotbot.jobs.service import JobService
@@ -174,6 +175,7 @@ app.include_router(things_router)
 app.include_router(api_keys_router)
 app.include_router(jobs_router)
 app.include_router(wot_runtime_router)
+app.include_router(discovery_router)
 app.include_router(panels_router)
 app.include_router(virtual_things_router)
 app.include_router(a2a_router)

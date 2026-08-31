@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from collections.abc import Callable
 from typing import Any
@@ -155,6 +157,16 @@ class SandboxWotClient:
             payload = r.get("payload", {})
             if payload.get("kind") == "inline":
                 return payload.get("data")
+            if payload.get("kind") == "binary":
+                encoded = payload.get("body_base64")
+                if not isinstance(encoded, str):
+                    raise RuntimeError("WoT runtime returned an invalid binary payload")
+                try:
+                    return base64.b64decode(encoded, validate=True)
+                except (binascii.Error, ValueError) as exc:
+                    raise RuntimeError(
+                        "WoT runtime returned invalid base64 data"
+                    ) from exc
             return payload
         return result
 

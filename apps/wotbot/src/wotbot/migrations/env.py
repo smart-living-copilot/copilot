@@ -21,6 +21,7 @@ def _import_models_for_metadata() -> None:
     import wotbot.catalog.credentials.models
     import wotbot.catalog.events.models
     import wotbot.catalog.models
+    import wotbot.discovery.source_models
     import wotbot.jobs.db
     import wotbot.jobs.records.db
     import wotbot.panels.models

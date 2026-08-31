@@ -150,17 +150,9 @@ def build_graph(
         registry_tool_groups.discovery
         + registry_tool_groups.discovery_authoring
         + registry_tool_groups.runtime
-        + [local_tool_groups.run_code]
+        + local_tool_groups.external_discovery_tools
         + job_runtime_tools
     )
-
-    # Locate the set_thing_credential tool for the discovery branch
-    set_credential_tool = next(
-        (t for t in local_tools if t.name == "set_thing_credential"),
-        None,
-    )
-    if set_credential_tool:
-        discovery_tools = [set_credential_tool] + discovery_tools
 
     # When handoff is enabled, give the action branches the route_to tool so they
     # can continue the turn in another branch, and a system-prompt note telling
