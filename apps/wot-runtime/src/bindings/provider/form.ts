@@ -7,6 +7,7 @@ export const PROVIDER_SCHEME = 'wotbot+provider';
 export type ProviderActionTarget = {
   thingId: string;
   action: string;
+  uriVariables: Record<string, string>;
 };
 
 /** Parses the local Thing id and action from a provider-backed TD form. */
@@ -23,7 +24,7 @@ export function parseProviderActionTarget(form: Form): ProviderActionTarget {
   if (parsed.protocol !== `${PROVIDER_SCHEME}:` || parsed.hostname !== 'runtime') {
     throw createRuntimeError('invalid_argument', 'Provider-backed form must target the local runtime');
   }
-  if (parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash) {
+  if (parsed.username || parsed.password || parsed.port || parsed.hash) {
     throw createRuntimeError('invalid_argument', 'Provider-backed form contains unsupported URL components');
   }
   const segments = parsed.pathname.split('/').filter(Boolean);
@@ -42,5 +43,16 @@ export function parseProviderActionTarget(form: Form): ProviderActionTarget {
   if (!thingId || !action) {
     throw createRuntimeError('invalid_argument', 'Provider-backed form is missing its target');
   }
-  return { thingId, action };
+  const entries = [...parsed.searchParams.entries()];
+  if (entries.length > 100) {
+    throw createRuntimeError('invalid_argument', 'Provider-backed form has too many URI variables');
+  }
+  const uriVariables: Record<string, string> = {};
+  for (const [name, value] of entries) {
+    if (!name || name in uriVariables || value.length > 4_000) {
+      throw createRuntimeError('invalid_argument', 'Provider-backed form has invalid URI variables');
+    }
+    uriVariables[name] = value;
+  }
+  return { thingId, action, uriVariables };
 }

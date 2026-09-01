@@ -33,6 +33,12 @@ test('provider client preserves the TD response type when the upstream type is g
       response: { contentType: 'application/zip' },
     } as any);
     assert.equal(requests[0].url, 'http://localhost:8000/api/discovery/runtime/invoke');
+    assert.deepEqual(JSON.parse(String(requests[0].init?.body)), {
+      thing_id: thingId,
+      action: 'download_asset',
+      input: null,
+      uri_variables: {},
+    });
     assert.equal(requests[1].url, `http://localhost:8000/api/discovery/runtime/downloads/${handle}`);
     for (const request of requests) {
       const headers = request.init?.headers as Record<string, string>;
@@ -61,6 +67,41 @@ test('provider client rejects dispatcher output that is not an internal capabili
       } as any),
       /invalid result kind/,
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('provider client returns negotiated API responses and forwards URI variables', async () => {
+  const originalFetch = globalThis.fetch;
+  let request: RequestInit | undefined;
+  globalThis.fetch = async (_input, init) => {
+    request = init;
+    return Response.json({
+      kind: 'response',
+      content_type: 'application/json',
+      body_base64: Buffer.from(JSON.stringify({ name: 'Ada' })).toString('base64'),
+    });
+  };
+  try {
+    const thingId = 'urn:wotbot:external:edc-v3:api';
+    const encoded = Buffer.from(thingId).toString('base64url');
+    const content = await new ProviderClient().invokeResource(
+      {
+        href: `wotbot+provider://runtime/things/${encoded}/actions/getBrewery?id=42`,
+      } as any,
+      undefined,
+    );
+    assert.deepEqual(JSON.parse(String(request?.body)), {
+      thing_id: thingId,
+      action: 'getBrewery',
+      input: null,
+      uri_variables: { id: '42' },
+    });
+    assert.equal(content.type, 'application/json');
+    assert.deepEqual(JSON.parse((await content.toBuffer()).toString('utf8')), {
+      name: 'Ada',
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

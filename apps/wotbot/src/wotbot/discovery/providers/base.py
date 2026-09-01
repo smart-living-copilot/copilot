@@ -21,6 +21,7 @@ from wotbot.discovery.models import (
     DownloadRecord,
     OnboardingResult,
     ProviderConfigSpec,
+    ProviderResponse,
     SearchIntent,
     SourceDefinition,
 )
@@ -98,8 +99,9 @@ class DiscoveryProvider(ABC):
         current_document: dict[str, Any],
         *,
         runtime: OnboardingRuntime,
+        external_id: str = "",
     ) -> OnboardingResult:
-        del source, current_document, runtime
+        del source, current_document, external_id, runtime
         raise ValueError(f"Provider '{self.name}' does not support refresh")
 
     async def inspect_public(self, context: DetectionContext) -> SourceDefinition | None:
@@ -151,6 +153,32 @@ class DiscoveryProvider(ABC):
         public_http: BoundedHttpClient | None = None,
     ) -> tuple[DownloadRecord, int | None]:
         raise ValueError(f"Provider '{self.name}' does not expose an acquire action")
+
+    async def invoke_api(
+        self,
+        source: SourceDefinition,
+        *,
+        external_id: str,
+        method: str,
+        path: str,
+        path_variables: tuple[str, ...],
+        query_variables: tuple[str, ...],
+        uri_variables: dict[str, Any],
+        input_data: Any,
+        public_http: BoundedHttpClient | None = None,
+    ) -> ProviderResponse:
+        del (
+            source,
+            external_id,
+            method,
+            path,
+            path_variables,
+            query_variables,
+            uri_variables,
+            input_data,
+            public_http,
+        )
+        raise ValueError(f"Provider '{self.name}' does not expose API operations")
 
     def registration_schema(self) -> dict[str, Any]:
         properties: dict[str, Any] = {

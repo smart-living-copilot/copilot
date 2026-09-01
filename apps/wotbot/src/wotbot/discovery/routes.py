@@ -49,6 +49,7 @@ class ProviderActionBody(BaseModel):
     thing_id: str
     action: str
     input: Any = None
+    uri_variables: dict[str, Any] = Field(default_factory=dict)
 
 
 class SourceRegistrationBody(BaseModel):
@@ -300,6 +301,7 @@ async def invoke_provider_action(
             thing_id=body.thing_id,
             action=body.action,
             input_data=body.input,
+            uri_variables=body.uri_variables,
         )
     except CredentialChallengeError as exc:
         raise HTTPException(status_code=428, detail=exc.public()) from exc

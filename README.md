@@ -95,10 +95,21 @@ and compiles the selected group into ordinary HTTP-backed TD actions; the raw
 specification never enters model context. Generated OpenAPI Things can be
 regenerated explicitly from their detail page after reviewing a bounded diff.
 Each downloadable dataset distribution becomes a descriptive,
-metadata-rich TD action; an EDC asset exposes the same action-based interaction
-shape. Invoking one through the normal WoT runtime returns its binary content.
-Resource selection, negotiation, transfer, temporary capabilities, and upstream
-credentials remain inside the provider binding.
+metadata-rich TD action. EDC assets with valid tx-bootstrap OpenAPI metadata
+instead compile up to 30 supported operations into ordinary WoT actions. The
+raw specification, deployment servers, and security definitions are not copied
+into the Thing; only bounded action and schema data needed for those operations
+is retained. Invoking an API action negotiates an EDC transfer, resolves the
+endpoint data reference, and calls the acquired endpoint for that invocation.
+EDC assets without usable API metadata expose `download_asset`; malformed
+metadata also records an onboarding warning. Resource selection, negotiation,
+temporary capabilities, and upstream credentials remain inside the provider
+binding.
+
+EDC Things can also be regenerated from their source. Refresh detects changes
+to the metadata fingerprint, supports transitions between generated API actions
+and downloadable assets, and preserves local titles, descriptions, and
+manually added affordances.
 
 The opt-in live smoke exercises the complete Luxembourg lifecycle against the
 public portal and the integration Postgres/Valkey services:

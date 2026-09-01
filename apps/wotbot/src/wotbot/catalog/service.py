@@ -267,12 +267,16 @@ def _validate_protected_resource_update(
         )
     current_forms = _interaction_forms(current)
     replacement_forms = _interaction_forms(replacement)
-    if provider == "openapi":
-        current_generated = _openapi_generated_actions(current)
-        if _openapi_generated_actions(replacement) != current_generated:
+    if provider in {"openapi", "edc-v3"}:
+        current_generated = _provider_generated_actions(current, provider)
+        if _provider_generated_actions(replacement, provider) != current_generated:
             raise HTTPException(
                 status_code=409,
-                detail="OpenAPI-generated actions are protected",
+                detail=(
+                    "OpenAPI-generated actions are protected"
+                    if provider == "openapi"
+                    else "Provider-generated actions are protected"
+                ),
             )
         generated_names = set(current_generated)
         current_forms = {
@@ -328,12 +332,15 @@ def _interaction_forms(
     return protected
 
 
-def _openapi_generated_actions(document: ThingDocument) -> dict[str, dict[str, Any]]:
+def _provider_generated_actions(
+    document: ThingDocument,
+    provider: str,
+) -> dict[str, dict[str, Any]]:
     actions = document.get("actions")
     return {
         str(name): affordance
         for name, affordance in (actions.items() if isinstance(actions, dict) else ())
-        if isinstance(affordance, dict) and affordance.get("wotbot:generatedBy") == "openapi"
+        if isinstance(affordance, dict) and affordance.get("wotbot:generatedBy") == provider
     }
 
 
@@ -353,4 +360,14 @@ def _generation_markers(document: ThingDocument) -> dict[str, Any]:
         for link in (links if isinstance(links, list) else [])
         if isinstance(link, dict) and link.get("wotbot:generatedBy")
     ]
-    return {"actions": action_markers, "links": generated_links}
+    api_description = document.get("wotbot:apiDescription")
+    generated_api_description = (
+        api_description
+        if isinstance(api_description, dict) and api_description.get("wotbot:generatedBy")
+        else None
+    )
+    return {
+        "actions": action_markers,
+        "links": generated_links,
+        "api_description": generated_api_description,
+    }

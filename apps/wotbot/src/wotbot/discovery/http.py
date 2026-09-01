@@ -124,7 +124,7 @@ class BoundedHttpClient:
         url: str,
         *,
         headers: dict[str, str] | None = None,
-        json_body: dict[str, Any] | None = None,
+        json_body: Any = None,
         max_bytes: int | None = None,
         credentialed: bool = False,
     ) -> HttpPayload:
@@ -220,10 +220,10 @@ class BoundedHttpClient:
         *,
         current: str,
         method: str,
-        body: dict[str, Any] | None,
+        body: Any,
         credentialed: bool,
         exhausted: bool,
-    ) -> tuple[str, str, dict[str, Any] | None]:
+    ) -> tuple[str, str, Any]:
         location = response.headers.get("Location")
         if not location or exhausted:
             raise SourceProtocolError("Source redirect limit exceeded")
@@ -247,7 +247,7 @@ class BoundedHttpClient:
         headers: dict[str, str] | None,
         stream: bool = False,
         method: str = "GET",
-        json_body: dict[str, Any] | None = None,
+        json_body: Any = None,
     ) -> tuple[aiohttp.ClientSession, aiohttp.ClientResponse]:
         connector: aiohttp.TCPConnector | None = None
         if self._mode == "public":

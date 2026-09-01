@@ -185,6 +185,27 @@ class OpenApiCompilerTestCase(unittest.TestCase):
         self.assertEqual(action["output"]["properties"]["name"]["type"], "string")
         self.assertNotIn("paths", json.dumps(document))
 
+    def test_normalizes_openapi_31_nullable_type_arrays(self) -> None:
+        document = api_document()
+        document["components"]["schemas"]["Pet"]["properties"].update(
+            {
+                "nickname": {"type": ["string", "null"]},
+                "ambiguous": {"type": ["string", "integer", "null"]},
+            }
+        )
+
+        parsed = parsed_api(document)
+        td, _warnings = compile_thing(
+            source(),
+            parsed,
+            operation_groups(parsed.operations)[0],
+            "nullable",
+        )
+
+        properties = td["actions"]["getPet"]["output"]["properties"]
+        self.assertEqual(properties["nickname"]["type"], "string")
+        self.assertNotIn("type", properties["ambiguous"])
+
     def test_groups_more_than_thirty_operations_by_tag(self) -> None:
         parsed = parsed_api(api_document(operation_count=31))
         groups = operation_groups(parsed.operations)

@@ -218,3 +218,9 @@ class DownloadRecord:
                 else None
             ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderResponse:
+    body: bytes = field(repr=False)
+    content_type: str = "application/json"

@@ -173,6 +173,7 @@ export interface ThingRefreshDiff {
   added_actions: string[];
   removed_actions: string[];
   changed_actions: string[];
+  metadata_changed: boolean;
   server_changed: boolean;
   security_changed: boolean;
 }

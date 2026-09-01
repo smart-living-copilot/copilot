@@ -75,11 +75,14 @@ export function ThingRefreshDialog({
   }
 
   const diff = preview?.diff;
-  const noActionChanges =
+  const noGeneratedChanges =
     diff &&
     !diff.added_actions.length &&
     !diff.removed_actions.length &&
-    !diff.changed_actions.length;
+    !diff.changed_actions.length &&
+    !diff.metadata_changed &&
+    !diff.server_changed &&
+    !diff.security_changed;
 
   return (
     <>
@@ -96,7 +99,7 @@ export function ThingRefreshDialog({
           <DialogHeader>
             <DialogTitle>Regenerate from source?</DialogTitle>
             <DialogDescription>
-              Review the prepared OpenAPI changes. Local title, description, and
+              Review the prepared source changes. Local title, description, and
               manually added affordances are preserved.
             </DialogDescription>
           </DialogHeader>
@@ -111,9 +114,14 @@ export function ThingRefreshDialog({
                 label="Changed actions"
                 values={diff.changed_actions}
               />
-              {noActionChanges ? (
+              {noGeneratedChanges ? (
                 <p className="text-sm text-muted-foreground">
-                  No generated action changes.
+                  No generated changes.
+                </p>
+              ) : null}
+              {diff.metadata_changed ? (
+                <p className="text-sm">
+                  The generated source metadata changed.
                 </p>
               ) : null}
               {diff.server_changed ? (

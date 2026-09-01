@@ -89,6 +89,7 @@ export class ProviderClient implements ProtocolClient {
           thing_id: target.thingId,
           action: target.action,
           input: await decodeInput(content),
+          uri_variables: target.uriVariables,
         }),
         signal: controller.signal,
       });
@@ -117,6 +118,25 @@ export class ProviderClient implements ProtocolClient {
         payload && typeof payload === 'object' && typeof (payload as Record<string, unknown>).kind === 'string'
           ? String((payload as Record<string, unknown>).kind)
           : '';
+      if (kind === 'response') {
+        const encoded =
+          typeof (payload as Record<string, unknown>).body_base64 === 'string'
+            ? String((payload as Record<string, unknown>).body_base64)
+            : '';
+        const contentTypeValue = (payload as Record<string, unknown>).content_type;
+        const contentType =
+          typeof contentTypeValue === 'string' && contentTypeValue.length <= 200 && !/[\r\n]/.test(contentTypeValue)
+            ? contentTypeValue
+            : 'application/octet-stream';
+        if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+          throw createRuntimeError('unknown', 'Provider action returned an invalid response body');
+        }
+        const body = Buffer.from(encoded, 'base64');
+        if (body.toString('base64') !== encoded) {
+          throw createRuntimeError('unknown', 'Provider action returned an invalid response body');
+        }
+        return new ContentClass(contentType, Readable.from(body));
+      }
       if (kind !== 'download') {
         throw createRuntimeError('unknown', 'Provider action returned an invalid result kind');
       }

@@ -73,6 +73,7 @@ from wotbot.discovery.providers.base import (
     OnboardingRuntime,
     credential_headers,
     is_http_endpoint,
+    provider_action_href,
     provider_thing_id,
     source_client,
 )
@@ -285,18 +286,21 @@ class OpenApiProvider(DiscoveryProvider):
         current_document: dict[str, Any],
         *,
         runtime: OnboardingRuntime,
+        external_id: str = "",
     ) -> OnboardingResult:
         del runtime
         generation = current_document.get("wotbot:generation")
         if not isinstance(generation, dict) or generation.get("provider") != self.name:
             raise OpenApiError("Thing has no protected OpenAPI generation metadata")
         group_key = str(generation.get("groupKey") or "")
-        external_id = str(generation.get("externalId") or "")
-        if not group_key or not external_id:
+        generated_external_id = str(generation.get("externalId") or "")
+        if not group_key or not generated_external_id:
             raise OpenApiError("Thing has incomplete OpenAPI generation metadata")
+        if external_id and generated_external_id != external_id:
+            raise OpenApiError("Thing origin does not match its OpenAPI generation metadata")
         parsed = await self._load(source, public_http=_public_client(source))
         group = _find_group(parsed, group_key)
-        document, warnings = compile_thing(source, parsed, group, external_id)
+        document, warnings = compile_thing(source, parsed, group, generated_external_id)
         return OnboardingResult(document=document, warnings=warnings)
 
     async def _load(
@@ -565,7 +569,10 @@ def _map_security(name: str, definition: dict[str, Any], *, swagger: bool) -> Se
 
 
 def collect_operations(
-    document: dict[str, Any], security: SecurityChoice
+    document: dict[str, Any],
+    security: SecurityChoice,
+    *,
+    ignore_security: bool = False,
 ) -> tuple[list[Operation], tuple[str, ...]]:
     operations: list[Operation] = []
     warnings: list[str] = []
@@ -607,6 +614,7 @@ def collect_operations(
                     raw_operation,
                     common_parameters,
                     security,
+                    ignore_security=ignore_security,
                 )
                 warnings.extend(operation_warnings)
                 if operation is not None:
@@ -623,6 +631,8 @@ def _operation(
     raw: dict[str, Any],
     common_parameters: Any,
     security: SecurityChoice,
+    *,
+    ignore_security: bool = False,
 ) -> tuple[Operation | None, list[str]]:
     key = f"{method.upper()} {path}"
     if not path.startswith("/") or "?" in path or "#" in path:
@@ -634,7 +644,9 @@ def _operation(
         raise OpenApiError("operation path has an unsupported variable name")
     if raw.get("callbacks"):
         raise OpenApiError("callbacks are unsupported")
-    operation_security = _operation_security(raw, document, security)
+    operation_security = (
+        "nosec_sc" if ignore_security else _operation_security(raw, document, security)
+    )
     if operation_security is None:
         raise OpenApiError("operation uses an incompatible or unsupported security scheme")
     warnings: list[str] = []
@@ -868,7 +880,6 @@ def compile_thing(
 
 
 def _compile_action(parsed: ParsedApi, operation: Operation) -> dict[str, Any]:
-    path_parameters = [item for item in operation.parameters if item["in"] == "path"]
     query_parameters = [item for item in operation.parameters if item["in"] == "query"]
     href = parsed.server_url + (
         operation.path if operation.path.startswith("/") else "/" + operation.path
@@ -884,12 +895,23 @@ def _compile_action(parsed: ParsedApi, operation: Operation) -> dict[str, Any]:
     }
     if operation.response_media_type:
         form["response"] = {"contentType": operation.response_media_type}
+    return _action_from_form(operation, form, generated_by="openapi")
+
+
+def _action_from_form(
+    operation: Operation,
+    form: dict[str, Any],
+    *,
+    generated_by: str,
+) -> dict[str, Any]:
+    path_parameters = [item for item in operation.parameters if item["in"] == "path"]
+    query_parameters = [item for item in operation.parameters if item["in"] == "query"]
     action: dict[str, Any] = {
         "title": operation.title,
         "description": operation.description,
         "safe": operation.method in {"get", "head"},
         "idempotent": operation.method in {"get", "head", "put", "delete", "options"},
-        "wotbot:generatedBy": "openapi",
+        "wotbot:generatedBy": generated_by,
         "wotbot:operationKey": operation.key,
         "forms": [form],
     }
@@ -906,6 +928,76 @@ def _compile_action(parsed: ParsedApi, operation: Operation) -> dict[str, Any]:
     if operation.output_schema:
         action["output"] = operation.output_schema
     return action
+
+
+def compile_provider_actions(
+    document: dict[str, Any],
+    *,
+    thing_id: str,
+    provider: str,
+    max_operations: int = _MAX_GROUP_OPERATIONS,
+) -> tuple[dict[str, Any], tuple[str, ...], tuple[str, ...], int]:
+    """Compile endpoint-neutral OpenAPI operations into local provider actions.
+
+    The provider binding carries no external endpoint. URI variables are
+    expanded into its local query solely so the binding can forward their
+    values to the trusted dispatcher; the dispatcher resolves the real target
+    from protected generation metadata.
+    """
+
+    no_security = SecurityChoice("", "nosec_sc", {"scheme": "nosec"})
+    operations, operation_warnings = collect_operations(
+        document,
+        no_security,
+        ignore_security=True,
+    )
+    ordered = sorted(operations, key=lambda item: (item.path, item.method, item.key))
+    selected = ordered[:max_operations]
+    warnings = list(operation_warnings)
+    if len(ordered) > len(selected):
+        warnings.append(
+            f"Generated the first {len(selected)} of {len(ordered)} supported operations"
+        )
+
+    actions: dict[str, Any] = {}
+    used_names: set[str] = set()
+    for operation in selected:
+        action_name = _unique_action_name(operation, used_names)
+        path_variables = [
+            str(item["name"]) for item in operation.parameters if item["in"] == "path"
+        ]
+        query_variables = [
+            str(item["name"]) for item in operation.parameters if item["in"] == "query"
+        ]
+        variables = [*path_variables, *query_variables]
+        href = provider_action_href(thing_id, action_name)
+        if variables:
+            href += "{?" + ",".join(variables) + "}"
+        form: dict[str, Any] = {
+            "href": href,
+            "op": ["invokeaction"],
+            "htv:methodName": operation.method.upper(),
+            "contentType": "application/json",
+            "security": ["nosec_sc"],
+            "wotbot:providerOperation": "invoke",
+            "wotbot:httpMethod": operation.method.upper(),
+            "wotbot:path": operation.path,
+            "wotbot:pathVariables": path_variables,
+            "wotbot:queryVariables": query_variables,
+        }
+        if operation.response_media_type:
+            form["response"] = {"contentType": operation.response_media_type}
+        actions[action_name] = _action_from_form(
+            operation,
+            form,
+            generated_by=provider,
+        )
+    return (
+        actions,
+        tuple(operation.key for operation in selected),
+        _warnings(warnings),
+        len(ordered),
+    )
 
 
 def _td_schema(document: dict[str, Any], raw: Any, stack: tuple[str, ...]) -> dict[str, Any]:
@@ -949,7 +1041,18 @@ def _td_schema(document: dict[str, Any], raw: Any, stack: tuple[str, ...]) -> di
             value = item.get(key)
             if _is_schema_scalar(value):
                 result[key] = _bounded_schema_value(value)
-        if result.get("type") not in {
+        schema_type = result.get("type")
+        if isinstance(schema_type, list):
+            non_null_types = list(
+                dict.fromkeys(
+                    value for value in schema_type if isinstance(value, str) and value != "null"
+                )
+            )
+            if len(non_null_types) == 1:
+                result["type"] = non_null_types[0]
+            else:
+                result.pop("type", None)
+        elif schema_type not in {
             None,
             "null",
             "boolean",
@@ -1123,6 +1226,7 @@ __all__ = [
     "OpenApiError",
     "OpenApiProvider",
     "collect_operations",
+    "compile_provider_actions",
     "compile_thing",
     "openapi_version",
     "operation_groups",

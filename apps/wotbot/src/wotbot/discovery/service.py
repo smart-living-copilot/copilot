@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
+import math
 import re
 from dataclasses import replace
 from typing import Any
@@ -418,6 +420,7 @@ class DiscoveryService:
             generated = await provider.refresh_document(
                 source,
                 thing.document,
+                external_id=str(thing.origin_external_id or ""),
                 runtime=WotRuntimeClient(self._settings),
             )
             prepared, credentials_to_remove = provider.merge_refresh(
@@ -537,6 +540,7 @@ class DiscoveryService:
         thing_id: str,
         action: str,
         input_data: Any,
+        uri_variables: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         thing = await asyncio.to_thread(self._find_thing, thing_id)
         if (
@@ -547,13 +551,23 @@ class DiscoveryService:
             or not thing.origin_source_id
         ):
             raise ValueError("Provider-backed action requires a discovered Thing")
-        resource_id, action_title = _provider_download_target(
+        target = _provider_action_target(
             thing.document,
             thing_id=thing.id,
             action=action,
+            provider=thing.origin_provider,
         )
-        if input_data is not None and input_data != {}:
-            raise ValueError("Download actions do not accept input")
+        provided_uri_variables = _validated_uri_variables(
+            uri_variables,
+            allowed=target["path_variables"] + target["query_variables"],
+        )
+        if target["operation"] == "download":
+            if input_data is not None and input_data != {}:
+                raise ValueError("Download actions do not accept input")
+            if provided_uri_variables:
+                raise ValueError("Download actions do not accept URI variables")
+        else:
+            _validate_provider_input(input_data)
         source_record = await asyncio.to_thread(self._find_source, thing.origin_source_id)
         if source_record is None:
             raise SourceUnavailableError("The resource's discovery source is unavailable")
@@ -564,13 +578,26 @@ class DiscoveryService:
         if provider is None:
             raise SourceUnavailableError("The resource's discovery provider is unavailable")
         try:
-            download, provider_ttl = await provider.acquire(
-                source,
-                external_id=thing.origin_external_id,
-                title=thing.title,
-                resource_id=resource_id,
-                public_http=public_http,
-            )
+            if target["operation"] == "download":
+                download, provider_ttl = await provider.acquire(
+                    source,
+                    external_id=thing.origin_external_id,
+                    title=thing.title,
+                    resource_id=target["resource_id"],
+                    public_http=public_http,
+                )
+            else:
+                response = await provider.invoke_api(
+                    source,
+                    external_id=thing.origin_external_id,
+                    method=target["method"],
+                    path=target["path"],
+                    path_variables=target["path_variables"],
+                    query_variables=target["query_variables"],
+                    uri_variables=provided_uri_variables,
+                    input_data=input_data,
+                    public_http=public_http,
+                )
         except SourceAuthenticationError as exc:
             raise CredentialChallengeError(
                 status="credential_rejected",
@@ -586,10 +613,22 @@ class DiscoveryService:
             raise SourceUnavailableError(
                 "The external source is unavailable or returned an invalid response"
             ) from exc
+        if target["operation"] == "invoke":
+            if len(response.body) > 512 * 1024:
+                raise SourceUnavailableError("Provider action returned an oversized response")
+            content_type = str(response.content_type or "application/octet-stream")[:200]
+            if "\r" in content_type or "\n" in content_type:
+                content_type = "application/octet-stream"
+            return {
+                "kind": "response",
+                "content_type": content_type,
+                "body_base64": base64.b64encode(response.body).decode("ascii"),
+            }
+
         handle = await self._download_store.put(download, ttl_seconds=provider_ttl)
         result: dict[str, Any] = {
             "kind": "download",
-            "title": action_title,
+            "title": target["title"],
             "download_url": f"/api/discovery/downloads/{handle}",
             "filename": download.filename,
             "media_type": download.content_type,
@@ -1046,12 +1085,13 @@ def _candidate_draft(candidate: CandidateRecord) -> CandidateDraft:
     )
 
 
-def _provider_download_target(
+def _provider_action_target(
     document: dict[str, Any],
     *,
     thing_id: str,
     action: str,
-) -> tuple[str | None, str]:
+    provider: str,
+) -> dict[str, Any]:
     actions = document.get("actions")
     affordance = actions.get(action) if isinstance(actions, dict) else None
     if not isinstance(affordance, dict):
@@ -1063,24 +1103,117 @@ def _provider_download_target(
             (
                 item
                 for item in forms
-                if isinstance(item, dict) and item.get("href") == expected_href
+                if isinstance(item, dict)
+                and (
+                    item.get("href") == expected_href
+                    or (
+                        isinstance(item.get("href"), str)
+                        and str(item["href"]).startswith(expected_href + "{?")
+                        and str(item["href"]).endswith("}")
+                    )
+                )
             ),
             None,
         )
         if isinstance(forms, list)
         else None
     )
-    if not isinstance(form, dict) or form.get("wotbot:providerOperation") != "download":
-        raise ValueError(f"Action '{action}' is not an allowed provider download operation")
+    if not isinstance(form, dict):
+        raise TypeError(f"Action '{action}' is not an allowed provider operation")
+    operation = form.get("wotbot:providerOperation")
+    if operation not in {"download", "invoke"}:
+        raise ValueError(f"Action '{action}' is not an allowed provider operation")
     raw_resource_id = form.get("wotbot:resourceId")
     if raw_resource_id is not None and (
         not isinstance(raw_resource_id, str) or not raw_resource_id.strip()
     ):
         raise ValueError(f"Action '{action}' has an invalid provider resource identity")
-    return (
-        raw_resource_id.strip() if isinstance(raw_resource_id, str) else None,
-        str(affordance.get("title") or action)[:500],
-    )
+    if operation == "download":
+        if form.get("href") != expected_href:
+            raise ValueError(f"Action '{action}' has an invalid download target")
+        return {
+            "operation": "download",
+            "resource_id": (raw_resource_id.strip() if isinstance(raw_resource_id, str) else None),
+            "title": str(affordance.get("title") or action)[:500],
+            "path_variables": (),
+            "query_variables": (),
+        }
+
+    if provider != "edc-v3":
+        raise ValueError(f"Provider '{provider}' does not expose proxied API actions")
+    if affordance.get("wotbot:generatedBy") != provider:
+        raise ValueError(f"Action '{action}' is not generated by its discovery provider")
+    method = str(form.get("wotbot:httpMethod") or "").upper()
+    path = form.get("wotbot:path")
+    if method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE"}:
+        raise ValueError(f"Action '{action}' has an invalid HTTP method")
+    if (
+        not isinstance(path, str)
+        or len(path) > 2_000
+        or not path.startswith("/")
+        or any(value in path for value in ("?", "#", "\\"))
+    ):
+        raise ValueError(f"Action '{action}' has an invalid API path")
+    path_variables = _provider_variable_names(form.get("wotbot:pathVariables"))
+    query_variables = _provider_variable_names(form.get("wotbot:queryVariables"))
+    if set(re.findall(r"\{([^{}]+)\}", path)) != set(path_variables):
+        raise ValueError(f"Action '{action}' has inconsistent path variables")
+    variables = (*path_variables, *query_variables)
+    expected_template = "{?" + ",".join(variables) + "}" if variables else ""
+    if form.get("href") != expected_href + expected_template:
+        raise ValueError(f"Action '{action}' has an invalid provider target")
+    return {
+        "operation": "invoke",
+        "title": str(affordance.get("title") or action)[:500],
+        "method": method,
+        "path": path,
+        "path_variables": path_variables,
+        "query_variables": query_variables,
+    }
+
+
+def _provider_variable_names(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list) or len(value) > 100:
+        raise ValueError("Provider action has invalid URI-variable metadata")
+    names = tuple(str(item) for item in value)
+    if len(set(names)) != len(names) or any(
+        not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", name) for name in names
+    ):
+        raise ValueError("Provider action has invalid URI-variable metadata")
+    return names
+
+
+def _validated_uri_variables(
+    value: dict[str, Any] | None,
+    *,
+    allowed: tuple[str, ...],
+) -> dict[str, Any]:
+    variables = value or {}
+    unknown = set(variables) - set(allowed)
+    if unknown:
+        raise ValueError("Provider action received undeclared URI variables")
+    for name, item in variables.items():
+        if item is None or not isinstance(item, (str, int, float, bool)):
+            raise ValueError(f"URI variable '{name}' must be a primitive value")
+        if isinstance(item, float) and not math.isfinite(item):
+            raise ValueError(f"URI variable '{name}' must be finite")
+        if len(str(item)) > 4_000:
+            raise ValueError(f"URI variable '{name}' is too long")
+    return dict(variables)
+
+
+def _validate_provider_input(value: Any) -> None:
+    try:
+        encoded = json.dumps(
+            value,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode()
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise ValueError("Provider action input must be valid JSON") from exc
+    if len(encoded) > 512 * 1024:
+        raise ValueError("Provider action input is too large")
 
 
 def _thing_summary(record: ThingRecord) -> dict[str, Any]:

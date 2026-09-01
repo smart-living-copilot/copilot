@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 from typing import Any, ClassVar, TypedDict
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 from langgraph.checkpoint.memory import MemorySaver
@@ -32,12 +32,14 @@ from wotbot.discovery.models import (
     CandidateDraft,
     CandidateRecord,
     DownloadRecord,
+    ProviderResponse,
     SourceDefinition,
 )
 from wotbot.discovery.providers import PROVIDERS, ToolHiveProvider
 from wotbot.discovery.providers.base import (
     credential_headers,
     dataset_document,
+    provider_action_href,
     provider_download_action,
 )
 from wotbot.discovery.routes import _download_response, _registration_result
@@ -678,6 +680,88 @@ class ServiceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["kind"], "download")
         self.assertEqual(result["download_url"], "/api/discovery/downloads/opaque-handle")
         self.assertNotIn("data.example", json.dumps(result))
+
+    async def test_edc_api_action_uses_protected_operation_metadata(self) -> None:
+        service = DiscoveryService(Settings())
+        thing_id = "urn:wotbot:external:edc-v3:orders"
+        action = "getOrder"
+        thing = ThingRecord(
+            id=thing_id,
+            title="Orders",
+            description="",
+            tags=[],
+            origin_kind="discovery",
+            origin_provider="edc-v3",
+            origin_external_id="asset-1",
+            origin_source_id="source-edc",
+            document={
+                "id": thing_id,
+                "actions": {
+                    action: {
+                        "title": "Get order",
+                        "wotbot:generatedBy": "edc-v3",
+                        "forms": [
+                            {
+                                "href": provider_action_href(thing_id, action)
+                                + "{?orderId,expand}",
+                                "wotbot:providerOperation": "invoke",
+                                "wotbot:httpMethod": "GET",
+                                "wotbot:path": "/orders/{orderId}",
+                                "wotbot:pathVariables": ["orderId"],
+                                "wotbot:queryVariables": ["expand"],
+                            }
+                        ],
+                    }
+                },
+            },
+            document_hash="hash",
+        )
+        record = source_record(source_id="source-edc", provider="edc-v3")
+        source = SourceDefinition(
+            id=record.id,
+            external_id="https://provider.example/protocol",
+            provider="edc-v3",
+            title=record.title,
+            config={},
+        )
+        invoke_api = AsyncMock(
+            return_value=ProviderResponse(
+                body=b'{"ok":true}',
+                content_type="application/json",
+            )
+        )
+        with (
+            patch.object(service, "_find_thing", return_value=thing),
+            patch.object(service, "_find_source", return_value=record),
+            patch.object(service, "_source_runtime", return_value=(source, MagicMock())),
+            patch.object(PROVIDERS["edc-v3"], "invoke_api", new=invoke_api),
+        ):
+            result = await service.invoke_thing_action(
+                thing_id=thing.id,
+                action=action,
+                input_data=None,
+                uri_variables={"orderId": "A/B", "expand": True},
+            )
+
+        invoke_api.assert_awaited_once_with(
+            source,
+            external_id="asset-1",
+            method="GET",
+            path="/orders/{orderId}",
+            path_variables=("orderId",),
+            query_variables=("expand",),
+            uri_variables={"orderId": "A/B", "expand": True},
+            input_data=None,
+            public_http=ANY,
+        )
+        self.assertEqual(
+            result,
+            {
+                "kind": "response",
+                "content_type": "application/json",
+                "body_base64": "eyJvayI6dHJ1ZX0=",
+            },
+        )
 
 
 class ProviderTestCase(unittest.IsolatedAsyncioTestCase):

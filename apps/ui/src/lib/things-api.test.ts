@@ -133,6 +133,7 @@ test('OpenAPI refresh uses preview then applies the opaque refresh id', async ()
           added_actions: ['createPet'],
           removed_actions: [],
           changed_actions: ['getPet'],
+          metadata_changed: false,
           server_changed: false,
           security_changed: false,
         },
